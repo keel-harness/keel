@@ -1,0 +1,156 @@
+import { spawnSync } from "node:child_process";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { createRequire } from "node:module";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { pathToFileURL } from "node:url";
+import { describe, expect, it } from "vitest";
+
+const ROOT = process.cwd();
+const requireFromBin = createRequire(join(ROOT, "packages/kernel/src/cli/bin.ts"));
+const TSX_ESM_LOADER = pathToFileURL(requireFromBin.resolve("tsx/esm")).href;
+const BIN_ENTRY = join(ROOT, "packages/kernel/src/cli/bin.ts");
+const SESSION_ENTRY = join(ROOT, "packages/kernel/src/cli/session-entry.ts");
+
+describe("bin entrypoint interactive terminal ownership", () => {
+  it("contains no Warden host dispatch in the Kernel process entry", () => {
+    const source = readFileSync(BIN_ENTRY, "utf8");
+
+    expect(source).not.toContain("runWardenFromEnv");
+    expect(source).not.toContain("KEEL_INTERNAL_WARDEN_STDIO");
+  });
+
+  it("installs and settles the lifecycle around the exact shared input queue", () => {
+    const source = readFileSync(BIN_ENTRY, "utf8");
+
+    expect(source).toContain("const inputQueue = new InputQueue()");
+    expect(source).toContain("const terminalLifecycle = installNodeInteractiveTerminalLifecycle({");
+    expect(source).toContain("queue: inputQueue");
+    expect(source).toContain("const runUi = terminalLifecycle?.ui ?? ui");
+    expect(source).toContain("terminalLifecycle?.dispose()");
+    expect(source).toContain("terminalLifecycle?.exitCode()");
+  });
+
+  it("activates terminal lifecycle only after project trust resolves", () => {
+    const source = readFileSync(SESSION_ENTRY, "utf8");
+    const trust = source.indexOf("const ctx = await gatherProjectContext({");
+    const activation = source.indexOf("activateTerminalLifecycle(deps.ui);");
+
+    expect(trust).toBeGreaterThan(-1);
+    expect(activation).toBeGreaterThan(trust);
+  });
+
+  it("hands first-open trust input to Ink through the one process.stdin stream", () => {
+    const source = readFileSync(BIN_ENTRY, "utf8");
+
+    // A second ReadStream over fd 0 changes the shared terminal descriptor underneath Ink. On
+    // real controlling PTYs that handoff can surface an unhandled EAGAIN as soon as Ink mounts.
+    // Keep one Node stream owner and preserve any pasted remainder on that same object.
+    expect(source).not.toContain('createReadStream("", { fd: process.stdin.fd');
+    expect(source).toContain("readTrustLine(process.stdin, process.stdout)");
+    expect(source).toContain("process.stdin.unshift(read.remainder)");
+  });
+});
+
+function binEnv(keelHome: string): NodeJS.ProcessEnv {
+  const env = { ...process.env };
+  env["FORCE_COLOR"] = "0";
+  env["NO_COLOR"] = "1";
+  env["KEEL_HOME"] = keelHome;
+  env["KEEL_PROVIDER"] = "openai";
+  env["KEEL_MODEL"] = "gpt-test";
+  delete env["OPENAI_API_KEY"];
+  delete env["ANTHROPIC_API_KEY"];
+  delete env["GOOGLE_GENERATIVE_AI_API_KEY"];
+  return env;
+}
+
+describe("bin entrypoint Plan Autopilot confirmation", () => {
+  it("returns exit 1 for an unknown top-level flag", () => {
+    const keelHome = mkdtempSync(join(tmpdir(), "keel-bin-usage-home-"));
+    try {
+      const result = spawnSync(
+        process.execPath,
+        [
+          "--import",
+          TSX_ESM_LOADER,
+          "--conditions=@keel/source",
+          BIN_ENTRY,
+          "--definitely-invalid",
+        ],
+        { encoding: "utf8", env: binEnv(keelHome), maxBuffer: 1024 * 1024 },
+      );
+      expect(result.status).toBe(1);
+      expect(result.stdout).toMatch(/usage: keel/i);
+    } finally {
+      rmSync(keelHome, { recursive: true, force: true });
+    }
+  });
+
+  it("explains that KEEL_HOME scopes the credential store when a live key is missing", () => {
+    const keelHome = mkdtempSync(join(tmpdir(), "keel-bin-missing-key-home-"));
+    const cwd = mkdtempSync(join(tmpdir(), "keel-bin-missing-key-ws-"));
+    try {
+      const result = spawnSync(
+        process.execPath,
+        ["--import", TSX_ESM_LOADER, "--conditions=@keel/source", BIN_ENTRY],
+        {
+          cwd,
+          encoding: "utf8",
+          env: binEnv(keelHome),
+          input: "",
+          maxBuffer: 1024 * 1024,
+        },
+      );
+
+      expect(result.status).toBe(1);
+      expect(result.stdout).toContain("keel: no openai API key found");
+      expect(result.stdout).toContain("run `keel auth set openai` with the same KEEL_HOME");
+      expect(result.stdout).toContain(`current KEEL_HOME: ${keelHome}`);
+      expect(result.stdout).toContain("or set OPENAI_API_KEY");
+    } finally {
+      rmSync(keelHome, { recursive: true, force: true });
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it("fails closed before provider setup when --plan-confirm cannot read an interactive approval", () => {
+    const keelHome = mkdtempSync(join(tmpdir(), "keel-bin-plan-confirm-home-"));
+    const cwd = mkdtempSync(join(tmpdir(), "keel-bin-plan-confirm-ws-"));
+    try {
+      const result = spawnSync(
+        process.execPath,
+        [
+          "--import",
+          TSX_ESM_LOADER,
+          "--conditions=@keel/source",
+          BIN_ENTRY,
+          "run",
+          "-p",
+          "ship login fix\nforged row",
+          "--plan-confirm",
+          "--plan-domain",
+          "example.com",
+        ],
+        {
+          cwd,
+          encoding: "utf8",
+          env: binEnv(keelHome),
+          input: "",
+          maxBuffer: 1024 * 1024,
+        },
+      );
+
+      expect(result.status).toBe(1);
+      expect(result.stdout).toContain("Plan Autopilot approval for");
+      expect(result.stdout).toContain("task: ship login fix forged row");
+      expect(result.stdout).toContain("exact resources requested for this run:");
+      expect(result.stdout).toContain("keel: --plan-confirm requires an interactive terminal");
+      expect(result.stdout).not.toContain("no openai API key");
+      expect(result.stdout).not.toContain("\nforged row");
+    } finally {
+      rmSync(keelHome, { recursive: true, force: true });
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+});

@@ -1,0 +1,117 @@
+{
+    "id": "2dbddd3c-ed72-4e68-979f-044f24350eca",
+    "task_name": "terminal-bench/build-cython-ext",
+    "trial_name": "build-cython-ext__EQQgwvi",
+    "trial_uri": "file:///home/keel/eval/harbor-adapter/jobs/2026-06-16__20-59-31/build-cython-ext__EQQgwvi",
+    "task_id": {
+        "org": "terminal-bench",
+        "name": "build-cython-ext",
+        "ref": "sha256:35dc561790e73f13e59837828ac0863c0893edc6b71d42cf7d58656c843adf12"
+    },
+    "source": "terminal-bench/terminal-bench-2-1",
+    "task_checksum": "b7e605f001726583c03bcf62835408e03cd413ae917a3a982d6beb4a0f3a01d2",
+    "config": {
+        "task": {
+            "path": null,
+            "git_url": null,
+            "git_commit_id": null,
+            "name": "terminal-bench/build-cython-ext",
+            "ref": "sha256:35dc561790e73f13e59837828ac0863c0893edc6b71d42cf7d58656c843adf12",
+            "overwrite": false,
+            "download_dir": null,
+            "source": "terminal-bench/terminal-bench-2-1"
+        },
+        "trial_name": "build-cython-ext__EQQgwvi",
+        "trials_dir": "jobs/2026-06-16__20-59-31",
+        "timeout_multiplier": 1.0,
+        "agent_timeout_multiplier": null,
+        "verifier_timeout_multiplier": null,
+        "agent_setup_timeout_multiplier": null,
+        "environment_build_timeout_multiplier": null,
+        "agent": {
+            "name": null,
+            "import_path": "keel_harbor_agent.agent:KeelAgent",
+            "model_name": "anthropic/claude-sonnet-4-6",
+            "skills": [],
+            "override_timeout_sec": null,
+            "override_setup_timeout_sec": null,
+            "max_timeout_sec": null,
+            "extra_allowed_hosts": [],
+            "kwargs": {},
+            "env": {
+                "KEEL_BINARY_URL": "http://host.docker.internal:8077/keel-linux-x64",
+                "KEEL_MAX_TOKENS": "${KEEL_MAX_TOKENS}",
+                "KEEL_HOME": "/logs/keelhome"
+            },
+            "mcp_servers": []
+        },
+        "environment": {
+            "type": "docker",
+            "import_path": null,
+            "force_build": false,
+            "delete": true,
+            "cpu_enforcement_policy": "auto",
+            "memory_enforcement_policy": "auto",
+            "override_cpus": null,
+            "override_memory_mb": null,
+            "override_storage_mb": null,
+            "override_gpus": null,
+            "override_tpu": null,
+            "mounts": null,
+            "extra_docker_compose": [],
+            "env": {},
+            "kwargs": {},
+            "extra_allowed_hosts": []
+        },
+        "verifier": {
+            "override_timeout_sec": null,
+            "max_timeout_sec": null,
+            "env": {},
+            "disable": false
+        },
+        "artifacts": [],
+        "extra_instruction_paths": [],
+        "job_id": "ef591fe5-b604-4d2e-bf01-93f0df76964b"
+    },
+    "agent_info": {
+        "name": "keel",
+        "version": "keel 0.0.0",
+        "model_info": {
+            "name": "claude-sonnet-4-6",
+            "provider": "anthropic"
+        }
+    },
+    "agent_result": {
+        "n_input_tokens": null,
+        "n_cache_tokens": null,
+        "n_output_tokens": null,
+        "cost_usd": null,
+        "rollout_details": null,
+        "metadata": null
+    },
+    "verifier_result": {
+        "rewards": {
+            "reward": 0.0
+        }
+    },
+    "exception_info": null,
+    "started_at": "2026-06-17T01:01:49.386826Z",
+    "finished_at": "2026-06-17T01:02:52.652368Z",
+    "environment_setup": {
+        "started_at": "2026-06-17T01:01:49.390118Z",
+        "finished_at": "2026-06-17T01:01:51.565734Z"
+    },
+    "agent_setup": {
+        "started_at": "2026-06-17T01:01:51.565888Z",
+        "finished_at": "2026-06-17T01:02:01.566081Z"
+    },
+    "agent_execution": {
+        "started_at": "2026-06-17T01:02:01.566503Z",
+        "finished_at": "2026-06-17T01:02:45.025733Z"
+    },
+    "verifier": {
+        "started_at": "2026-06-17T01:02:45.462169Z",
+        "finished_at": "2026-06-17T01:02:50.573560Z"
+    },
+    "step_results": null
+}

@@ -1,0 +1,20 @@
+# Normalize line endings: LF in the repository on every platform (macOS, Linux,
+# Windows/WSL2). Prevents CRLF/LF churn and protects pnpm-lock.yaml integrity.
+* text=auto eol=lf
+
+*.ts    text eol=lf
+*.js    text eol=lf
+*.json  text eol=lf
+*.jsonc text eol=lf
+*.yaml  text eol=lf
+*.yml   text eol=lf
+*.md    text eol=lf
+*.toml  text eol=lf
+*.sh    text eol=lf
+
+# True binaries — never normalize or diff as text.
+*.png   binary
+*.jpg   binary
+*.ico   binary
+*.wasm  binary
+*.node  binary

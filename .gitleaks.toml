@@ -1,0 +1,42 @@
+# gitleaks config for keel.
+#
+# Extends the default ruleset and allowlists KNOWN-BENIGN test fixtures and generated
+# artifacts: redaction-filter inputs, a test HTTP-server Authorization fixture, a planted
+# MCP test key, base64/gzip noise in the generated OPA→WASM policy pack, an upstream
+# throwaway TLS test cert, and the intentionally-malicious hostile-repo decoys.
+#
+# The allowlist is PATH-scoped to fixture/generated files that legitimately contain
+# fake-secret-shaped strings. Production source, config, and credential stores are NOT
+# allowlisted, so CI still fails on any real secret added anywhere that matters.
+
+title = "keel gitleaks config"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Benign test fixtures, redaction-filter test inputs, and generated artifacts."
+paths = [
+  # Redaction-filter tests PLANT fake secrets to prove the redactor catches them.
+  '''packages/kernel/src/secrets/redact\.test\.ts''',
+  '''packages/shared/src/secrets/redact\.test\.ts''',
+  # Redaction-honesty product test plants a fake rawSecret/capability string.
+  '''packages/kernel/src/cli/product-path-honesty\.test\.ts''',
+  # Mutation-presentation tests plant synthetic provider/high-entropy values to prove redaction.
+  '''packages/kernel/src/tui/mutation-presentation-walking-skeleton\.test\.tsx''',
+  '''packages/warden/src/mutation-presentation-constructor\.test\.ts''',
+  '''packages/warden/src/mutation-presentation-redaction\.test\.ts''',
+  # Output-clamp test plants a synthetic high-entropy value across the truncation boundary.
+  '''packages/warden/src/output-clamp\.test\.ts''',
+  # Audit-writer test uses a benign high-entropy ULID payload key to prove the redactor spares ids.
+  '''packages/warden/src/audit/writer\.test\.ts''',
+  # Tmux-broker tests contain high-entropy code identifiers (pure false positives).
+  '''packages/warden/src/interactive-console/tmux-broker\.test\.ts''',
+  # Warden tests with planted/fake credentials (egress-review Authorization fixture, MCP secret handling).
+  '''packages/warden/src/rpc-server\.test\.ts''',
+  '''packages/warden/src/mcp-local-stdio\.test\.ts''',
+  # Generated OPA→WASM policy pack: base64/gzip noise trips the generic-api-key heuristic.
+  '''packages/warden/src/policy/starter-policy-pack-wasm\.ts''',
+  # Vendored sandbox-runtime throwaway TLS key for its tls-terminate tests.
+  '''vendor/sandbox-runtime/test/fixtures/tls-terminate/ca\.key''',
+]

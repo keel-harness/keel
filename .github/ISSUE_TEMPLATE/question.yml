@@ -1,0 +1,28 @@
+name: Question
+description: Ask for usage or setup help
+labels: ["question"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please check the documentation and getting-started guide first. Do not include
+        API keys, credentials, private source, or other sensitive information.
+  - type: input
+    id: version
+    attributes:
+      label: keel version
+      description: Output of `keel --version`, if applicable
+      placeholder: keel 0.1.0
+  - type: input
+    id: platform
+    attributes:
+      label: Platform
+      description: OS and Node version, if applicable
+      placeholder: macOS 15.2, Node 20.20.1
+  - type: textarea
+    id: question
+    attributes:
+      label: Question
+      description: What are you trying to do, and what have you tried?
+    validations:
+      required: true

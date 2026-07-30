@@ -1,0 +1,14 @@
+{
+  "name": "keel-policy-engine-spike",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "ISOLATED spike (NOT part of the pnpm workspace) — ADR-0004 opa-wasm measured spike. Uses npm + its own node_modules so it never touches the root lockfile.",
+  "scripts": {
+    "build:wasm": "./opa build -t wasm -e keel/default/verdict -e keel/default/explain -o bundle.tar.gz keel-default.rego && tar -xzf bundle.tar.gz && ls -l policy.wasm",
+    "bench": "node bench.mjs"
+  },
+  "dependencies": {
+    "@open-policy-agent/opa-wasm": "1.10.0"
+  }
+}

@@ -1,0 +1,776 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    # Daily supply-chain audit (see the `audit` job) — surfaces newly-published
+    # advisories without making PR builds non-deterministic.
+    - cron: "17 6 * * *"
+
+# Least privilege: this workflow only needs to read the repo.
+permissions:
+  contents: read
+
+# Cancel superseded runs of the SAME event on the same ref (e.g. rapid pushes to a PR branch).
+# `event_name` is part of the key so a merge-push run and the daily scheduled run that fire on the
+# same ref within ~1 min of each other land in different groups and do NOT cancel each other's jobs
+# (observed: a schedule run cancelled a merge-push's ubuntu build on `main`).
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: true
+
+jobs:
+  detect-changes:
+    # Classify PR diffs before starting heavyweight jobs. Pushes to main stay full-fidelity.
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      docs_only: ${{ steps.classify.outputs.docs_only }}
+      code: ${{ steps.classify.outputs.code }}
+      package: ${{ steps.classify.outputs.package }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+
+      - id: classify
+        name: Classify changed paths
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            {
+              echo "docs_only=false"
+              echo "code=true"
+              echo "package=true"
+            } >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          base="${{ github.event.pull_request.base.sha }}"
+          head="${{ github.event.pull_request.head.sha }}"
+          mapfile -t changed < <(git diff --name-only "$base" "$head")
+
+          docs_only=true
+          code=false
+          package=false
+
+          for path in "${changed[@]}"; do
+            case "$path" in
+              "" )
+                continue
+                ;;
+              *.md|docs/*|AGENTS.md|CONTRIBUTING.md|MASTER_SPEC.md|README.md|SECURITY.md)
+                ;;
+              * )
+                docs_only=false
+                code=true
+                ;;
+            esac
+
+            case "$path" in
+              .github/workflows/**|.npmrc|LICENSE|NOTICE|package.json|pnpm-lock.yaml|pnpm-workspace.yaml|tsconfig.base.json|tsconfig.packaging.json|packaging/**|patches/**|packages/*/package.json|packages/kernel/**|packages/warden/**|packages/shared/**|tools/**|vendor/**)
+                package=true
+                ;;
+            esac
+          done
+
+          # An empty diff should not silently pass as docs-only.
+          if [ "${#changed[@]}" -eq 0 ]; then
+            docs_only=false
+          fi
+
+          {
+            echo "docs_only=$docs_only"
+            echo "code=$code"
+            echo "package=$package"
+          } >> "$GITHUB_OUTPUT"
+
+  docs:
+    # Docs/status-only PRs get a cheap formatting gate instead of full build + packaging.
+    if: github.event_name == 'pull_request' && needs.detect-changes.outputs.docs_only == 'true'
+    needs: detect-changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install (frozen lockfile, scripts ignored)
+        run: pnpm install --frozen-lockfile
+
+      - name: Format changed docs/status files
+        shell: bash
+        run: |
+          set -euo pipefail
+          base="${{ github.event.pull_request.base.sha }}"
+          head="${{ github.event.pull_request.head.sha }}"
+          mapfile -t changed < <(git diff --name-only "$base" "$head")
+          if [ "${#changed[@]}" -eq 0 ]; then
+            echo "No changed files."
+            exit 0
+          fi
+          pnpm exec prettier --check --ignore-unknown "${changed[@]}"
+
+      # The build + security jobs run this guard via test:cov / test:security, but both are skipped
+      # on docs-only PRs. Run it here so a docs-only edit to a security claim in MASTER_SPEC / README
+      # / SECURITY / package metadata cannot drift past the claim-consistency check (QC §10).
+      - name: Docs claim-consistency guard
+        run: pnpm exec vitest run packages/kernel/src/cli/docs-claim-consistency.test.ts
+
+  build:
+    # Skip the matrix build on docs/status-only PRs and on the scheduled audit trigger.
+    if: github.event_name != 'schedule' && (github.event_name != 'pull_request' || needs.detect-changes.outputs.code == 'true')
+    needs: detect-changes
+    strategy:
+      fail-fast: false
+      matrix:
+        # Cost: macOS runners bill at ~10x Linux. Run macOS on push-to-main, not PRs; coverage gates
+        # stay on Linux, while macOS remains a platform smoke on release-producing history.
+        os: ${{ github.event_name == 'pull_request' && fromJSON('["ubuntu-latest"]') || fromJSON('["ubuntu-latest", "macos-15"]') }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      # Third-party actions are pinned to immutable commit SHAs (SLSA / supply-chain
+      # hardening); the trailing comment records the human-readable version.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install (frozen lockfile, scripts ignored)
+        run: pnpm install --frozen-lockfile
+
+      - name: Supply-chain config and license check
+        if: runner.os == 'Linux'
+        run: pnpm run supply-chain:check
+
+      # Smoke the `pnpm keel` dev runner BEFORE the build, so it proves the script resolves the
+      # workspace `@keel/*` packages from SOURCE (the `@keel/source` export condition) with NO dist
+      # present — the exact path that broke when the script lacked `--conditions`. A post-build smoke
+      # would pass on the built dist regardless and guard nothing. `--version` short-circuits but still
+      # eagerly resolves bin.ts's full static import graph (ESM), so it exercises the resolution.
+      - name: Smoke — keel runs from source (no build)
+        run: pnpm keel --version
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Build (emit dist; library code only)
+        run: pnpm build
+
+      - name: Verify dist excludes test files (I10 honesty)
+        run: |
+          if find packages -path '*/dist/*' -name '*.test.*' | grep .; then
+            echo "::error::test files leaked into dist"; exit 1
+          fi
+
+      - name: Verify built @keel/eval loads copied TB-2 data
+        run: pnpm --filter @keel/eval run smoke:dist
+
+      - name: Format check
+        run: pnpm format
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        if: runner.os == 'Linux'
+        with:
+          python-version: '3.12'
+
+      - name: Unit + property tests with coverage gate
+        if: runner.os == 'Linux'
+        run: pnpm test:cov
+
+      - name: Unit + property tests (macOS platform smoke)
+        if: runner.os == 'macOS'
+        run: pnpm test
+
+      # Later-phase gates. Kept as skipped (NOT green) until their phase lands, so a
+      # passing run never falsely implies these ran (ground rule 4: no enforcement
+      # theater). Flip `if: false` to a real step in the named phase.
+      - name: Integration (Phase 2 — warden via RPC)
+        if: false
+        run: exit 1
+      - name: E2E (Phase 1 — pty TUI)
+        if: false
+        run: exit 1
+      - name: Benchmark (Phase 1 — TB-2 subset)
+        if: false
+        run: exit 1
+
+  node-next:
+    # Compatibility evidence for the `engines: node >=20` claim (AGENTS.md: no
+    # compatibility claims without compatibility tests). Runs typecheck + the full unit/
+    # property suite on the next LTS line; Linux only (macOS stays a Node-20 platform
+    # smoke in `build`). Same skip rule as build: docs-only PRs and the audit schedule.
+    if: github.event_name != 'schedule' && (github.event_name != 'pull_request' || needs.detect-changes.outputs.code == 'true')
+    needs: detect-changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install (frozen lockfile, scripts ignored)
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck on Node 22
+        run: pnpm typecheck
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: '3.12'
+
+      - name: Unit + property tests on Node 22
+        run: pnpm test
+
+  security:
+    # Epic 2.9 / Phase-2A — real SEC catalog gate. Skipped only for docs/status-only PRs
+    # and the scheduled audit trigger; code changes must pass this focused suite.
+    if: github.event_name != 'schedule' && (github.event_name != 'pull_request' || needs.detect-changes.outputs.code == 'true')
+    needs: detect-changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install (frozen lockfile, scripts ignored)
+        run: pnpm install --frozen-lockfile
+
+      - name: Security suite (SEC catalog)
+        run: pnpm test:security
+
+  sandbox-real:
+    # P1-4 — REAL OS-sandbox denial proof. The unit srt tests drive a FAKE runtime, so a green
+    # `pnpm test` proves the warden plumbing but NOT that bubblewrap/seatbelt actually deny anything.
+    # This leg installs the real sandbox tooling and runs the opt-in denial probes against the
+    # vendored runtime with `KEEL_REQUIRE_REAL_SANDBOX=1`, where an unavailable backend is a hard
+    # failure (see real-sandbox-gate.ts) — so it can never pass by silently skipping ("no hidden
+    # green"). Linux/bwrap is the production target; macOS/seatbelt runs on push-to-main for a second
+    # real backend. Skipped only for docs/status-only PRs and the scheduled audit trigger.
+    if: github.event_name != 'schedule' && (github.event_name != 'pull_request' || needs.detect-changes.outputs.code == 'true')
+    needs: detect-changes
+    strategy:
+      fail-fast: false
+      matrix:
+        # Cost: macOS runners bill at ~10x Linux. Run macOS on push-to-main, not PRs.
+        os: ${{ github.event_name == 'pull_request' && fromJSON('["ubuntu-latest"]') || fromJSON('["ubuntu-latest", "macos-15"]') }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    # Arm the fail-closed flag at job scope (belt-and-suspenders with the npm script) so the leg
+    # cannot pass by skipping if the script env were ever dropped.
+    env:
+      KEEL_REQUIRE_REAL_SANDBOX: "1"
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install (frozen lockfile, scripts ignored)
+        run: pnpm install --frozen-lockfile
+
+      # Real sandbox backend prerequisites. On Linux the vendored srt runtime needs bubblewrap (and
+      # unprivileged user namespaces, which the hosted Ubuntu image restricts via AppArmor); the
+      # denial probes shell out to curl. On macOS seatbelt is built in.
+      - name: Install real sandbox prerequisites
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            missing=()
+            command -v bwrap >/dev/null 2>&1 || missing+=(bubblewrap)
+            command -v socat >/dev/null 2>&1 || missing+=(socat)
+            command -v curl >/dev/null 2>&1 || missing+=(curl)
+            # ripgrep is a hard dependency of the vendored srt runtime's checkDependencies() — without
+            # it the backend reports unavailable and the fail-closed gate reddens the leg. Verified in
+            # a privileged Debian container that the probes pass with it and fail closed without it.
+            command -v rg >/dev/null 2>&1 || missing+=(ripgrep)
+            if [ "${#missing[@]}" -gt 0 ]; then
+              sudo apt-get update
+              sudo apt-get install -y "${missing[@]}"
+            fi
+            bwrap --version
+            rg --version | head -1
+            if sysctl -n kernel.apparmor_restrict_unprivileged_userns >/dev/null 2>&1; then
+              sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+            fi
+          else
+            if [ ! -x /usr/bin/sandbox-exec ]; then
+              echo "::error::/usr/bin/sandbox-exec missing — the macOS seatbelt backend is unavailable"; exit 1
+            fi
+            if ! command -v curl >/dev/null 2>&1; then
+              echo "::error::curl missing — the network denial probe needs it"; exit 1
+            fi
+            # ripgrep is a vendored-srt dependency on macOS too; install it if the runner lacks it.
+            brew list ripgrep >/dev/null 2>&1 || brew install ripgrep
+            rg --version | head -1
+          fi
+
+      - name: Real OS-sandbox denial probes (fail closed if the backend is unavailable)
+        run: pnpm test:sandbox:real
+
+  package:
+    # Epic 1.10 — packaging + doctor: `bun --compile` self-contained binaries + the `npx` package,
+    # with smoke tests (`--version`, `doctor`). Bun is a CI-only build dependency (ADR-0009);
+    # dev/test stay on Node/pnpm/vitest. Skipped on docs/status-only PRs and on the scheduled trigger.
+    if: github.event_name != 'schedule' && (github.event_name != 'pull_request' || needs.detect-changes.outputs.package == 'true')
+    needs: detect-changes
+    strategy:
+      fail-fast: false
+      matrix:
+        # Cost: macOS runners bill at ~10x Linux. PRs run Linux packaging only when packaging-sensitive
+        # paths change; push-to-main still builds darwin artifacts on a pinned macOS image.
+        os: ${{ github.event_name == 'pull_request' && fromJSON('["ubuntu-latest"]') || fromJSON('["ubuntu-latest", "macos-15"]') }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 20
+          cache: pnpm
+      - name: Install (frozen lockfile, scripts ignored)
+        run: pnpm install --frozen-lockfile
+      # Bun pinned (supply-chain discipline, ADR-0009); the SHA pins the action itself.
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.3.14
+
+      - name: Typecheck packaging script
+        run: pnpm run typecheck:packaging
+
+      - name: Install system doctor prerequisites
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            missing=()
+            command -v rg >/dev/null 2>&1 || missing+=(ripgrep)
+            command -v bwrap >/dev/null 2>&1 || missing+=(bubblewrap)
+            command -v socat >/dev/null 2>&1 || missing+=(socat)
+            if [ "${#missing[@]}" -gt 0 ]; then
+              sudo apt-get update
+              sudo apt-get install -y "${missing[@]}"
+            fi
+            rg --version | head -1
+            bwrap --version
+            socat -V 2>&1 | head -1
+            if sysctl -n kernel.apparmor_restrict_unprivileged_userns >/dev/null 2>&1; then
+              sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+            fi
+          else
+            brew list ripgrep >/dev/null 2>&1 || brew install ripgrep
+            test -x /usr/bin/sandbox-exec
+            rg --version | head -1
+          fi
+
+      - name: Build npx package + native + cross binaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          bun packaging/build.ts npx
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            bun packaging/build.ts bin linux-x64 linux-arm64
+          else
+            bun packaging/build.ts bin darwin-arm64 darwin-x64
+          fi
+
+      - name: Smoke the native binary (--version + doctor + hermetic one-task replay run)
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$RUNNER_OS" = "Linux" ]; then BIN=./build/bin/keel-linux-x64; else BIN=./build/bin/keel-darwin-arm64; fi
+          "$BIN" --version | grep -qE '^keel [0-9]+\.[0-9]+\.[0-9]+'
+          "$BIN" doctor
+          # A real one-task run through the loop — driven by a recorded Recording (ADR-0031): no API
+          # key, no network. The recorded turn runs the bash tool (`echo`), then a final answer.
+          set +e
+          OUT=$("$BIN" run -p "verify the shell" --verbose --replay packaging/smoke.recording.json 2>&1)
+          STATUS=$?
+          set -e
+          if [ "$STATUS" -ne 0 ]; then
+            printf 'native replay exited %s:\n%s\n' "$STATUS" "$OUT"
+            exit "$STATUS"
+          fi
+          if ! echo "$OUT" | grep -Fq 'bash  done'; then
+            printf 'native replay output missing successful bash tool receipt:\n%s\n' "$OUT"
+            exit 1
+          fi
+          if ! echo "$OUT" | grep -Fq 'result: stdout: keel-replay-ok'; then
+            printf 'native replay output missing visible keel-replay-ok stdout:\n%s\n' "$OUT"
+            exit 1
+          fi
+          if ! echo "$OUT" | grep -q replay-smoke-complete; then
+            printf 'native replay output missing replay-smoke-complete:\n%s\n' "$OUT"
+            exit 1
+          fi
+
+      - name: Smoke native compiled warden enforcement
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$RUNNER_OS" = "Linux" ]; then BIN=./build/bin/keel-linux-x64; else BIN=./build/bin/keel-darwin-arm64; fi
+          node packaging/smoke-compiled-warden.mjs "$BIN"
+
+      - name: Smoke native two-iteration loop continuation
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$RUNNER_OS" = "Linux" ]; then BIN=./build/bin/keel-linux-x64; else BIN=./build/bin/keel-darwin-arm64; fi
+          node packaging/smoke-loop-continuation.mjs "$BIN"
+
+      - name: Smoke compiled binary ignores a workspace .env before trust (SEC-012 / ADR-0038)
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$RUNNER_OS" = "Linux" ]; then BIN=./build/bin/keel-linux-x64; else BIN=./build/bin/keel-darwin-arm64; fi
+          node packaging/smoke-dotenv-isolation.mjs "$BIN"
+
+      - name: Smoke Linux binary warden startup in Debian
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +e
+          DEBIAN_OUT=$(docker run --rm --platform linux/amd64 \
+            -v "$PWD/build/bin/keel-linux-x64:/keel:ro" \
+            debian:12 \
+            sh -c 'printf "%s\n%s\n" \
+              "{\"jsonrpc\":\"2.0\",\"id\":\"h1\",\"method\":\"warden.hello\",\"params\":{\"kernelVersion\":\"0.0.0\",\"protocolVersion\":\"1.0.0\"}}" \
+              "{\"jsonrpc\":\"2.0\",\"id\":\"s1\",\"method\":\"warden.shutdown\",\"params\":{}}" \
+              | KEEL_INTERNAL_WARDEN_STDIO=1 /keel' 2>&1)
+          DEBIAN_STATUS=$?
+          set -e
+          if [ "$DEBIAN_STATUS" -ne 0 ]; then
+            printf 'Debian warden startup exited %s:\n%s\n' "$DEBIAN_STATUS" "$DEBIAN_OUT"
+            exit "$DEBIAN_STATUS"
+          fi
+          if [[ "$DEBIAN_OUT" != *'"method":"warden.hello"'* && "$DEBIAN_OUT" != *'"wardenVersion"'* ]]; then
+            printf 'Debian warden startup output missing hello response:\n%s\n' "$DEBIAN_OUT"
+            exit 1
+          fi
+
+      - name: Smoke compiled binary Phase-2B evidence export and verify
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$RUNNER_OS" = "Linux" ]; then BIN=./build/bin/keel-linux-x64; else BIN=./build/bin/keel-darwin-arm64; fi
+          WORK=$(mktemp -d)
+          export KEEL_HOME="$WORK/keel-home"
+          OUT=$("$BIN" run -p "verify signed evidence" --replay packaging/smoke.recording.json 2>&1)
+          if ! echo "$OUT" | grep -q replay-smoke-complete; then
+            printf 'compiled evidence replay output missing replay-smoke-complete:\n%s\n' "$OUT"
+            exit 1
+          fi
+          SESSION_FILE=$(find "$KEEL_HOME/audit" -maxdepth 1 -type f -name 'ses_*.jsonl' | sort | head -1)
+          if [ -z "$SESSION_FILE" ]; then
+            printf 'compiled evidence smoke did not produce an audit session under %s\n' "$KEEL_HOME/audit"
+            exit 1
+          fi
+          SESSION_ID="$(basename "$SESSION_FILE" .jsonl)"
+          EXPORT_OUT=$("$BIN" audit export "$SESSION_ID" --out "$WORK/bundles" 2>&1)
+          if ! echo "$EXPORT_OUT" | grep -q "exported audit bundle:"; then
+            printf 'compiled audit export did not report a bundle:\n%s\n' "$EXPORT_OUT"
+            exit 1
+          fi
+          BUNDLE="$WORK/bundles/bundle_$SESSION_ID"
+          VERIFY_OUT=$("$BIN" audit verify "$BUNDLE" 2>&1)
+          if ! echo "$VERIFY_OUT" | grep -q "verified audit bundle:"; then
+            printf 'compiled audit verify failed:\n%s\n' "$VERIFY_OUT"
+            exit 1
+          fi
+          OFFLINE_OUT=$(node "$BUNDLE/verify/verify-bundle.mjs" "$BUNDLE" 2>&1)
+          if ! echo "$OFFLINE_OUT" | grep -q "OK sha256:"; then
+            printf 'vendored verifier failed:\n%s\n' "$OFFLINE_OUT"
+            exit 1
+          fi
+
+      - name: Verify companion cross-arch binary built
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$RUNNER_OS" = "Linux" ]; then CROSS=./build/bin/keel-linux-arm64; EXPECT=aarch64; else CROSS=./build/bin/keel-darwin-x64; EXPECT=x86_64; fi
+          test -f "$CROSS"
+          file "$CROSS" | grep -q "$EXPECT"   # assert the actual arch, not just existence (catch a target mix-up)
+          echo "::notice::$CROSS built + arch-checked ($EXPECT); runtime smoke runs in cross-arch-runtime-smoke on main pushes"
+
+      - name: npx mechanism smoke (npm pack → install in a fresh prefix → run, incl. one-task replay)
+        shell: bash
+        run: |
+          set -euo pipefail
+          REC="$PWD/packaging/smoke.recording.json"   # absolute — the install runs from a temp dir
+          PRODUCTION_RENDERER_SMOKE="$PWD/packaging/smoke-npx-production-renderer.py"
+          MCP_REVIEW_SMOKE="$PWD/packaging/smoke-npx-mcp-review.mjs"
+          LOOP_CONTINUATION_SMOKE="$PWD/packaging/smoke-loop-continuation.mjs"
+          BASH_SYMLINK_DENY_SMOKE="$PWD/packaging/smoke-bash-symlink-deny.mjs"
+          INSTALLED_FINAL_RESPONSE_SMOKE="$PWD/packaging/smoke-installed-final-response.mjs"
+          SESSION_BRANCH_SMOKE="$PWD/packaging/smoke-session-branch-boundary.mjs"
+          URGENT_STEERING_SMOKE="$PWD/packaging/smoke-urgent-steering.py"
+          URGENT_STEERING_HARNESS_TEST="$PWD/packaging/test_smoke_urgent_steering.py"
+          # npm pack writes the tarball into the cwd it runs in (build/npx), so resolve the absolute
+          # path from there — not from the repo root.
+          cd build/npx
+          TGZ="$PWD/$(npm pack --silent | tail -1)"
+          WORK=$(mktemp -d)
+          cd "$WORK"
+          npm init -y >/dev/null 2>&1
+          npm_config_engine_strict=true npm install --ignore-scripts "$TGZ"
+          npm audit --omit=dev
+          NODE_BIN="$(dirname "$(command -v node)")"
+          KEEL_BIN="$PWD/node_modules/.bin/keel"
+          ./node_modules/.bin/keel --version | grep -qE '^keel [0-9]+\.[0-9]+\.[0-9]+'
+          echo "Smoke installed npx local-stdio MCP review through the real sandbox"
+          node "$MCP_REVIEW_SMOKE" "$KEEL_BIN"
+          # Boot the actual installed TUI through the publishable real-PTY product harness.
+          # Static bundle markers alone cannot prove React's selected runtime and generated JSX agree.
+          echo "Smoke installed npx production renderer through a real PTY"
+          python3 "$PRODUCTION_RENDERER_SMOKE" ./node_modules/.bin/keel
+          echo "Smoke installed npx two-iteration loop continuation"
+          node "$LOOP_CONTINUATION_SMOKE" "$KEEL_BIN"
+          echo "Smoke installed npx Bash symlink terminal denial and final response"
+          node "$BASH_SYMLINK_DENY_SMOKE" --self-test
+          node "$BASH_SYMLINK_DENY_SMOKE" "$KEEL_BIN"
+          echo "Smoke installed npx exact final response"
+          node "$INSTALLED_FINAL_RESPONSE_SMOKE" --self-test
+          node "$INSTALLED_FINAL_RESPONSE_SMOKE" "$KEEL_BIN"
+          echo "Smoke installed npx session branch boundary"
+          node "$SESSION_BRANCH_SMOKE" "$KEEL_BIN"
+          echo "Smoke installed npx urgent steering terminal truth through a real PTY"
+          python3 "$URGENT_STEERING_HARNESS_TEST"
+          python3 "$URGENT_STEERING_SMOKE" "$KEEL_BIN"
+          # Prove the npx package's bundled @vscode/ripgrep works while keeping Linux sandbox deps
+          # reachable for Phase-2A doctor preflight.
+          PATH="$NODE_BIN:$WORK/node_modules/.bin:/usr/bin:/bin:/usr/sbin:/sbin" ./node_modules/.bin/keel doctor
+          set +e
+          OUT=$(./node_modules/.bin/keel run -p "verify the shell" --verbose --replay "$REC" 2>&1)
+          STATUS=$?
+          set -e
+          if [ "$STATUS" -ne 0 ]; then
+            printf 'npx replay exited %s:\n%s\n' "$STATUS" "$OUT"
+            exit "$STATUS"
+          fi
+          if ! echo "$OUT" | grep -Fq 'bash  done'; then
+            printf 'npx replay output missing successful bash tool receipt:\n%s\n' "$OUT"
+            exit 1
+          fi
+          if ! echo "$OUT" | grep -Fq 'result: stdout: keel-replay-ok'; then
+            printf 'npx replay output missing visible keel-replay-ok stdout:\n%s\n' "$OUT"
+            exit 1
+          fi
+          if ! echo "$OUT" | grep -q replay-smoke-complete; then
+            printf 'npx replay output missing replay-smoke-complete:\n%s\n' "$OUT"
+            exit 1
+          fi
+
+  cross-arch-runtime-smoke:
+    # ER-028 closeout: run the formerly cross-only binaries on native hosted runners. Kept to
+    # push-to-main to avoid multiplying PR cost while still proving the release-producing branch.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04-arm
+            target: linux-arm64
+            bin: ./build/bin/keel-linux-arm64
+          - os: macos-15-intel
+            target: darwin-x64
+            bin: ./build/bin/keel-darwin-x64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 20
+          cache: pnpm
+      - name: Install (frozen lockfile, scripts ignored)
+        run: pnpm install --frozen-lockfile
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.3.14
+
+      - name: Install system doctor prerequisites
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            missing=()
+            command -v rg >/dev/null 2>&1 || missing+=(ripgrep)
+            command -v bwrap >/dev/null 2>&1 || missing+=(bubblewrap)
+            command -v socat >/dev/null 2>&1 || missing+=(socat)
+            if [ "${#missing[@]}" -gt 0 ]; then
+              sudo apt-get update
+              sudo apt-get install -y "${missing[@]}"
+            fi
+            rg --version | head -1
+            bwrap --version
+            socat -V 2>&1 | head -1
+            if sysctl -n kernel.apparmor_restrict_unprivileged_userns >/dev/null 2>&1; then
+              sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+            fi
+          else
+            brew list ripgrep >/dev/null 2>&1 || brew install ripgrep
+            test -x /usr/bin/sandbox-exec
+            rg --version | head -1
+          fi
+
+      - name: Build cross-arch binary on its native runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          bun packaging/build.ts bin "${{ matrix.target }}"
+
+      - name: Runtime-smoke cross-arch binary (--version + doctor + hermetic one-task replay run)
+        shell: bash
+        run: |
+          set -euo pipefail
+          BIN="${{ matrix.bin }}"
+          "$BIN" --version | grep -qE '^keel [0-9]+\.[0-9]+\.[0-9]+'
+          "$BIN" doctor
+          set +e
+          OUT=$("$BIN" run -p "verify the shell" --verbose --replay packaging/smoke.recording.json 2>&1)
+          STATUS=$?
+          set -e
+          if [ "$STATUS" -ne 0 ]; then
+            printf 'cross-arch replay exited %s:\n%s\n' "$STATUS" "$OUT"
+            exit "$STATUS"
+          fi
+          if ! echo "$OUT" | grep -Fq 'bash  done'; then
+            printf 'cross-arch replay output missing successful bash tool receipt:\n%s\n' "$OUT"
+            exit 1
+          fi
+          if ! echo "$OUT" | grep -Fq 'result: stdout: keel-replay-ok'; then
+            printf 'cross-arch replay output missing visible keel-replay-ok stdout:\n%s\n' "$OUT"
+            exit 1
+          fi
+          if ! echo "$OUT" | grep -q replay-smoke-complete; then
+            printf 'cross-arch replay output missing replay-smoke-complete:\n%s\n' "$OUT"
+            exit 1
+          fi
+
+  ci-required:
+    # Configure branch protection to require this stable aggregate status. The selected expensive
+    # jobs may be intentionally skipped on PRs, but this job fails if any required selected gate fails.
+    if: always() && github.event_name != 'schedule'
+    needs: [detect-changes, docs, build, node-next, package, security, sandbox-real]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Verify selected CI gates
+        shell: bash
+        env:
+          DETECT_RESULT: ${{ needs.detect-changes.result }}
+          DOCS_RESULT: ${{ needs.docs.result }}
+          BUILD_RESULT: ${{ needs.build.result }}
+          NODE_NEXT_RESULT: ${{ needs.node-next.result }}
+          PACKAGE_RESULT: ${{ needs.package.result }}
+          SECURITY_RESULT: ${{ needs.security.result }}
+          SANDBOX_REAL_RESULT: ${{ needs.sandbox-real.result }}
+          DOCS_ONLY: ${{ needs.detect-changes.outputs.docs_only }}
+          CODE_CHANGED: ${{ needs.detect-changes.outputs.code }}
+          PACKAGE_CHANGED: ${{ needs.detect-changes.outputs.package }}
+        run: |
+          set -euo pipefail
+
+          echo "detect-changes: $DETECT_RESULT"
+          echo "docs: $DOCS_RESULT (docs_only=$DOCS_ONLY)"
+          echo "build: $BUILD_RESULT (code=$CODE_CHANGED)"
+          echo "node-next: $NODE_NEXT_RESULT (code=$CODE_CHANGED)"
+          echo "package: $PACKAGE_RESULT (package=$PACKAGE_CHANGED)"
+          echo "security: $SECURITY_RESULT (code=$CODE_CHANGED)"
+          echo "sandbox-real: $SANDBOX_REAL_RESULT (code=$CODE_CHANGED)"
+
+          if [ "$DETECT_RESULT" != "success" ]; then
+            echo "::error::detect-changes did not complete successfully"
+            exit 1
+          fi
+
+          if [ "$DOCS_ONLY" = "true" ] && [ "$DOCS_RESULT" != "success" ]; then
+            echo "::error::docs-only PR did not pass the docs gate"
+            exit 1
+          fi
+
+          if [ "$CODE_CHANGED" = "true" ] && [ "$BUILD_RESULT" != "success" ]; then
+            echo "::error::code PR did not pass the build gate"
+            exit 1
+          fi
+
+          if [ "$CODE_CHANGED" = "true" ] && [ "$NODE_NEXT_RESULT" != "success" ]; then
+            echo "::error::code PR did not pass the Node 22 compatibility gate"
+            exit 1
+          fi
+
+          if [ "$CODE_CHANGED" = "true" ] && [ "$SECURITY_RESULT" != "success" ]; then
+            echo "::error::code PR did not pass the security gate"
+            exit 1
+          fi
+
+          if [ "$CODE_CHANGED" = "true" ] && [ "$SANDBOX_REAL_RESULT" != "success" ]; then
+            echo "::error::code PR did not pass the real OS-sandbox denial gate"
+            exit 1
+          fi
+
+          if [ "$PACKAGE_CHANGED" = "true" ] && [ "$PACKAGE_RESULT" != "success" ]; then
+            echo "::error::packaging-sensitive PR did not pass the package gate"
+            exit 1
+          fi
+
+  audit:
+    # Supply-chain audit is non-hermetic (queries the live advisory DB), so it must
+    # not gate PR builds — a new advisory would otherwise turn an unrelated PR red.
+    # Runs on pushes to main and on the daily schedule instead.
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 20
+          cache: pnpm
+      - name: Install (frozen lockfile, scripts ignored)
+        run: pnpm install --frozen-lockfile
+      - name: Supply-chain audit (fail on high/critical)
+        run: pnpm audit --audit-level high
+      - name: Supply-chain config and license check
+        run: pnpm run supply-chain:check

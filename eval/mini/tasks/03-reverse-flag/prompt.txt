@@ -1,0 +1,5 @@
+This little CLI prints its arguments, one per line:  `node cli.js a b c`  →  a / b / c.
+
+Add a `--reverse` flag that prints the lines in reverse order: `node cli.js --reverse a b c`
+should print c / b / a (one per line). Wire the flag through from cli.js into the format()
+function in format.js — don't just reverse in cli.js. Plain runs (no flag) must keep working.

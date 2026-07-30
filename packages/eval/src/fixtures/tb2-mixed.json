@@ -1,0 +1,19 @@
+{
+  "n_resolved": 1,
+  "n_unresolved": 1,
+  "accuracy": 0.5,
+  "results": [
+    {
+      "task_id": "tb2-task-01",
+      "is_resolved": true,
+      "failure_mode": null,
+      "trial_name": "trial-1"
+    },
+    {
+      "task_id": "tb2-task-02",
+      "is_resolved": false,
+      "failure_mode": "test_timeout",
+      "trial_name": "trial-1"
+    }
+  ]
+}

@@ -1,0 +1,340 @@
+diff --git a/build/ink.d.ts b/build/ink.d.ts
+index 273dd13875b9f0441d55fe0738975ca7695b39c1..e5aeee3f0e867374a7a4b8afb348c2244663b06d 100644
+--- a/build/ink.d.ts
++++ b/build/ink.d.ts
+@@ -89,6 +89,10 @@ export default class Ink {
+     private lastOutputToRender;
+     private lastOutputHeight;
+     private lastTerminalWidth;
++    private resizeTimer;
++    private resizeSourceWidth;
++    private resizeLastStaticAt;
++    private pendingResizeStaticOutput;
+     private readonly container;
+     private readonly rootNode;
+     private fullStaticOutput;
+@@ -104,6 +108,9 @@ export default class Ink {
+     private nextRenderCommit?;
+     constructor(options: Options);
+     resized: () => void;
++    private flushResize;
++    private cancelResize;
++    private clearLog;
+     resolveExitPromise: (result?: unknown) => void;
+     rejectExitPromise: (reason?: Error) => void;
+     unsubscribeExit: () => void;
+diff --git a/build/ink.js b/build/ink.js
+index b8fd45cc990adbc080eff28fc37463cd91337dff..60e74b01209afb418c479fc8e1539d22fd788f01 100644
+--- a/build/ink.js
++++ b/build/ink.js
+@@ -125,6 +125,12 @@ const settleThrottle = (throttled, canWriteToStdout) => {
+         throttledValue.cancel();
+     }
+ };
++const cancelThrottle = (throttled) => {
++    if (throttled && typeof throttled.cancel === 'function') {
++        throttled.cancel();
++    }
++};
++const resizeQuietPeriodMs = 300;
+ export default class Ink {
+     /**
+     Whether this instance is using concurrent rendering mode.
+@@ -145,6 +151,10 @@ export default class Ink {
+     lastOutputToRender;
+     lastOutputHeight;
+     lastTerminalWidth;
++    resizeTimer;
++    resizeSourceWidth;
++    resizeLastStaticAt;
++    pendingResizeStaticOutput;
+     container;
+     rootNode;
+     // This variable is used only in debug mode to store full static output
+@@ -227,6 +237,10 @@ export default class Ink {
+         this.lastOutputToRender = '';
+         this.lastOutputHeight = 0;
+         this.lastTerminalWidth = getWindowSize(this.options.stdout).columns;
++        this.resizeTimer = undefined;
++        this.resizeSourceWidth = undefined;
++        this.resizeLastStaticAt = undefined;
++        this.pendingResizeStaticOutput = '';
+         // This variable is used only in debug mode to store full static output
+         // so that it's rerendered every time, not just new static parts, like in non-debug mode
+         this.fullStaticOutput = '';
+@@ -261,16 +275,95 @@ export default class Ink {
+     }
+     resized = () => {
+         const currentWidth = getWindowSize(this.options.stdout).columns;
+-        if (currentWidth < this.lastTerminalWidth) {
+-            // We clear the screen when decreasing terminal width to prevent duplicate overlapping re-renders.
+-            this.log.clear();
++        if (this.options.debug || this.isScreenReaderEnabled || this.alternateScreen) {
++            // These modes do not use the primary-screen scrollback contract this patch protects.
++            // Preserve Ink's immediate resize behavior and its dedicated screen-reader/debug paths.
++            if (currentWidth < this.lastTerminalWidth) {
++                this.log.clear(currentWidth, this.lastTerminalWidth);
++                this.lastOutput = '';
++                this.lastOutputToRender = '';
++            }
++            this.calculateLayout();
++            dom.emitLayoutListeners(this.rootNode);
++            this.onRender();
++            this.lastTerminalWidth = currentWidth;
++            return;
++        }
++        if (this.resizeTimer === undefined) {
++            // SIGWINCH can arrive before the stream's width getter reflects the settled viewport.
++            // Keep the source width, suppress paints immediately, and calculate destructive erasure
++            // on the next timer turn using the latest width reported by the terminal.
++            cancelThrottle(this.throttledLog);
++            this.resizeSourceWidth = this.lastTerminalWidth;
++            this.resizeLastStaticAt = undefined;
+             this.lastOutput = '';
+             this.lastOutputToRender = '';
++            this.lastOutputHeight = 0;
++        }
++        else {
++            clearTimeout(this.resizeTimer);
++        }
++        this.resizeTimer = setTimeout(this.flushResize, resizeQuietPeriodMs);
++    };
++    flushResize = () => {
++        if (this.resizeTimer === undefined) {
++            return;
++        }
++        const staticQuietRemaining = this.resizeLastStaticAt === undefined
++            ? 0
++            : this.renderThrottleMs - (performance.now() - this.resizeLastStaticAt);
++        if (staticQuietRemaining > 0) {
++            clearTimeout(this.resizeTimer);
++            this.resizeTimer = setTimeout(this.flushResize, staticQuietRemaining);
++            return;
++        }
++        const currentWidth = getWindowSize(this.options.stdout).columns;
++        const sourceWidth = this.resizeSourceWidth;
++        const pendingStaticOutput = this.pendingResizeStaticOutput;
++        const canWriteToStdout = getWritableStreamState(this.options.stdout).canWriteToStdout;
++        if (canWriteToStdout) {
++            this.log.clear(currentWidth, sourceWidth);
++            if (pendingStaticOutput !== '') {
++                this.fullStaticOutput += pendingStaticOutput;
++                const sync = this.shouldSync();
++                if (sync) {
++                    this.options.stdout.write(bsu);
++                }
++                this.options.stdout.write(pendingStaticOutput);
++                if (sync) {
++                    this.options.stdout.write(esu);
++                }
++            }
++        }
++        this.pendingResizeStaticOutput = '';
++        this.lastOutput = '';
++        this.lastOutputToRender = '';
++        this.lastOutputHeight = 0;
++        this.lastTerminalWidth = currentWidth;
++        this.cancelResize();
++        if (!canWriteToStdout) {
++            return;
+         }
+         this.calculateLayout();
+         dom.emitLayoutListeners(this.rootNode);
+         this.onRender();
+-        this.lastTerminalWidth = currentWidth;
++    };
++    cancelResize = () => {
++        if (this.resizeTimer !== undefined) {
++            clearTimeout(this.resizeTimer);
++        }
++        this.resizeTimer = undefined;
++        this.resizeSourceWidth = undefined;
++        this.resizeLastStaticAt = undefined;
++        cancelThrottle(this.throttledLog);
++    };
++    clearLog = () => {
++        if (this.resizeTimer !== undefined) {
++            this.log.clear(getWindowSize(this.options.stdout).columns, this.resizeSourceWidth);
++        }
++        else {
++            this.log.clear();
++        }
+     };
+     resolveExitPromise = () => { };
+     rejectExitPromise = () => { };
+@@ -322,6 +415,23 @@ export default class Ink {
+         this.options.onRender?.({ renderTime: performance.now() - startTime });
+         // If <Static> output isn't empty, it means new children have been added to it
+         const hasStaticOutput = staticOutput && staticOutput !== '\n';
++        if (this.resizeTimer !== undefined && this.interactive && !this.options.debug) {
++            // Static output is append-only terminal history. Buffer it while geometry is unsettled:
++            // clearing the mutable frame at an intermediate width can climb into prior scrollback.
++            // The renderer consumes each Static child here, and flushResize writes the buffer once
++            // before painting the latest live tree at the settled width.
++            if (hasStaticOutput) {
++                this.resizeLastStaticAt = performance.now();
++                cancelThrottle(this.throttledOnRender);
++                cancelThrottle(this.throttledLog);
++                const canWriteToStdout = getWritableStreamState(this.options.stdout).canWriteToStdout;
++                if (!canWriteToStdout) {
++                    return;
++                }
++                this.pendingResizeStaticOutput += staticOutput;
++            }
++            return;
++        }
+         if (this.options.debug) {
+             if (hasStaticOutput) {
+                 this.fullStaticOutput += staticOutput;
+@@ -419,7 +529,7 @@ export default class Ink {
+         if (sync) {
+             this.options.stdout.write(bsu);
+         }
+-        this.log.clear();
++        this.clearLog();
+         this.options.stdout.write(data);
+         this.restoreLastOutput();
+         if (sync) {
+@@ -443,7 +553,7 @@ export default class Ink {
+         if (sync) {
+             this.options.stdout.write(bsu);
+         }
+-        this.log.clear();
++        this.clearLog();
+         this.options.stderr.write(data);
+         this.restoreLastOutput();
+         if (sync) {
+@@ -455,6 +565,7 @@ export default class Ink {
+         if (this.isUnmounted || this.isUnmounting) {
+             return;
+         }
++        this.flushResize();
+         this.isUnmounting = true;
+         if (this.beforeExitHandler) {
+             process.off('beforeExit', this.beforeExitHandler);
+@@ -600,6 +711,7 @@ export default class Ink {
+             }
+         }
+         reconciler.flushSyncWork();
++        this.flushResize();
+         const stdout = this.options.stdout;
+         const { canWriteToStdout, hasWritableState } = getWritableStreamState(stdout);
+         // Flush pending throttled render/log timers so their output is included in this wait.
+@@ -617,7 +729,7 @@ export default class Ink {
+     }
+     clear() {
+         if (this.interactive && !this.options.debug) {
+-            this.log.clear();
++            this.clearLog();
+             // Sync lastOutput so that unmount's final onRender
+             // sees it as unchanged and log-update skips it
+             this.log.sync(this.lastOutputToRender || this.lastOutput + '\n');
+@@ -720,11 +832,13 @@ export default class Ink {
+         }
+         // To ensure static output is cleanly rendered before main output, clear main output first
+         if (hasStaticOutput) {
++            cancelThrottle(this.throttledOnRender);
++            cancelThrottle(this.throttledLog);
+             const sync = this.shouldSync();
+             if (sync) {
+                 this.options.stdout.write(bsu);
+             }
+-            this.log.clear();
++            this.clearLog();
+             this.options.stdout.write(staticOutput);
+             this.log(outputToRender);
+             if (sync) {
+@@ -810,4 +924,3 @@ export default class Ink {
+         this.kittyProtocolEnabled = true;
+     }
+ }
+-//# sourceMappingURL=ink.js.map
+\ No newline at end of file
+diff --git a/build/log-update.d.ts b/build/log-update.d.ts
+index 6e9135308e55a9dfcfc051c924682a41e159a895..1a19533ae63ba65e574455372ac26f8e5c205111 100644
+--- a/build/log-update.d.ts
++++ b/build/log-update.d.ts
+@@ -2,7 +2,7 @@ import { type Writable } from 'node:stream';
+ import { type CursorPosition } from './cursor-helpers.js';
+ export type { CursorPosition } from './cursor-helpers.js';
+ export type LogUpdate = {
+-    clear: () => void;
++    clear: (columns?: number, sourceColumns?: number) => void;
+     done: () => void;
+     reset: () => void;
+     sync: (str: string) => void;
+diff --git a/build/log-update.js b/build/log-update.js
+index cdb5fc41f158304c4c4f230a765065ab1fe0a2f7..1638060ad96e26784b058c6cd419f3ce84595d5d 100644
+--- a/build/log-update.js
++++ b/build/log-update.js
+@@ -1,9 +1,38 @@
+ import ansiEscapes from 'ansi-escapes';
+ import cliCursor from 'cli-cursor';
++import stringWidth from 'string-width';
++import wrapAnsi from 'wrap-ansi';
+ import { cursorPositionChanged, buildCursorSuffix, buildCursorOnlySequence, buildReturnToBottomPrefix, hideCursorEscape, } from './cursor-helpers.js';
+ // Count visible lines in a string, ignoring the trailing empty element
+ // that `split('\n')` produces when the string ends with '\n'.
+ const visibleLineCount = (lines, str) => str.endsWith('\n') ? lines.length - 1 : lines.length;
++// Ink's renderer inserts a newline after each Yoga row. A source-width row still reaches the
++// terminal's right margin first, so emulators link it to the following row as a soft wrap. Rebuild
++// those logical groups before asking how many physical rows the old frame occupies at a new width.
++const physicalLineCount = (output, logicalLineCount, columns, sourceColumns) => {
++    if (columns === undefined || columns < 1 || sourceColumns === undefined || sourceColumns < 1 || output.length === 0) {
++        return logicalLineCount;
++    }
++    const trailingNewline = output.endsWith('\n');
++    const lines = output.split('\n');
++    if (trailingNewline) {
++        lines.pop();
++    }
++    let physicalLines = 0;
++    let softWrappedLine = '';
++    for (const line of lines) {
++        softWrappedLine += line;
++        if (stringWidth(line) >= sourceColumns) {
++            continue;
++        }
++        physicalLines += wrapAnsi(softWrappedLine, columns, { trim: false, hard: true }).split('\n').length;
++        softWrappedLine = '';
++    }
++    if (softWrappedLine.length > 0) {
++        physicalLines += wrapAnsi(softWrappedLine, columns, { trim: false, hard: true }).split('\n').length;
++    }
++    return physicalLines + (trailingNewline ? 1 : 0);
++};
+ const createStandard = (stream, { showCursor = false } = {}) => {
+     let previousLineCount = 0;
+     let previousOutput = '';
+@@ -55,9 +84,9 @@ const createStandard = (stream, { showCursor = false } = {}) => {
+         cursorWasShown = activeCursor !== undefined;
+         return true;
+     };
+-    render.clear = () => {
++    render.clear = (columns, sourceColumns) => {
+         const prefix = buildReturnToBottomPrefix(cursorWasShown, previousLineCount, previousCursorPosition);
+-        stream.write(prefix + ansiEscapes.eraseLines(previousLineCount));
++        stream.write(prefix + ansiEscapes.eraseLines(physicalLineCount(previousOutput, previousLineCount, columns, sourceColumns)));
+         previousOutput = '';
+         previousLineCount = 0;
+         previousCursorPosition = undefined;
+@@ -196,9 +225,9 @@ const createIncremental = (stream, { showCursor = false } = {}) => {
+         previousLines = nextLines;
+         return true;
+     };
+-    render.clear = () => {
++    render.clear = (columns, sourceColumns) => {
+         const prefix = buildReturnToBottomPrefix(cursorWasShown, previousLines.length, previousCursorPosition);
+-        stream.write(prefix + ansiEscapes.eraseLines(previousLines.length));
++        stream.write(prefix + ansiEscapes.eraseLines(physicalLineCount(previousOutput, previousLines.length, columns, sourceColumns)));
+         previousOutput = '';
+         previousLines = [];
+         previousCursorPosition = undefined;
+@@ -251,4 +280,3 @@ const create = (stream, { showCursor = false, incremental = false } = {}) => {
+ };
+ const logUpdate = { create };
+-export default logUpdate;
+-//# sourceMappingURL=log-update.js.map
+\ No newline at end of file
++export default logUpdate;
+\ No newline at end of file

@@ -1,0 +1,106 @@
+{
+  "schemaVersion": 1,
+  "suite": "terminal-bench-2",
+  "totalTrajectories": 9,
+  "resolved": 1,
+  "unresolved": 7,
+  "infraErrors": 1,
+  "failureModes": [
+    {
+      "signature": "premature-completion",
+      "severity": "high",
+      "count": 2,
+      "trajectories": [
+        {
+          "suite": "terminal-bench-2",
+          "runId": "run-A",
+          "task": "bravo-premature"
+        },
+        {
+          "suite": "terminal-bench-2",
+          "runId": "run-A",
+          "task": "golf-premature"
+        }
+      ],
+      "proposedChange": null
+    },
+    {
+      "signature": "error-cascade",
+      "severity": "high",
+      "count": 1,
+      "trajectories": [
+        {
+          "suite": "terminal-bench-2",
+          "runId": "run-A",
+          "task": "charlie-cascade"
+        }
+      ],
+      "proposedChange": null
+    },
+    {
+      "signature": "invalid-tool-args",
+      "severity": "high",
+      "count": 1,
+      "trajectories": [
+        {
+          "suite": "terminal-bench-2",
+          "runId": "run-A",
+          "task": "alpha-invalid-args"
+        }
+      ],
+      "proposedChange": null
+    },
+    {
+      "signature": "ran-out-of-turns",
+      "severity": "medium",
+      "count": 1,
+      "trajectories": [
+        {
+          "suite": "terminal-bench-2",
+          "runId": "run-A",
+          "task": "delta-ran-out"
+        }
+      ],
+      "proposedChange": null
+    },
+    {
+      "signature": "redundant-work",
+      "severity": "medium",
+      "count": 1,
+      "trajectories": [
+        {
+          "suite": "terminal-bench-2",
+          "runId": "run-A",
+          "task": "echo-redundant"
+        }
+      ],
+      "proposedChange": null
+    },
+    {
+      "signature": "unresolved-other",
+      "severity": "low",
+      "count": 1,
+      "trajectories": [
+        {
+          "suite": "terminal-bench-2",
+          "runId": "run-A",
+          "task": "foxtrot-other"
+        }
+      ],
+      "proposedChange": null
+    }
+  ],
+  "aggregateQuality": {
+    "nTrajectories": 8,
+    "meanToolCalls": 0.875,
+    "meanToolCallArgValidityRate": 0.875,
+    "totalRedundantToolCalls": 2,
+    "totalToolErrors": 3,
+    "meanErrorRecoveryRate": 0.75,
+    "totalPrematureCompletionIntercepts": 0,
+    "totalCompactions": 0,
+    "meanWallClockMs": 0,
+    "meanInputTokens": 100,
+    "meanOutputTokens": 40
+  }
+}

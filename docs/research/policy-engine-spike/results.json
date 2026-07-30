@@ -1,0 +1,15 @@
+{
+  "node": "v20.14.0",
+  "opa": "Version: 1.17.1",
+  "sdk": "@open-policy-agent/opa-wasm@1.10.0",
+  "wasmBytes": 354324,
+  "hostCallbackBuiltinsRequired": [],
+  "instantiateMs": 20.162,
+  "evalCount": 20000,
+  "mean_ms": 0.01566,
+  "p50_ms": 0.01217,
+  "p95_ms": 0.02542,
+  "p99_ms": 0.09254,
+  "p999_ms": 0.28258,
+  "max_ms": 3.64717
+}

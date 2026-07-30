@@ -1,0 +1,3 @@
+Running `bash build.sh` fails. Investigate the failure, fix the cause in the build sources, and
+make `bash build.sh` succeed so it writes the expected output to dist/out.txt. The comment at the
+top of build/compile.js describes what the output should be — preserve that behavior.

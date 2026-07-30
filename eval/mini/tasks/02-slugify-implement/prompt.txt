@@ -1,0 +1,3 @@
+Implement the `slugify` function in slugify.js according to the spec in README.md. The tests in
+slugify.test.js currently fail against the stub — make them pass (run them with
+`node slugify.test.js`). Do not modify the test file.

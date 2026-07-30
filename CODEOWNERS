@@ -1,0 +1,9 @@
+# Default owner for everything in the repo. Security-critical paths are listed
+# explicitly so review routing survives future team growth.
+* @cbaird-1337
+
+# Security-critical control plane: warden enforcement, shared schemas, policy.
+/packages/warden/ @cbaird-1337
+/packages/shared/ @cbaird-1337
+/SECURITY.md @cbaird-1337
+/.github/ @cbaird-1337

@@ -1,0 +1,4 @@
+Rename the function `calcTotal` to `computeTotal` across this project — its definition and every
+call site — without changing any behavior. Search the codebase to find all usages first. When
+you're done, `node main.js` must still print the same output, and the name `calcTotal` must no
+longer appear anywhere.

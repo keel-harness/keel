@@ -1,0 +1,67 @@
+KEEL
+Copyright 2026 KEEL project contributors
+
+This product includes software developed by the KEEL project.
+
+================================================================================
+Third-party components
+================================================================================
+
+@anthropic-ai/sandbox-runtime
+  Copyright Anthropic PBC
+  Licensed under the Apache License, Version 2.0.
+
+  Vendored under vendor/sandbox-runtime at upstream tag v0.0.59
+  (commit 3f4233f173227ca2e9dfde8c4985bc31811a64fc). Source:
+  https://github.com/anthropic-experimental/sandbox-runtime
+  The vendored copy retains its upstream LICENSE; see also
+  vendor/sandbox-runtime/VENDOR.md and docs/adr/0005-vendoring-sandbox-runtime.md.
+
+@pondwader/socks5-server
+  Licensed under the MIT License.
+
+Ink
+  Copyright Vadym Demedes and Sindre Sorhus
+  Licensed under the MIT License.
+
+  Keel ships a locally reviewed modification of ink@7.0.5 for primary-screen
+  resize and teardown correctness. The patch is maintained at
+  patches/ink@7.0.5.patch. The upstream license is redistributed in npx
+  artifacts at THIRD_PARTY_LICENSES/ink-7.0.5-LICENSE.
+
+cli-truncate and cli-boxes
+  Copyright Sindre Sorhus
+  Licensed under the MIT License.
+
+slice-ansi
+  Copyright DC and Sindre Sorhus
+  Licensed under the MIT License.
+
+  Exact reviewed copies of cli-truncate, cli-boxes, and slice-ansi are
+  bundled with Ink in release artifacts to preserve Keel's Node 20 carrier.
+  Their upstream licenses are redistributed under versioned names in
+  THIRD_PARTY_LICENSES. Their remaining dependency
+  boundary stays external in the npx artifact and retains normal npm package
+  manifests and licenses.
+
+node-forge
+  Copyright Digital Bazaar, Inc.
+  Dual-licensed BSD-3-Clause OR GPL-2.0; this project elects and redistributes it
+  under the BSD-3-Clause license option.
+
+shell-quote
+  Licensed under the MIT License.
+
+TypeScript
+  Copyright Microsoft Corporation.
+  Licensed under the Apache License, Version 2.0. TypeScript is an exact-pinned
+  external runtime dependency of the npx carrier, not bundled into Keel's
+  tarball. The installed TypeScript package carries its upstream LICENSE and
+  ThirdPartyNoticeText.txt.
+
+The npx artifact's THIRD_PARTY_LICENSES/components.json is generated from Bun's
+exact module graph. It records every npm package and vendored component that
+contributed bundled bytes, the selected permissive license, all discovered
+license/notice artifacts, versions, and the patched Ink digest. The build fails
+closed on a missing/unsupported license, missing reviewed runtime, duplicate
+component, or artifact-name collision.

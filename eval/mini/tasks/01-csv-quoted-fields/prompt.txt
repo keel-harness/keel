@@ -1,0 +1,3 @@
+The `parseCsvLine` function is failing its test suite. Run `node csv.test.js` to see the
+failure, read the spec in README.md, then fix csv.js so every test passes. Do not modify the
+test file.

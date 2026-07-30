@@ -1,0 +1,7 @@
+{
+  "items": [
+    { "name": "alpha", "active": true },
+    { "name": "beta", "active": false },
+    { "name": "gamma", "active": true }
+  ]
+}

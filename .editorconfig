@@ -1,0 +1,16 @@
+root = true
+
+# Editor defaults consistent with .prettierrc.json (2-space, LF, utf-8) so files
+# are well-formed before Prettier runs.
+[*]
+charset = utf-8
+end_of_line = lf
+indent_style = space
+indent_size = 2
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+[*.md]
+# Prettier does not format Markdown here; preserve trailing whitespace (it can be
+# meaningful, e.g. hard line breaks) but still enforce a final newline.
+trim_trailing_whitespace = false

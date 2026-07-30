@@ -1,0 +1,31 @@
+{
+  "name": "@keel/warden",
+  "version": "0.1.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "@keel/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "bin": {
+    "keel-warden": "./dist/bin-entry.js"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "build": "tsc -p tsconfig.build.json"
+  },
+  "dependencies": {
+    "@keel/shared": "workspace:*",
+    "@open-policy-agent/opa-wasm": "1.10.0"
+  },
+  "devDependencies": {
+    "tsx": "4.22.4",
+    "typescript": "5.9.3"
+  }
+}

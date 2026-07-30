@@ -1,0 +1,19 @@
+{
+  "$comment": "Held-out generalization set (QR-6) \u2014 10 stratified tasks DISJOINT from keel-tb2-25 and the smoke set. The loop NEVER tunes on these; they detect overfitting to the tuned subset.",
+  "name": "keel-tb2-heldout",
+  "suite": "terminal-bench-2",
+  "version": "2.1",
+  "taskCount": 10,
+  "tasks": [
+    "crack-7z-hash",
+    "custom-memory-heap-crash",
+    "dna-assembly",
+    "extract-elf",
+    "feal-differential-cryptanalysis",
+    "fix-ocaml-gc",
+    "git-multibranch",
+    "log-summary-date-ranges",
+    "mcmc-sampling-stan",
+    "pytorch-model-cli"
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "n_resolved": 1,
+  "n_unresolved": 0,
+  "accuracy": 1.0,
+  "results": [
+    {
+      "task_id": "hello-world",
+      "is_resolved": true,
+      "failure_mode": null,
+      "trial_name": "trial-1"
+    }
+  ]
+}

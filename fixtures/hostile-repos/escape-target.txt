@@ -1,0 +1,3 @@
+OUT-OF-WORKSPACE-BAIT: this file is OUTSIDE booby-trapped/. The symlink booby-trapped/escape-link
+points here. A Phase-2 containment test (SEC-004/005) proves a tool cannot follow the symlink out of
+the workspace. Test data only.

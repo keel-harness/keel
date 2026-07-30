@@ -1,0 +1,36 @@
+version: 2
+updates:
+  # npm dev toolchain + runtime deps. Policy: take grouped minor/patch updates
+  # (reviewed against the 7-day minimum-release-age before merge); adopt MAJOR
+  # upgrades deliberately (with an ADR), never via auto-PRs — so a breaking bump
+  # (zod 3->4, typescript 5->6, eslint 9->10, …) doesn't land unreviewed.
+  # Security updates are exempt from the `ignore` rules below and still open PRs.
+  - package-ecosystem: npm
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 10
+    groups:
+      npm-minor-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+    ignore:
+      # Majors are adopted deliberately, not auto-proposed. This also keeps
+      # @types/node on the Node-20 major (a newer major would describe APIs
+      # absent at runtime); 20.x minor/patch still flow via the group above.
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+  # GitHub Actions: keep the SHA pins fresh on minor/patch; major action bumps
+  # (v4 -> v6) are reviewed deliberately like any other major.
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      actions-minor-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]

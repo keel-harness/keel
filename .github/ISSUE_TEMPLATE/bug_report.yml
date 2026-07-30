@@ -1,0 +1,45 @@
+name: Bug report
+description: Something misbehaved, crashed, or contradicted the docs
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. If this is a SECURITY issue (a way to bypass the
+        warden, escape the sandbox, exfiltrate data, or tamper with audit
+        records), do NOT file it here; use private vulnerability reporting per
+        SECURITY.md.
+  - type: input
+    id: version
+    attributes:
+      label: keel version
+      description: Output of `keel --version`
+      placeholder: keel 0.1.0
+    validations:
+      required: true
+  - type: input
+    id: platform
+    attributes:
+      label: Platform
+      description: OS and version, plus Node version (`node --version`)
+      placeholder: macOS 15.2, Node 20.20.1
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: Exact commands or session steps. Include `keel doctor` output if setup-related.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected vs actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Logs, screenshots, terminal size for TUI issues. Redact anything sensitive.

@@ -1,0 +1,580 @@
+{
+  "$comment": "PINNED Terminal-Bench 2.1 task catalog (89 tasks) \u2014 the integrity-test source of truth. TB-2.1 is the more-verified iteration of TB-2.0 (26 tasks fixed IN PLACE for reward-hacking/timeouts/resources; same 89 task ids, none added/removed). Owner switched the pin 2.0->2.1 (ADR-0042). Run via 'harbor run --dataset terminal-bench/terminal-bench-2-1' (NOT the @2.0 registry shorthand). Regenerate only by re-reading the pinned commit's task.toml files; change = ADR.",
+  "suite": "terminal-bench-2",
+  "version": "2.1",
+  "pin": {
+    "harborDataset": "terminal-bench/terminal-bench-2-1",
+    "registry": "harbor-framework/terminal-bench-2-1 (Harbor Hub dataset terminal-bench/terminal-bench-2-1)",
+    "taskRepo": "https://github.com/harbor-framework/terminal-bench-2-1.git",
+    "taskRepoCommit": "c5ee500c185224c97cd6caff7866a990a0057f41",
+    "license": "Apache-2.0"
+  },
+  "taskCount": 89,
+  "tasks": [
+    {
+      "id": "adaptive-rejection-sampler",
+      "difficulty": "medium",
+      "category": "scientific-computing",
+      "tags": [
+        "applied-statistics",
+        "adaptive-rejection-sampling",
+        "Bayesian-inference",
+        "simulation"
+      ]
+    },
+    {
+      "id": "bn-fit-modify",
+      "difficulty": "hard",
+      "category": "scientific-computing",
+      "tags": ["bayesian-network", "stats"]
+    },
+    {
+      "id": "break-filter-js-from-html",
+      "difficulty": "medium",
+      "category": "security",
+      "tags": ["security"]
+    },
+    {
+      "id": "build-cython-ext",
+      "difficulty": "medium",
+      "category": "debugging",
+      "tags": ["coding", "dependency", "compilation"]
+    },
+    {
+      "id": "build-pmars",
+      "difficulty": "medium",
+      "category": "software-engineering",
+      "tags": ["build-tools", "compilation", "debian", "gaming", "pmars", "corewars"]
+    },
+    {
+      "id": "build-pov-ray",
+      "difficulty": "medium",
+      "category": "software-engineering",
+      "tags": [
+        "build-tools",
+        "compilation",
+        "graphics",
+        "ray-tracing",
+        "legacy-software",
+        "research"
+      ]
+    },
+    {
+      "id": "caffe-cifar-10",
+      "difficulty": "medium",
+      "category": "machine-learning",
+      "tags": ["cnn", "caffe"]
+    },
+    {
+      "id": "cancel-async-tasks",
+      "difficulty": "hard",
+      "category": "software-engineering",
+      "tags": ["async", "concurrency", "python"]
+    },
+    {
+      "id": "chess-best-move",
+      "difficulty": "medium",
+      "category": "games",
+      "tags": []
+    },
+    {
+      "id": "circuit-fibsqrt",
+      "difficulty": "hard",
+      "category": "software-engineering",
+      "tags": ["software-engineering"]
+    },
+    {
+      "id": "cobol-modernization",
+      "difficulty": "easy",
+      "category": "software-engineering",
+      "tags": ["coding"]
+    },
+    {
+      "id": "code-from-image",
+      "difficulty": "medium",
+      "category": "software-engineering",
+      "tags": ["ocr"]
+    },
+    {
+      "id": "compile-compcert",
+      "difficulty": "medium",
+      "category": "system-administration",
+      "tags": ["compilation", "compilers"]
+    },
+    {
+      "id": "configure-git-webserver",
+      "difficulty": "hard",
+      "category": "system-administration",
+      "tags": ["system", "version-control", "web"]
+    },
+    {
+      "id": "constraints-scheduling",
+      "difficulty": "medium",
+      "category": "personal-assistant",
+      "tags": [
+        "calendar",
+        "scheduling",
+        "constraint-satisfaction",
+        "ics-parsing",
+        "temporal-reasoning"
+      ]
+    },
+    {
+      "id": "count-dataset-tokens",
+      "difficulty": "medium",
+      "category": "model-training",
+      "tags": ["machine-learning", "data", "datasets", "tokenization", "huggingface"]
+    },
+    {
+      "id": "crack-7z-hash",
+      "difficulty": "medium",
+      "category": "security",
+      "tags": ["decrypt", "security", "file-operations"]
+    },
+    {
+      "id": "custom-memory-heap-crash",
+      "difficulty": "medium",
+      "category": "debugging",
+      "tags": ["cpp", "memory-management", "debugging"]
+    },
+    {
+      "id": "db-wal-recovery",
+      "difficulty": "medium",
+      "category": "file-operations",
+      "tags": ["database", "encryption", "recovery"]
+    },
+    {
+      "id": "distribution-search",
+      "difficulty": "medium",
+      "category": "machine-learning",
+      "tags": ["coding", "statistics", "machine-learning"]
+    },
+    {
+      "id": "dna-assembly",
+      "difficulty": "hard",
+      "category": "scientific-computing",
+      "tags": ["biology", "cloning"]
+    },
+    {
+      "id": "dna-insert",
+      "difficulty": "medium",
+      "category": "scientific-computing",
+      "tags": ["biology", "cloning"]
+    },
+    {
+      "id": "extract-elf",
+      "difficulty": "medium",
+      "category": "file-operations",
+      "tags": []
+    },
+    {
+      "id": "extract-moves-from-video",
+      "difficulty": "hard",
+      "category": "file-operations",
+      "tags": ["file-operations", "web", "video-processing"]
+    },
+    {
+      "id": "feal-differential-cryptanalysis",
+      "difficulty": "hard",
+      "category": "mathematics",
+      "tags": ["software-engineering"]
+    },
+    {
+      "id": "feal-linear-cryptanalysis",
+      "difficulty": "hard",
+      "category": "mathematics",
+      "tags": ["software-engineering"]
+    },
+    {
+      "id": "filter-js-from-html",
+      "difficulty": "medium",
+      "category": "security",
+      "tags": ["security"]
+    },
+    {
+      "id": "financial-document-processor",
+      "difficulty": "medium",
+      "category": "data-processing",
+      "tags": ["ocr", "image-processing", "financial", "file-operations"]
+    },
+    {
+      "id": "fix-code-vulnerability",
+      "difficulty": "hard",
+      "category": "security",
+      "tags": ["security", "code-vulnerability", "common-weakness-enumeration"]
+    },
+    {
+      "id": "fix-git",
+      "difficulty": "easy",
+      "category": "software-engineering",
+      "tags": ["coding", "version-control"]
+    },
+    {
+      "id": "fix-ocaml-gc",
+      "difficulty": "hard",
+      "category": "software-engineering",
+      "tags": ["troubleshooting"]
+    },
+    {
+      "id": "gcode-to-text",
+      "difficulty": "medium",
+      "category": "file-operations",
+      "tags": ["file-operations"]
+    },
+    {
+      "id": "git-leak-recovery",
+      "difficulty": "medium",
+      "category": "software-engineering",
+      "tags": ["git", "security"]
+    },
+    {
+      "id": "git-multibranch",
+      "difficulty": "medium",
+      "category": "system-administration",
+      "tags": ["system", "version-control", "web"]
+    },
+    {
+      "id": "gpt2-codegolf",
+      "difficulty": "hard",
+      "category": "software-engineering",
+      "tags": []
+    },
+    {
+      "id": "headless-terminal",
+      "difficulty": "medium",
+      "category": "software-engineering",
+      "tags": ["bash", "terminal"]
+    },
+    {
+      "id": "hf-model-inference",
+      "difficulty": "medium",
+      "category": "data-science",
+      "tags": ["api", "coding", "data-processing", "data-science"]
+    },
+    {
+      "id": "install-windows-3.11",
+      "difficulty": "hard",
+      "category": "system-administration",
+      "tags": ["virtualization", "qemu", "windows-3.11", "vnc", "sys-admin", "retro-computing"]
+    },
+    {
+      "id": "kv-store-grpc",
+      "difficulty": "medium",
+      "category": "software-engineering",
+      "tags": ["coding", "file-operations", "system"]
+    },
+    {
+      "id": "large-scale-text-editing",
+      "difficulty": "medium",
+      "category": "file-operations",
+      "tags": ["text-editing", "large-scale-text-manipulation", "vim", "vim-macros"]
+    },
+    {
+      "id": "largest-eigenval",
+      "difficulty": "medium",
+      "category": "mathematics",
+      "tags": ["coding", "optimization", "constraint", "numerical-approximation"]
+    },
+    {
+      "id": "llm-inference-batching-scheduler",
+      "difficulty": "hard",
+      "category": "machine-learning",
+      "tags": ["batching", "inference", "performance-optimization", "scheduling"]
+    },
+    {
+      "id": "log-summary-date-ranges",
+      "difficulty": "medium",
+      "category": "data-processing",
+      "tags": ["log-analysis", "report-generation", "data-processing"]
+    },
+    {
+      "id": "mailman",
+      "difficulty": "medium",
+      "category": "system-administration",
+      "tags": ["email-server", "mailing-list"]
+    },
+    {
+      "id": "make-doom-for-mips",
+      "difficulty": "hard",
+      "category": "software-engineering",
+      "tags": ["software-engineering"]
+    },
+    {
+      "id": "make-mips-interpreter",
+      "difficulty": "hard",
+      "category": "software-engineering",
+      "tags": ["software-engineering"]
+    },
+    {
+      "id": "mcmc-sampling-stan",
+      "difficulty": "hard",
+      "category": "data-science",
+      "tags": ["R", "stan", "bayesian-statistics", "mcmc"]
+    },
+    {
+      "id": "merge-diff-arc-agi-task",
+      "difficulty": "medium",
+      "category": "debugging",
+      "tags": ["git", "coding"]
+    },
+    {
+      "id": "model-extraction-relu-logits",
+      "difficulty": "hard",
+      "category": "mathematics",
+      "tags": ["security"]
+    },
+    {
+      "id": "modernize-scientific-stack",
+      "difficulty": "medium",
+      "category": "scientific-computing",
+      "tags": [
+        "python-migration",
+        "scientific-computing",
+        "legacy-modernization",
+        "climate-science",
+        "data-processing"
+      ]
+    },
+    {
+      "id": "mteb-leaderboard",
+      "difficulty": "medium",
+      "category": "data-science",
+      "tags": ["retrieval", "mteb"]
+    },
+    {
+      "id": "mteb-retrieve",
+      "difficulty": "medium",
+      "category": "data-science",
+      "tags": ["data-processing", "data-science", "mteb"]
+    },
+    {
+      "id": "multi-source-data-merger",
+      "difficulty": "medium",
+      "category": "data-processing",
+      "tags": [
+        "data-processing",
+        "etl",
+        "schema-mapping",
+        "conflict-resolution",
+        "pandas",
+        "parquet"
+      ]
+    },
+    {
+      "id": "nginx-request-logging",
+      "difficulty": "medium",
+      "category": "system-administration",
+      "tags": ["web-server"]
+    },
+    {
+      "id": "openssl-selfsigned-cert",
+      "difficulty": "medium",
+      "category": "security",
+      "tags": ["coding", "file-operations", "security", "system"]
+    },
+    {
+      "id": "overfull-hbox",
+      "difficulty": "easy",
+      "category": "debugging",
+      "tags": ["latex", "document-processing", "combinatorial-optimization"]
+    },
+    {
+      "id": "password-recovery",
+      "difficulty": "hard",
+      "category": "security",
+      "tags": ["system", "file-operations", "troubleshooting"]
+    },
+    {
+      "id": "path-tracing",
+      "difficulty": "hard",
+      "category": "software-engineering",
+      "tags": ["images"]
+    },
+    {
+      "id": "path-tracing-reverse",
+      "difficulty": "hard",
+      "category": "software-engineering",
+      "tags": ["images"]
+    },
+    {
+      "id": "polyglot-c-py",
+      "difficulty": "medium",
+      "category": "software-engineering",
+      "tags": ["coding"]
+    },
+    {
+      "id": "polyglot-rust-c",
+      "difficulty": "hard",
+      "category": "software-engineering",
+      "tags": ["coding", "no-verified-solution"]
+    },
+    {
+      "id": "portfolio-optimization",
+      "difficulty": "medium",
+      "category": "optimization",
+      "tags": ["c-programming", "python-extension", "optimization"]
+    },
+    {
+      "id": "protein-assembly",
+      "difficulty": "hard",
+      "category": "scientific-computing",
+      "tags": ["biology", "cloning", "proteins"]
+    },
+    {
+      "id": "prove-plus-comm",
+      "difficulty": "easy",
+      "category": "software-engineering",
+      "tags": ["coding"]
+    },
+    {
+      "id": "pypi-server",
+      "difficulty": "medium",
+      "category": "software-engineering",
+      "tags": ["coding", "system"]
+    },
+    {
+      "id": "pytorch-model-cli",
+      "difficulty": "medium",
+      "category": "model-training",
+      "tags": ["coding", "C", "pytorch"]
+    },
+    {
+      "id": "pytorch-model-recovery",
+      "difficulty": "medium",
+      "category": "model-training",
+      "tags": ["coding", "pytorch", "machine-learning"]
+    },
+    {
+      "id": "qemu-alpine-ssh",
+      "difficulty": "medium",
+      "category": "system-administration",
+      "tags": ["sys-admin"]
+    },
+    {
+      "id": "qemu-startup",
+      "difficulty": "medium",
+      "category": "system-administration",
+      "tags": ["sys-admin"]
+    },
+    {
+      "id": "query-optimize",
+      "difficulty": "medium",
+      "category": "data-science",
+      "tags": ["query-optimization", "sql-query"]
+    },
+    {
+      "id": "raman-fitting",
+      "difficulty": "medium",
+      "category": "scientific-computing",
+      "tags": ["coding", "fitting", "analysis", "physics"]
+    },
+    {
+      "id": "regex-chess",
+      "difficulty": "hard",
+      "category": "software-engineering",
+      "tags": ["software-engineering"]
+    },
+    {
+      "id": "regex-log",
+      "difficulty": "medium",
+      "category": "data-processing",
+      "tags": ["regex", "string-parsing", "log-analysis"]
+    },
+    {
+      "id": "reshard-c4-data",
+      "difficulty": "medium",
+      "category": "data-science",
+      "tags": ["coding", "data-processing", "file-operations"]
+    },
+    {
+      "id": "rstan-to-pystan",
+      "difficulty": "medium",
+      "category": "data-science",
+      "tags": ["pystan", "rstan", "gaussian-process"]
+    },
+    {
+      "id": "sam-cell-seg",
+      "difficulty": "hard",
+      "category": "data-science",
+      "tags": ["image-processing", "machine-learning", "histopathology"]
+    },
+    {
+      "id": "sanitize-git-repo",
+      "difficulty": "medium",
+      "category": "security",
+      "tags": ["security", "system", "version-control"]
+    },
+    {
+      "id": "schemelike-metacircular-eval",
+      "difficulty": "medium",
+      "category": "software-engineering",
+      "tags": ["software-engineering"]
+    },
+    {
+      "id": "sparql-university",
+      "difficulty": "hard",
+      "category": "data-querying",
+      "tags": ["knowledge-graph", "sparql-query", "information-retrieval"]
+    },
+    {
+      "id": "sqlite-db-truncate",
+      "difficulty": "medium",
+      "category": "debugging",
+      "tags": ["file-operations"]
+    },
+    {
+      "id": "sqlite-with-gcov",
+      "difficulty": "medium",
+      "category": "system-administration",
+      "tags": ["software-installation", "system"]
+    },
+    {
+      "id": "torch-pipeline-parallelism",
+      "difficulty": "hard",
+      "category": "software-engineering",
+      "tags": ["system"]
+    },
+    {
+      "id": "torch-tensor-parallelism",
+      "difficulty": "hard",
+      "category": "software-engineering",
+      "tags": ["system"]
+    },
+    {
+      "id": "train-fasttext",
+      "difficulty": "hard",
+      "category": "model-training",
+      "tags": ["data-processing", "data-science"]
+    },
+    {
+      "id": "tune-mjcf",
+      "difficulty": "medium",
+      "category": "scientific-computing",
+      "tags": ["mujoco", "physics", "simulation", "numerical-optimization"]
+    },
+    {
+      "id": "video-processing",
+      "difficulty": "hard",
+      "category": "video-processing",
+      "tags": ["video-processing"]
+    },
+    {
+      "id": "vulnerable-secret",
+      "difficulty": "medium",
+      "category": "security",
+      "tags": ["security", "file-operations"]
+    },
+    {
+      "id": "winning-avg-corewars",
+      "difficulty": "medium",
+      "category": "software-engineering",
+      "tags": ["pmars", "corewars", "gaming"]
+    },
+    {
+      "id": "write-compressor",
+      "difficulty": "hard",
+      "category": "software-engineering",
+      "tags": ["coding"]
+    }
+  ]
+}

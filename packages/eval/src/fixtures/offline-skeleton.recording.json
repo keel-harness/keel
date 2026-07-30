@@ -1,0 +1,39 @@
+{
+  "version": 1,
+  "provider": "replay",
+  "model": "keel-offline-skeleton",
+  "turns": [
+    {
+      "chunks": [
+        {
+          "type": "text-delta",
+          "text": "I'll inspect the failing check, then run it to confirm the fix."
+        },
+        {
+          "type": "tool-call",
+          "id": "call_skel_1",
+          "name": "bash",
+          "args": { "command": "echo keel-offline-skeleton-ok" }
+        },
+        {
+          "type": "finish",
+          "reason": "tool-calls",
+          "usage": { "inputTokens": 128, "outputTokens": 24 }
+        }
+      ]
+    },
+    {
+      "chunks": [
+        {
+          "type": "text-delta",
+          "text": "The check passed. offline-skeleton-complete"
+        },
+        {
+          "type": "finish",
+          "reason": "stop",
+          "usage": { "inputTokens": 160, "outputTokens": 18 }
+        }
+      ]
+    }
+  ]
+}

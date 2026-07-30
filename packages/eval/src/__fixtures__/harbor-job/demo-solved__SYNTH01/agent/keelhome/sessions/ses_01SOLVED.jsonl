@@ -1,0 +1,2 @@
+{"type":"session_meta","v":1,"id":"ses_01SOLVED","createdAt":"2026-06-16T21:05:00.000Z","cwd":"/app"}
+{"type":"run_status","v":1,"ts":"2026-06-16T21:06:00.000Z","reason":"model-stop","usage":{"inputTokens":42000,"outputTokens":3500}}

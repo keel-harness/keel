@@ -1,0 +1,9 @@
+# Isolated spike — commit the HARNESS (package.json, package-lock.json, *.rego, bench.mjs, README.md,
+# results.json) only, NOT the build outputs or binaries.
+node_modules/
+opa
+*.wasm
+bundle.tar.gz
+.manifest
+data.json
+smoke-bin

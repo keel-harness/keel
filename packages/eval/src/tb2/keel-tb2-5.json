@@ -1,0 +1,14 @@
+{
+  "$comment": "Smoke subset (Appendix F) \u2014 5 fast, category-diverse tasks, a SUBSET of keel-tb2-25, for cheap liveness validation of the adapter/runner. NOT a held-out generalization measure.",
+  "name": "keel-tb2-5",
+  "suite": "terminal-bench-2",
+  "version": "2.1",
+  "taskCount": 5,
+  "tasks": [
+    "build-cython-ext",
+    "cobol-modernization",
+    "db-wal-recovery",
+    "financial-document-processor",
+    "hf-model-inference"
+  ]
+}

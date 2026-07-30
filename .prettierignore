@@ -1,0 +1,26 @@
+# generated / vendored
+pnpm-lock.yaml
+node_modules/
+dist/
+coverage/
+vendor/
+.claude/worktrees/
+
+# manual live-eval harness: runner script + intentionally-imperfect task fixtures (not product code)
+eval/mini/
+
+# intentionally-malicious hostile-repo corpus — kept byte-stable as test data, never reformatted
+fixtures/
+
+# captured harness output used as test fixtures (e.g. real harbor job dirs) — kept byte-faithful to
+# what the tool actually emits, so the parser is tested against reality, never against reformatted JSON
+**/__fixtures__/
+
+# hand-authored prose — prettier reflow is undesirable here
+*.md
+docs/
+LICENSE
+NOTICE
+
+# CI workflow YAML — prettier's YAML parser chokes on em-dash step names in the spec
+.github/

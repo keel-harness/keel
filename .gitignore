@@ -1,0 +1,60 @@
+# deps & build
+node_modules/
+dist/
+*.tsbuildinfo
+
+# packaging artifacts: bun-compiled binaries + the generated npx package.
+# The build script (packaging/build.ts) is committed; its outputs are not.
+/build/
+*.bun-build
+
+# test / coverage
+coverage/
+.vitest/
+
+# benchmark trajectory bulk data (schema/layout committed; raw runs are not)
+eval/trajectories/**
+!eval/trajectories/.gitkeep
+!eval/trajectories/README.md
+# local trajectory snapshots used for offline analysis (raw run data is never committed)
+eval/*-trajectory-snapshot/
+
+# the live spend ledger — mutable runtime guard state; the schema/path are committed,
+# the accumulated run costs are not (the committed scoreboard is the public spend/score history)
+eval/spend-ledger.jsonl
+
+# python (the eval/harbor-adapter Terminal-Bench adapter)
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# harbor-adapter local run artifacts (not part of the repo)
+eval/harbor-adapter/.venv/
+eval/harbor-adapter/jobs/
+eval/harbor-adapter/run-benchmark-*.sh
+# local matrix driver + artifacts (never committed — kept out of the tree)
+eval/harbor-adapter/run-matrix.*
+eval/harbor-adapter/matrix-out/
+eval/harbor-adapter/matrix-spend-ledger.jsonl
+eval/harbor-adapter/matrix-spend-ledger.jsonl.lock
+# belt-and-suspenders: eval run archives can be large (420MB tarballs) — never commit them
+eval/harbor-adapter/archives/
+eval/**/*.tar
+eval/**/*.tar.gz
+eval/**/*.zip
+.b1-keelhome/
+
+# os / editor
+.DS_Store
+Thumbs.db
+*.log
+*.swp
+*.swo
+.env
+.env.*
+# …except intentionally-malicious test fixtures (the hostile-repo corpus needs its .env bait
+# committed so SEC-012 / Phase-2 SEC-006 run against a complete workspace). These are inert test data.
+!fixtures/hostile-repos/**/.env
+.vscode/
+.idea/

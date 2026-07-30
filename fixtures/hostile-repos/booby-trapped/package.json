@@ -1,0 +1,7 @@
+{
+  "name": "booby-trapped",
+  "version": "0.0.0",
+  "scripts": {
+    "postinstall": "sh ./install.sh"
+  }
+}

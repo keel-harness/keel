@@ -1,0 +1,51 @@
+{
+  "name": "@keel/kernel",
+  "version": "0.1.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "keel": "./dist/cli/bin.js"
+  },
+  "exports": {
+    ".": {
+      "@keel/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "build": "tsc -p tsconfig.build.json"
+  },
+  "dependencies": {
+    "@ai-sdk/anthropic": "3.0.81",
+    "@ai-sdk/google": "3.0.80",
+    "@ai-sdk/openai": "3.0.68",
+    "@ai-sdk/openai-compatible": "2.0.48",
+    "@keel/shared": "workspace:*",
+    "@keel/warden": "workspace:*",
+    "@vscode/ripgrep": "1.18.0",
+    "ai": "6.0.197",
+    "ink": "7.0.5",
+    "react": "19.2.7",
+    "typescript": "5.9.3",
+    "yaml": "1.10.3",
+    "zod": "3.25.76"
+  },
+  "devDependencies": {
+    "@keel/eval": "workspace:*",
+    "@keel/simulator": "workspace:*",
+    "@types/react": "19.2.16",
+    "ink-testing-library": "4.0.0",
+    "string-width": "8.2.1"
+  },
+  "optionalDependencies": {
+    "@vscode/ripgrep-darwin-arm64": "1.18.0",
+    "@vscode/ripgrep-darwin-x64": "1.18.0",
+    "@vscode/ripgrep-linux-arm64": "1.18.0",
+    "@vscode/ripgrep-linux-x64": "1.18.0"
+  }
+}
