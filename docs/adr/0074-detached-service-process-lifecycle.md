@@ -29,54 +29,62 @@ different, code-verified process models:
 ### 1. Kernel `LocalExecutor` (Phase-1 honest-no-enforcement; also the eval-direct runtime)
 
 A persistent `PipeShellSession` (`bash --norc --noprofile`) spawned **detached as a process-group
-leader** ([shell-session.ts:226-234](../../packages/kernel/src/tools/shell-session.ts)). Teardown:
+leader** (the `defaultSpawner` implementation in
+[shell-session.ts](../../packages/kernel/src/tools/shell-session.ts)). Teardown:
 
 - `killGroup()` on `dispose()` SIGKILLs the **whole shell process group**
-  (`process.kill(-pid, "SIGKILL")`, [shell-session.ts:251-261](../../packages/kernel/src/tools/shell-session.ts));
-  `dispose()` runs at run end ([session-entry.ts:1579](../../packages/kernel/src/cli/session-entry.ts)).
+  (`process.kill(-pid, "SIGKILL")`, `defaultSpawner.killGroup` in
+  [shell-session.ts](../../packages/kernel/src/tools/shell-session.ts)); `dispose()` runs from the
+  `runKeelCommand` runtime-finalization path in
+  [session-entry.ts](../../packages/kernel/src/cli/session-entry.ts).
 - A plain `nohup cmd &` / bare `cmd &` stays in the **shell's** group → SIGKILLed at dispose.
 - A `setsid cmd &` daemon is a **new session, not a descendant**, so it is *intentionally left
-  running* but **unmanaged** — no cleanup owner ([shell-session.ts:266-268](../../packages/kernel/src/tools/shell-session.ts);
-  the bash tool spec calls detached processes "unmanaged unless started through the structured
-  `lease` argument", [bash.ts:49](../../packages/kernel/src/tools/bash.ts)).
-- The **`lease`** path (`startLeased`) launches the command under `setsid` with a recorded pid and
-  a cleanup owner, scope `until-verifier-handoff`
-  ([shell-session.ts:530-565](../../packages/kernel/src/tools/shell-session.ts);
-  scopes in [process-lease.ts:6](../../packages/kernel/src/tools/process-lease.ts)) — so it both
+  running* but **unmanaged** — no cleanup owner (`defaultSpawner.killGroup` in
+  [shell-session.ts](../../packages/kernel/src/tools/shell-session.ts); the bash tool spec calls
+  detached processes "unmanaged unless started through the structured `lease` argument" in
+  [bash.ts](../../packages/kernel/src/tools/bash.ts)).
+- The **`lease`** path (`PipeShellSession.startLeased`) launches the command under `setsid` with a
+  recorded pid and a cleanup owner, scope `until-verifier-handoff`
+  ([shell-session.ts](../../packages/kernel/src/tools/shell-session.ts); `ProcessLeaseScope` in
+  [process-lease.ts](../../packages/kernel/src/tools/process-lease.ts)) — so it both
   survives and is reap-able by the kernel.
 - **Eval-only auto-lease (ADR-precedent, shipped):** in the eval-direct runtime *only*, a
   safely-rewritable backgrounded server is auto-promoted to that lease
   ([bash.ts](../../packages/kernel/src/tools/bash.ts), `autoLeaseBackgroundedServices`; set only by
   `createEvalDirectRuntime`, which is build- and run-time-gated per
   [eval-executor-gate.ts](../../packages/kernel/src/cli/eval-executor-gate.ts)). It is honest
-  because eval-direct uses `new LocalExecutor()`
-  ([runtime.ts:296](../../packages/kernel/src/cli/runtime.ts)) — **no warden, no sandbox** — so a
+  because `createEvalDirectRuntime` uses `new LocalExecutor()`
+  ([runtime.ts](../../packages/kernel/src/cli/runtime.ts)) — **no warden, no sandbox** — so a
   `setsid` survivor is possible.
 
 ### 2. Governed (warden) mode — the production path
 
 The kernel spawns an out-of-process warden; **`packages/warden` contains no `createBashTool` and no
 `PipeShellSession`**. Every governed `bash` call is a **one-shot, per-command spawn** in its own
-process group ([rpc-server.ts:2955](../../packages/warden/src/rpc-server.ts);
-[srt-sandbox.ts:279-285](../../packages/warden/src/srt-sandbox.ts) — detached on POSIX), sandboxed
+process group (`bashCommandFromToolCall` in
+[rpc-server.ts](../../packages/warden/src/rpc-server.ts) and `createNodeSandboxProcessRunner` in
+[srt-sandbox.ts](../../packages/warden/src/srt-sandbox.ts) — detached on POSIX), sandboxed
 by the vendored sandbox-runtime. Two facts are load-bearing:
 
 - **Governed bash explicitly rejects the `lease` argument**
-  ([rpc-server.ts:399-402](../../packages/warden/src/rpc-server.ts): *"governed bash does not support
+  (`bashCommandFromToolCall` in [rpc-server.ts](../../packages/warden/src/rpc-server.ts): *"governed bash does not support
   service/job leases"*). The kernel's survivor mechanism does not exist in the warden.
 - The process group is SIGTERM→SIGKILL'd **only on abort** (interrupt / warden teardown / stdin-EOF),
-  **never on normal command completion** ([srt-sandbox.ts:311-354](../../packages/warden/src/srt-sandbox.ts);
-  the `executionAbort` controller, [rpc-server.ts:5286-5419](../../packages/warden/src/rpc-server.ts)).
+  **never on normal command completion** (`createNodeSandboxProcessRunner` in
+  [srt-sandbox.ts](../../packages/warden/src/srt-sandbox.ts); the `executionAbort` controller in
+  `runStdioWardenServer`, [rpc-server.ts](../../packages/warden/src/rpc-server.ts)).
 
 And the sandbox itself makes background survival **platform-asymmetric**:
 
 - **Linux (bwrap):** the wrap uses `--unshare-pid --proc` + `--die-with-parent`
-  ([linux-sandbox-utils.ts:1245,1379](../../vendor/sandbox-runtime/src/sandbox/linux-sandbox-utils.ts)),
+  (`wrapCommandWithSandboxLinux` in
+  [linux-sandbox-utils.ts](../../vendor/sandbox-runtime/src/sandbox/linux-sandbox-utils.ts)),
   so the sandboxed bash is **init (PID 1) of a private PID namespace**. When it exits, the kernel
   tears down every process in the namespace. A backgrounded service **cannot outlive the command by
   construction.** This is a containment *feature*.
 - **macOS (seatbelt):** `sandbox-exec` applies a syscall/policy profile only — **no PID namespace,
-  no `--die-with-parent` analogue** ([macos-sandbox-utils.ts:887-898](../../vendor/sandbox-runtime/src/sandbox/macos-sandbox-utils.ts)).
+  no `--die-with-parent` analogue** (`wrapCommandWithSandboxMacOS` in
+  [macos-sandbox-utils.ts](../../vendor/sandbox-runtime/src/sandbox/macos-sandbox-utils.ts)).
   A fully-detached `nohup server &` from a **normal** (non-aborted) governed command is **not** reaped
   on completion; it lingers until the next warden abort group-kill. This is an inconsistency with
   Linux and an uncontrolled-orphan gap.
@@ -84,17 +92,20 @@ And the sandbox itself makes background survival **platform-asymmetric**:
 ### 3. The only warden "survives the run" primitive
 
 The interactive-console tmux broker (ADR-0069/0070) deliberately lets a **released** console session
-outlive teardown via an explicit continuation-grant
-([tmux-broker.ts:814-857](../../packages/warden/src/interactive-console/tmux-broker.ts);
-[broker.ts:21-28](../../packages/warden/src/interactive-console/broker.ts)). It is warden-mediated,
+outlive teardown via an explicit continuation-grant (`createSystemTmuxConsoleBroker.release` in
+[tmux-broker.ts](../../packages/warden/src/interactive-console/tmux-broker.ts) and
+`ConsoleHandleContinuationGrant` in
+[broker.ts](../../packages/warden/src/interactive-console/broker.ts)). It is warden-mediated,
 policy-gated, and audited — and it is a **different tool** from bash, for interactive PTY work.
 
 ### The invariant that is (and is not) at stake
 
 The no-orphan guarantee is **already scoped** to exclude intentional backgrounding. ADR-0023 §3:
 *"The no-leak guarantee covers runaway/timeout/abort, **not** intentionally-backgrounded jobs (the
-model's choice)"* ([0023:18](0023-epic-1.2-tool-dependencies.md)); MASTER_SPEC's "no orphan
-processes" is scoped to `bash` **timeout** ([MASTER_SPEC.md:1012](../../MASTER_SPEC.md)). **No claim
+model's choice)"* (ADR-0023 §3,
+[0023-epic-1.2-tool-dependencies.md](0023-epic-1.2-tool-dependencies.md)); MASTER_SPEC's "no orphan
+processes" is scoped to `bash` **timeout** in the Epic 1.2 acceptance text
+([MASTER_SPEC.md](../../MASTER_SPEC.md)). **No claim
 in the claim ledger asserts "no surviving background service after a governed run."** So Option A is
 less a *violation* of a guarantee than a decision about processes the guarantee already excludes.
 
