@@ -7,7 +7,7 @@ import {
   WARDEN_METHODS,
   type WardenMethodNameT,
 } from "@keel/shared";
-import { restoreHostNodeEnv } from "../tools/child-env.js";
+import { mergeAndRestoreHostNodeEnv } from "../tools/child-env.js";
 
 type MethodParams<M extends WardenMethodNameT> = z.infer<(typeof WARDEN_METHODS)[M]["params"]>;
 type MethodResult<M extends WardenMethodNameT> = z.infer<(typeof WARDEN_METHODS)[M]["result"]>;
@@ -387,9 +387,9 @@ export async function startWardenClient(
 ): Promise<StartedWardenClient> {
   const child = spawn(options.command, options.args, {
     cwd: options.cwd,
-    // ADR-0083: restore on the final spawn env. Restoring only in childEnvFor is insufficient
-    // because this merge would otherwise reintroduce the Kernel's production NODE_ENV + sentinels.
-    env: restoreHostNodeEnv({ ...process.env, ...options.env }),
+    // ADR-0083: restore on the final spawn env. The launcher-owned sentinels are reserved across
+    // this merge so a later internal env layer cannot disable or rewrite host restoration.
+    env: mergeAndRestoreHostNodeEnv(process.env, options.env),
     stdio: ["pipe", "pipe", "pipe"],
   });
   const client = attachWardenClient(child, options);

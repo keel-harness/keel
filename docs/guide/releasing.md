@@ -24,7 +24,8 @@ Stop unless all of these are true:
   action contracts against current primary documentation.
 - The intended version is absent from both live and staged versions. Any ambiguous registry result
   is a stop, not permission to rerun.
-- P1-007 remains named in release notes; no packaged-performance claim is made.
+- P1-007 remains named and failed in release notes, with the owner's 2026-07-30 acceptance scoped
+  to the `0.1.0` pre-alpha release; no packaged-performance claim is made.
 
 Record the exact public-main SHA and the successful public-main CI URL. Creating the annotated,
 protected `v0.1.0` tag is a separately approved operation. The tag's peeled commit must equal both

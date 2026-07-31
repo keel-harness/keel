@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import fc from "fast-check";
-import { minimalChildEnv, restoreHostNodeEnv } from "./child-env.js";
+import { mergeAndRestoreHostNodeEnv, minimalChildEnv, restoreHostNodeEnv } from "./child-env.js";
 
 describe("minimalChildEnv (EXEC-2 — least-privilege env for harness-internal children)", () => {
   it("returns ONLY PATH + locale — host secrets in the source env are not carried through", () => {
@@ -128,5 +128,39 @@ describe("restoreHostNodeEnv (ADR-0083 — release-renderer env restoration)", (
         },
       ),
     );
+  });
+});
+
+describe("mergeAndRestoreHostNodeEnv (ADR-0083 — sentinel ownership)", () => {
+  it("keeps launcher-captured state authoritative over later internal env layers", () => {
+    expect(
+      mergeAndRestoreHostNodeEnv(
+        {
+          PATH: "/host/bin",
+          NODE_ENV: "production",
+          KEEL_HOST_NODE_ENV: "development",
+          KEEL_HOST_NODE_ENV_MANAGED: "1",
+        },
+        {
+          PATH: "/child/bin",
+          NODE_ENV: "caller-override",
+          KEEL_HOST_NODE_ENV: "caller-override",
+          KEEL_HOST_NODE_ENV_MANAGED: "0",
+        },
+      ),
+    ).toEqual({ PATH: "/child/bin", NODE_ENV: "development" });
+  });
+
+  it("preserves the captured absence of host NODE_ENV across a later sentinel injection", () => {
+    expect(
+      mergeAndRestoreHostNodeEnv(
+        { NODE_ENV: "production", KEEL_HOST_NODE_ENV_MANAGED: "1" },
+        {
+          NODE_ENV: "caller-override",
+          KEEL_HOST_NODE_ENV: "caller-override",
+          KEEL_HOST_NODE_ENV_MANAGED: "1",
+        },
+      ),
+    ).toEqual({});
   });
 });

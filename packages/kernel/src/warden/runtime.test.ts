@@ -1330,6 +1330,11 @@ describe("createProductionWardenRuntime", () => {
             }) + "\\n");
           `,
         ],
+        env: {
+          NODE_ENV: "caller-override",
+          KEEL_HOST_NODE_ENV: "caller-override",
+          KEEL_HOST_NODE_ENV_MANAGED: "0",
+        },
         requestTimeoutMs: 5_000,
       },
     });

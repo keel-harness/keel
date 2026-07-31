@@ -44,7 +44,7 @@ import { SPEC as EDIT_SPEC } from "../tools/edit.js";
 import { SPEC as READ_SPEC } from "../tools/read.js";
 import { resolveRgPath, SPEC as SEARCH_SPEC } from "../tools/search.js";
 import { SPEC as WRITE_SPEC } from "../tools/write.js";
-import { restoreHostNodeEnv } from "../tools/child-env.js";
+import { mergeAndRestoreHostNodeEnv } from "../tools/child-env.js";
 import { WardenExecutor } from "./executor.js";
 import type { WardenReviewAutoResolvedEvent, WardenReviewDecisionHandler } from "./executor.js";
 import { startWardenClient, type StartedWardenClient } from "./client.js";
@@ -679,9 +679,10 @@ export async function discoverProductionMcpServer(
   const auditDir = auditDirFor(env, start);
   await mkdir(auditDir, { recursive: true });
   // Unlike startWardenClient, this spawn passes childEnv directly and never re-spreads process.env;
-  // restoring the fully built object here is therefore the final ADR-0083 spawn boundary.
-  const childEnv: NodeJS.ProcessEnv = restoreHostNodeEnv({
-    ...mergedEnv,
+  // preserving the base env's sentinels across the merge and restoring here is therefore the final
+  // ADR-0083 spawn boundary.
+  const childEnv: NodeJS.ProcessEnv = mergeAndRestoreHostNodeEnv(env, {
+    ...startEnv,
     ...credentialProxyChildEnv(
       { cwd: options.cwd, env: mergedEnv, workspaceTrusted: true },
       mergedEnv,

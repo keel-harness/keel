@@ -34,3 +34,21 @@ export function restoreHostNodeEnv(env: NodeJS.ProcessEnv = process.env): NodeJS
   if (hostNodeEnv !== undefined) restored["NODE_ENV"] = hostNodeEnv;
   return restored;
 }
+
+/** Merge a child-specific environment without letting that later layer rewrite the launcher's
+ * captured NODE_ENV state. The sentinel keys are internal ownership metadata, not caller
+ * configuration: when the base environment is launcher-managed, its captured state is restored
+ * after the ordinary override merge and before the sentinels are stripped. */
+export function mergeAndRestoreHostNodeEnv(
+  baseEnv: NodeJS.ProcessEnv,
+  overrideEnv: NodeJS.ProcessEnv = {},
+): NodeJS.ProcessEnv {
+  const merged = { ...baseEnv, ...overrideEnv };
+  if (baseEnv["KEEL_HOST_NODE_ENV_MANAGED"] === "1") {
+    merged["KEEL_HOST_NODE_ENV_MANAGED"] = "1";
+    const hostNodeEnv = baseEnv["KEEL_HOST_NODE_ENV"];
+    if (hostNodeEnv === undefined) delete merged["KEEL_HOST_NODE_ENV"];
+    else merged["KEEL_HOST_NODE_ENV"] = hostNodeEnv;
+  }
+  return restoreHostNodeEnv(merged);
+}
