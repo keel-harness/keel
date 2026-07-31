@@ -546,15 +546,13 @@ describe("CI packaging workflow", () => {
     }
   });
 
-  it("runs the docs-claim consistency guard on docs-only PRs (QC §10)", () => {
-    // The build + security jobs run `docs-claim-consistency.test.ts` (via test:cov / test:security),
-    // but both are gated on `code == 'true'` and are SKIPPED for docs-only PRs. So the docs job — the
-    // only required job that runs on a docs-only PR — must itself run the claim-consistency guard;
-    // otherwise a docs-only edit to a security claim in MASTER_SPEC/README/SECURITY passes CI without
-    // the guard firing (exactly the drift the guard exists to catch).
+  it("runs public-doc claim and numeric-evidence guards on docs-only PRs (QC §10)", () => {
+    // The build + security jobs run these tests through the full suites, but both are gated on
+    // `code == 'true'` and skipped for docs-only PRs. The docs job must run both guards directly.
     const workflow = readFileSync(join(repoRoot, ".github", "workflows", "ci.yml"), "utf8");
     const docsJob = workflow.slice(workflow.indexOf("\n  docs:"), workflow.indexOf("\n  build:"));
     expect(docsJob).toContain("docs-claim-consistency.test.ts");
+    expect(docsJob).toContain("evidence-numbers.test.ts");
   });
 
   it("runs the Phase-2A security suite as a real CI gate", () => {
