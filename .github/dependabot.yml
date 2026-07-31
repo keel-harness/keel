@@ -11,7 +11,26 @@ updates:
       interval: weekly
     open-pull-requests-limit: 10
     groups:
-      npm-minor-patch:
+      # Keep renderer/cell-policy proposals isolated: these exact pins are an
+      # executable terminal contract and require ADR + real-terminal review.
+      tui-runtime-minor-patch:
+        applies-to: version-updates
+        patterns: ["ink", "react", "@types/react", "string-width"]
+        update-types: ["minor", "patch"]
+      # Provider adapters are release-path runtime code. Review and live-provider
+      # evidence should not be hidden inside an unrelated toolchain rollup.
+      provider-runtime-minor-patch:
+        applies-to: version-updates
+        patterns: ["ai", "@ai-sdk/*"]
+        update-types: ["minor", "patch"]
+      npm-development-minor-patch:
+        applies-to: version-updates
+        dependency-type: development
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+      npm-runtime-minor-patch:
+        applies-to: version-updates
+        dependency-type: production
         patterns: ["*"]
         update-types: ["minor", "patch"]
     ignore:
