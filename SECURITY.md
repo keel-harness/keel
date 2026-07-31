@@ -30,6 +30,9 @@ We will acknowledge your report within a reasonable time and keep you informed a
 we investigate. Please give us a reasonable opportunity to address the issue
 before any public disclosure.
 
+To inspect the current enforcement paths, use the [security review map](docs/guide/reviewing-keel.md).
+It points to the policy-decision, durable-audit, and sandbox-projection seams by function name.
+
 ## Scope
 
 This repository is pre-alpha. Reports about code **present in this repository** are in

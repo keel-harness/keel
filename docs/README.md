@@ -34,6 +34,8 @@ A map of the docs, by what you're trying to do. New here? Start with the
 - **[guide/architecture.md](guide/architecture.md)**: the deep-dive: processes, RPC, the
   enforcement chain, and the audit chain. (For the short version, the
   [one-pager](architecture.md).)
+- **[guide/reviewing-keel.md](guide/reviewing-keel.md)**: a two-hour, function-by-function map of
+  policy decisions, durable audit writes, and sandbox-profile projection for security reviewers.
 
 ## Understanding the design (deeper)
 
