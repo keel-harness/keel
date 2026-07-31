@@ -58,9 +58,27 @@ jobs:
 
       - uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5
 
-      - uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3
+      # The two steps below replace `actions/upload-pages-artifact`. That action is a composite
+      # whose final step calls `actions/upload-artifact@v4` — pinned by TAG, not by SHA — which the
+      # organization's Actions policy rejects outright ("All actions must also be pinned to a
+      # full-length commit SHA"). The wrapper only tars a directory and uploads it under the
+      # well-known name `github-pages`, so doing it inline costs nothing and keeps every action in
+      # this workflow SHA-pinned. `actions/deploy-pages` is a plain node action with no nested
+      # action dependencies, so it needs no equivalent treatment.
+      - name: Archive the site as the github-pages artifact
+        run: |
+          tar --dereference --hard-dereference \
+            --directory site \
+            -cvf "$RUNNER_TEMP/artifact.tar" \
+            --exclude=.git --exclude=.github .
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          path: site
+          # `deploy-pages` resolves the deployment payload by this exact artifact name.
+          name: github-pages
+          path: ${{ runner.temp }}/artifact.tar
+          retention-days: 1
+          if-no-files-found: error
 
       - id: deployment
         uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4
