@@ -5,11 +5,12 @@ A governance-native, open-source agent harness.
 <!-- "memory-first" is a roadmap goal, not a shipped feature. The durable memory plane is Phase 3
      and `packages/memory` is a placeholder; kept out of the tagline until it exists (P1-8). -->
 
-keel runs a coding agent behind a wall the model cannot talk its way through. The model
-requests actions; a separate **warden** process decides what runs, under a hash-pinned policy
-the model cannot rewrite. Every action, allowed or denied, lands in a tamper-evident audit
-record the agent has no way to write. The result is high autonomy inside boundaries that hold
-even when the model is wrong or adversarially steered.
+keel runs a coding agent behind a wall its governed tool surface cannot talk its way through,
+assuming the v1 kernel and OS user are not compromised. The model requests governed actions;
+a separate **warden** process decides what runs, under a hash-pinned policy the model cannot
+rewrite. Every governed action, allowed or denied, lands in a tamper-evident audit record the
+agent cannot write through that tool surface. The result is high autonomy inside boundaries
+that hold even when the model is wrong or adversarially steered.
 
 ```bash
 corepack enable && pnpm install
@@ -41,8 +42,12 @@ Where the claims stand, and how to verify them yourself:
 | Coverage | 97.89% statements / 93.74% branches, enforced gate (per-file ≥90%; warden ≥95% lines/functions/statements) | `pnpm test:cov` |
 | Security suite | 990 adversarial / denied-path tests passed | `pnpm test:security` |
 | Real OS sandbox | Seatbelt (macOS) + bubblewrap (Linux) denial probes run in CI | `pnpm test:sandbox:real` |
-| Audit integrity | tamper-evident hash chain + offline evidence-bundle verifier | `keel audit verify <bundle>` |
+| Audit integrity | tamper-evident hash chain + Ed25519 checkpoints (local `0600` key, readable by the same OS user) + offline evidence-bundle verifier | `keel audit verify <bundle>` |
 | Capability benchmarks | TerminalBench numbers with full caveats: single-trial, subset, sandbox-off | [docs/benchmarks.md](docs/benchmarks.md) |
+
+The checkpoint-signing key is an at-rest `0600` file readable by the same OS user. Bundle
+verification proves "signed by that key," not "signed by an actor independent of the audited
+host." OS-keychain and hardware-backed/TPM custody are future hardening and are not implemented.
 
 Test and coverage figures were measured on 2026-07-31 at commit
 [`a22b127`](https://github.com/keel-harness/keel/commit/a22b127fd37858920d006205758e46cd037e8565).

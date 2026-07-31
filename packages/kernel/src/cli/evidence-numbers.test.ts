@@ -83,6 +83,10 @@ describe("public evidence-number ledger", () => {
   it("keeps every README evidence-table number and command derived from the ledger", () => {
     const source = ledger();
     const table = readmeEvidenceTable(readRepoFile("README.md"));
+    const metricRows = table
+      .split("\n")
+      .filter((line) => /^\| (?:Tests|Coverage|Security suite) \|/u.test(line))
+      .join("\n");
     const evidence = source.evidence;
 
     expect(table).toContain(
@@ -94,7 +98,7 @@ describe("public evidence-number ledger", () => {
     expect(table).toContain(
       `| Security suite | ${formatted(evidence.securityTestsPassed.value)} adversarial / denied-path tests passed | \`${evidence.securityTestsPassed.command}\` |`,
     );
-    expect(numericTokens(table)).toEqual([
+    expect(numericTokens(metricRows)).toEqual([
       formatted(evidence.testsPassed.value),
       formatted(evidence.testsSkipped.value),
       formatted(evidence.statementCoveragePercent.value),
