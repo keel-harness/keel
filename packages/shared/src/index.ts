@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+// Public fork CI probe: non-behavioral and intentionally never merged.
 /**
  * Trivial wiring schema (Epic 0.1). Proves the test+coverage+CI loop.
  * Real schemas (RPC, audit, memory, policy, simulator-script) arrive in Epic 0.2.
