@@ -20,6 +20,12 @@ updates:
       # absent at runtime); 20.x minor/patch still flow via the group above.
       - dependency-name: "*"
         update-types: ["version-update:semver-major"]
+      # ink carries an exact-version pnpm patch. Dependabot cannot rebase that
+      # patch, so a routine version update fails with ERR_PNPM_UNUSED_PATCH.
+      # Upgrade ink deliberately together with its reviewed patch and tests.
+      - dependency-name: "ink"
+        update-types:
+          ["version-update:semver-minor", "version-update:semver-patch"]
   # GitHub Actions: keep the SHA pins fresh on minor/patch; major action bumps
   # (v4 -> v6) are reviewed deliberately like any other major.
   - package-ecosystem: github-actions
