@@ -95,6 +95,8 @@ export interface PolicyInputBuildOptions {
   readonly declaredTempRoots?: readonly string[];
   readonly lstat?: (path: string) => { readonly isSymbolicLink: () => boolean };
   readonly readlink?: (path: string) => string;
+  /** False after this session has potentially changed metadata interpreted by a safe command. */
+  readonly safeCommandMetadataTrusted?: boolean;
 }
 
 export interface SandboxContainmentProof {
@@ -2900,7 +2902,23 @@ function pushObfuscatedExecSegment(segments: SideEffectSegmentT[], command: stri
   );
 }
 
-function knownSafeFallbackCommand(command: string, argv: readonly string[]): boolean {
+function commandDependsOnMutableExecutionMetadata(argv: readonly string[]): boolean {
+  if (["pnpm", "npm", "bun", "yarn"].includes(argv[0] ?? "")) {
+    return ["build", "format", "lint", "test", "typecheck"].includes(argv[1] ?? "");
+  }
+  if (argv[0] !== "git") return false;
+  if (["diff", "log", "show", "status"].includes(argv[1] ?? "")) return true;
+  return (
+    argv[1] === "remote" &&
+    (argv[2] === undefined || argv[2] === "-v" || argv[2] === "--verbose" || argv[2] === "get-url")
+  );
+}
+
+function knownSafeFallbackCommand(
+  command: string,
+  argv: readonly string[],
+  safeCommandMetadataTrusted: boolean,
+): boolean {
   const utility = modelUtility(argv);
   if (utility !== undefined) return utility.safe;
   if (
@@ -2934,24 +2952,26 @@ function knownSafeFallbackCommand(command: string, argv: readonly string[]): boo
     ].includes(argv[0] ?? "")
   ) {
     if (argv[0] !== "git") return true;
-    if (["diff", "log", "show", "status"].includes(argv[1] ?? "")) return true;
-    if (argv[1] !== "remote") return false;
-    return (
-      argv[2] === undefined || argv[2] === "-v" || argv[2] === "--verbose" || argv[2] === "get-url"
-    );
+    return safeCommandMetadataTrusted && commandDependsOnMutableExecutionMetadata(argv);
   }
   if (["pnpm", "npm", "bun", "yarn"].includes(argv[0] ?? "")) {
-    return ["build", "format", "lint", "test", "typecheck"].includes(argv[1] ?? "");
+    return safeCommandMetadataTrusted && commandDependsOnMutableExecutionMetadata(argv);
   }
   return extractExplicitEgressTarget(command).kind === "invalid";
 }
 
-function fallbackProcessSegment(command: string, argv: readonly string[]): SideEffectSegmentT {
+function fallbackProcessSegment(
+  command: string,
+  argv: readonly string[],
+  safeCommandMetadataTrusted: boolean,
+): SideEffectSegmentT {
   return segment({
     effectKinds: ["process_exec"],
     scopes: ["process"],
     targets: [commandTarget(command)],
-    modifiers: knownSafeFallbackCommand(command, argv) ? [] : ["unknown"],
+    modifiers: knownSafeFallbackCommand(command, argv, safeCommandMetadataTrusted)
+      ? []
+      : ["unknown"],
   });
 }
 
@@ -2968,6 +2988,7 @@ function classifyShellPart(
     readonly lstat?: (path: string) => { readonly isSymbolicLink: () => boolean };
     readonly readlink?: (path: string) => string;
     readonly realpath?: (path: string) => string;
+    readonly safeCommandMetadataTrusted: boolean;
   },
 ): ClassifiedShellPart {
   const argv = argvFromCommand(part);
@@ -3049,9 +3070,9 @@ function classifyShellPart(
   if (
     segments.length === 0 ||
     argvSensitiveModelInCompound ||
-    (!processModeled && !knownSafeFallbackCommand(part, argv))
+    (!processModeled && !knownSafeFallbackCommand(part, argv, options.safeCommandMetadataTrusted))
   ) {
-    segments.push(fallbackProcessSegment(part, argv));
+    segments.push(fallbackProcessSegment(part, argv, options.safeCommandMetadataTrusted));
   }
   return {
     segments,
@@ -3098,6 +3119,7 @@ function classifyShellCommand(
     readonly lstat?: (path: string) => { readonly isSymbolicLink: () => boolean };
     readonly readlink?: (path: string) => string;
     readonly realpath?: (path: string) => string;
+    readonly safeCommandMetadataTrusted: boolean;
   },
 ): ClassifiedShell {
   const shell = splitShellCommand(command);
@@ -3124,6 +3146,7 @@ function classifyShellCommand(
       env: options.env,
       workspaceTrusted: options.workspaceTrusted,
       declaredTempRoots: options.declaredTempRoots,
+      safeCommandMetadataTrusted: options.safeCommandMetadataTrusted,
       ...(touchOperand === undefined ? {} : { exactTouchOperand: touchOperand }),
       ...(options.lstat === undefined ? {} : { lstat: options.lstat }),
       ...(options.readlink === undefined ? {} : { readlink: options.readlink }),
@@ -3218,7 +3241,10 @@ function unknownSegmentsAreArbitraryCode(segments: readonly SideEffectSegmentT[]
 function classifierForCommand(
   command: string,
   segments: readonly SideEffectSegmentT[],
-  options: { readonly sandboxContainedArbitraryCode: boolean },
+  options: {
+    readonly sandboxContainedArbitraryCode: boolean;
+    readonly safeCommandMetadataTrusted: boolean;
+  },
 ) {
   if (options.sandboxContainedArbitraryCode) {
     return {
@@ -3227,6 +3253,15 @@ function classifierForCommand(
     };
   }
   if (segments.some((entry) => entry.modifiers.includes("unknown"))) {
+    if (
+      !options.safeCommandMetadataTrusted &&
+      commandDependsOnMutableExecutionMetadata(argvFromCommand(command))
+    ) {
+      return {
+        confidence: "unknown" as const,
+        reasons: ["mutable_execution_metadata"],
+      };
+    }
     return {
       confidence: /\b(base64|xxd|bash\s+<\(|\|\s*bash)\b/u.test(command)
         ? ("obfuscated" as const)
@@ -3247,12 +3282,14 @@ export function buildPolicyInputForBash(
   const env = options.env ?? process.env;
   const commandValue = params.toolCall.args["command"];
   const command = typeof commandValue === "string" ? commandValue : "";
+  const safeCommandMetadataTrusted = options.safeCommandMetadataTrusted ?? true;
   const argv = argvFromCommand(command);
   const shell = classifyShellCommand(command, {
     workspaceRoot: options.workspaceRoot,
     env,
     workspaceTrusted: options.workspaceTrusted === true,
     declaredTempRoots: options.declaredTempRoots ?? [],
+    safeCommandMetadataTrusted,
     ...(options.lstat === undefined ? {} : { lstat: options.lstat }),
     ...(options.readlink === undefined ? {} : { readlink: options.readlink }),
     ...(options.realpath === undefined ? {} : { realpath: options.realpath }),
@@ -3284,6 +3321,7 @@ export function buildPolicyInputForBash(
       : { ...sandboxExtensions, ...tempExtensions };
   const classifier = classifierForCommand(command, shell.segments, {
     sandboxContainedArbitraryCode: sandboxExtensions !== undefined,
+    safeCommandMetadataTrusted,
   });
   const staticCapability = staticCapabilityForTool("bash");
 

@@ -74,6 +74,10 @@ import { AuditChainWriter, type AuditSink } from "./audit/writer.js";
 import { SessionAuditLog } from "./audit/session-log.js";
 import { createTypedToolState, TypedToolDeniedError, TypedToolError } from "./typed-tools.js";
 import {
+  packageManagerExecutionMetadataPaths,
+  vcsExecutionMetadataPaths,
+} from "./execution-metadata.js";
+import {
   CONSOLE_OPENED_HANDLE_GRANT_RULE,
   CONSOLE_TOOL_NAMES,
   buildConsoleSandboxPlanForTarget,
@@ -9997,6 +10001,8 @@ printf '%s\\n' '${match}'
               join(workspaceRoot, ".env.development"),
               join(workspaceRoot, ".env.production"),
               join(workspaceRoot, ".env.test"),
+              ...packageManagerExecutionMetadataPaths(workspaceRoot),
+              ...vcsExecutionMetadataPaths(workspaceRoot),
             ],
           },
           network: {
@@ -18824,6 +18830,8 @@ printf '%s\\n' '${match}'
               "/tmp/keel-workspace/.env.development",
               "/tmp/keel-workspace/.env.production",
               "/tmp/keel-workspace/.env.test",
+              ...packageManagerExecutionMetadataPaths("/tmp/keel-workspace"),
+              ...vcsExecutionMetadataPaths("/tmp/keel-workspace"),
             ],
           },
           network: {

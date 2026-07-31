@@ -44,6 +44,7 @@ import { discoverMcpServerWithSandbox } from "./mcp/local-stdio.js";
 import { createVendoredSrtSandboxComponents } from "./srt-runtime-loader.js";
 import { isRealSandboxRequired, resolveRealSandboxGate } from "./real-sandbox-gate.js";
 import type { SandboxPort, SandboxProfile } from "./sandbox.js";
+import { buildDefaultSandboxProfile } from "./sandbox-profile.js";
 import { buildPolicyInputForBash, createDefaultPolicyPort } from "./policy.js";
 import { createSandboxTypedMutationRunner } from "./typed-mutation-runner.js";
 import {
@@ -235,6 +236,46 @@ suite("real SRT sandbox enforcement (opt-in: KEEL_REQUIRE_REAL_SANDBOX=1)", () =
     // The escape must be structurally blocked: non-zero exit AND the file never created.
     expect(result.exitCode).not.toBe(0);
     expect(existsSync(forbidden)).toBe(false);
+  });
+
+  it("DENIES Bash writes to execution metadata while allowing ordinary workspace writes", async () => {
+    const workspace = realpathSync(mkdtempSync(join(workRoot, "metadata-workspace-")));
+    const home = join(workRoot, "metadata-home");
+    const keelHome = join(workRoot, "metadata-keel-home");
+    mkdirSync(home, { mode: 0o700 });
+    mkdirSync(join(keelHome, "audit"), { recursive: true, mode: 0o700 });
+    mkdirSync(join(keelHome, "policy"), { recursive: true, mode: 0o700 });
+    mkdirSync(join(workspace, ".git", "hooks"), { recursive: true });
+    writeFileSync(join(workspace, "package.json"), "{}\n");
+    writeFileSync(join(workspace, ".git", "config"), "[core]\n");
+    const profile = buildDefaultSandboxProfile({
+      workspaceRoot: workspace,
+      env: { ...process.env, HOME: home, KEEL_HOME: keelHome },
+    });
+
+    const ordinary = join(workspace, "notes.txt");
+    const allowed = await sandbox.execute(
+      { command: "/bin/sh", argv: ["/bin/sh", "-c", `printf allowed > ${ordinary}`] },
+      profile,
+    );
+    expect(allowed.exitCode).toBe(0);
+    expect(readFileSync(ordinary, "utf8")).toBe("allowed");
+
+    for (const target of [
+      join(workspace, "package.json"),
+      join(workspace, ".git", "config"),
+      join(workspace, ".git", "hooks", "pre-commit"),
+    ]) {
+      const denied = await sandbox.execute(
+        { command: "/bin/sh", argv: ["/bin/sh", "-c", `printf denied > ${target}`] },
+        profile,
+      );
+      expect(denied.exitCode, target).not.toBe(0);
+    }
+
+    expect(readFileSync(join(workspace, "package.json"), "utf8")).toBe("{}\n");
+    expect(readFileSync(join(workspace, ".git", "config"), "utf8")).toBe("[core]\n");
+    expect(existsSync(join(workspace, ".git", "hooks", "pre-commit"))).toBe(false);
   });
 
   it("contains a Bash write when its previously-contained parent is relocated after policy classification", async () => {

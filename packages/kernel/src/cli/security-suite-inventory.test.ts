@@ -26,6 +26,7 @@ const REQUIRED_SEC_IDS = [
   "SEC-019",
   "SEC-021",
   "SEC-027",
+  "SEC-028",
 ] as const;
 const REQUIRED_SEC_MCP_IDS = [
   "SEC-MCP-01",

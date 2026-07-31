@@ -12,6 +12,10 @@ import {
   keelHome as resolveKeelHome,
 } from "@keel/shared";
 import { buildEgressNetworkProfile } from "./egress-profile.js";
+import {
+  packageManagerExecutionMetadataPaths,
+  vcsExecutionMetadataPaths,
+} from "./execution-metadata.js";
 import type { SandboxProfile } from "./sandbox.js";
 
 const BASH_EFFECT_ENVELOPE = [
@@ -45,6 +49,11 @@ const DEFAULT_DENY_WRITE = [
   "keel_config",
   "workspace_dotenv_files",
 ] as const;
+const BASH_DENY_WRITE = [
+  ...DEFAULT_DENY_WRITE,
+  "workspace_package_manager_execution_metadata",
+  "workspace_vcs_execution_metadata",
+] as const;
 
 export const DEFAULT_CAPABILITY_MANIFEST: CapabilityManifestT = CapabilityManifest.parse({
   manifestVersion: CAPABILITY_MANIFEST_VERSION,
@@ -61,7 +70,7 @@ export const DEFAULT_CAPABILITY_MANIFEST: CapabilityManifestT = CapabilityManife
           allowRead: ["workspace", "declared_temp"],
           allowWrite: ["workspace", "declared_temp"],
           denyRead: [...DEFAULT_DENY_READ],
-          denyWrite: [...DEFAULT_DENY_WRITE],
+          denyWrite: [...BASH_DENY_WRITE],
         },
         network: { allowedDomains: [] },
       },
@@ -272,6 +281,8 @@ function assertDefaultBashConformance(tool: CapabilityManifestToolT): void {
     "keel_policy",
     "keel_config",
     "workspace_dotenv_files",
+    "workspace_package_manager_execution_metadata",
+    "workspace_vcs_execution_metadata",
   ]);
 }
 
@@ -357,6 +368,10 @@ function expandWriteDenyToken(token: SandboxWriteDenyTokenT, ctx: ProjectionCont
       return [ctx.keelConfigDir];
     case "workspace_dotenv_files":
       return workspaceDotenvFiles(ctx);
+    case "workspace_package_manager_execution_metadata":
+      return packageManagerExecutionMetadataPaths(ctx.workspaceRoot);
+    case "workspace_vcs_execution_metadata":
+      return vcsExecutionMetadataPaths(ctx.workspaceRoot);
   }
 }
 

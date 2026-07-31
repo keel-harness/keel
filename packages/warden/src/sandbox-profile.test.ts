@@ -8,6 +8,26 @@ import {
   resolveWardenKeelHome,
 } from "./sandbox-profile.js";
 
+function executionMetadataDenyWrite(workspaceRoot: string): string[] {
+  return [
+    "package.json",
+    "pnpm-lock.yaml",
+    "package-lock.json",
+    "yarn.lock",
+    "bun.lock",
+    "bun.lockb",
+    ".npmrc",
+    ".pnpmfile.cjs",
+    "pnpm-workspace.yaml",
+    ".yarnrc",
+    ".yarnrc.yml",
+    "bunfig.toml",
+    ".git/config",
+    ".git/config.worktree",
+    ".git/hooks",
+  ].map((path) => join(workspaceRoot, path));
+}
+
 describe("default warden sandbox profile", () => {
   it("mirrors the existing keelHome resolution order for config-deny roots", () => {
     expect(resolveWardenKeelHome({ KEEL_HOME: "/keel-home", HOME: "/home/alice" })).toBe(
@@ -77,6 +97,7 @@ describe("default warden sandbox profile", () => {
       "/repo/.env.development",
       "/repo/.env.production",
       "/repo/.env.test",
+      ...executionMetadataDenyWrite(workspace),
     ]);
     expect(profile.network).toEqual({
       allowedDomains: [],
@@ -105,6 +126,7 @@ describe("default warden sandbox profile", () => {
       "/repo/.env.development",
       "/repo/.env.production",
       "/repo/.env.test",
+      ...executionMetadataDenyWrite("/repo"),
     ]);
   });
 
@@ -128,6 +150,7 @@ describe("default warden sandbox profile", () => {
       "/repo/.env.development",
       "/repo/.env.production",
       "/repo/.env.test",
+      ...executionMetadataDenyWrite("/repo"),
     ]);
   });
 
@@ -156,6 +179,7 @@ describe("default warden sandbox profile", () => {
       "/repo/.env.development",
       "/repo/.env.production",
       "/repo/.env.test",
+      ...executionMetadataDenyWrite("/repo"),
     ]);
   });
 
@@ -174,6 +198,7 @@ describe("default warden sandbox profile", () => {
       "/repo/.env.development",
       "/repo/.env.production",
       "/repo/.env.test",
+      ...executionMetadataDenyWrite("/repo"),
     ]);
   });
 

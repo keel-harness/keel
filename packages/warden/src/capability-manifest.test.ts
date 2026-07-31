@@ -63,6 +63,21 @@ describe("warden capability manifest projection", () => {
           "/repo/.env.development",
           "/repo/.env.production",
           "/repo/.env.test",
+          "/repo/package.json",
+          "/repo/pnpm-lock.yaml",
+          "/repo/package-lock.json",
+          "/repo/yarn.lock",
+          "/repo/bun.lock",
+          "/repo/bun.lockb",
+          "/repo/.npmrc",
+          "/repo/.pnpmfile.cjs",
+          "/repo/pnpm-workspace.yaml",
+          "/repo/.yarnrc",
+          "/repo/.yarnrc.yml",
+          "/repo/bunfig.toml",
+          "/repo/.git/config",
+          "/repo/.git/config.worktree",
+          "/repo/.git/hooks",
         ],
       },
       network: {
@@ -114,6 +129,40 @@ describe("warden capability manifest projection", () => {
     // unwritable without an explicit deny-write token.
     expect(profile?.allowWrite).toEqual(["/repo", "/tmp/keel-task"]);
     expect(profile?.allowWrite).not.toContain("/home/alice/.ssh");
+  });
+
+  it("denies bash writes to package-manager and VCS execution metadata", () => {
+    const filesystem = buildSandboxProfileFromCapabilityManifest(DEFAULT_CAPABILITY_MANIFEST, {
+      ...baseOptions,
+      toolName: "bash",
+    }).filesystem;
+
+    expect(filesystem?.denyWrite).toEqual(
+      expect.arrayContaining([
+        "/repo/package.json",
+        "/repo/pnpm-lock.yaml",
+        "/repo/package-lock.json",
+        "/repo/yarn.lock",
+        "/repo/bun.lock",
+        "/repo/bun.lockb",
+        "/repo/.npmrc",
+        "/repo/.pnpmfile.cjs",
+        "/repo/pnpm-workspace.yaml",
+        "/repo/.git/config",
+        "/repo/.git/hooks",
+      ]),
+    );
+  });
+
+  it("keeps typed package-manifest edits available while the Warden tracks their session impact", () => {
+    const filesystem = buildSandboxProfileFromCapabilityManifest(DEFAULT_CAPABILITY_MANIFEST, {
+      ...baseOptions,
+      toolName: "write",
+    }).filesystem;
+
+    expect(filesystem?.allowWrite).toContain("/repo");
+    expect(filesystem?.denyWrite).not.toContain("/repo/package.json");
+    expect(filesystem?.denyWrite).not.toContain("/repo/.git/config");
   });
 
   it("keeps egress authority as manifest data and validates it through the existing egress profile", () => {

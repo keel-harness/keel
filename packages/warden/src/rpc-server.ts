@@ -171,6 +171,12 @@ import {
   type TypedToolName,
   type TypedToolState,
 } from "./typed-tools.js";
+import {
+  createExecutionMetadataState,
+  executionMetadataTrusted,
+  invalidateExecutionMetadataForPotentialWrite,
+  type ExecutionMetadataState,
+} from "./execution-metadata.js";
 
 type RpcId = string | number | null;
 type ExecuteParams = ReturnType<(typeof WARDEN_METHODS)["warden.execute"]["params"]["parse"]>;
@@ -230,6 +236,7 @@ export interface WardenRpcHandlerOptions {
   typedMutationRunner?: TypedMutationRunner;
   mutationPresentation?: MutationPresentationWalkingSkeletonTransport;
   mutationPresentationPeerMinor?: number;
+  executionMetadataState?: ExecutionMetadataState;
 }
 
 interface RpcContext {
@@ -259,6 +266,7 @@ interface RpcContext {
   mutationPresentation?: MutationPresentationWalkingSkeletonTransport;
   mutationPresentationPeerMinor?: number;
   mutationPresentationFinalization?: WardenMutationPresentationFinalization;
+  executionMetadataState: ExecutionMetadataState;
 }
 
 interface ResolvedCommand {
@@ -1132,6 +1140,10 @@ function policyInputForCommand(
       env: context.env,
       workspaceTrusted: context.workspaceTrusted,
       declaredTempRoots: context.declaredTempRoots,
+      safeCommandMetadataTrusted: executionMetadataTrusted(
+        context.executionMetadataState,
+        params.sessionId,
+      ),
       ...(sandboxContainment === undefined ? {} : { sandboxContainment }),
     },
   );
@@ -3264,6 +3276,11 @@ async function executeWithProfile(
   // and no `execution` marker — so a consumer selects outcomes as `tool.execute` records lacking the
   // `execution:"requested"` marker.
   if (options.audit !== undefined && decision !== undefined) {
+    invalidateExecutionMetadataForPotentialWrite(
+      context.executionMetadataState,
+      options.audit.params.sessionId,
+      options.audit.policyInput,
+    );
     appendAuditSeq(context, {
       eventType: "tool.execute",
       sessionId: options.audit.params.sessionId,
@@ -3476,6 +3493,11 @@ async function executeTypedTool(
   // (AFTER read-before-edit/stale runtime checks), so a runtime-DENIED edit produces only a tool.deny,
   // never a false intent record. read/search are non-mutating and keep the single post-hoc record.
   const onBeforeMutate = (): void => {
+    invalidateExecutionMetadataForPotentialWrite(
+      context.executionMetadataState,
+      params.sessionId,
+      policyInput,
+    );
     appendAuditSeq(context, {
       eventType: "tool.execute",
       sessionId: params.sessionId,
@@ -3793,6 +3815,7 @@ function buildSandboxProfile(
     );
   }
   const profile = buildDefaultSandboxProfile({
+    toolName,
     workspaceRoot: context.workspaceRoot,
     declaredTempRoots: context.declaredTempRoots,
     env: context.env,
@@ -6962,6 +6985,7 @@ async function buildRpcContext(options: WardenRpcHandlerOptions = {}): Promise<R
     ...(options.mutationPresentationPeerMinor === undefined
       ? {}
       : { mutationPresentationPeerMinor: options.mutationPresentationPeerMinor }),
+    executionMetadataState: options.executionMetadataState ?? createExecutionMetadataState(),
   };
 }
 
@@ -7019,6 +7043,7 @@ export function runStdioWardenServer(options: StdioWardenServerOptions = {}): St
   const workspaceTrusted = options.workspaceTrusted ?? false;
   const reviewState = createEgressReviewState();
   const interactiveConsoleState = options.interactiveConsoleState ?? createConsoleRuntimeState();
+  const executionMetadataState = createExecutionMetadataState();
   if (options.interactiveConsoleHeadlessGrants !== undefined) {
     installHeadlessConsoleGrants(interactiveConsoleState, options.interactiveConsoleHeadlessGrants);
   }
@@ -7066,6 +7091,7 @@ export function runStdioWardenServer(options: StdioWardenServerOptions = {}): St
     workspaceTrusted,
     reviewState,
     typedToolState: createTypedToolState(),
+    executionMetadataState,
     ...(options.typedMutationRunner === undefined
       ? {}
       : { typedMutationRunner: options.typedMutationRunner }),

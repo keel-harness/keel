@@ -13,6 +13,7 @@ export interface DefaultSandboxProfileOptions extends Omit<
   SandboxProfileProjectionOptions,
   "toolName"
 > {
+  readonly toolName?: string;
   readonly allowedEgressDomains?: readonly string[];
 }
 
@@ -20,7 +21,7 @@ export function buildDefaultSandboxProfile(options: DefaultSandboxProfileOptions
   return buildSandboxProfileFromCapabilityManifest(
     capabilityManifestWithEgressDomains(options.allowedEgressDomains ?? []),
     {
-      toolName: "bash",
+      toolName: options.toolName ?? "bash",
       workspaceRoot: options.workspaceRoot,
       ...(options.declaredTempRoots === undefined
         ? {}

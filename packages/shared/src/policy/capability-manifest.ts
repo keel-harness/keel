@@ -46,6 +46,10 @@ export const SandboxWriteDenyToken = z.enum([
   "keel_policy",
   "keel_config",
   "workspace_dotenv_files",
+  // Additive v1 tokens. They protect shell-interpreted workspace control data without changing
+  // existing manifests or the end-user policy surface.
+  "workspace_package_manager_execution_metadata",
+  "workspace_vcs_execution_metadata",
 ]);
 export type SandboxReadAllowTokenT = z.infer<typeof SandboxReadAllowToken>;
 export type SandboxWriteAllowTokenT = z.infer<typeof SandboxWriteAllowToken>;

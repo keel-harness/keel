@@ -41,6 +41,31 @@ describe("CapabilityManifest schema", () => {
     expect(CapabilityManifest.parse(bashManifest)).toEqual(bashManifest);
   });
 
+  it("accepts additive execution-metadata write protections without invalidating v1 manifests", () => {
+    const hardened = {
+      ...bashManifest,
+      tools: [
+        {
+          ...bashTool,
+          sandbox: {
+            ...bashTool.sandbox,
+            filesystem: {
+              ...bashTool.sandbox.filesystem,
+              denyWrite: [
+                ...bashTool.sandbox.filesystem.denyWrite,
+                "workspace_package_manager_execution_metadata",
+                "workspace_vcs_execution_metadata",
+              ],
+            },
+          },
+        },
+      ],
+    };
+
+    expect(CapabilityManifest.parse(hardened)).toEqual(hardened);
+    expect(CapabilityManifest.parse(bashManifest)).toEqual(bashManifest);
+  });
+
   it("supports additive namespaced fork/enterprise extensions without changing keel core", () => {
     const parsed = CapabilityManifest.parse({
       ...bashManifest,

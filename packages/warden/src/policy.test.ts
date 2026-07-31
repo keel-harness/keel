@@ -1481,6 +1481,26 @@ describe("Phase-2A starter policy pack", () => {
     expect(redirectThenUnknown.sideEffect.dynamic.modifiers).toContain("unknown");
   });
 
+  it("marks metadata-dependent safe commands unknown after session metadata invalidation", async () => {
+    const policy = await createDefaultPolicyPort();
+    for (const command of ["pnpm test", "git diff"]) {
+      const input = buildPolicyInputForBash(executeParams(command), {
+        workspaceRoot: "/repo",
+        env: { HOME: "/home/alice", USER: "alice", KEEL_HOME: "/keel-home" },
+        workspaceTrusted: true,
+        safeCommandMetadataTrusted: false,
+      });
+
+      expect(input.sideEffect.dynamic.classifier).toMatchObject({
+        confidence: "unknown",
+        reasons: ["mutable_execution_metadata"],
+      });
+      const decision = await policy.evaluate(input);
+      expect(decision.verdict, command).toBe("review");
+      expect(decision.matchedRules, command).toContain("POL-003");
+    }
+  });
+
   it("covers multiline shell edge cases without over-splitting quoted newlines", async () => {
     const policy = await createDefaultPolicyPort();
 
