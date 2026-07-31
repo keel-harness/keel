@@ -43,11 +43,16 @@ they touch disk.
 Claims here map to executable evidence:
 
 ```sh
-pnpm test:security        # 690+ adversarial and denied-path tests
+pnpm test:security        # 990 adversarial and denied-path tests passed
 pnpm test:sandbox:real    # real Seatbelt/bubblewrap denial probes (opt-in)
 keel audit export <id>    # then verify the bundle offline:
 keel audit verify <bundle>
 ```
+
+The security-suite count was measured on 2026-07-31 at commit
+[`a22b127`](https://github.com/keel-harness/keel/commit/a22b127fd37858920d006205758e46cd037e8565);
+the command and exact reporter detail are recorded in the
+[evidence-number ledger](../quality/evidence-numbers.json).
 
 An unavailable sandbox backend makes `test:sandbox:real` fail, not skip. CI runs
 a required real-sandbox leg on every code change.

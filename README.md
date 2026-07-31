@@ -37,12 +37,17 @@ Where the claims stand, and how to verify them yourself:
 
 | What | Where it stands | Reproduce |
 | --- | --- | --- |
-| Tests | 5,900+ unit and property tests, green in CI (Ubuntu + macOS) | `pnpm test` |
-| Coverage | ~98% statements / ~94% branches, enforced gate (per-file ≥90%, warden ≥95%) | `pnpm test:cov` |
-| Security suite | 900+ adversarial / denied-path tests | `pnpm test:security` |
+| Tests | 6,072 automated tests passed; 12 skipped | `pnpm test` |
+| Coverage | 97.89% statements / 93.74% branches, enforced gate (per-file ≥90%; warden ≥95% lines/functions/statements) | `pnpm test:cov` |
+| Security suite | 990 adversarial / denied-path tests passed | `pnpm test:security` |
 | Real OS sandbox | Seatbelt (macOS) + bubblewrap (Linux) denial probes run in CI | `pnpm test:sandbox:real` |
 | Audit integrity | tamper-evident hash chain + offline evidence-bundle verifier | `keel audit verify <bundle>` |
 | Capability benchmarks | TerminalBench numbers with full caveats: single-trial, subset, sandbox-off | [docs/benchmarks.md](docs/benchmarks.md) |
+
+Test and coverage figures were measured on 2026-07-31 at commit
+[`a22b127`](https://github.com/keel-harness/keel/commit/a22b127fd37858920d006205758e46cd037e8565).
+Exact values, fractions, commands, and the staleness window live in the
+[evidence-number ledger](docs/quality/evidence-numbers.json).
 
 > **Running `pnpm test` locally?** A handful of warden and TUI suites spawn real child processes
 > under wall-clock handshake budgets, so on a busy or high-core machine the full run can report

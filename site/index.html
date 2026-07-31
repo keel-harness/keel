@@ -1043,17 +1043,17 @@
             <tbody>
               <tr>
                 <td>Tests</td>
-                <td>5,900+ unit and property tests, green in CI (Ubuntu and macOS)</td>
+                <td>6,072 automated tests passed; 12 skipped</td>
                 <td><code>pnpm test</code></td>
               </tr>
               <tr>
                 <td>Coverage</td>
-                <td>~98% statements, ~94% branches, with an enforced gate</td>
+                <td>97.89% statements, 93.74% branches, with an enforced gate</td>
                 <td><code>pnpm test:cov</code></td>
               </tr>
               <tr>
                 <td>Security suite</td>
-                <td>900+ adversarial and denied-path tests</td>
+                <td>990 adversarial and denied-path tests passed</td>
                 <td><code>pnpm test:security</code></td>
               </tr>
               <tr>
@@ -1090,7 +1090,15 @@
             >claim ledger</a
           >
           maps every security claim to its test evidence and states the limits of that evidence.
-          Running <code>pnpm test</code> locally on a many-core machine can report timeout-shaped
+          Test and coverage figures were measured on 2026-07-31 at
+          <a
+            href="https://github.com/keel-harness/keel/commit/a22b127fd37858920d006205758e46cd037e8565"
+            ><code>a22b127</code></a
+          >; exact reporter details are in the
+          <a
+            href="https://github.com/keel-harness/keel/blob/main/docs/quality/evidence-numbers.json"
+            >evidence-number ledger</a
+          >. Running <code>pnpm test</code> locally on a many-core machine can report timeout-shaped
           failures, because several suites spawn real child processes under wall-clock budgets.
           Re-run a failing file on its own. CI on clean runners is the authoritative signal.
         </p>
