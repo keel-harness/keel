@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "provider": "replay",
+  "model": "keel-deny-audit-demo",
+  "turns": [
+    {
+      "chunks": [
+        {
+          "type": "text-delta",
+          "text": "I'll test the boundary by requesting the SSH private key."
+        },
+        {
+          "type": "tool-call",
+          "id": "call_deny_demo_1",
+          "name": "bash",
+          "args": { "command": "cat ~/.ssh/id_rsa" }
+        },
+        {
+          "type": "finish",
+          "reason": "tool-calls",
+          "usage": { "inputTokens": 12, "outputTokens": 10 }
+        }
+      ]
+    },
+    {
+      "chunks": [
+        {
+          "type": "text-delta",
+          "text": "The warden denied the secret read. I cannot access that key."
+        },
+        { "type": "finish", "reason": "stop", "usage": { "inputTokens": 20, "outputTokens": 11 } }
+      ]
+    }
+  ]
+}

@@ -12,6 +12,11 @@ rewrite. Every governed action, allowed or denied, lands in a tamper-evident aud
 agent cannot write through that tool surface. The result is high autonomy inside boundaries
 that hold even when the model is wrong or adversarially steered.
 
+[![A real keel session: the warden denies an SSH-key read and writes the audit record](site/demo.gif)](docs/demo/keel-deny-audit.cast)
+
+_Recorded from the real kernel → warden → policy → audit path. A deterministic offline replay
+supplies only the model turns; [run it locally](docs/demo/run-deny-audit-demo.mjs)._
+
 ```bash
 corepack enable && pnpm install
 pnpm keel doctor                    # environment preflight
