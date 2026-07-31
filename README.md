@@ -44,6 +44,14 @@ Where the claims stand, and how to verify them yourself:
 | Audit integrity | tamper-evident hash chain + offline evidence-bundle verifier | `keel audit verify <bundle>` |
 | Capability benchmarks | TerminalBench numbers with full caveats: single-trial, subset, sandbox-off | [docs/benchmarks.md](docs/benchmarks.md) |
 
+> **Running `pnpm test` locally?** A handful of warden and TUI suites spawn real child processes
+> under wall-clock handshake budgets, so on a busy or high-core machine the full run can report
+> timeout-shaped failures ("timed out waiting for warden.hello") while nothing is actually broken —
+> vitest scales its worker count to your CPU count, and each worker spawns children of its own.
+> Re-run any failing file on its own (`pnpm exec vitest run <file>`); it should pass. **CI on clean
+> runners is the authoritative signal.** A failure that still reproduces in isolation is a real bug
+> and we want the report — see [CONTRIBUTING.md](CONTRIBUTING.md#a-note-on-load-sensitive-test-suites).
+
 > **Status: pre-alpha; open-source preparation.** The default `keel` CLI routes governed
 > `bash` plus trusted `read`/`search`/`write`/`edit` actions through the out-of-process warden for
 > policy, sandbox/profile checks, and per-session audit. Phase 2B signed offline evidence bundles are
