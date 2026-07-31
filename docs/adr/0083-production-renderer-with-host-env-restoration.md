@@ -61,7 +61,7 @@ held to the AGENTS.md bar, independent of the megabytes.
 Three constraints make this non-trivial:
 
 1. **Where `NODE_ENV` must be set.** The kernel CLI entry (`packages/kernel/src/cli/bin.ts`) reaches
-   Ink/React through a **static** import chain (`session-entry.ts:30` → `../tui/ink/ink-ui.js` →
+   Ink/React through a **static** import chain (`session-entry.ts` → `../tui/ink/ink-ui.js` →
    Ink → `react-reconciler` → `react`). ES-module static imports are evaluated before any entry
    *body* code runs, and React latches its mode when its module first evaluates. Empirically,
    forcing `NODE_ENV=production` only while React initializes and then restoring it recovers just
@@ -85,21 +85,27 @@ Three constraints make this non-trivial:
      So governed bash never sees `NODE_ENV`, with or without this change. The first draft's
      "`npm install` would skip `devDependencies`" example was **wrong for this path** and is
      withdrawn.
-   - **The warden process itself IS exposed.** The kernel spawns the warden with
-     `env: { ...process.env, ...options.env }` (`packages/kernel/src/warden/client.ts:389`). A
+   - **The warden process itself IS exposed.** The kernel's `startWardenClient` spawn originally
+     used `env: { ...process.env, ...options.env }`
+     ([client.ts](../../packages/kernel/src/warden/client.ts)). A
      process-wide `NODE_ENV=production` therefore runs the warden in production and, more importantly,
      leaks into the **non-allowlisted** processes the warden spawns directly:
-     - **credential-proxy secret-source commands** — `spawnSync(command, args, {...})` with no `env`
-       (`packages/warden/src/credential-proxy.ts:235`) → full inherit of the warden's env;
+     - **credential-proxy secret-source commands** — `defaultRunCommand` uses
+       `spawnSync(command, args, {...})` with no `env`
+       ([credential-proxy.ts](../../packages/warden/src/credential-proxy.ts)) → full inherit of the
+       warden's env;
      - **warden-side MCP stdio servers** — receive `payload.server.envKeys` copied from the warden's
-       env (`packages/warden/src/mcp/local-stdio.ts:396-403`); a user server that lists `NODE_ENV`
-       in `envKeys` would receive the warden's value.
-   - **The external editor IS exposed.** `spawn($EDITOR, [file], { shell: true, stdio: "inherit" })`
-     (`packages/kernel/src/tui/editor.ts:53`) passes no `env` → full inherit of the kernel's env.
+       env (`serverEnv` in [local-stdio.ts](../../packages/warden/src/mcp/local-stdio.ts)); a user
+       server that lists `NODE_ENV` in `envKeys` would receive the warden's value.
+   - **The external editor IS exposed.** `openDraftInEditor` launches `$VISUAL`/`$EDITOR` with
+     inherited stdio ([editor.ts](../../packages/kernel/src/tui/editor.ts)); without an explicit
+     env it would inherit the kernel's env.
    - **Harness-internal spawns are `NODE_ENV`-agnostic.** `search`/ripgrep and the Python syntax
      check use `minimalChildEnv` (no `NODE_ENV`); the `bash` PTY session uses an explicit
-     `{ PATH, LC_ALL, LANG }`; `git status` (`git-status.ts:54`) and the `python3 --version` probe
-   (`code-check.ts:138`) inherit the kernel env but run fixed argv that ignores `NODE_ENV`.
+     `{ PATH, LC_ALL, LANG }`; `gitStatusAsync` in
+     [git-status.ts](../../packages/kernel/src/cli/git-status.ts) and the `python3 --version` probe in
+     [code-check.ts](../../packages/kernel/src/tools/code-check.ts) inherit the kernel env but run
+     fixed argv that ignores `NODE_ENV`.
 
 3. **The bundled Kernel call sites must match the external React runtime ABI.** The first exact
    candidate correctly selected production React at runtime, but every packaged startup sample then
@@ -168,22 +174,24 @@ does not override it (no production caller sets one today, but the rule is expli
 ### 3. Apply the restore at the actual spawn env of every exposed boundary
 
 The first draft applied the restore inside `childEnvFor` and asserted "everything the warden spawns
-inherits automatically." That is **false**: the warden is spawned by `startWardenClient`
-(`packages/kernel/src/warden/client.ts:387-390`) with `env: { ...process.env, ...options.env }`,
+inherits automatically." That is **false**: the warden is spawned by `startWardenClient` in
+[client.ts](../../packages/kernel/src/warden/client.ts), whose original
+`env: { ...process.env, ...options.env }` merge
 which re-spreads the kernel's (production, sentinel-bearing) `process.env` **underneath** the
 `childEnvFor` output — so any key `childEnvFor` merely omitted/deleted falls through to
 `process.env`. The corrected chokepoints are the **spawn calls themselves**:
 
-- **Warden spawn** (`client.ts:387-390`) — the primary chokepoint. Spawn with
-  `env: restoreHostNodeEnv({ ...process.env, ...options.env })` (equivalently, stop re-spreading
-  `process.env` and spawn the fully-built env). This makes the **warden process's own env** carry the
+- **Warden spawn** (`startWardenClient`) — the primary chokepoint. Merge the child-specific env while
+  preserving the launcher-owned sentinel values, then pass the fully restored result as the spawn
+  env. This makes the **warden process's own env** carry the
   host `NODE_ENV` and no sentinels, so everything the warden then spawns (governed bash — already
   allowlisted; credential-proxy commands; warden-side MCP servers) inherits the correct value.
-- **MCP-discovery warden spawn** (`discoverProductionMcpServer`, `runtime.ts:686-691`) — this site
+- **MCP-discovery warden spawn** (`discoverProductionMcpServer` in
+  [runtime.ts](../../packages/kernel/src/warden/runtime.ts)) — this site
   spawns with `env: childEnv` **directly** (no `process.env` re-spread), so applying
   `restoreHostNodeEnv` to the built `childEnv` **is** sufficient here. (Note and comment the
   asymmetry with the main warden spawn so a maintainer does not "simplify" one into the other.)
-- **External editor spawn** (`packages/kernel/src/tui/editor.ts:53`) — add an explicit
+- **External editor spawn** (`openDraftInEditor`) — add an explicit
   `env: restoreHostNodeEnv(process.env)` (the call currently passes no `env`).
 
 `childEnvFor` may still apply the restore to its own output for defensiveness, but the **binding**
@@ -272,8 +280,10 @@ field evidence ever warrants it.
 - **Integration (the load-bearing security test):** spawn a **real** warden through
   `startWardenClient` with `process.env.NODE_ENV="production"`, `KEEL_HOST_NODE_ENV_MANAGED="1"`, and
   each host case; assert the **warden process's own env** carries the host `NODE_ENV` (or none) and
-  **neither sentinel**. This test fails today at `client.ts:389` and forces the fix to the spawn
-  boundary. A governed-bash env probe is **not** a valid substitute (the SRT allowlist masks it).
+  **neither sentinel**. An adversarial case also injects conflicting `NODE_ENV` and sentinel values
+  through the later child/start env layers and proves the launcher-captured state remains
+  authoritative for both the ordinary Warden and MCP-discovery spawn boundaries. A governed-bash
+  env probe is **not** a valid substitute (the SRT allowlist masks it).
 - Integration: a credential-proxy source command and the editor spawn observe the host `NODE_ENV`
   and no sentinels.
 - **Renderer mode (proves the actual win, not a side effect):** in a child with

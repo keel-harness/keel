@@ -312,6 +312,32 @@ describe("kernel warden process client", () => {
     },
   );
 
+  it("keeps launcher-captured NODE_ENV sentinels authoritative over injected spawn env", async () => {
+    await withManagedHostNodeEnv("development", async () => {
+      const capturePath = join(isolatedKeelHome(), "warden-env.json");
+      const client = await startWardenClient({
+        command: process.execPath,
+        args: ["-e", envProbeWardenScript(capturePath)],
+        cwd: ROOT,
+        env: {
+          NODE_ENV: "caller-override",
+          KEEL_HOST_NODE_ENV: "caller-override",
+          KEEL_HOST_NODE_ENV_MANAGED: "0",
+        },
+        kernelVersion: "0.0.0",
+        requestTimeoutMs: 1_000,
+      });
+      children.push(client.child);
+      try {
+        expect(JSON.parse(readFileSync(capturePath, "utf8"))).toEqual({
+          NODE_ENV: "development",
+        });
+      } finally {
+        await client.close();
+      }
+    });
+  });
+
   it("keeps credential-proxy command sources on the restored host env", async () => {
     await withManagedHostNodeEnv(undefined, async () => {
       const dir = isolatedKeelHome();
