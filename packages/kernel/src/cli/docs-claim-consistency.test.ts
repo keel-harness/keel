@@ -137,6 +137,11 @@ const OVERCLAIM_SCANNED_DOCS = (): string[] => [
   ...readdirSync(join(repoRoot, "docs/guide"))
     .filter((f) => f.endsWith(".md"))
     .map((f) => `docs/guide/${f}`),
+  // The published landing page (keel-harness.com). It is the highest-traffic claim surface the
+  // project owns and the one most likely to drift toward marketing language, so it is held to the
+  // same vocabulary floor as the governing docs. Markup is scanned as text: an overclaim is just as
+  // misleading inside a <p> as inside a paragraph of Markdown.
+  ...(existsSync(join(repoRoot, "site/index.html")) ? ["site/index.html"] : []),
 ];
 
 // Deliberately excludes bare "no" — it is a common word that would exempt an unrelated overclaim
@@ -473,5 +478,121 @@ describe("overclaim vocabulary guard (P1-7)", () => {
       found,
       `overclaim(s) in ${doc}: ${found.map((h) => `"${h.term}" — ${h.line}`).join(" | ")}`,
     ).toEqual([]);
+  });
+});
+
+// --- Published landing page (site/index.html) ---
+//
+// The landing page is a claim surface with no reviewer between it and the public: it is what a
+// launch post links to, and it is edited for persuasion rather than for accuracy. The markdown docs
+// already have a guard; without this one the page is the single place where a claim can drift free
+// of enforcement. These tests bind the page's numbers to the README that sources them, and keep the
+// page's honest framing (pre-alpha status, the unpublished npm carrier) from being quietly dropped.
+describe("landing page claim consistency (site/index.html)", () => {
+  const PAGE = "site/index.html";
+  const pageAvailable = existsSync(join(repoRoot, PAGE));
+  const page = (): string => readRepoFile(PAGE);
+
+  // Strip tags so assertions read the rendered sentence, not the markup that happens to split it.
+  const pageText = (): string =>
+    page()
+      .replace(/<(script|style)\b[^>]*>[\s\S]*?<\/\1>/gi, " ")
+      .replace(/<[^>]+>/g, " ")
+      .replace(/&amp;/g, "&")
+      .replace(/&lt;/g, "<")
+      .replace(/&gt;/g, ">")
+      .replace(/\s+/g, " ");
+
+  it.runIf(pageAvailable)("states the pre-alpha status without needing to scroll", () => {
+    // The status is the first thing that makes every other claim on the page honest.
+    expect(pageText()).toMatch(/pre-alpha/i);
+    expect(pageText()).toMatch(/prototype|work in progress/i);
+  });
+
+  it.runIf(pageAvailable)("keeps the evidence numbers identical to the README's table", () => {
+    // The page copies the README's evidence table. If the README is revised down (fewer tests, a
+    // lower coverage number) and the page keeps the old figure, the page silently overclaims.
+    const readme = readRepoFile("README.md");
+    const text = pageText();
+
+    const claims = [
+      { what: "test count", re: /([\d,]+)\+\s*unit and property tests/i },
+      { what: "statement coverage", re: /~(\d+)%\s*statements/i },
+      { what: "branch coverage", re: /~(\d+)%\s*branches/i },
+      { what: "security-suite count", re: /([\d,]+)\+\s*adversarial/i },
+    ];
+
+    for (const { what, re } of claims) {
+      const fromReadme = readme.match(re);
+      const fromPage = text.match(re);
+      expect(fromReadme, `README no longer states the ${what}; update this guard`).not.toBeNull();
+      expect(fromPage, `${PAGE} no longer states the ${what}`).not.toBeNull();
+      expect(
+        fromPage?.[1],
+        `${PAGE} ${what} (${fromPage?.[1]}) disagrees with README (${fromReadme?.[1]})`,
+      ).toBe(fromReadme?.[1]);
+    }
+  });
+
+  it.runIf(pageAvailable)("never presents the reserved npm name as a working install", () => {
+    // `npm i keel-harness` resolves to the 0.0.1 name-reservation placeholder, so shipping it as a
+    // bare instruction hands visitors a stub. Showing the command is fine; showing it as ready is
+    // not. (RUNNABLE_PLACEHOLDER_PACKAGE_COMMAND covers npx/dlx, which need no install step; this
+    // covers the install form a landing-page quickstart actually reaches for.)
+    const text = pageText();
+    const mentionsInstall = /npm\s+(?:i|install)\b[^.]{0,40}keel-harness/i.test(text);
+
+    if (mentionsInstall) {
+      expect(text, `${PAGE} shows an npm install without saying it is unpublished`).toMatch(
+        /not published|does not work|not yet available/i,
+      );
+      expect(text, `${PAGE} shows an npm install without explaining the placeholder`).toMatch(
+        /placeholder|reserved/i,
+      );
+    }
+    // Regardless of phrasing, the never-runnable forms stay banned outright.
+    expect(page()).not.toMatch(RUNNABLE_PLACEHOLDER_PACKAGE_COMMAND);
+  });
+
+  it.runIf(pageAvailable)("keeps the load-bearing limitations on the page", () => {
+    // The limits section is the page's credibility. Each of these is a limitation the README states
+    // and a reader would otherwise reasonably assume keel had solved.
+    const text = pageText();
+    for (const limit of [
+      /injection immunity|can still be fooled/i, // not injection-proof
+      /provider api egress/i, // provider calls are ungoverned
+      /tamper-evident/i, // not tamper-proof
+      /windows/i, // unsupported platform
+    ]) {
+      expect(text, `${PAGE} dropped a required limitation: ${limit}`).toMatch(limit);
+    }
+  });
+
+  it.runIf(pageAvailable)("links only to documentation that exists in the repository", () => {
+    // A 404 from the launch page is the cheapest possible credibility loss.
+    const blobLinks = [
+      ...page().matchAll(/https:\/\/github\.com\/keel-harness\/keel\/blob\/main\/([^"#?]+)/g),
+    ]
+      .map((m) => m[1] ?? "")
+      .filter(Boolean);
+
+    expect(blobLinks.length, "expected the page to link to repository docs").toBeGreaterThan(0);
+    const missing = [...new Set(blobLinks)].filter((p) => !existsSync(join(repoRoot, p)));
+    expect(
+      missing,
+      `${PAGE} links to non-existent repository paths: ${missing.join(", ")}`,
+    ).toEqual([]);
+  });
+
+  it.runIf(pageAvailable)("stays self-contained (no third-party subresources)", () => {
+    // The page is served from the project's own domain. A CDN script, remote font, or tracker is a
+    // third party that can change what a visitor executes — an unacceptable shape for this project.
+    const html = page();
+    expect(html, "external src=").not.toMatch(/src\s*=\s*"(?:https?:)?\/\//i);
+    expect(html, "external stylesheet").not.toMatch(
+      /<link[^>]+rel\s*=\s*"stylesheet"[^>]+href\s*=\s*"(?:https?:)?\/\//i,
+    );
+    expect(html, "external CSS @import").not.toMatch(/@import\s+(?:url\()?["']?(?:https?:)?\/\//i);
+    expect(html, "external url() in CSS").not.toMatch(/url\(\s*["']?(?:https?:)?\/\//i);
   });
 });
