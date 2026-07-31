@@ -1443,6 +1443,29 @@ describe("Phase-2A starter policy pack", () => {
       if (ruleId !== undefined) expect(decision.matchedRules, command).toContain(ruleId);
     }
 
+    const variableSecret = policyInput("cat $HOME/.ssh/id_rsa");
+    expect(variableSecret.sideEffect.dynamic.classifier).toEqual({
+      name: "phase2a-transitional-bash-classifier",
+      version: "3",
+      confidence: "unknown",
+      reasons: ["fail_closed_command_shape"],
+    });
+    expect(variableSecret.sideEffect.dynamic.targets).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "path",
+          value: "$HOME/.ssh/id_rsa",
+          normalized: "/repo/$HOME/.ssh/id_rsa",
+          withinWorkspace: true,
+          sensitivity: "internal",
+        }),
+      ]),
+    );
+    expect(await policy.evaluate(variableSecret)).toMatchObject({
+      verdict: "review",
+      matchedRules: ["POL-003"],
+    });
+
     const input = policyInput("cat README.md && python script.py");
     expect(input.sideEffect.dynamic.composition).toMatchObject({
       kind: "conditional",

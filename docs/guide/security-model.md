@@ -70,7 +70,11 @@ the claim ledger's.
   deletion inside the chain is detected. Truncating the tail at a record boundary
   is only detectable when you compare against an out-of-band head anchor, and a
   verified bundle proves integrity, not authorship: compare the signer key with
-  one you obtained out of band.
+  one you obtained out of band. Audit tamper-evidence also does not guarantee
+  semantic classification accuracy: for example, `cat $HOME/.ssh/id_rsa` is
+  recorded with an unexpanded literal path today. Its classifier reports unknown,
+  policy reviews it, and the sandbox denies the real secret read, but the recorded
+  path target is not a semantically exact expansion.
 - **Egress granularity is domain-level** (documented gap). Allowing
   `github.com` allows all of `github.com`.
 - **Redaction is best-effort** (Proven for its stated scope). Documented blind

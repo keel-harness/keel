@@ -196,6 +196,9 @@ describe("public docs claim consistency", () => {
 
   it("keeps SECURITY status aligned with the current threat model instead of stale Phase-1 wording", () => {
     const security = readRepoFile("SECURITY.md");
+    const spec = readRepoFile("MASTER_SPEC.md");
+    const guide = readRepoFile("docs/guide/security-model.md");
+    const ledger = readRepoFile("docs/quality/claim-ledger.md");
 
     expect(security).not.toMatch(/Phase 1/i);
     expect(security).not.toMatch(/no enforcement and no\s+security guarantees/i);
@@ -208,6 +211,11 @@ describe("public docs claim consistency", () => {
     expect(security).toMatch(/same-user malware/i);
     expect(security).toMatch(/out-of-band signer key/i);
     expect(security).toMatch(/private vulnerability reporting/i);
+    expect(spec).toMatch(/classification fidelity.*classifier claim/is);
+    expect(spec).toMatch(/tamper-evidence.*integrity.*not.*semantic/is);
+    expect(spec).toContain("$HOME/.ssh/id_rsa");
+    expect(guide).toMatch(/audit tamper-evidence.*semantic classification/is);
+    expect(ledger).toMatch(/audit integrity does not guarantee semantic classification accuracy/i);
   });
 
   it("keeps support guidance aligned with the monitored private vulnerability channel", () => {
