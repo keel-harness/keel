@@ -1,0 +1,66 @@
+name: pages
+
+# Publishes the marketing landing page (site/) to GitHub Pages.
+# Only site/ is uploaded — the repository itself is never served, so the docs
+# tree and source stay reachable through github.com rather than the Pages host.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "site/**"
+      - ".github/workflows/pages.yml"
+  workflow_dispatch:
+
+# Least privilege: read the repo, then mint the OIDC token deploy-pages needs.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Never cancel an in-flight publish; a half-deployed Pages site is worse than a
+# queued one. Later pushes queue behind the running deploy.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    # Fork PRs must not be able to publish to the project's domain.
+    if: github.repository == 'keel-harness/keel'
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Reject external subresources
+        # The page must stay self-contained: no CDN scripts, fonts, or trackers.
+        # A remote subresource on the landing page of a security project is a
+        # third party that can change what visitors execute. Fail closed here.
+        #
+        # Outbound <a href> links are expected and allowed — this checks only
+        # things the browser FETCHES: src=, stylesheet links, @import, url().
+        run: |
+          fail=0
+          check() {
+            if grep -nEi "$1" site/index.html; then
+              echo "::error::site/index.html: $2"
+              fail=1
+            fi
+          }
+          check 'src[[:space:]]*=[[:space:]]*"(https?:)?//' 'external src= (script/img/iframe/video)'
+          check '<link[^>]+rel[[:space:]]*=[[:space:]]*"stylesheet"[^>]+href[[:space:]]*=[[:space:]]*"(https?:)?//' 'external stylesheet'
+          check '@import[[:space:]]+(url\()?["'"'"']?(https?:)?//' 'external CSS @import'
+          check 'url\([[:space:]]*["'"'"']?(https?:)?//' 'external url() in CSS'
+          exit $fail
+
+      - uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5
+
+      - uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3
+        with:
+          path: site
+
+      - id: deployment
+        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4

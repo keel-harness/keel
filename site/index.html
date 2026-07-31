@@ -1,0 +1,1323 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>keel — the model requests, the warden decides</title>
+    <meta
+      name="description"
+      content="keel is an open-source, governance-native coding agent harness. A separate warden process decides which actions run, under a hash-pinned policy the model cannot rewrite."
+    />
+    <link rel="canonical" href="https://keel-harness.com/" />
+    <meta name="theme-color" content="#0b0d10" />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://keel-harness.com/" />
+    <meta property="og:title" content="keel — the model requests, the warden decides" />
+    <meta
+      property="og:description"
+      content="An open-source coding agent harness with structural, out-of-process enforcement. Pre-alpha."
+    />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="keel — the model requests, the warden decides" />
+    <meta
+      name="twitter:description"
+      content="An open-source coding agent harness with structural, out-of-process enforcement. Pre-alpha."
+    />
+
+    <!-- Inline SVG favicon: amber shield outline. No external requests. -->
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230b0d10'/%3E%3Cpath d='M16 5l8 3v7c0 5-3.4 9.3-8 11-4.6-1.7-8-6-8-11V8z' fill='none' stroke='%23ffb000' stroke-width='2.2' stroke-linejoin='round'/%3E%3C/svg%3E"
+    />
+
+    <style>
+      :root {
+        /* The page commits to a dark palette. Declaring it keeps UA-rendered chrome — notably the
+           scrollbars on the terminal, code, and table panes — dark instead of light-themed. */
+        color-scheme: dark;
+        --bg: #0b0d10;
+        --panel: #12151a;
+        --panel-2: #0f1216;
+        --line: #212832;
+        /* Boundary colour for interactive controls (buttons, doc cards). WCAG 1.4.11 wants 3:1 for
+           the visual boundary of a control; --line is 1.31:1 on --bg, which is fine for a passive
+           divider but leaves a button looking edgeless. Measured 3.20:1 on --bg and 3.01:1 on the
+           --panel fill the controls actually sit on. */
+        --line-strong: #5c636c;
+        --text: #cdd6e0;
+        --head: #eef2f6;
+        --muted: #8b96a5;
+        --amber: #ffb000;
+        --deny: #ff6b5e;
+        --allow: #4ec97a;
+        --review: #ffc857;
+        --mono:
+          ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+        --sans:
+          -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, "Helvetica Neue", Arial,
+          sans-serif;
+        --wrap: 900px;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+      html {
+        -webkit-text-size-adjust: 100%;
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font-family: var(--sans);
+        /* rem, not px: a px body size would ignore a raised browser default font size while
+           every rem-sized heading and label around it grew. */
+        font-size: 1.03rem;
+        line-height: 1.65;
+        -webkit-font-smoothing: antialiased;
+      }
+
+      /* Subtle amber glow behind the hero. Purely decorative. */
+      body::before {
+        content: "";
+        position: fixed;
+        top: -22vh;
+        left: 50%;
+        width: min(1100px, 130vw);
+        height: 55vh;
+        transform: translateX(-50%);
+        background: radial-gradient(ellipse at center, rgba(255, 176, 0, 0.075), transparent 68%);
+        pointer-events: none;
+        z-index: 0;
+      }
+
+      .wrap {
+        position: relative;
+        z-index: 1;
+        max-width: var(--wrap);
+        margin: 0 auto;
+        padding: 0 22px;
+      }
+
+      a {
+        color: var(--amber);
+        text-decoration: none;
+        border-bottom: 1px solid rgba(255, 176, 0, 0.28);
+      }
+      a:hover {
+        border-bottom-color: var(--amber);
+      }
+      a:focus-visible,
+      button:focus-visible {
+        outline: 2px solid var(--amber);
+        outline-offset: 3px;
+        border-radius: 3px;
+      }
+
+      h1,
+      h2,
+      h3 {
+        color: var(--head);
+        line-height: 1.25;
+        letter-spacing: -0.01em;
+        margin: 0;
+      }
+      h2 {
+        font-size: 1.42rem;
+        font-family: var(--mono);
+        font-weight: 600;
+      }
+      h3 {
+        font-size: 1.02rem;
+        font-family: var(--mono);
+        font-weight: 600;
+      }
+      p {
+        margin: 0 0 1em;
+      }
+      section > p:last-child {
+        margin-bottom: 0;
+      }
+
+      /* ---------- header ---------- */
+      header.top {
+        border-bottom: 1px solid var(--line);
+        background: rgba(11, 13, 16, 0.85);
+        -webkit-backdrop-filter: blur(8px);
+        backdrop-filter: blur(8px);
+        position: sticky;
+        top: 0;
+        z-index: 10;
+      }
+      .top-in {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        /* min-height, not height: the nav wraps to 2–3 rows on narrow screens, and a hard height
+           would centre the overflow out of the header in both directions — the top row scrolling
+           out of view entirely, the bottom row spilling onto the page with no header behind it. */
+        min-height: 58px;
+        flex-wrap: wrap;
+        padding: 8px 0;
+      }
+      .brand {
+        font-family: var(--mono);
+        font-weight: 700;
+        font-size: 1.06rem;
+        color: var(--head);
+        border: 0;
+        letter-spacing: 0.02em;
+      }
+      .brand span {
+        color: var(--amber);
+      }
+      .top nav {
+        margin-left: auto;
+        display: flex;
+        gap: 20px;
+        flex-wrap: wrap;
+      }
+      .top nav a {
+        color: var(--muted);
+        border: 0;
+        font-size: 0.9rem;
+        font-family: var(--mono);
+      }
+      .top nav a:hover {
+        color: var(--amber);
+      }
+      /* Below this width the five nav links cannot share a row with the wordmark. Drop the
+         in-page section links and keep only GitHub — the one destination worth the space. */
+      @media (max-width: 640px) {
+        .top nav a:not(.keep-mobile) {
+          display: none;
+        }
+      }
+
+      /* ---------- hero ---------- */
+      .hero {
+        /* padding-block only. A `padding` shorthand here would out-order `.wrap`'s `0 22px` at equal
+           specificity and zero the gutter, putting hero text against both screen edges on mobile and
+           misaligning the hero 22px from every section below it on desktop. */
+        padding-top: 74px;
+        padding-bottom: 8px;
+      }
+      .pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        font-family: var(--mono);
+        font-size: 0.76rem;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: var(--amber);
+        border: 1px solid rgba(255, 176, 0, 0.32);
+        background: rgba(255, 176, 0, 0.06);
+        border-radius: 999px;
+        padding: 5px 13px;
+      }
+      .dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: var(--amber);
+      }
+
+      h1.title {
+        font-family: var(--mono);
+        font-size: clamp(3rem, 11vw, 4.6rem);
+        font-weight: 700;
+        letter-spacing: -0.035em;
+        margin: 22px 0 6px;
+      }
+
+      /* the typed slogan */
+      .slogan {
+        font-family: var(--mono);
+        color: var(--amber);
+        font-size: clamp(1rem, 3.6vw, 1.5rem);
+        font-weight: 500;
+        /* Reserve the height the FINISHED sentence occupies, so the typing animation does not
+           shift the page as it lands. Below ~460px the font-size clamp hits its 1rem floor and the
+           sentence wraps to two lines; above it, one line is enough. */
+        min-height: 3.4em;
+        margin: 0 0 20px;
+        text-shadow: 0 0 22px rgba(255, 176, 0, 0.28);
+      }
+      @media (min-width: 461px) {
+        .slogan {
+          min-height: 2.1em;
+        }
+      }
+
+      /* Exposed to assistive tech, removed from the visual flow. */
+      .sr-only {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        padding: 0;
+        margin: -1px;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+        white-space: nowrap;
+        border: 0;
+      }
+      .cursor {
+        display: inline-block;
+        width: 0.58ch;
+        height: 1.05em;
+        background: var(--amber);
+        vertical-align: -0.16em;
+        margin-left: 2px;
+        animation: blink 1.06s steps(1, end) infinite;
+      }
+      @keyframes blink {
+        0%,
+        50% {
+          opacity: 1;
+        }
+        50.01%,
+        100% {
+          opacity: 0;
+        }
+      }
+
+      .lede {
+        font-size: 1.1rem;
+        color: var(--text);
+        max-width: 68ch;
+      }
+      .lede strong {
+        color: var(--head);
+        font-weight: 600;
+      }
+
+      .cta {
+        display: flex;
+        gap: 12px;
+        flex-wrap: wrap;
+        margin: 26px 0 0;
+      }
+      .btn {
+        font-family: var(--mono);
+        font-size: 0.92rem;
+        padding: 10px 18px;
+        border-radius: 7px;
+        border: 1px solid var(--line-strong);
+        color: var(--text);
+        background: var(--panel);
+        transition:
+          border-color 0.15s,
+          color 0.15s;
+      }
+      .btn:hover {
+        border-color: var(--amber);
+        color: var(--head);
+      }
+      .btn.primary {
+        background: var(--amber);
+        color: #16110a;
+        border-color: var(--amber);
+        font-weight: 600;
+      }
+      .btn.primary:hover {
+        background: #ffc033;
+        color: #16110a;
+      }
+
+      /* ---------- WIP notice ---------- */
+      .notice {
+        margin: 34px 0 0;
+        border: 1px solid rgba(255, 176, 0, 0.3);
+        border-left: 3px solid var(--amber);
+        background: rgba(255, 176, 0, 0.05);
+        border-radius: 8px;
+        padding: 16px 18px;
+        font-size: 0.95rem;
+      }
+      .notice b {
+        color: var(--amber);
+        font-family: var(--mono);
+      }
+
+      /* ---------- sections ---------- */
+      section {
+        padding: 62px 0 0;
+      }
+      .eyebrow {
+        font-family: var(--mono);
+        font-size: 0.76rem;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: var(--muted);
+        margin: 0 0 10px;
+      }
+      .sec-intro {
+        color: var(--muted);
+        max-width: 68ch;
+        margin-top: 10px;
+      }
+
+      /* ---------- terminal ---------- */
+      .term {
+        margin-top: 22px;
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        background: var(--panel-2);
+        overflow: hidden;
+      }
+      .term-bar {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        padding: 10px 14px;
+        border-bottom: 1px solid var(--line);
+        background: var(--panel);
+      }
+      .tdot {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        background: #2b323c;
+      }
+      .term-title {
+        margin-left: 8px;
+        font-family: var(--mono);
+        font-size: 0.76rem;
+        color: var(--muted);
+      }
+      .term pre {
+        margin: 0;
+        padding: 18px;
+        overflow-x: auto;
+        font-family: var(--mono);
+        font-size: 0.83rem;
+        line-height: 1.75;
+        color: var(--text);
+      }
+      .c-prompt {
+        color: var(--amber);
+      }
+      .c-muted {
+        color: var(--muted);
+      }
+      .c-allow {
+        color: var(--allow);
+      }
+      .c-deny {
+        color: var(--deny);
+        font-weight: 600;
+      }
+      .c-review {
+        color: var(--review);
+        font-weight: 600;
+      }
+
+      .caption {
+        font-size: 0.84rem;
+        color: var(--muted);
+        margin-top: 10px;
+        font-style: italic;
+      }
+
+      /* ---------- demo slot ---------- */
+      .demo {
+        margin-top: 22px;
+        border: 1px dashed var(--line);
+        border-radius: 10px;
+        background: var(--panel-2);
+        aspect-ratio: 16 / 9;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 10px;
+        text-align: center;
+        padding: 20px;
+      }
+      .demo .glyph {
+        font-family: var(--mono);
+        font-size: 1.9rem;
+        color: var(--amber);
+        opacity: 0.75;
+      }
+      .demo p {
+        margin: 0;
+        color: var(--muted);
+        font-family: var(--mono);
+        font-size: 0.86rem;
+      }
+
+      /* ---------- architecture ---------- */
+      .arch {
+        display: grid;
+        grid-template-columns: 1fr auto 1fr;
+        gap: 14px;
+        align-items: stretch;
+        margin-top: 24px;
+      }
+      .box {
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        background: var(--panel);
+        padding: 18px;
+      }
+      .box.warden {
+        border-color: rgba(255, 176, 0, 0.4);
+        background: linear-gradient(180deg, rgba(255, 176, 0, 0.05), transparent);
+      }
+      .box h3 {
+        margin-bottom: 4px;
+      }
+      .box .role {
+        font-family: var(--mono);
+        font-size: 0.74rem;
+        letter-spacing: 0.09em;
+        text-transform: uppercase;
+        color: var(--muted);
+        margin-bottom: 12px;
+      }
+      .box.warden .role {
+        color: var(--amber);
+      }
+      .box ul {
+        margin: 0;
+        padding-left: 17px;
+        font-size: 0.9rem;
+        color: var(--muted);
+      }
+      .box li {
+        margin-bottom: 3px;
+      }
+      .arrows {
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        gap: 14px;
+        font-family: var(--mono);
+        font-size: 0.71rem;
+        color: var(--muted);
+        text-align: center;
+        white-space: nowrap;
+        padding: 0 2px;
+      }
+      .arrows span {
+        display: block;
+      }
+      .arrows .a-out {
+        color: var(--amber);
+      }
+      @media (max-width: 720px) {
+        .arch {
+          grid-template-columns: 1fr;
+        }
+        .arrows {
+          flex-direction: row;
+          /* The three labels are `white-space: nowrap` and total ~350px, which overflows a 320px
+             viewport. `body` hides horizontal overflow, so without wrapping they would be clipped
+             rather than scrolled — silently losing the "verdict" label on the narrowest phones. */
+          flex-wrap: wrap;
+          justify-content: center;
+          gap: 10px 22px;
+        }
+      }
+
+      /* ---------- flow ---------- */
+      ol.flow {
+        counter-reset: step;
+        list-style: none;
+        padding: 0;
+        margin: 24px 0 0;
+        display: grid;
+        gap: 10px;
+      }
+      ol.flow li {
+        counter-increment: step;
+        position: relative;
+        padding: 13px 16px 13px 52px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--panel);
+        font-size: 0.95rem;
+      }
+      ol.flow li::before {
+        content: counter(step);
+        position: absolute;
+        left: 15px;
+        top: 12px;
+        width: 23px;
+        height: 23px;
+        border-radius: 5px;
+        background: rgba(255, 176, 0, 0.12);
+        border: 1px solid rgba(255, 176, 0, 0.35);
+        color: var(--amber);
+        font-family: var(--mono);
+        font-size: 0.78rem;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      ol.flow b {
+        color: var(--head);
+        font-weight: 600;
+      }
+
+      /* ---------- table ---------- */
+      .tablewrap {
+        margin-top: 22px;
+        overflow-x: auto;
+        border: 1px solid var(--line);
+        border-radius: 10px;
+      }
+      table {
+        border-collapse: collapse;
+        width: 100%;
+        min-width: 620px;
+        font-size: 0.9rem;
+      }
+      th,
+      td {
+        text-align: left;
+        padding: 12px 15px;
+        border-bottom: 1px solid var(--line);
+        vertical-align: top;
+      }
+      th {
+        font-family: var(--mono);
+        font-size: 0.76rem;
+        letter-spacing: 0.07em;
+        text-transform: uppercase;
+        color: var(--muted);
+        background: var(--panel);
+        font-weight: 600;
+      }
+      tr:last-child td {
+        border-bottom: 0;
+      }
+      td code {
+        white-space: nowrap;
+      }
+
+      code {
+        font-family: var(--mono);
+        font-size: 0.87em;
+        background: rgba(255, 255, 255, 0.055);
+        border: 1px solid var(--line);
+        border-radius: 4px;
+        padding: 1px 5px;
+        color: var(--head);
+      }
+
+      /* ---------- limits ---------- */
+      ul.limits {
+        margin: 22px 0 0;
+        padding: 0;
+        list-style: none;
+        display: grid;
+        gap: 8px;
+      }
+      ul.limits li {
+        padding-left: 26px;
+        position: relative;
+        color: var(--muted);
+        font-size: 0.95rem;
+      }
+      ul.limits li::before {
+        /* The "/ \"\"" gives the generated glyph an empty alt so a screen reader does not announce
+           a cross before each of the twelve limits. The <b> lead already carries the meaning. */
+        content: "✕" / "";
+        position: absolute;
+        left: 4px;
+        top: 0;
+        color: var(--deny);
+        font-family: var(--mono);
+        font-size: 0.85rem;
+      }
+      ul.limits li b {
+        color: var(--text);
+        font-weight: 600;
+      }
+
+      /* ---------- code block ---------- */
+      pre.code {
+        margin: 18px 0 0;
+        padding: 17px 18px;
+        border: 1px solid var(--line);
+        border-radius: 9px;
+        background: var(--panel-2);
+        overflow-x: auto;
+        font-family: var(--mono);
+        font-size: 0.84rem;
+        line-height: 1.72;
+      }
+      pre.code .c {
+        color: var(--muted);
+      }
+      pre.code .p {
+        color: var(--amber);
+      }
+
+      .warnbox {
+        margin-top: 16px;
+        border: 1px solid var(--line);
+        border-left: 3px solid var(--deny);
+        border-radius: 8px;
+        background: rgba(255, 107, 94, 0.05);
+        padding: 14px 17px;
+        font-size: 0.92rem;
+        color: var(--muted);
+      }
+      .warnbox b {
+        color: var(--deny);
+        font-family: var(--mono);
+      }
+
+      /* ---------- doc links ---------- */
+      .docs {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(232px, 1fr));
+        gap: 11px;
+        margin-top: 24px;
+      }
+      .doc {
+        border: 1px solid var(--line-strong);
+        border-radius: 9px;
+        background: var(--panel);
+        padding: 15px 16px;
+        display: block;
+        color: var(--text);
+        border-bottom: 1px solid var(--line);
+        transition: border-color 0.15s;
+      }
+      .doc:hover {
+        border-color: var(--amber);
+      }
+      .doc .n {
+        font-family: var(--mono);
+        font-size: 0.92rem;
+        color: var(--amber);
+        display: block;
+        margin-bottom: 3px;
+      }
+      .doc .d {
+        font-size: 0.86rem;
+        color: var(--muted);
+      }
+
+      /* ---------- footer ---------- */
+      footer {
+        margin-top: 78px;
+        border-top: 1px solid var(--line);
+        padding: 28px 0 46px;
+        font-size: 0.87rem;
+        color: var(--muted);
+      }
+      footer .frow {
+        display: flex;
+        gap: 18px;
+        flex-wrap: wrap;
+        align-items: center;
+      }
+      footer nav {
+        margin-left: auto;
+        display: flex;
+        gap: 18px;
+        flex-wrap: wrap;
+      }
+      footer a {
+        color: var(--muted);
+        border: 0;
+        font-family: var(--mono);
+        font-size: 0.85rem;
+      }
+      footer a:hover {
+        color: var(--amber);
+      }
+      .disclaim {
+        margin-top: 20px;
+        padding-top: 18px;
+        border-top: 1px solid var(--line);
+        max-width: 74ch;
+        font-size: 0.85rem;
+        line-height: 1.6;
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .cursor {
+          animation: none;
+        }
+        /* Cover every animation by default, so a future one cannot ship unguarded. */
+        *,
+        *::before,
+        *::after {
+          transition: none !important;
+          animation-duration: 0.01ms !important;
+          animation-iteration-count: 1 !important;
+        }
+      }
+
+      /* The page is dark-on-dark. Browsers drop the background when printing but keep the light
+         text, which would print as blank paper. Force legible dark-on-white instead. */
+      @media print {
+        body {
+          background: #fff;
+          color: #000;
+        }
+        header.top,
+        .demo,
+        body::before {
+          display: none;
+        }
+        .term,
+        .term pre,
+        pre.code,
+        .box,
+        .doc,
+        ol.flow li {
+          background: #fff;
+          color: #000;
+          border-color: #999;
+        }
+        a {
+          color: #000;
+          border-bottom-color: #999;
+        }
+        .c-muted,
+        .caption,
+        ul.limits li,
+        .box ul {
+          color: #333;
+        }
+      }
+    </style>
+  </head>
+
+  <body>
+    <header class="top">
+      <div class="wrap top-in">
+        <a class="brand" href="/">keel<span>_</span></a>
+        <nav aria-label="Main">
+          <a href="#how">How it works</a>
+          <a href="#evidence">Evidence</a>
+          <a href="#start">Quickstart</a>
+          <a href="#docs">Docs</a>
+          <a class="keep-mobile" href="https://github.com/keel-harness/keel">GitHub</a>
+        </nav>
+      </div>
+    </header>
+
+    <main>
+      <!-- ============ HERO ============ -->
+      <div class="wrap hero">
+        <span class="pill"
+          ><span class="dot" aria-hidden="true"></span> Pre-alpha · work in progress</span
+        >
+
+        <h1 class="title">keel</h1>
+
+        <p class="slogan">
+          <!--
+            The animated span starts empty, so it is hidden from assistive tech and the full
+            sentence is exposed once, statically. A screen reader then reads the slogan even if the
+            script is slow, blocked, or fails outright.
+          -->
+          <span class="sr-only">The model requests. The warden decides.</span>
+          <span id="typed" data-text="The model requests. The warden decides." aria-hidden="true"
+            >The model requests. The warden decides.</span
+          ><span class="cursor" aria-hidden="true"></span>
+        </p>
+
+        <p class="lede">
+          keel is an open-source coding agent harness. The agent runs behind an enforcement
+          boundary. The model cannot argue past it. The model asks for an action. A
+          <strong>separate warden process</strong> decides if the action runs, under a hash-pinned
+          policy the model cannot rewrite. Every decision, allowed or denied, goes into a
+          tamper-evident audit record that the agent cannot write to.
+        </p>
+
+        <div class="cta">
+          <a class="btn primary" href="https://github.com/keel-harness/keel">View on GitHub</a>
+          <a
+            class="btn"
+            href="https://github.com/keel-harness/keel/blob/main/docs/guide/security-model.md"
+            >The security model</a
+          >
+          <a class="btn" href="#start">Quickstart</a>
+        </div>
+
+        <div class="notice">
+          <b>Read this first.</b> keel is an early prototype. It is pre-alpha software. It is
+          incomplete, and it is a work in progress. Do not use it for mission-critical or
+          business-critical work until the open-source community reviews it. Read the list of things
+          keel <a href="#limits">does not claim</a>.
+        </div>
+
+        <!--
+          DEMO SLOT
+          Replace the <div class="demo"> block below with the recording when it is ready.
+
+          Video:
+            <video class="demo" src="demo.mp4" poster="demo-poster.png"
+                   autoplay muted loop playsinline
+                   style="border-style:solid"></video>
+
+          GIF or PNG:
+            <img class="demo" src="demo.gif" alt="A keel session denying a secret read."
+                 style="border-style:solid;object-fit:cover" />
+
+          Put the file in this same site/ directory so the Pages workflow uploads it.
+        -->
+        <div class="demo">
+          <div class="glyph" aria-hidden="true">▶</div>
+          <p>30-second demo — recording soon</p>
+        </div>
+      </div>
+
+      <!-- ============ TERMINAL ============ -->
+      <section class="wrap" id="see">
+        <p class="eyebrow">What it looks like</p>
+        <h2>Enforcement you can read</h2>
+        <p class="sec-intro">
+          The warden makes a decision for every governed action. It records the reason and the audit
+          reference next to the decision.
+        </p>
+
+        <div class="term" role="region" aria-label="Example keel session output" tabindex="0">
+          <div class="term-bar">
+            <span class="tdot" aria-hidden="true"></span
+            ><span class="tdot" aria-hidden="true"></span
+            ><span class="tdot" aria-hidden="true"></span>
+            <span class="term-title">keel — governed session</span>
+          </div>
+          <pre><span class="c-prompt">$</span> pnpm keel run -p <span class="c-muted">"audit this repo and send me a summary"</span>
+
+  read    src/index.ts                     <span class="c-allow">allowed</span>   <span class="c-muted">workspace</span>
+  search  "password|secret" src/           <span class="c-allow">allowed</span>   <span class="c-muted">workspace</span>
+  bash    rg --files -g '*.ts'             <span class="c-allow">allowed</span>   <span class="c-muted">sandbox: bubblewrap</span>
+  bash    cat ~/.ssh/id_rsa                <span class="c-deny">DENIED</span>    <span class="c-muted">policy: secret read (POL-001)</span>
+                                                     <span class="c-muted">audit ses_7f3a…#0091</span>
+  egress  evil.example.com:443             <span class="c-review">REVIEW</span>    <span class="c-muted">not on the allowlist</span>
+                                                     <span class="c-muted">waiting for a human</span>
+
+<span class="c-prompt">$</span> pnpm keel audit verify ~/.config/keel/audit/exports/bundle_ses_7f3a
+  chain     <span class="c-allow">ok</span>  <span class="c-muted">412 records, no gaps</span>
+  signature <span class="c-allow">ok</span>  <span class="c-muted">ed25519 checkpoint</span></pre>
+        </div>
+        <p class="caption">
+          Illustrative output. The denial and review paths shown here are covered by the security
+          suite — see
+          <a href="https://github.com/keel-harness/keel/blob/main/docs/quality/claim-ledger.md"
+            >the claim ledger</a
+          >. Before a side-effecting action runs, the warden writes a durable intent record. If it
+          cannot write the audit chain, the action does not run.
+        </p>
+      </section>
+
+      <!-- ============ HOW IT WORKS ============ -->
+      <section class="wrap" id="how">
+        <p class="eyebrow">Technical design</p>
+        <h2>Two processes, one boundary</h2>
+        <p class="sec-intro">
+          Enforcement is structural, not behavioral. It does not depend on trusting how the model
+          behaves. The kernel holds the model conversation. The kernel has no path to run a governed
+          action on its own.
+        </p>
+        <p class="sec-intro">
+          The governed surface today is <code>bash</code>, the trusted typed file tools
+          (<code>read</code>, <code>search</code>, <code>write</code>, <code>edit</code>),
+          <code>lifecycle.run</code>, and reviewed, pinned local-stdio MCP calls. Session-helper
+          surfaces (<code>plan</code>, <code>skill</code>, <code>retrieve</code>) and provider API
+          calls are not governed.
+        </p>
+
+        <div class="arch">
+          <div class="box">
+            <h3>kernel</h3>
+            <p class="role">can only request</p>
+            <ul>
+              <li>agent loop and tools</li>
+              <li>provider adapters</li>
+              <li>TUI, sessions, CLI</li>
+              <li>holds the model context</li>
+            </ul>
+          </div>
+
+          <div class="arrows">
+            <span class="a-out" aria-hidden="true">── request ──▶</span>
+            <span class="sr-only">The kernel sends a request to the warden.</span>
+            <span aria-hidden="true">◀── verdict ──</span>
+            <span class="sr-only">The warden returns a verdict.</span>
+            <span class="c-muted">JSON-RPC / stdio</span>
+          </div>
+
+          <div class="box warden">
+            <h3>warden</h3>
+            <p class="role">decides</p>
+            <ul>
+              <li>hash-pinned policy</li>
+              <li>OS sandbox profile</li>
+              <li>network egress control</li>
+              <li>writes the audit chain</li>
+            </ul>
+          </div>
+        </div>
+
+        <ol class="flow" role="list">
+          <li>The model requests an action. It cannot run the action itself.</li>
+          <li>
+            The kernel sends the request to the warden over <b>JSON-RPC on stdio</b>. The interface
+            is frozen and versioned.
+          </li>
+          <li>
+            The warden evaluates a <b>hash-pinned policy pack</b>. The model cannot change this
+            policy, because the policy is not in the model's writable world.
+          </li>
+          <li>
+            The warden runs an allowed governed <code>bash</code> action inside a real
+            <b>OS sandbox</b> — Seatbelt on macOS, bubblewrap on Linux. It filters network egress
+            through an allowlist proxy. The typed file tools are warden-routed with policy, profile,
+            audit, and path-containment checks. They are not a separate OS-sandbox claim.
+          </li>
+          <li>
+            The warden writes a durable intent record <b>before</b> a side-effecting action runs,
+            and the result after it. Records form a <b>SHA-256 hash chain</b> with signed
+            checkpoints. Only the warden writes this chain. If the chain cannot be written, the
+            action does not run.
+          </li>
+          <li>The kernel receives the verdict. It cannot override a denial.</li>
+        </ol>
+
+        <p class="caption">
+          Full detail:
+          <a href="https://github.com/keel-harness/keel/blob/main/docs/architecture.md"
+            >the architecture one-pager</a
+          >
+          and
+          <a href="https://github.com/keel-harness/keel/blob/main/MASTER_SPEC.md">MASTER_SPEC.md</a
+          >.
+        </p>
+      </section>
+
+      <!-- ============ AUTOPILOT ============ -->
+      <section class="wrap">
+        <p class="eyebrow">Autonomy</p>
+        <h2>Autopilot is not YOLO</h2>
+        <p class="sec-intro">
+          Autonomy modes are policy postures over the warden's enforcement. They are not promises
+          about model behavior. Guided is the default: consequential actions pause for your
+          approval. Autopilot removes the human prompt only for actions the warden has already
+          proven contained and low-risk. It never lets the model raise its own mode, change policy,
+          or turn a denial into an approval. A human sets the mode, and every mode change is
+          audited. "YOLO" means reduced or absent enforcement. keel has no such mode. The code path
+          for it does not exist.
+        </p>
+      </section>
+
+      <!-- ============ EVIDENCE ============ -->
+      <section class="wrap" id="evidence">
+        <p class="eyebrow">Evidence</p>
+        <h2>Check the claims yourself</h2>
+        <p class="sec-intro">
+          Each claim below maps to a command you can run. Clone the repository and run them. The
+          claim ledger lists the claims that are still pending, and the limits of each proof.
+        </p>
+
+        <div
+          class="tablewrap"
+          role="region"
+          aria-label="Evidence and how to reproduce it"
+          tabindex="0"
+        >
+          <table>
+            <caption class="sr-only">
+              Evidence for keel's claims and the command that reproduces each
+            </caption>
+            <thead>
+              <tr>
+                <th scope="col">What</th>
+                <th scope="col">Where it stands</th>
+                <th scope="col">Reproduce</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Tests</td>
+                <td>5,900+ unit and property tests, green in CI (Ubuntu and macOS)</td>
+                <td><code>pnpm test</code></td>
+              </tr>
+              <tr>
+                <td>Coverage</td>
+                <td>~98% statements, ~94% branches, with an enforced gate</td>
+                <td><code>pnpm test:cov</code></td>
+              </tr>
+              <tr>
+                <td>Security suite</td>
+                <td>900+ adversarial and denied-path tests</td>
+                <td><code>pnpm test:security</code></td>
+              </tr>
+              <tr>
+                <td>Real OS sandbox</td>
+                <td>
+                  bubblewrap denial probes gate every code PR. Seatbelt probes run on push to main.
+                  An unavailable backend fails the job — the gate cannot pass by skipping.
+                </td>
+                <td><code>pnpm test:sandbox:real</code></td>
+              </tr>
+              <tr>
+                <td>Audit integrity</td>
+                <td>Hash chain plus an offline evidence-bundle verifier</td>
+                <td><code>pnpm keel audit verify &lt;bundle&gt;</code></td>
+              </tr>
+              <tr>
+                <td>Capability benchmarks</td>
+                <td>
+                  TerminalBench numbers, published with their caveats: single-trial, subset,
+                  sandbox-off
+                </td>
+                <td>
+                  <a href="https://github.com/keel-harness/keel/blob/main/docs/benchmarks.md"
+                    >docs/benchmarks.md</a
+                  >
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="caption">
+          The
+          <a href="https://github.com/keel-harness/keel/blob/main/docs/quality/claim-ledger.md"
+            >claim ledger</a
+          >
+          maps every security claim to its test evidence and states the limits of that evidence.
+          Running <code>pnpm test</code> locally on a many-core machine can report timeout-shaped
+          failures, because several suites spawn real child processes under wall-clock budgets.
+          Re-run a failing file on its own. CI on clean runners is the authoritative signal.
+        </p>
+      </section>
+
+      <!-- ============ LIMITS ============ -->
+      <section class="wrap" id="limits">
+        <p class="eyebrow">Honest limits</p>
+        <h2>What keel does not claim</h2>
+        <p class="sec-intro">
+          keel is pre-alpha. These areas are not built, not proven, or not covered.
+        </p>
+
+        <ul class="limits" role="list">
+          <li>
+            <b>Not injection immunity.</b> The model can still be fooled. What the warden blocks is
+            the action.
+          </li>
+          <li>
+            <b>Provider API egress is not governed.</b> Calls to the model provider do not route
+            through the warden.
+          </li>
+          <li>
+            <b>The memory plane does not exist.</b> <code>packages/memory</code> is a placeholder
+            for Phase 3.
+          </li>
+          <li>
+            <b>Remote, localhost, and unreviewed MCP are not covered.</b> Only reviewed, pinned
+            local-stdio MCP has a governed path.
+          </li>
+          <li><b>No plugin or registry governance.</b> That work is not started.</li>
+          <li>
+            <b>No provenance or taint enforcement.</b> That is Phase 3. Trust is uniformly
+            fail-closed today.
+          </li>
+          <li>
+            <b>No resource containment.</b> PID, cgroup, and memory limits are not claim-grade.
+          </li>
+          <li>
+            <b>Tamper-evident, not tamper-proof.</b> Audit records detect change after the fact.
+            They do not stop same-user malware that steals the signing key.
+          </li>
+          <li>
+            <b>The live receipt is not the tamper-evident record.</b> Only the exported evidence
+            bundle is chain-derived and verifiable offline.
+          </li>
+          <li>
+            <b>Bundle authenticity needs a second step.</b> You must compare the signer key against
+            a published or out-of-band key.
+          </li>
+          <li><b>No published npm release.</b> Run from source. See the quickstart below.</li>
+          <li>
+            <b>Windows is not supported.</b> Linux and macOS are the tested platforms. Use WSL2 on
+            Windows.
+          </li>
+        </ul>
+      </section>
+
+      <!-- ============ QUICKSTART ============ -->
+      <section class="wrap" id="start">
+        <p class="eyebrow">Quickstart</p>
+        <h2>Run it from source</h2>
+        <p class="sec-intro">
+          You need Node 20 or later and ripgrep. <code>pnpm keel doctor</code> checks your machine
+          and prints one fix per problem.
+        </p>
+
+        <pre
+          class="code"
+          role="region"
+          aria-label="Quickstart commands"
+          tabindex="0"
+        ><span class="c"># 1. get the code</span>
+git clone https://github.com/keel-harness/keel.git
+cd keel
+
+<span class="c"># 2. install (corepack pins the exact pnpm version)</span>
+corepack enable &amp;&amp; pnpm install
+
+<span class="c"># 3. check your machine</span>
+pnpm keel doctor
+
+<span class="c"># 4. add a provider key (stored 0600, never echoed)</span>
+pnpm keel auth set anthropic
+
+<span class="c"># 5. run a task</span>
+pnpm keel run -p <span class="p">"fix the failing test in src/foo.ts"</span></pre>
+
+        <h3 style="margin-top: 30px">Install from npm</h3>
+        <pre
+          class="code"
+          role="region"
+          aria-label="npm install command, not yet published"
+          tabindex="0"
+        ><span class="c"># not published yet — this command does not work today</span>
+npm i -g keel-harness</pre>
+
+        <div class="warnbox">
+          <b>Not yet available.</b> The name <code>keel-harness</code> is reserved on the npm
+          registry, and the version published there (<code>0.0.1</code>) is a name-reservation
+          placeholder only. It is not the release. A real npm package is gated on a curated public
+          repository, a protected release configuration, staged-byte inspection, human 2FA approval,
+          and live-registry verification. Until then, the source checkout above is the supported
+          path.
+        </div>
+      </section>
+
+      <!-- ============ DOCS ============ -->
+      <section class="wrap" id="docs">
+        <p class="eyebrow">Documentation</p>
+        <h2>Documentation</h2>
+
+        <div class="docs">
+          <a class="doc" href="https://github.com/keel-harness/keel/blob/main/docs/architecture.md">
+            <span class="n">architecture.md</span>
+            <span class="d">The one-page tour of the kernel and warden split.</span>
+          </a>
+          <a
+            class="doc"
+            href="https://github.com/keel-harness/keel/blob/main/docs/guide/security-model.md"
+          >
+            <span class="n">security-model.md</span>
+            <span class="d">The honest security model, with the threat model.</span>
+          </a>
+          <a
+            class="doc"
+            href="https://github.com/keel-harness/keel/blob/main/docs/quality/claim-ledger.md"
+          >
+            <span class="n">claim-ledger.md</span>
+            <span class="d">Every claim, its test evidence, and its limits.</span>
+          </a>
+          <a class="doc" href="https://github.com/keel-harness/keel/blob/main/MASTER_SPEC.md">
+            <span class="n">MASTER_SPEC.md</span>
+            <span class="d">The full governing spec. It is the source of truth.</span>
+          </a>
+          <a class="doc" href="https://github.com/keel-harness/keel/blob/main/docs/adr/README.md">
+            <span class="n">ADR index</span>
+            <span class="d">Every significant design decision, with its reasoning.</span>
+          </a>
+          <a
+            class="doc"
+            href="https://github.com/keel-harness/keel/blob/main/docs/guide/getting-started.md"
+          >
+            <span class="n">getting-started.md</span>
+            <span class="d">Authenticate, launch a session, and the commands.</span>
+          </a>
+          <a
+            class="doc"
+            href="https://github.com/keel-harness/keel/blob/main/docs/guide/policy-guide.md"
+          >
+            <span class="n">policy-guide.md</span>
+            <span class="d">Modes, live approvals, and grant scopes.</span>
+          </a>
+          <a
+            class="doc"
+            href="https://github.com/keel-harness/keel/blob/main/docs/guide/audit-and-sessions.md"
+          >
+            <span class="n">audit-and-sessions.md</span>
+            <span class="d">Audit logs, evidence bundles, and past sessions.</span>
+          </a>
+          <a class="doc" href="https://github.com/keel-harness/keel/blob/main/docs/benchmarks.md">
+            <span class="n">benchmarks.md</span>
+            <span class="d">TerminalBench numbers, with the full caveats.</span>
+          </a>
+          <a class="doc" href="https://github.com/keel-harness/keel/blob/main/SECURITY.md">
+            <span class="n">SECURITY.md</span>
+            <span class="d">How to report a vulnerability privately.</span>
+          </a>
+          <a class="doc" href="https://github.com/keel-harness/keel/blob/main/CONTRIBUTING.md">
+            <span class="n">CONTRIBUTING.md</span>
+            <span class="d">Ground rules, and how to build on keel.</span>
+          </a>
+          <a class="doc" href="https://github.com/keel-harness/keel/blob/main/AGENTS.md">
+            <span class="n">AGENTS.md</span>
+            <span class="d">The engineering charter every change is held to.</span>
+          </a>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <div class="wrap">
+        <div class="frow">
+          <span>keel — Apache-2.0</span>
+          <nav aria-label="Footer">
+            <a href="https://github.com/keel-harness/keel">GitHub</a>
+            <a href="https://github.com/keel-harness/keel/issues">Issues</a>
+            <a href="https://github.com/keel-harness/keel/blob/main/SECURITY.md">Security</a>
+            <a href="https://github.com/keel-harness/keel/blob/main/LICENSE">License</a>
+          </nav>
+        </div>
+        <p class="disclaim">
+          keel aims to be a well-built agent harness with real runtime security. It is pre-alpha and
+          it is not vetted. Do not use it for mission-critical or business-critical work until the
+          open-source community reviews it rigorously. keel is also a human-in-the-loop tool by
+          design. If you want an agent that runs fully unattended, keel solves a different problem.
+        </p>
+      </div>
+    </footer>
+
+    <script>
+      (function () {
+        var el = document.getElementById("typed");
+        if (!el) return;
+        var text = el.getAttribute("data-text") || "";
+        var reduce =
+          window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+        if (reduce) {
+          el.textContent = text;
+          return;
+        }
+
+        // The element ships with the full sentence so a no-JS visitor still reads it. Clear it
+        // synchronously here — before the lead-in delay — so it never flashes and re-types.
+        el.textContent = "";
+
+        var i = 0;
+        function tick() {
+          el.textContent = text.slice(0, ++i);
+          if (i < text.length) {
+            // Pause a little longer on the sentence break so it reads as two statements.
+            setTimeout(tick, text.charAt(i - 1) === "." ? 340 : 42);
+          }
+        }
+        setTimeout(tick, 260);
+      })();
+    </script>
+  </body>
+</html>

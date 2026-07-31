@@ -64,20 +64,20 @@ maps back to these numbers.
 ### 2.1 The shape (where each responsibility lives)
 
 ```
-        ┌─────────────────────────────── KERNEL (untrusted) ──────────────────────────────┐
-        │  parent runAgentLoop  (session ses_A, context window A)                          │
-        │     model emits tool call: delegate{ purpose, instructions, requestedScope }     │
-        │            │                                                                      │
-        │            ▼  (kernel tool dispatch intercepts `delegate`)                        │
-        │   1. ask warden to MINT a child grant (Slice 2)  ─────────────┐                   │
-        │   4. run child runAgentLoop (session ses_B, fresh window B)   │                   │
-        │      every child tool call → warden.execute{sessionId:ses_B,  │                   │
-        │                                              grantId, ...}     │                   │
-        │   6. receive DelegatedContextResult, hand to parent as a      │                   │
-        │      provenance-tagged tool_result                            │                   │
-        └───────────────────────────────────────────────────────────────┼──────────────────┘
-                                                                          │ JSON-RPC (App. A)
-        ┌──────────────────────────────── WARDEN (trusted) ──────────────▼──────────────────┐
+        ┌──────────────────────────────── KERNEL (untrusted) ────────────────────────────────┐
+        │  parent runAgentLoop  (session ses_A, context window A)                            │
+        │     model emits tool call: delegate{ purpose, instructions, requestedScope }       │
+        │            │                                                                       │
+        │            ▼  (kernel tool dispatch intercepts `delegate`)                         │
+        │   1. ask warden to MINT a child grant (Slice 2)  ─────────────┐                    │
+        │   4. run child runAgentLoop (session ses_B, fresh window B)   │                    │
+        │      every child tool call → warden.execute{sessionId:ses_B,  │                    │
+        │                                             grantId, ... }    │                    │
+        │   6. receive DelegatedContextResult, hand to parent as a      │                    │
+        │      provenance-tagged tool_result                            │                    │
+        └───────────────────────────────────────────────────────────────┼────────────────────┘
+                                                                        │ JSON-RPC (App. A)
+        ┌───────────────────────────────── WARDEN (trusted) ────────────▼────────────────────┐
         │  2. validate requestedScope ⊆ parent grant; MINT child grant (signed, attenuated)  │
         │  3. record delegation.grant in the audit chain (sole writer)                       │
         │  5. on each warden.execute{ses_B, grantId}: enforce action ⊆ grant ∩ policy ∩ sbx  │
