@@ -145,21 +145,12 @@ The build produces an `npx`-installable package and mechanically testable self-c
 hermetic one-task run). The compiled binary uses your system ripgrep; the npx package bundles its
 own. Bun is a build/CI-only tool; development and tests use Node/pnpm/vitest (ADR-0009).
 
-The graph-audited `0.1.0` npx package is the current release-eligible carrier. Epic 3.21 adds its
-public package identity, exact shrinkwrap, deterministic one-pack candidate builder, SPDX and
-CycloneDX closure checks, and a tag-only, stage-only OIDC workflow. The same candidate tarball has
-passed isolated pnpm global/dlx, doctor, replay, Warden, and pre-trust `.env` probes on the pinned
-Node 20, 22, and 24 lines. That proves release readiness, not publication: the workflow has not run
-from the public repository and no real package has been staged or approved.
-
-Standalone Bun-compiled
-binaries are **not release-eligible** pending explicit review of Bun's linked LGPL components and
-relinking obligations; CI builds and exercises them as test mechanisms but does not upload or publish
-the executables. See ADR-0040. The registry's current `keel-harness@0.0.1` is a name-reservation
-placeholder; do not use it as the release carrier. A real public npx carrier remains gated on the
-curated public repository, protected release configuration, staged-byte inspection, human 2FA
-approval, and live-registry verification. The source-checkout commands above remain the supported
-path during open-source preparation. See the [release runbook](docs/guide/releasing.md).
+The graph-audited `keel-harness@0.1.0` npx carrier has passed isolated install/dlx, doctor, replay,
+Warden, and pre-trust `.env` probes on Node 20, 22, and 24, but it is not published; registry version
+`keel-harness@0.0.1` only reserves the name as a placeholder, so do not use it as the release carrier.
+Standalone Bun binaries remain test-only pending review of linked LGPL components, while the npx
+release remains gated on protected stage-only OIDC, staged-byte inspection, human 2FA approval, and
+live-registry verification; see the [release runbook](docs/guide/releasing.md).
 
 ## Layout
 - `packages/kernel`: the agent: loop, five tools, providers, sessions, TUI, context, CLI

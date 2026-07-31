@@ -252,11 +252,28 @@ describe("public docs claim consistency", () => {
 
   it("keeps package metadata from advertising the stale bash-only Phase-2A posture", () => {
     const releaseMetadata = readRepoFile("packaging/release-metadata.ts");
+    const memoryManifest = JSON.parse(readRepoFile("packages/memory/package.json")) as {
+      readonly description?: unknown;
+    };
+    const readme = readRepoFile("README.md");
 
     expect(releaseMetadata).not.toMatch(/Phase 2A: warden-governed bash/i);
     expect(releaseMetadata).not.toMatch(/private developer preview readiness/i);
     expect(releaseMetadata).toMatch(/pre-alpha/i);
     expect(releaseMetadata).toMatch(/structurally enforced boundaries/i);
+    expect(memoryManifest.description).toEqual(expect.any(String));
+    const memoryDescription = String(memoryManifest.description);
+    expect(memoryDescription).toMatch(/placeholder/i);
+    expect(memoryDescription).toMatch(/Phase 3/i);
+    expect(memoryDescription).toMatch(/not implemented/i);
+
+    const packagingSummary = readme.match(
+      /The graph-audited `keel-harness@0\.1\.0`[\s\S]*?\[release runbook\]\(docs\/guide\/releasing\.md\)\./u,
+    )?.[0];
+    expect(packagingSummary).toBeDefined();
+    expect(packagingSummary).toMatch(/not published.*0\.0\.1.*reserves the name/is);
+    expect(packagingSummary).toMatch(/Standalone Bun binaries.*test-only/is);
+    expect(packagingSummary?.match(/\.(?=\s|$)/gu) ?? []).toHaveLength(2);
   });
 
   it("uses the locked name (not the taken 'keel' placeholder / working-codename marker) (P0-8)", () => {
