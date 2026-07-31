@@ -13,13 +13,13 @@ sandboxing, egress, and the tamper-evident audit record; the kernel (which holds
 conversation) can only ask.
 
 ```
-┌─────────────────────────┐         JSON-RPC over stdio          ┌──────────────────────────┐
-│  kernel  (@keel/kernel)  │  ── warden.execute(request) ──▶      │  warden  (@keel/warden)   │
-│  the agent loop + tools  │                                      │  the enforcement plane    │
-│  + TUI + sessions + CLI  │  ◀── verdict + result ───────────    │  policy · sandbox · egress │
-│  "the model's world"     │                                      │  · audit chain            │
-└─────────────────────────┘                                      └──────────────────────────┘
-        the model can only REQUEST                     the warden DECIDES (allow / deny / modify)
+┌──────────────────────────┐         JSON-RPC over stdio          ┌────────────────────────────┐
+│  kernel  (@keel/kernel)  │  ── warden.execute(request) ──▶      │  warden  (@keel/warden)    │
+│  the agent loop + tools  │                                      │  the enforcement plane     │
+│  + TUI + sessions + CLI  │  ◀── verdict + result ─────────      │  policy · sandbox · egress │
+│  "the model's world"     │                                      │  · audit chain             │
+└──────────────────────────┘                                      └────────────────────────────┘
+  the model can only REQUEST                                      the warden DECIDES (allow / deny / modify)
 ```
 
 ## The two processes
