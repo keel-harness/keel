@@ -10,6 +10,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import assert from "node:assert/strict";
 
@@ -24,6 +25,7 @@ const workspace = join(root, "workspace");
 const keelHome = join(root, "keel-home");
 const fixturePath = join(workspace, "fixture-server.mjs");
 const markerPath = join(workspace, "fixture-spawned.marker");
+const trustHelperPath = fileURLToPath(new URL("./smoke-npx-mcp-review-trust.py", import.meta.url));
 
 function fail(label, result) {
   const details = [
@@ -127,6 +129,29 @@ try {
       2,
     )}\n`,
     { mode: 0o600 },
+  );
+
+  const untrustedReview = runKeel(["mcp", "review", "fixture"], "mcp review untrusted");
+  assert.equal(untrustedReview.status, 1, "mcp review must refuse an untrusted workspace");
+  assert.match(untrustedReview.stdout, /workspace is not trusted/u);
+  assert.equal(
+    existsSync(markerPath),
+    false,
+    "mcp review must not spawn the fixture before workspace trust",
+  );
+
+  const trustResult = spawnSync("python3", [trustHelperPath, keelBin, workspace, keelHome], {
+    env: process.env,
+    encoding: "utf8",
+    timeout: 45_000,
+    maxBuffer: 1_048_576,
+  });
+  if (trustResult.status !== 0) fail("interactive workspace trust", trustResult);
+  assert.match(trustResult.stdout, /installed npx workspace trust prompt passed/u);
+  assert.equal(
+    existsSync(markerPath),
+    false,
+    "establishing workspace trust must not spawn the configured MCP server",
   );
 
   const missingReview = runKeel(["mcp", "review", "missing"], "mcp review missing");
