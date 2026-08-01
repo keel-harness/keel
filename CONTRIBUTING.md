@@ -25,6 +25,10 @@ security-relevant work includes denied-path tests. New security claims map to ex
 evidence in [`docs/quality/claim-ledger.md`](docs/quality/claim-ledger.md), or they get
 downgraded.
 
+Reviewing the trust plane rather than changing it? The [security review map](docs/guide/reviewing-keel.md)
+gives a two-hour path through policy decisions, durable audit writes, and sandbox-profile
+projection.
+
 ## Ground rules (from MASTER_SPEC §0.1)
 1. **TDD is law.** No feature code before a failing test exists for it.
 2. **Gates are hard.** Each phase ends with measurable exit criteria; do not start the

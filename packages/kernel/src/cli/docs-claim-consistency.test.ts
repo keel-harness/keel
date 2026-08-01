@@ -225,13 +225,29 @@ describe("public docs claim consistency", () => {
     expect(ledger).toMatch(/audit integrity does not guarantee semantic classification accuracy/i);
   });
 
-  it("keeps support guidance aligned with the monitored private vulnerability channel", () => {
+  it("keeps support and contributor guidance aligned with security review paths", () => {
     const security = readRepoFile("SECURITY.md");
     const support = readRepoFile("SUPPORT.md");
+    const contributing = readRepoFile("CONTRIBUTING.md");
+    const reviewerGuide = readRepoFile("docs/guide/reviewing-keel.md");
 
     expect(security).toMatch(/private vulnerability reporting/i);
     expect(support).toMatch(/private vulnerability reporting/i);
     expect(support).not.toMatch(/fallback\s+email/i);
+    expect(security).toMatch(/\[security review map\]\(docs\/guide\/reviewing-keel\.md\)/i);
+    expect(contributing).toMatch(/\[security review map\]\(docs\/guide\/reviewing-keel\.md\)/i);
+    for (const seam of [
+      "`methodResult`",
+      "`buildPolicyInputForToolCall`",
+      "`OpaWasmPolicyPort.evaluate`",
+      "`appendAuditSeq`",
+      "`AuditChainWriter.append`",
+      "`buildSandboxProfileFromCapabilityManifest`",
+      "`policySandboxFindings`",
+      "`createSrtSandboxPort`",
+    ]) {
+      expect(reviewerGuide, seam).toContain(seam);
+    }
   });
 
   it("keeps package metadata from advertising the stale bash-only Phase-2A posture", () => {
