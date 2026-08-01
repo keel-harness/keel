@@ -1,0 +1,26 @@
+diff --git a/src/sandbox/linux-sandbox-utils.ts b/src/sandbox/linux-sandbox-utils.ts
+index cf200ce..acd3de1 100644
+--- a/src/sandbox/linux-sandbox-utils.ts
++++ b/src/sandbox/linux-sandbox-utils.ts
+@@ -667 +667 @@ function resolveApplySeccompPrefix(
+-function buildSandboxCommand(
++export function buildSandboxCommand(
+@@ -683,0 +684,2 @@ function buildSandboxCommand(
++    ...buildProxyReadinessCommands(socat, 3128),
++    ...buildProxyReadinessCommands(socat, 1080),
+@@ -700,0 +703,15 @@ function buildSandboxCommand(
++function buildProxyReadinessCommands(socat: string, port: number): string[] {
++  const target = `127.0.0.1:${port}`
++  return [
++    'keel_srt_proxy_attempt=0',
++    `until ${socat} -u - TCP:${target},connect-timeout=1 </dev/null >/dev/null 2>&1; do`,
++    '  keel_srt_proxy_attempt=$((keel_srt_proxy_attempt + 1))',
++    '  if [ "$keel_srt_proxy_attempt" -ge 50 ]; then',
++    `    printf '%s\\n' ${shellquote.quote([`sandbox proxy listener on ${target} did not become ready`])} >&2`,
++    '    exit 1',
++    '  fi',
++    '  sleep 0.1',
++    'done',
++  ]
++}
++

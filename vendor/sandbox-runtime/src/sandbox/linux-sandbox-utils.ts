@@ -664,7 +664,7 @@ function resolveApplySeccompPrefix(
  * Build the command that runs inside the sandbox.
  * Sets up HTTP proxy on port 3128 and SOCKS proxy on port 1080
  */
-function buildSandboxCommand(
+export function buildSandboxCommand(
   httpSocketPath: string,
   socksSocketPath: string,
   userCommand: string,
@@ -681,6 +681,8 @@ function buildSandboxCommand(
     `${socat} TCP-LISTEN:3128,fork,reuseaddr UNIX-CONNECT:${httpSocketPath} >/dev/null 2>&1 &`,
     `${socat} TCP-LISTEN:1080,fork,reuseaddr UNIX-CONNECT:${socksSocketPath} >/dev/null 2>&1 &`,
     'trap "kill %1 %2 2>/dev/null; exit" EXIT',
+    ...buildProxyReadinessCommands(socat, 3128),
+    ...buildProxyReadinessCommands(socat, 1080),
   ]
 
   // apply-seccomp runs after socat so socat can still create Unix sockets.
@@ -696,6 +698,21 @@ function buildSandboxCommand(
     ].join('\n')
     return `${shellPath} -c ${shellquote.quote([innerScript])}`
   }
+}
+
+function buildProxyReadinessCommands(socat: string, port: number): string[] {
+  const target = `127.0.0.1:${port}`
+  return [
+    'keel_srt_proxy_attempt=0',
+    `until ${socat} -u - TCP:${target},connect-timeout=1 </dev/null >/dev/null 2>&1; do`,
+    '  keel_srt_proxy_attempt=$((keel_srt_proxy_attempt + 1))',
+    '  if [ "$keel_srt_proxy_attempt" -ge 50 ]; then',
+    `    printf '%s\\n' ${shellquote.quote([`sandbox proxy listener on ${target} did not become ready`])} >&2`,
+    '    exit 1',
+    '  fi',
+    '  sleep 0.1',
+    'done',
+  ]
 }
 
 /**
