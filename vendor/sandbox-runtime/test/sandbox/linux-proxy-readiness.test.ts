@@ -2,12 +2,16 @@ import { execFile } from "node:child_process";
 import { chmodSync, existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { performance } from "node:perf_hooks";
 import { promisify } from "node:util";
 import { afterEach, describe, expect, it } from "vitest";
 import { buildSandboxCommand } from "../../src/sandbox/linux-sandbox-utils.js";
 
 const execFileAsync = promisify(execFile);
 const temporaryDirectories: string[] = [];
+const FAIL_CLOSED_PROCESS_TIMEOUT_MS = 15_000;
+const FAIL_CLOSED_MAX_ELAPSED_MS = 12_000;
+const FAIL_CLOSED_TEST_TIMEOUT_MS = 20_000;
 
 function createFixture(mode: "delayed-ready" | "socks-never-ready"): {
   directory: string;
@@ -84,11 +88,12 @@ describe("Linux sandbox proxy readiness", () => {
   it("fails closed within a bounded interval when a proxy listener never becomes ready", async () => {
     const fixture = createFixture("socks-never-ready");
     const startedMarker = join(fixture.directory, "governed-command-started");
+    const startedAt = performance.now();
 
     await expect(
       execFileAsync("/bin/sh", ["-c", commandFor(fixture.socatPath, `: > '${startedMarker}'`)], {
         env: { ...process.env, KEEL_SRT_TEST_DIR: fixture.directory },
-        timeout: 10_000,
+        timeout: FAIL_CLOSED_PROCESS_TIMEOUT_MS,
       }),
     ).rejects.toMatchObject({
       code: 1,
@@ -97,6 +102,7 @@ describe("Linux sandbox proxy readiness", () => {
       ),
     });
 
+    expect(performance.now() - startedAt).toBeLessThan(FAIL_CLOSED_MAX_ELAPSED_MS);
     expect(existsSync(startedMarker)).toBe(false);
-  }, 15_000);
+  }, FAIL_CLOSED_TEST_TIMEOUT_MS);
 });
