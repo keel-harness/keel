@@ -50,6 +50,10 @@ export const SandboxWriteDenyToken = z.enum([
   // existing manifests or the end-user policy surface.
   "workspace_package_manager_execution_metadata",
   "workspace_vcs_execution_metadata",
+  // The workspace `.keel/` directory holds project config the warden trusts after workspace trust
+  // (credential-proxy.json, lifecycle.yaml, mcp.json). A governed tool that can write it can grant
+  // itself authority; deny-write closes that model-plant vector for every project config file at once.
+  "workspace_keel_project_config",
 ]);
 export type SandboxReadAllowTokenT = z.infer<typeof SandboxReadAllowToken>;
 export type SandboxWriteAllowTokenT = z.infer<typeof SandboxWriteAllowToken>;

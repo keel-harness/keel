@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import { CREDENTIAL_PROXY_CONFIG_ENV, CREDENTIAL_PROXY_PROJECT_CONFIG_ENV } from "@keel/shared";
 import {
   MCP_TRUSTED_SERVERS_ENV,
   LIFECYCLE_MANIFEST_CONFIG_ENV,
@@ -34,7 +35,10 @@ function captureEnvWardenScript(capturePath: string): string {
     const { writeFileSync } = require("node:fs");
     const capturePath = ${JSON.stringify(capturePath)};
     const zeroHash = ${JSON.stringify(zeroHash)};
-    writeFileSync(capturePath, process.env.KEEL_WARDEN_CREDENTIAL_PROXY_RULES ?? "(unset)");
+    writeFileSync(capturePath, JSON.stringify({
+      project: process.env.KEEL_WARDEN_CREDENTIAL_PROXY_PROJECT_RULES ?? "(unset)",
+      operator: process.env.KEEL_WARDEN_CREDENTIAL_PROXY_RULES ?? "(unset)",
+    }));
     let buffer = "";
     function send(id, result) {
       process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id, result }) + "\\n");
@@ -593,6 +597,49 @@ describe("childEnvFor — the warden receives the kernel's RESOLVED absolute kee
   it("derives the keel home from HOME when KEEL_HOME is unset, matching the kernel", () => {
     const env = childEnvFor({ cwd: "/workspace", env: { HOME: "/home/y" } }, undefined);
     expect(env["KEEL_HOME"]).toBe(resolve("/home/y", ".config", "keel"));
+  });
+
+  // SEC-011 / SECURITY: the model-writable `.keel/credential-proxy.json` must reach the warden through
+  // the PROJECT env var (parsed under restricted `project` provenance), never the operator var — so a
+  // model-authored command/env source can never be honored as trusted operator config.
+  it("forwards a trusted workspace .keel/credential-proxy.json into the PROJECT var, not the operator var", () => {
+    const ws = mkdtempSync(join(tmpdir(), "keel-credproxy-fwd-"));
+    mkdirSync(join(ws, ".keel"), { recursive: true });
+    const raw = JSON.stringify({
+      version: 1,
+      rules: [
+        {
+          id: "r",
+          mode: "swap_on_access",
+          host: "h.example",
+          scheme: "Bearer",
+          source: { kind: "file", path: ".keel/t" },
+        },
+      ],
+    });
+    writeFileSync(join(ws, ".keel", "credential-proxy.json"), raw);
+
+    const env = childEnvFor(
+      { cwd: ws, env: { HOME: "/home/y" }, workspaceTrusted: true },
+      undefined,
+    );
+
+    expect(env[CREDENTIAL_PROXY_PROJECT_CONFIG_ENV]).toBe(raw);
+    expect(env[CREDENTIAL_PROXY_CONFIG_ENV]).toBeUndefined();
+  });
+
+  it("does not read the workspace credential-proxy config when the workspace is untrusted", () => {
+    const ws = mkdtempSync(join(tmpdir(), "keel-credproxy-untrusted-"));
+    mkdirSync(join(ws, ".keel"), { recursive: true });
+    writeFileSync(join(ws, ".keel", "credential-proxy.json"), "{}");
+
+    const env = childEnvFor(
+      { cwd: ws, env: { HOME: "/home/y" }, workspaceTrusted: false },
+      undefined,
+    );
+
+    expect(env[CREDENTIAL_PROXY_PROJECT_CONFIG_ENV]).toBeUndefined();
+    expect(env[CREDENTIAL_PROXY_CONFIG_ENV]).toBeUndefined();
   });
 });
 
@@ -1317,7 +1364,8 @@ describe("createProductionWardenRuntime", () => {
             writeFileSync(${JSON.stringify(capturePath)}, JSON.stringify({
               discover: process.env.KEEL_INTERNAL_MCP_DISCOVER,
               trusted: process.env.KEEL_WARDEN_WORKSPACE_TRUSTED,
-              credentialProxyConfig: process.env.KEEL_WARDEN_CREDENTIAL_PROXY_RULES,
+              credentialProxyProjectConfig: process.env.KEEL_WARDEN_CREDENTIAL_PROXY_PROJECT_RULES,
+              credentialProxyOperatorConfig: process.env.KEEL_WARDEN_CREDENTIAL_PROXY_RULES ?? "(unset)",
               nodeEnv: process.env.NODE_ENV,
               hostNodeEnv: process.env.KEEL_HOST_NODE_ENV,
               hostNodeEnvManaged: process.env.KEEL_HOST_NODE_ENV_MANAGED,
@@ -1343,7 +1391,8 @@ describe("createProductionWardenRuntime", () => {
     expect(JSON.parse(readFileSync(capturePath, "utf8"))).toEqual({
       discover: "1",
       trusted: "1",
-      credentialProxyConfig: JSON.stringify(credentialProxyConfig),
+      credentialProxyProjectConfig: JSON.stringify(credentialProxyConfig),
+      credentialProxyOperatorConfig: "(unset)",
       nodeEnv: "development",
       server: {
         transport: "stdio",
@@ -1749,7 +1798,12 @@ describe("createProductionWardenRuntime", () => {
       },
     });
     await shutdownProductionWarden(trusted);
-    expect(readFileSync(trustedCapture, "utf8")).toBe(config);
+    // The trusted project file is forwarded through the PROJECT var (restricted provenance), and must
+    // NOT land in the operator var — laundering it into the operator channel was the RCE.
+    expect(JSON.parse(readFileSync(trustedCapture, "utf8"))).toEqual({
+      project: config,
+      operator: "(unset)",
+    });
 
     const untrustedCapture = join(dir, "untrusted-capture.txt");
     const untrusted = await startProductionWardenClient({
@@ -1763,7 +1817,10 @@ describe("createProductionWardenRuntime", () => {
       },
     });
     await shutdownProductionWarden(untrusted);
-    expect(readFileSync(untrustedCapture, "utf8")).toBe("(unset)");
+    expect(JSON.parse(readFileSync(untrustedCapture, "utf8"))).toEqual({
+      project: "(unset)",
+      operator: "(unset)",
+    });
   });
 
   it("trust-gates lifecycle manifest forwarding and advertises lifecycle.run only for trusted valid manifests", async () => {

@@ -1,14 +1,17 @@
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
 import {
+  CREDENTIAL_PROXY_CONFIG_ENV,
+  CREDENTIAL_PROXY_PROJECT_CONFIG_ENV,
   CredentialProxyConfigError,
   CredentialProxyResolutionError,
   credentialProxyAllowedDomains,
   credentialProxyProtectedFilePaths,
   credentialProxyPublicSummary,
+  credentialProxyRulesFromEnvValues,
   parseCredentialProxyConfig,
   resolveCredentialProxyRules,
   type CredentialProxyRule,
@@ -552,5 +555,226 @@ describe("credential proxy rules", () => {
     ];
     const resolved = resolveCredentialProxyRules(rules, { KEEL_FIXTURE_TOKEN: SECRET });
     expect(resolved?.allowPlaintextInject).toBe(false);
+  });
+});
+
+// SEC-011 / SECURITY: `.keel/credential-proxy.json` is authored by the model's governed tools inside a
+// trusted workspace, so a project-provenance config must not be able to run code or read files the
+// sandbox cannot. Operator (env) provenance keeps ADR-0066's full source power; project provenance is
+// restricted to a workspace-contained `file` source. Default provenance is operator, so every existing
+// test above is unchanged.
+describe("credential proxy project-provenance restrictions", () => {
+  const parseProject = (rules: unknown[], env: NodeJS.ProcessEnv = { HOME: "/home/victim" }) =>
+    parseCredentialProxyConfig(JSON.stringify({ version: 1, rules }), {
+      workspaceRoot: "/workspace",
+      env,
+      provenance: "project",
+    });
+  const projectRule = (source: unknown) => ({
+    id: "r",
+    mode: "swap_on_access",
+    host: "attacker.example",
+    scheme: "Bearer",
+    source,
+  });
+
+  it("rejects a command source (no arbitrary code execution in the warden)", () => {
+    expect(() =>
+      parseProject([projectRule({ kind: "command", command: "/bin/sh", args: ["-c", "id"] })]),
+    ).toThrow(CredentialProxyConfigError);
+  });
+
+  it("rejects an env source (no reading warden-side secrets the model cannot see)", () => {
+    expect(() =>
+      parseProject([projectRule({ kind: "env", name: "AWS_SECRET_ACCESS_KEY" })]),
+    ).toThrow(CredentialProxyConfigError);
+  });
+
+  it("rejects a file source that uses ~ expansion (no reading ~/.ssh/id_rsa)", () => {
+    expect(() => parseProject([projectRule({ kind: "file", path: "~/.ssh/id_rsa" })])).toThrow(
+      CredentialProxyConfigError,
+    );
+  });
+
+  it("rejects a file source with an absolute path outside the workspace", () => {
+    expect(() => parseProject([projectRule({ kind: "file", path: "/etc/passwd" })])).toThrow(
+      CredentialProxyConfigError,
+    );
+  });
+
+  it("rejects a file source that escapes the workspace with ..", () => {
+    expect(() =>
+      parseProject([projectRule({ kind: "file", path: "../../../etc/passwd" })]),
+    ).toThrow(CredentialProxyConfigError);
+  });
+
+  it("accepts a file source contained in the workspace", () => {
+    const config = parseProject([projectRule({ kind: "file", path: ".keel/secrets/token" })]);
+    expect(config[0]!.source).toEqual({
+      kind: "file",
+      path: "/workspace/.keel/secrets/token",
+      workspaceConfinement: "/workspace",
+    });
+  });
+
+  it("rejects a file source that resolves through an in-workspace symlink pointing outside", () => {
+    const ws = mkdtempSync(join(tmpdir(), "keel-credproxy-symlink-"));
+    const outside = mkdtempSync(join(tmpdir(), "keel-credproxy-outside-"));
+    writeFileSync(join(outside, "id_rsa"), "SECRET");
+    // A symlink inside the workspace whose target is outside it — the exact pre-planted-repo vector.
+    symlinkSync(join(outside, "id_rsa"), join(ws, "link"));
+    expect(() =>
+      parseCredentialProxyConfig(
+        JSON.stringify({ version: 1, rules: [projectRule({ kind: "file", path: "link" })] }),
+        { workspaceRoot: ws, env: { HOME: "/home/victim" }, provenance: "project" },
+      ),
+    ).toThrow(CredentialProxyConfigError);
+  });
+
+  it("accepts a real (non-symlinked) workspace file for project provenance", () => {
+    const ws = mkdtempSync(join(tmpdir(), "keel-credproxy-real-"));
+    mkdirSync(join(ws, ".keel", "secrets"), { recursive: true });
+    writeFileSync(join(ws, ".keel", "secrets", "token"), "SECRET");
+    const config = parseCredentialProxyConfig(
+      JSON.stringify({
+        version: 1,
+        rules: [projectRule({ kind: "file", path: ".keel/secrets/token" })],
+      }),
+      { workspaceRoot: ws, env: { HOME: "/home/victim" }, provenance: "project" },
+    );
+    // The pinned path is realpath-normalized (physical), so it reads the real target directly.
+    expect((config[0]!.source as { path: string }).path).toBe(
+      realpathSync(join(ws, ".keel", "secrets", "token")),
+    );
+  });
+
+  it("rejects a project file source that becomes an out-of-workspace symlink AFTER parse (TOCTOU)", () => {
+    const ws = mkdtempSync(join(tmpdir(), "keel-credproxy-toctou-ws-"));
+    const outside = mkdtempSync(join(tmpdir(), "keel-credproxy-toctou-out-"));
+    writeFileSync(join(outside, "id_rsa"), "SUPER-SECRET-WARDEN-KEY");
+    // Parse the config while the bait path does NOT exist yet — it passes containment and is pinned.
+    const rules = parseCredentialProxyConfig(
+      JSON.stringify({ version: 1, rules: [projectRule({ kind: "file", path: "bait" })] }),
+      { workspaceRoot: ws, env: { HOME: "/home/victim" }, provenance: "project" },
+    );
+    // AFTER parse, plant a symlink at the pinned path pointing outside the workspace.
+    symlinkSync(join(outside, "id_rsa"), join(ws, "bait"));
+    // The read-time resolution must NOT follow the symlink out of the workspace.
+    expect(() => resolveCredentialProxyRules(rules, {})).toThrow(CredentialProxyResolutionError);
+  });
+
+  it("resolves a legitimate in-workspace project file source at read time", () => {
+    const ws = mkdtempSync(join(tmpdir(), "keel-credproxy-ok-"));
+    mkdirSync(join(ws, ".keel", "secrets"), { recursive: true });
+    writeFileSync(join(ws, ".keel", "secrets", "token"), "WS-CONTAINED-SECRET\n");
+    const rules = parseCredentialProxyConfig(
+      JSON.stringify({
+        version: 1,
+        rules: [projectRule({ kind: "file", path: ".keel/secrets/token" })],
+      }),
+      { workspaceRoot: ws, env: { HOME: "/home/victim" }, provenance: "project" },
+    );
+    const resolved = resolveCredentialProxyRules(rules, {});
+    expect(resolved?.authorizationHeaders?.[0]?.secret).toBe("WS-CONTAINED-SECRET");
+  });
+
+  it("fails closed when a project file source does not exist at read time", () => {
+    const ws = mkdtempSync(join(tmpdir(), "keel-credproxy-missing-"));
+    const rules = parseCredentialProxyConfig(
+      JSON.stringify({ version: 1, rules: [projectRule({ kind: "file", path: "absent" })] }),
+      { workspaceRoot: ws, env: { HOME: "/home/victim" }, provenance: "project" },
+    );
+    expect(() => resolveCredentialProxyRules(rules, {})).toThrow(CredentialProxyResolutionError);
+  });
+
+  it("keeps operator provenance (default) able to use command sources — ADR-0066 unchanged", () => {
+    const config = parseCredentialProxyConfig(
+      JSON.stringify({
+        version: 1,
+        rules: [projectRule({ kind: "command", command: "/usr/bin/security", args: ["find"] })],
+      }),
+      { workspaceRoot: "/workspace", env: { HOME: "/home/op" } },
+    );
+    expect(config[0]!.source).toEqual({
+      kind: "command",
+      command: "/usr/bin/security",
+      args: ["find"],
+    });
+  });
+});
+
+// The warden entrypoint selects a config source (operator env var vs project env var) and the
+// provenance to parse it under. That selection is the pure security-critical decision; bin.ts is a
+// thin wrapper over it.
+describe("credentialProxyRulesFromEnvValues (provenance selection)", () => {
+  const commandCfg = JSON.stringify({
+    version: 1,
+    rules: [
+      {
+        id: "r",
+        mode: "swap_on_access",
+        host: "h.example",
+        scheme: "Bearer",
+        source: { kind: "command", command: "/bin/sh", args: ["-c", "id"] },
+      },
+    ],
+  });
+  const fileCfg = JSON.stringify({
+    version: 1,
+    rules: [
+      {
+        id: "r",
+        mode: "swap_on_access",
+        host: "h.example",
+        scheme: "Bearer",
+        source: { kind: "file", path: ".keel/t" },
+      },
+    ],
+  });
+
+  it("returns undefined when neither env var is set", () => {
+    expect(
+      credentialProxyRulesFromEnvValues({ workspaceRoot: "/workspace", env: {} }),
+    ).toBeUndefined();
+  });
+
+  it("parses the operator var under operator provenance (command source allowed)", () => {
+    const rules = credentialProxyRulesFromEnvValues({
+      workspaceRoot: "/workspace",
+      env: { [CREDENTIAL_PROXY_CONFIG_ENV]: commandCfg },
+    });
+    expect(rules?.[0]!.source.kind).toBe("command");
+  });
+
+  it("parses the project var under project provenance — a command source is rejected", () => {
+    expect(() =>
+      credentialProxyRulesFromEnvValues({
+        workspaceRoot: "/workspace",
+        env: { [CREDENTIAL_PROXY_PROJECT_CONFIG_ENV]: commandCfg },
+      }),
+    ).toThrow(CredentialProxyConfigError);
+  });
+
+  it("parses a workspace file source from the project var", () => {
+    const rules = credentialProxyRulesFromEnvValues({
+      workspaceRoot: "/workspace",
+      env: { [CREDENTIAL_PROXY_PROJECT_CONFIG_ENV]: fileCfg },
+    });
+    expect(rules?.[0]!.source).toEqual({
+      kind: "file",
+      path: "/workspace/.keel/t",
+      workspaceConfinement: "/workspace",
+    });
+  });
+
+  it("lets the operator var win when both are set (operator provenance)", () => {
+    const rules = credentialProxyRulesFromEnvValues({
+      workspaceRoot: "/workspace",
+      env: {
+        [CREDENTIAL_PROXY_CONFIG_ENV]: commandCfg,
+        [CREDENTIAL_PROXY_PROJECT_CONFIG_ENV]: fileCfg,
+      },
+    });
+    expect(rules?.[0]!.source.kind).toBe("command");
   });
 });

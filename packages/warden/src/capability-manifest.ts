@@ -48,6 +48,7 @@ const DEFAULT_DENY_WRITE = [
   "keel_policy",
   "keel_config",
   "workspace_dotenv_files",
+  "workspace_keel_project_config",
 ] as const;
 const BASH_DENY_WRITE = [
   ...DEFAULT_DENY_WRITE,
@@ -283,6 +284,9 @@ function assertDefaultBashConformance(tool: CapabilityManifestToolT): void {
     "workspace_dotenv_files",
     "workspace_package_manager_execution_metadata",
     "workspace_vcs_execution_metadata",
+    // Workspace-integrity floor: bash must deny writes to the project-config directory, so no
+    // conformant manifest can ship a governed bash tool able to plant `.keel/credential-proxy.json`.
+    "workspace_keel_project_config",
   ]);
 }
 
@@ -372,6 +376,8 @@ function expandWriteDenyToken(token: SandboxWriteDenyTokenT, ctx: ProjectionCont
       return packageManagerExecutionMetadataPaths(ctx.workspaceRoot);
     case "workspace_vcs_execution_metadata":
       return vcsExecutionMetadataPaths(ctx.workspaceRoot);
+    case "workspace_keel_project_config":
+      return [resolve(ctx.workspaceRoot, ".keel")];
   }
 }
 

@@ -6,6 +6,7 @@ import { basename, dirname, join, resolve, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import {
   CREDENTIAL_PROXY_CONFIG_ENV,
+  CREDENTIAL_PROXY_PROJECT_CONFIG_ENV,
   CREDENTIAL_PROXY_PROJECT_CONFIG_PATH,
   INTERACTIVE_CONSOLE_CAPABILITY,
   INTERACTIVE_CONSOLE_TARGET_CAPABILITY_PREFIX,
@@ -464,12 +465,21 @@ function credentialProxyChildEnv(
   options: ProductionWardenClientOptions,
   env: NodeJS.ProcessEnv,
 ): NodeJS.ProcessEnv {
-  if (env[CREDENTIAL_PROXY_CONFIG_ENV] !== undefined) return {};
+  // Operator config (either var already present) takes precedence and suppresses the project file, so
+  // a project config never shadows or duplicates operator rules.
+  if (
+    env[CREDENTIAL_PROXY_CONFIG_ENV] !== undefined ||
+    env[CREDENTIAL_PROXY_PROJECT_CONFIG_ENV] !== undefined
+  ) {
+    return {};
+  }
   const reader = new ProjectReader(defaultProjectFs(), {
     trusted: options.workspaceTrusted === true,
   });
   const raw = reader.readFile(join(options.cwd, CREDENTIAL_PROXY_PROJECT_CONFIG_PATH));
-  return raw === undefined ? {} : { [CREDENTIAL_PROXY_CONFIG_ENV]: raw };
+  // Forward the model-writable workspace config through the PROJECT var, so the warden parses it under
+  // restricted `project` provenance and never mistakes it for trusted operator config.
+  return raw === undefined ? {} : { [CREDENTIAL_PROXY_PROJECT_CONFIG_ENV]: raw };
 }
 
 function lifecycleManifestChildEnv(

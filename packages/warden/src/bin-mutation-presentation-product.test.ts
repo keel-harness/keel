@@ -62,6 +62,7 @@ describe("warden bin mutation-presentation product wiring", () => {
       resolveWardenKeelHome: () => "/tmp/keel-home",
     }));
     vi.doMock("./credential-proxy.js", () => ({
+      credentialProxyRulesFromEnvValues: vi.fn(),
       CREDENTIAL_PROXY_CONFIG_ENV: "KEEL_CREDENTIAL_PROXY_CONFIG",
       parseCredentialProxyConfig: vi.fn(),
     }));

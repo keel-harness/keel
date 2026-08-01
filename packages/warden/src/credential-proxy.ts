@@ -1,17 +1,31 @@
 import { spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { readFileSync } from "node:fs";
-import { isAbsolute, join, resolve } from "node:path";
+import { readFileSync, realpathSync } from "node:fs";
+import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
 import type { SandboxCredentialProxyConfig } from "./sandbox.js";
 import { normalizeEgressGrantDomain } from "./egress-review.js";
 
-// Env-var name + project-config path now live in `@keel/shared` (ADR-0071 P1-10); re-export
+// Env-var names + project-config path now live in `@keel/shared` (ADR-0071 P1-10); re-export
 // to keep the warden's public surface unchanged.
-export { CREDENTIAL_PROXY_CONFIG_ENV, CREDENTIAL_PROXY_PROJECT_CONFIG_PATH } from "@keel/shared";
+import { CREDENTIAL_PROXY_CONFIG_ENV, CREDENTIAL_PROXY_PROJECT_CONFIG_ENV } from "@keel/shared";
+export {
+  CREDENTIAL_PROXY_CONFIG_ENV,
+  CREDENTIAL_PROXY_PROJECT_CONFIG_ENV,
+  CREDENTIAL_PROXY_PROJECT_CONFIG_PATH,
+} from "@keel/shared";
 
 export type CredentialProxySource =
   | { readonly kind: "env"; readonly name: string }
-  | { readonly kind: "file"; readonly path: string }
+  | {
+      readonly kind: "file";
+      readonly path: string;
+      /**
+       * Present only on `project`-provenance file sources: the realpath'd workspace root the file must
+       * stay inside. The read path re-checks containment against this at read time (not just parse
+       * time), closing the TOCTOU where the pinned path becomes an out-of-workspace symlink after parse.
+       */
+      readonly workspaceConfinement?: string;
+    }
   | {
       readonly kind: "command";
       readonly command: string;
@@ -62,9 +76,22 @@ export interface CredentialProxyResolveOptions {
   readonly placeholderFactory?: (rule: CredentialProxyPublicSummary) => string;
 }
 
+/**
+ * Where a credential-proxy config came from. `operator` config is set by a trusted operator through
+ * `KEEL_WARDEN_CREDENTIAL_PROXY_RULES` and keeps ADR-0066's full source power (env/file/command,
+ * `~`/absolute paths). `project` config is the workspace file `.keel/credential-proxy.json`. Governed
+ * tools can no longer write that directory (the `workspace_keel_project_config` deny-write token), but
+ * it can still arrive pre-committed in a trusted repo — so its sources are restricted to a
+ * workspace-contained `file` and can neither execute code nor read warden-side secrets. This restriction
+ * is the enforcement boundary; the deny-write token is defense in depth. Default is `operator`, so a
+ * caller that does not opt into the restriction gets the historical behavior.
+ */
+export type CredentialProxyProvenance = "operator" | "project";
+
 export interface CredentialProxyPathOptions {
   readonly workspaceRoot: string;
   readonly env?: NodeJS.ProcessEnv;
+  readonly provenance?: CredentialProxyProvenance;
 }
 
 export class CredentialProxyResolutionError extends Error {
@@ -263,7 +290,35 @@ function sourceValue(
       return nonEmptySecret(value, summary);
     }
     case "file": {
-      const value = (options.readFile ?? defaultReadFile)(rule.source.path);
+      // For project-provenance sources, re-resolve symlinks and re-check workspace containment AT READ
+      // TIME, then read the canonical path — so a symlink planted at the pinned path after parse cannot
+      // read an out-of-workspace file (TOCTOU). Operator sources keep the historical direct read.
+      // Documented limitation: the realpath check and the read are separate syscalls, so a sub-microsecond
+      // swap of a parent component of the canonical path between them is not re-validated. It is
+      // structurally impossible under `.keel` (deny-write) and requires winning a race against the
+      // single-threaded, non-yielding warden on every egress read; fully closing it needs openat/O_NOFOLLOW
+      // resolution the sync fs API cannot express.
+      let readPath = rule.source.path;
+      const confinement = rule.source.workspaceConfinement;
+      if (confinement !== undefined) {
+        let physical: string;
+        try {
+          physical = realpathSync(rule.source.path);
+        } catch {
+          throw new CredentialProxyResolutionError({
+            rule: summary,
+            reason: "credential proxy file source is unavailable",
+          });
+        }
+        if (!isWithinWorkspace(physical, confinement)) {
+          throw new CredentialProxyResolutionError({
+            rule: summary,
+            reason: "project credential proxy file source resolved outside the workspace",
+          });
+        }
+        readPath = physical;
+      }
+      const value = (options.readFile ?? defaultReadFile)(readPath);
       if (value === undefined) {
         throw new CredentialProxyResolutionError({
           rule: summary,
@@ -401,16 +456,68 @@ export function resolveCredentialProxyRules(
   };
 }
 
+function isWithinWorkspace(resolved: string, workspaceRoot: string): boolean {
+  const root = resolve(workspaceRoot);
+  return resolved === root || resolved.startsWith(root.endsWith(sep) ? root : root + sep);
+}
+
+/**
+ * Realpath the longest existing prefix of `resolved`, so symlink components are followed to their real
+ * targets. A lexical containment check alone is defeated by an in-workspace symlink pointing outside
+ * (`.keel/secrets/link -> ~/.ssh/id_rsa`); this returns the physical path the later `readFileSync` will
+ * actually open. The file itself need not exist yet — we resolve its nearest existing ancestor.
+ */
+function realExistingPath(resolved: string): string {
+  let current = resolved;
+  const tail: string[] = [];
+  // Walk up until an existing prefix is found (or we hit the filesystem root).
+  for (;;) {
+    try {
+      const real = realpathSync(current);
+      return tail.length === 0 ? real : join(real, ...tail.reverse());
+    } catch {
+      const parent = dirname(current);
+      if (parent === current) return resolved; // reached root with nothing existing
+      tail.push(basename(current));
+      current = parent;
+    }
+  }
+}
+
 function resolveSourceFilePath(sourcePath: string, options: CredentialProxyPathOptions): string {
+  const isProject = options.provenance === "project";
   if (sourcePath === "~" || sourcePath.startsWith("~/")) {
+    if (isProject) {
+      // A model-authored config must not reach the warden's HOME (e.g. ~/.ssh/id_rsa).
+      throw new CredentialProxyConfigError(
+        "project credential proxy file source must not use ~ home expansion",
+      );
+    }
     const home = options.env?.["HOME"] ?? process.env["HOME"];
     if (home === undefined || home.trim() === "") {
       throw new CredentialProxyConfigError("credential proxy file source uses ~ but HOME is unset");
     }
     return resolve(join(home, sourcePath === "~" ? "" : sourcePath.slice(2)));
   }
-  if (isAbsolute(sourcePath)) return resolve(sourcePath);
-  return resolve(options.workspaceRoot, sourcePath);
+  const resolved = isAbsolute(sourcePath)
+    ? resolve(sourcePath)
+    : resolve(options.workspaceRoot, sourcePath);
+  if (isProject) {
+    // A model-authored config may only point at files the sandbox itself could read. Compare the
+    // PHYSICAL path (symlinks followed) against the PHYSICAL workspace root, so an in-workspace symlink
+    // cannot escape the workspace, and pin that physical path so the later read cannot be re-pointed
+    // through the symlink (TOCTOU). Both sides are realpath-normalized so a symlinked workspace root
+    // (e.g. macOS /tmp -> /private/tmp) does not cause a false rejection.
+    const physicalRoot = realExistingPath(resolve(options.workspaceRoot));
+    const physical = realExistingPath(resolved);
+    if (!isWithinWorkspace(physical, physicalRoot)) {
+      throw new CredentialProxyConfigError(
+        "project credential proxy file source must resolve inside the workspace",
+      );
+    }
+    return physical;
+  }
+  return resolved;
 }
 
 export function credentialProxyProtectedFilePaths(
@@ -432,6 +539,14 @@ export function credentialProxyProtectedFilePaths(
 function parseSource(value: unknown, options: CredentialProxyPathOptions): CredentialProxySource {
   const source = objectRecord(value, "credential proxy source");
   const kind = source["kind"];
+  const isProject = options.provenance === "project";
+  if (isProject && (kind === "command" || kind === "env")) {
+    // A model-authored (`project`) config must not execute code or read the warden's environment.
+    // Only a workspace-contained `file` source is permitted; operator config keeps all three kinds.
+    throw new CredentialProxyConfigError(
+      `project credential proxy config may not use a ${kind} source; use a workspace file source`,
+    );
+  }
   if (kind === "env") {
     rejectUnknownKeys(source, ["kind", "name"], "credential proxy env source");
     return {
@@ -446,6 +561,11 @@ function parseSource(value: unknown, options: CredentialProxyPathOptions): Crede
     rejectUnknownKeys(source, ["kind", "path"], "credential proxy file source");
     return {
       kind,
+      // Carry the confinement root on project file sources so the read path can re-check containment
+      // at read time (TOCTOU): the pinned path could become an out-of-workspace symlink after parse.
+      ...(isProject
+        ? { workspaceConfinement: realExistingPath(resolve(options.workspaceRoot)) }
+        : {}),
       path: resolveSourceFilePath(
         stringField(source, "path", "credential proxy file source"),
         options,
@@ -542,4 +662,39 @@ export function parseCredentialProxyConfig(
   // Fail fast at load: a mixed allowPlaintextInject config can never be honored per-rule.
   assertUniformPlaintextInject(rules);
   return rules;
+}
+
+export interface CredentialProxyEnvSelection {
+  readonly workspaceRoot: string;
+  readonly env: NodeJS.ProcessEnv;
+}
+
+/**
+ * Select the active credential-proxy config from the warden's env and parse it under the correct
+ * provenance. Operator config (`CREDENTIAL_PROXY_CONFIG_ENV`, set by a trusted operator) wins and is
+ * parsed with full source power; otherwise the kernel-forwarded project config
+ * (`CREDENTIAL_PROXY_PROJECT_CONFIG_ENV`, the model-writable workspace file) is parsed under the
+ * restricted `project` provenance. Keeping the two channels distinct is the fix for the credential-proxy
+ * RCE — the model can never launder a workspace command/env source into the operator channel.
+ */
+export function credentialProxyRulesFromEnvValues(
+  selection: CredentialProxyEnvSelection,
+): CredentialProxyRule[] | undefined {
+  const operatorRaw = selection.env[CREDENTIAL_PROXY_CONFIG_ENV];
+  if (operatorRaw !== undefined && operatorRaw.trim() !== "") {
+    return parseCredentialProxyConfig(operatorRaw, {
+      workspaceRoot: selection.workspaceRoot,
+      env: selection.env,
+      provenance: "operator",
+    });
+  }
+  const projectRaw = selection.env[CREDENTIAL_PROXY_PROJECT_CONFIG_ENV];
+  if (projectRaw !== undefined && projectRaw.trim() !== "") {
+    return parseCredentialProxyConfig(projectRaw, {
+      workspaceRoot: selection.workspaceRoot,
+      env: selection.env,
+      provenance: "project",
+    });
+  }
+  return undefined;
 }

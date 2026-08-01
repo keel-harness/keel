@@ -14,7 +14,7 @@ import { interactiveConsoleProductOptionsFromEnv } from "./interactive-console/p
 import { resolveWardenKeelHome } from "./capability-manifest.js";
 import { loadOrCreateAuditCheckpointKey } from "./audit/checkpoint-key.js";
 import { SessionAuditLog } from "./audit/session-log.js";
-import { CREDENTIAL_PROXY_CONFIG_ENV, parseCredentialProxyConfig } from "./credential-proxy.js";
+import { credentialProxyRulesFromEnvValues } from "./credential-proxy.js";
 import {
   createSandboxTypedMutationRunner,
   type TypedMutationRunner,
@@ -106,9 +106,7 @@ function auditDirFromEnv(): string {
 }
 
 function credentialProxyRulesFromEnv(workspaceRoot: string | undefined) {
-  const raw = process.env[CREDENTIAL_PROXY_CONFIG_ENV];
-  if (raw === undefined || raw.trim() === "") return undefined;
-  return parseCredentialProxyConfig(raw, {
+  return credentialProxyRulesFromEnvValues({
     workspaceRoot: workspaceRoot ?? process.cwd(),
     env: process.env,
   });

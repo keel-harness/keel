@@ -63,6 +63,7 @@ describe("warden capability manifest projection", () => {
           "/repo/.env.development",
           "/repo/.env.production",
           "/repo/.env.test",
+          "/repo/.keel",
           "/repo/package.json",
           "/repo/pnpm-lock.yaml",
           "/repo/package-lock.json",
@@ -129,6 +130,19 @@ describe("warden capability manifest projection", () => {
     // unwritable without an explicit deny-write token.
     expect(profile?.allowWrite).toEqual(["/repo", "/tmp/keel-task"]);
     expect(profile?.allowWrite).not.toContain("/home/alice/.ssh");
+  });
+
+  // SECURITY: the workspace .keel/ directory holds project config the warden trusts post-trust
+  // (credential-proxy.json, lifecycle.yaml, mcp.json). A governed tool that can write there can grant
+  // itself authority — the credential-proxy RCE. No governed tool may write <workspace>/.keel.
+  it("denies every governed tool from writing the workspace .keel project-config directory", () => {
+    for (const toolName of ["bash", "write", "edit", "read", "search"] as const) {
+      const profile = buildSandboxProfileFromCapabilityManifest(DEFAULT_CAPABILITY_MANIFEST, {
+        ...baseOptions,
+        toolName,
+      }).filesystem;
+      expect(profile?.denyWrite).toContain("/repo/.keel");
+    }
   });
 
   it("denies bash writes to package-manager and VCS execution metadata", () => {

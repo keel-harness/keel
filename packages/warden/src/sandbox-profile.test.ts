@@ -97,6 +97,7 @@ describe("default warden sandbox profile", () => {
       "/repo/.env.development",
       "/repo/.env.production",
       "/repo/.env.test",
+      join(workspace, ".keel"),
       ...executionMetadataDenyWrite(workspace),
     ]);
     expect(profile.network).toEqual({
@@ -126,6 +127,7 @@ describe("default warden sandbox profile", () => {
       "/repo/.env.development",
       "/repo/.env.production",
       "/repo/.env.test",
+      "/repo/.keel",
       ...executionMetadataDenyWrite("/repo"),
     ]);
   });
@@ -150,6 +152,7 @@ describe("default warden sandbox profile", () => {
       "/repo/.env.development",
       "/repo/.env.production",
       "/repo/.env.test",
+      "/repo/.keel",
       ...executionMetadataDenyWrite("/repo"),
     ]);
   });
@@ -179,6 +182,7 @@ describe("default warden sandbox profile", () => {
       "/repo/.env.development",
       "/repo/.env.production",
       "/repo/.env.test",
+      "/repo/.keel",
       ...executionMetadataDenyWrite("/repo"),
     ]);
   });
@@ -198,6 +202,7 @@ describe("default warden sandbox profile", () => {
       "/repo/.env.development",
       "/repo/.env.production",
       "/repo/.env.test",
+      "/repo/.keel",
       ...executionMetadataDenyWrite("/repo"),
     ]);
   });

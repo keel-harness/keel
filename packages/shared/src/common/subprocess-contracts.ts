@@ -11,6 +11,15 @@
 export const CREDENTIAL_PROXY_CONFIG_ENV = "KEEL_WARDEN_CREDENTIAL_PROXY_RULES";
 export const CREDENTIAL_PROXY_PROJECT_CONFIG_PATH = ".keel/credential-proxy.json";
 
+/**
+ * A SEPARATE env var carries the model-writable workspace config (`.keel/credential-proxy.json`), so
+ * the warden can tell it apart from operator config in `CREDENTIAL_PROXY_CONFIG_ENV` and parse it under
+ * the restricted `project` provenance. The kernel — which alone sets the warden's env from a trusted
+ * read — forwards the project file here; the model cannot forge it. Erasing this distinction (writing
+ * project bytes into the operator var) was the credential-proxy RCE.
+ */
+export const CREDENTIAL_PROXY_PROJECT_CONFIG_ENV = "KEEL_WARDEN_CREDENTIAL_PROXY_PROJECT_RULES";
+
 export const LIFECYCLE_MANIFEST_CONFIG_ENV = "KEEL_WARDEN_LIFECYCLE_MANIFEST";
 
 export const INTERACTIVE_CONSOLE_CAPABILITY = "interactive-console:v1" as const;

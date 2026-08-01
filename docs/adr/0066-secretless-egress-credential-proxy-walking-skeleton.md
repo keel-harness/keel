@@ -1,5 +1,16 @@
 # ADR-0066 - Secretless egress credential proxy
 
+- **Amended (2026-08-01, security):** This ADR's Decision §1 read the trusted project config
+  `.keel/credential-proxy.json` and honored `{env|file|command}` sources from it. Because the model's
+  governed tools can author that workspace file inside a trusted workspace, its `command` source ran
+  arbitrary code in the warden and its `file` source read arbitrary warden-side files — a warden RCE
+  and secret-exfiltration primitive. The amendment splits config by **provenance**: operator config
+  (`KEEL_WARDEN_CREDENTIAL_PROXY_RULES`) keeps the full `{env|file|command}` power described below;
+  the project file is forwarded on a separate env channel and parsed under a restricted `project`
+  provenance that permits only a realpath-contained workspace `file` source (command/env rejected,
+  `~`/out-of-workspace rejected). A `workspace_keel_project_config` deny-write token additionally
+  denies governed-tool writes to `<workspace>/.keel`. Where this ADR's body says the project config
+  resolves `{env|file|command}` sources, read it as **operator config only**.
 - **Status:** **Accepted** (2026-06-27). Records the Epic 2.10 governed-bash
   secretless-egress credential proxy. Changes **no** frozen interface, protocol, schema,
   audit format, CLI contract, Appendix A/B/D/E entry, `WARDEN_METHODS`, `AuditRecord`,
