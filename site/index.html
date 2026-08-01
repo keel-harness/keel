@@ -421,32 +421,17 @@
         font-style: italic;
       }
 
-      /* ---------- demo slot ---------- */
+      /* ---------- recorded demo ---------- */
       .demo {
         margin-top: 22px;
-        border: 1px dashed var(--line);
+        border: 1px solid var(--line);
         border-radius: 10px;
         background: var(--panel-2);
+        width: 100%;
+        height: auto;
         aspect-ratio: 16 / 9;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        gap: 10px;
-        text-align: center;
-        padding: 20px;
-      }
-      .demo .glyph {
-        font-family: var(--mono);
-        font-size: 1.9rem;
-        color: var(--amber);
-        opacity: 0.75;
-      }
-      .demo p {
-        margin: 0;
-        color: var(--muted);
-        font-family: var(--mono);
-        font-size: 0.86rem;
+        display: block;
+        object-fit: cover;
       }
 
       /* ---------- architecture ---------- */
@@ -854,25 +839,15 @@
           keel <a href="#limits">does not claim</a>.
         </div>
 
-        <!--
-          DEMO SLOT
-          Replace the <div class="demo"> block below with the recording when it is ready.
-
-          Video:
-            <video class="demo" src="demo.mp4" poster="demo-poster.png"
-                   autoplay muted loop playsinline
-                   style="border-style:solid"></video>
-
-          GIF or PNG:
-            <img class="demo" src="demo.gif" alt="A keel session denying a secret read."
-                 style="border-style:solid;object-fit:cover" />
-
-          Put the file in this same site/ directory so the Pages workflow uploads it.
-        -->
-        <div class="demo">
-          <div class="glyph" aria-hidden="true">▶</div>
-          <p>30-second demo — recording soon</p>
-        </div>
+        <img
+          class="demo"
+          src="demo.gif"
+          alt="A real keel session in which the warden denies an SSH private-key read and the resulting audit record is inspected."
+        />
+        <p class="caption">
+          Real product path, deterministic input: offline replay supplies the model turns; the
+          kernel, warden, policy decision, and audit write are live.
+        </p>
       </div>
 
       <!-- ============ TERMINAL ============ -->

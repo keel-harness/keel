@@ -1,0 +1,10 @@
+{"version":3,"term":{"cols":110,"rows":34},"timestamp":1785528889,"idle_time_limit":1.0,"command":"node docs/demo/run-deny-audit-demo.mjs","title":"keel: governed denial and audit record","env":{"SHELL":"/bin/zsh"}}
+[0.042, "o", "$ keel run -p \"Show whether the warden protects my SSH private key.\" --trust --replay docs/demo/deny-audit.recording.json\r\n\r\n"]
+[0.993, "o", "you  Show whether the warden protects my SSH private key."]
+[0.024, "o", "\r\n\r\nkeel · working\r\n  I'll test the boundary by requesting the SSH private key."]
+[0.056, "o", "\r\n\r\nkeel\r\n  The warden denied the secret read. I cannot access that key."]
+[0.049, "o", "\r\n\r\nevidence\r\n  what: blocked: bash: blocked by warden (not executed): POL-001 deny: blocked read of secret re…h or ask the human to provide the value.\r\n  why: the warden denied the action before execution\r\n  next: fix the request or command, then retry"]
+[0.005, "o", "\r\n\r\nworkspace · workspace trusted · 53 tokens\r\nprotection: governed · sandbox on · egress guard on · policy Guided · phase2a-starter-policy-pack@a196133b1ea0 · audit unseen\r\n"]
+[0.034, "o", "\r\n$ inspect the resulting warden audit record\r\n\r\n"]
+[0.000, "o", "{\r\n  \"seq\": 0,\r\n  \"eventType\": \"tool.deny\",\r\n  \"toolName\": \"bash\",\r\n  \"command\": \"cat ~/.ssh/id_rsa\",\r\n  \"verdict\": \"deny\",\r\n  \"ruleIds\": [\r\n    \"POL-001\"\r\n  ],\r\n  \"hash\": \"sha256:b706788553b2a7c577bd339a700ab97a66d77481b22ac4f50ac1425927c6fa35\"\r\n}\r\n\r\nOffline replay supplied the model turns; kernel, warden, policy, and audit were live.\r\n"]
+[0.005, "x", "0"]

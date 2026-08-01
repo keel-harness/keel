@@ -178,6 +178,9 @@ describe("public docs claim consistency", () => {
   it("keeps README status aligned with open-source preparation evidence and limitations", () => {
     const readme = readRepoFile("README.md");
     const landingPage = readRepoFile("site/index.html");
+    const demoGif = readFileSync(join(repoRoot, "site/demo.gif"));
+    const demoCast = readRepoFile("docs/demo/keel-deny-audit.cast");
+    const demoRunner = readRepoFile("docs/demo/run-deny-audit-demo.mjs");
     const blockquoteText = readme.replace(/\n>\s*/g, " ");
 
     expect(readme).not.toMatch(/Phase 2A warden build in progress/i);
@@ -198,6 +201,24 @@ describe("public docs claim consistency", () => {
     expect(readme).toMatch(/OS-keychain.*hardware-backed.*not implemented/is);
     expect(landingPage).toMatch(/governed tool surface.*v1 kernel.*OS user.*not\s+compromised/is);
     expect(landingPage).toMatch(/checkpoint-signing key.*0600.*same OS user/is);
+    expect(readme).toMatch(/!\[[^\]]*real keel[^\]]*\]\(site\/demo\.gif\)/i);
+    expect(readme.indexOf("(site/demo.gif)")).toBeLessThan(readme.indexOf("## Evidence"));
+    expect(demoGif.subarray(0, 6).toString("ascii")).toMatch(/^GIF8[79]a$/u);
+    let gifFrameCount = 0;
+    for (let index = 0; index < demoGif.length - 2; index += 1) {
+      if (demoGif[index] === 0x21 && demoGif[index + 1] === 0xf9 && demoGif[index + 2] === 0x04) {
+        gifFrameCount += 1;
+      }
+    }
+    expect(gifFrameCount).toBeGreaterThan(1);
+    expect(demoGif.length).toBeLessThan(250 * 1024);
+    expect(demoCast).toContain("tool.deny");
+    expect(demoCast).toContain("POL-001");
+    expect(demoCast).toContain("cat ~/.ssh/id_rsa");
+    expect(demoRunner).toContain("--replay");
+    expect(demoRunner).toContain('record.eventType === "tool.deny"');
+    expect(landingPage).toMatch(/<img\s+class="demo"\s+src="demo\.gif"/i);
+    expect(landingPage).not.toMatch(/recording soon/i);
     expect(blockquoteText).toMatch(/not a stable or public-alpha\s+release/i);
   });
 
