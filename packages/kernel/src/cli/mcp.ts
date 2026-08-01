@@ -16,6 +16,9 @@ export interface McpReviewCommandOptions {
   readonly cwd: string;
   readonly env?: NodeJS.ProcessEnv;
   readonly serverKey: string;
+  /** The resolved workspace-trust decision (SEC-012). Reviewing is refused when this is false, before
+   *  any project file is read or any MCP command is spawned. Resolved by the CLI entry (bin.ts). */
+  readonly trusted: boolean;
   readonly discover?: (server: McpStdioLaunchConfig) => Promise<McpDiscoveryResult>;
   readonly discoverProduction?: typeof discoverProductionMcpServer;
 }
@@ -84,6 +87,14 @@ function formatReviewSuccess(input: {
 
 export async function runMcpReviewCommand(options: McpReviewCommandOptions): Promise<string> {
   const env = options.env ?? process.env;
+  // Trust-before-parse (SEC-012, ADR-0038): reviewing spawns the configured MCP command, so it must
+  // not read `.keel/mcp.json` or launch anything from a workspace the human has not trusted. The caller
+  // resolves trust (bin.ts) and passes it here; an untrusted workspace is refused before any read.
+  if (!options.trusted) {
+    throw new Error(
+      "workspace is not trusted; trust it before reviewing MCP servers (start a session and accept the trust prompt, or run `keel --trust`)",
+    );
+  }
   const reader = new ProjectReader(defaultProjectFs(), { trusted: true });
   const loaded = loadMcpConfigFromProjectReader(reader, options.cwd);
   if (loaded.kind === "missing") throw new Error("no .keel/mcp.json in this workspace");

@@ -17,6 +17,7 @@ import {
 } from "./doctor.js";
 import { HeadlessUI } from "../tui/headless.js";
 import { interpretTrustAnswer, readTrustLine, trustPromptText } from "../trust/trust-prompt.js";
+import { loadTrustDecision } from "../trust/trust-store.js";
 import { defaultSecretStore } from "../secrets/secret-store.js";
 import { runAuthCli } from "./auth.js";
 import { runAutopilotGrantsCommandResult } from "./autopilot-grants.js";
@@ -308,6 +309,8 @@ async function main(): Promise<void> {
           cwd: process.cwd(),
           env: process.env,
           serverKey: cmd.serverKey,
+          // Trust-before-parse (SEC-012): only review/spawn from a workspace the human has trusted.
+          trusted: loadTrustDecision(process.cwd(), process.env) === "trusted",
         }),
       );
     } catch (e) {

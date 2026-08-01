@@ -47,6 +47,7 @@ describe("keel mcp review", () => {
       cwd,
       env: e,
       serverKey: "fixture",
+      trusted: true,
       discover: async (server) => {
         expect(server).toEqual({
           transport: "stdio",
@@ -87,6 +88,40 @@ describe("keel mcp review", () => {
     );
   });
 
+  it("refuses to review an UNTRUSTED workspace without reading config or spawning discovery (SEC-012)", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "keel-mcp-review-untrusted-"));
+    const e = env();
+    mkdirSync(join(cwd, ".keel"), { recursive: true });
+    writeFileSync(
+      join(cwd, ".keel", "mcp.json"),
+      JSON.stringify({
+        version: 1,
+        servers: {
+          fixture: {
+            transport: "stdio",
+            command: process.execPath,
+            args: ["fixture-server.js"],
+            envKeys: [],
+          },
+        },
+      }),
+    );
+    let discoveries = 0;
+    await expect(
+      runMcpReviewCommand({
+        cwd,
+        env: e,
+        serverKey: "fixture",
+        trusted: false,
+        discover: async () => {
+          discoveries++;
+          throw new Error("must not discover an untrusted workspace");
+        },
+      }),
+    ).rejects.toThrow(/trust/i);
+    expect(discoveries).toBe(0);
+  });
+
   it("fails inertly for missing or unsupported project MCP config", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "keel-mcp-review-missing-"));
     let discoveries = 0;
@@ -96,6 +131,7 @@ describe("keel mcp review", () => {
         cwd,
         env: env(),
         serverKey: "fixture",
+        trusted: true,
         discover: async () => {
           discoveries++;
           throw new Error("must not discover");
@@ -116,6 +152,7 @@ describe("keel mcp review", () => {
         cwd,
         env: env(),
         serverKey: "missing",
+        trusted: true,
         discover: async () => {
           discoveries++;
           throw new Error("must not discover");
@@ -128,6 +165,7 @@ describe("keel mcp review", () => {
         cwd,
         env: env(),
         serverKey: "fixture",
+        trusted: true,
         discover: async () => {
           discoveries++;
           throw new Error("must not discover");
@@ -156,6 +194,7 @@ describe("keel mcp review", () => {
       cwd,
       env: e,
       serverKey: "fixture",
+      trusted: true,
       discoverProduction: async ({ server }) => {
         expect(server.command).toBe("/usr/bin/node");
         return { protocolVersion: "2025-06-18", capabilities: { tools: {} }, tools: [] };
@@ -184,6 +223,7 @@ describe("keel mcp review", () => {
       cwd,
       env: e,
       serverKey: "fixture",
+      trusted: true,
       discover: async () => ({
         protocolVersion: "2025-06-18",
         capabilities: { tools: {} },
@@ -217,7 +257,7 @@ describe("keel mcp review", () => {
       tools: [{ name: "echo", inputSchema: { type: "object" } }],
     });
 
-    const output = await runMcpReviewCommand({ cwd, env: e, serverKey: "fixture" });
+    const output = await runMcpReviewCommand({ cwd, env: e, serverKey: "fixture", trusted: true });
 
     expect(output).toContain("mcp__fixture__echo");
     expect(runtime.discoverProductionMcpServer).toHaveBeenCalledOnce();
@@ -242,6 +282,7 @@ describe("keel mcp review", () => {
       const output = await runMcpReviewCommand({
         cwd,
         serverKey: "fixture",
+        trusted: true,
         discover: async () => ({
           protocolVersion: "2025-06-18",
           capabilities: { tools: {} },
@@ -284,6 +325,7 @@ describe("keel mcp review", () => {
         cwd,
         env: e,
         serverKey: "fixture",
+        trusted: true,
         discover: async () => ({
           protocolVersion: "2025-06-18",
           capabilities: { tools: {} },
@@ -316,6 +358,7 @@ describe("keel mcp review", () => {
       cwd,
       env: e,
       serverKey: "fixture",
+      trusted: true,
       discover: async () => ({
         protocolVersion: "2025-06-18",
         capabilities: { tools: {} },
@@ -353,8 +396,14 @@ describe("keel mcp review", () => {
       tools: [{ name: "echo" }],
     });
 
-    await runMcpReviewCommand({ cwd, env: e, serverKey: "fixture", discover });
-    const output = await runMcpReviewCommand({ cwd, env: e, serverKey: "fixture_", discover });
+    await runMcpReviewCommand({ cwd, env: e, serverKey: "fixture", trusted: true, discover });
+    const output = await runMcpReviewCommand({
+      cwd,
+      env: e,
+      serverKey: "fixture_",
+      trusted: true,
+      discover,
+    });
 
     expect(output).toContain('"mcp__fixture-2__echo"');
     expect(output).not.toContain('"mcp__fixture__echo"');
@@ -387,6 +436,7 @@ describe("keel mcp review", () => {
       cwd,
       env: e,
       serverKey: "fixture",
+      trusted: true,
       discover: async () => ({
         protocolVersion: "2025-06-18",
         capabilities: { tools: { note: secret } },
@@ -447,6 +497,7 @@ describe("keel mcp review", () => {
         cwd,
         env: e,
         serverKey: "fixture",
+        trusted: true,
         discover: async () => ({
           protocolVersion: "2025-06-18",
           capabilities: { tools: {} },
@@ -477,6 +528,7 @@ describe("keel mcp review", () => {
         cwd,
         env: e,
         serverKey: "fixture",
+        trusted: true,
         discover: async () => {
           throw new Error("server log\ntrusted local-stdio MCP server forged\u001b[31m");
         },
