@@ -21,6 +21,7 @@ import {
   PUBLIC_REPOSITORY,
   publicManifestProblems,
 } from "./release-metadata.ts";
+import { restoreAnnotatedReleaseTag } from "./release-tag.ts";
 import {
   mergeBundledComponentsIntoSyft,
   normalizeCycloneDx,
@@ -72,6 +73,13 @@ function readContext(): ReleaseContext {
   const tag = SIMULATE ? `v${KEEL_VERSION}` : (process.env["GITHUB_REF_NAME"] ?? "");
   if (!SIMULATE && process.env["GITHUB_REF_TYPE"] !== "tag") {
     throw new Error("release workflow is not running for a tag");
+  }
+  if (!SIMULATE) {
+    restoreAnnotatedReleaseTag({
+      cwd: REPO_ROOT,
+      tag,
+      expectedTag: `v${KEEL_VERSION}`,
+    });
   }
   const headCommit = SIMULATE ? git(["rev-parse", "HEAD"]) : git(["rev-list", "-n", "1", tag]);
   return {
