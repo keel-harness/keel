@@ -9991,6 +9991,9 @@ printf '%s\\n' '${match}'
               join(workspaceRoot, ".env.development"),
               join(workspaceRoot, ".env.production"),
               join(workspaceRoot, ".env.test"),
+              // The repo-root workspace has node_modules, so the nested-.env enumeration overflows its
+              // cap and falls back to the fail-closed `**/.env*` glob (see withWorkspaceSecretDenyRead).
+              join(workspaceRoot, "**", ".env*"),
             ],
             denyWrite: [
               "/xdg/keel/audit",
@@ -13801,6 +13804,85 @@ printf '%s\\n' '${match}'
       expect(result.guidance).toContain("POL-003");
       expect(executed).toBe(false);
     } finally {
+      rmSync(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("still deny-reads nested .env when the workspace secret scan overflows its cap (fail closed)", async () => {
+    const workspaceRoot = mkdtempSync(join(tmpdir(), "keel-sandbox-secret-scan-overflow-"));
+    let execution: { readonly profile: SandboxProfile } | undefined;
+    const fakeSandbox: SandboxPort = {
+      status: () => ({ available: true, backend: "fake-sandbox", enforcementTier: "sandbox:fake" }),
+      execute: async (_invocation, profile) => {
+        execution = { profile };
+        return { exitCode: 0, signal: null, stdout: "ok\n", stderr: "" };
+      },
+    };
+    try {
+      mkdirSync(join(workspaceRoot, "sub"), { recursive: true });
+      writeFileSync(join(workspaceRoot, "sub", ".env"), "SECRET=nested\n");
+      // Overflow the scan cap so enumeration cannot complete (a normal node_modules-sized repo).
+      for (let index = 0; index <= 10_000; index += 1) {
+        writeFileSync(join(workspaceRoot, `scan-entry-${index}`), "");
+      }
+
+      await handleRpcLine(JSON.stringify(executeFrame("scan-overflow", "printf ok")), {
+        sandbox: fakeSandbox,
+        env: { HOME: "/home/alice", KEEL_HOME: "/keel-home" },
+        workspaceRoot,
+        workspaceTrusted: true,
+      });
+
+      // Fail-closed: even though enumeration overflowed, nested .env must still be covered — via a
+      // workspace-wide `**/.env*` glob deny that the sandbox backend expands.
+      const denyRead = execution?.profile.filesystem?.denyRead ?? [];
+      expect(denyRead).toContain(join(workspaceRoot, "**", ".env*"));
+    } finally {
+      rmSync(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("skips an unreadable subdir but still deny-reads readable nested .env (chmod-000 cannot force fail-open)", async () => {
+    if (process.getuid?.() === 0) return; // root ignores permission bits; the attack needs a non-root uid
+    const workspaceRoot = mkdtempSync(join(tmpdir(), "keel-sandbox-secret-unreadable-"));
+    const blocker = join(workspaceRoot, "blocker");
+    mkdirSync(blocker, { recursive: true });
+    chmodSync(blocker, 0o000);
+    // Confirm the chmod actually blocks (some filesystems/CI ignore it); otherwise the test is moot.
+    let blocked = false;
+    try {
+      readdirSync(blocker);
+    } catch {
+      blocked = true;
+    }
+    if (!blocked) {
+      chmodSync(blocker, 0o755);
+      rmSync(workspaceRoot, { recursive: true, force: true });
+      return;
+    }
+    let execution: { readonly profile: SandboxProfile } | undefined;
+    const fakeSandbox: SandboxPort = {
+      status: () => ({ available: true, backend: "fake-sandbox", enforcementTier: "sandbox:fake" }),
+      execute: async (_invocation, profile) => {
+        execution = { profile };
+        return { exitCode: 0, signal: null, stdout: "ok\n", stderr: "" };
+      },
+    };
+    try {
+      mkdirSync(join(workspaceRoot, "app"), { recursive: true });
+      writeFileSync(join(workspaceRoot, "app", ".env"), "SECRET=readable\n");
+
+      await handleRpcLine(JSON.stringify(executeFrame("unreadable-subdir", "printf ok")), {
+        sandbox: fakeSandbox,
+        env: { HOME: "/home/alice", KEEL_HOME: "/keel-home" },
+        workspaceRoot,
+        workspaceTrusted: true,
+      });
+
+      // The readable nested .env is enumerated as a concrete deny path despite the unreadable sibling.
+      expect(execution?.profile.filesystem?.denyRead).toContain(join(workspaceRoot, "app", ".env"));
+    } finally {
+      chmodSync(blocker, 0o755);
       rmSync(workspaceRoot, { recursive: true, force: true });
     }
   });
@@ -18821,6 +18903,7 @@ printf '%s\\n' '${match}'
               "/tmp/keel-workspace/.env.development",
               "/tmp/keel-workspace/.env.production",
               "/tmp/keel-workspace/.env.test",
+              "/tmp/keel-workspace/**/.env*",
             ],
             denyWrite: [
               "/keel-home/audit",

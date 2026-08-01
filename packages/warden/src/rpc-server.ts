@@ -3844,35 +3844,68 @@ function workspaceSecretDenyReadScan(context: RpcContext): WorkspaceSecretDenyRe
   const roots: string[] = [];
   const pending = [context.workspaceRoot];
   let entries = 0;
+  let complete = true;
+  let firstDir = true;
   while (pending.length > 0) {
     const dir = pending.pop()!;
     let dirEntries;
     try {
       dirEntries = readdirSync(dir, { withFileTypes: true });
-    } catch {
-      return { complete: false, roots };
+    } catch (error) {
+      // The workspace ROOT must be scannable; if it is not (missing/unreadable), we verified nothing —
+      // fail closed (incomplete) so the caller reviews/backstops. For a discovered SUBDIR, a dir the
+      // warden cannot read (EACCES/EPERM) cannot be read by the sandboxed model either (same OS user),
+      // so its nested `.env` need not be denied; skip it and keep enumerating the rest. This stops a
+      // model-created `chmod 000` dir from aborting the scan into the fail-open path. ENOENT means it
+      // vanished mid-scan. Any OTHER subdir error is treated conservatively as incomplete so the
+      // `**/.env*` glob backstop still fires.
+      if (firstDir) return { complete: false, roots: [] };
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code !== "EACCES" && code !== "EPERM" && code !== "ENOENT") complete = false;
+      continue;
     }
+    firstDir = false;
     for (const entry of dirEntries) {
       entries += 1;
-      if (entries > WORKSPACE_SECRET_SCAN_MAX_ENTRIES) return { complete: false, roots };
+      if (entries > WORKSPACE_SECRET_SCAN_MAX_ENTRIES) {
+        return { complete: false, roots: [...new Set(roots)] };
+      }
       const path = join(dir, entry.name);
       if (entry.name.startsWith(".env")) roots.push(path);
       if (entry.isDirectory() && !entry.isSymbolicLink()) pending.push(path);
     }
   }
-  return { complete: true, roots: [...new Set(roots)] };
+  return { complete, roots: [...new Set(roots)] };
 }
 
 function withWorkspaceSecretDenyRead(
   profile: SandboxProfile,
   scan: WorkspaceSecretDenyReadScan,
+  workspaceRoot: string,
 ): SandboxProfile {
-  if (!scan.complete || scan.roots.length === 0) return profile;
+  const additions = [...scan.roots];
+  if (!scan.complete) {
+    // Enumeration overflowed the entry cap (a normal node_modules-sized repo does this routinely).
+    // Dropping the discovered roots would fail OPEN (nested `.env` becomes sandbox-readable). Add a
+    // workspace-wide `**/.env*` glob deny that the sandbox backend expands so undiscovered nested
+    // `.env` stay denied regardless of entry count.
+    //
+    // Platform coverage: on macOS this is a native regex deny (complete, no walk). On Linux, bwrap has
+    // no native globs, so the vendored runtime expands the glob with its own recursive readdir — which
+    // aborts on an unreadable (EACCES) directory. So the residual, DOCUMENTED gap is: a Linux workspace
+    // that BOTH exceeds the enumeration cap AND contains an unreadable subdir may leave nested `.env`
+    // beyond the first `WORKSPACE_SECRET_SCAN_MAX_ENTRIES` entries readable via non-policy verbs
+    // (dd/cp/awk). The concrete roots enumerated above (which skip unreadable subdirs — see the scan)
+    // still cover everything found before the cap. Fully closing this needs the vendored runtime to
+    // skip EACCES during glob expansion (an upstream follow-up).
+    additions.push(join(workspaceRoot, "**", ".env*"));
+  }
+  if (additions.length === 0) return profile;
   return {
     ...profile,
     filesystem: {
       ...profile.filesystem,
-      denyRead: [...new Set([...(profile.filesystem?.denyRead ?? []), ...scan.roots])],
+      denyRead: [...new Set([...(profile.filesystem?.denyRead ?? []), ...additions])],
     },
   };
 }
@@ -4300,7 +4333,11 @@ async function resolveApprovedCommandReview(
     return built.response;
   }
   const workspaceSecrets = workspaceSecretDenyReadScan(context);
-  const profile = withWorkspaceSecretDenyRead(built.profile, workspaceSecrets);
+  const profile = withWorkspaceSecretDenyRead(
+    built.profile,
+    workspaceSecrets,
+    context.workspaceRoot,
+  );
   const sandbox = readSandboxStatus(context.sandbox);
   const sandboxContainment: SandboxContainmentProof = {
     status: sandbox,
@@ -5592,7 +5629,11 @@ async function methodResult(
           const built = buildSandboxProfileOrError(context, command.command.sandboxToolName);
           if (!built.ok) return built.response;
           const workspaceSecrets = workspaceSecretDenyReadScan(context);
-          prebuiltProfile = withWorkspaceSecretDenyRead(built.profile, workspaceSecrets);
+          prebuiltProfile = withWorkspaceSecretDenyRead(
+            built.profile,
+            workspaceSecrets,
+            context.workspaceRoot,
+          );
           sandboxContainment = {
             status: sandbox,
             profile: prebuiltProfile,
