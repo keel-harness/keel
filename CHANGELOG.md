@@ -16,3 +16,20 @@ with 0.x pre-release semantics (minor bumps may break).
 
 The real package is not published yet. The public release record starts only after staged and
 live-registry verification succeeds.
+
+### Security
+
+Hardening from an internal pre-release security review of how the warden consumes model-writable
+workspace configuration. All items predate any supported release; the `keel-harness` npm carrier is
+unpublished, so no installed version is affected.
+
+- **Credential-proxy project config.** `.keel/credential-proxy.json` is now parsed under a restricted
+  provenance: only a realpath-contained, workspace-local `file` source is accepted (command/env
+  sources and out-of-workspace/`~` paths are refused, re-validated at read time), and governed tools
+  can no longer write the workspace `.keel/` project-config directory. Operator-supplied
+  credential-proxy configuration (`KEEL_WARDEN_CREDENTIAL_PROXY_RULES`) is unchanged.
+- **MCP review trust gate.** `keel mcp review` now requires the workspace to be trusted before it
+  reads project MCP config or launches a server (trust-before-parse, SEC-012).
+- **Workspace `.env` deny-read.** The nested-`.env` deny-read scan now fails closed rather than
+  dropping protection when its bounded enumeration cannot complete; an unreadable subdirectory is
+  skipped instead of aborting the scan. One narrow Linux residual is documented in the code.
