@@ -32,6 +32,7 @@ export default defineConfig({
       "packages/*/src/**/*.test.ts",
       "packages/*/src/**/*.test.tsx",
       "packaging/**/*.test.ts",
+      "vendor/sandbox-runtime/test/sandbox/linux-proxy-readiness.test.ts",
     ],
     // Pin the fast-check global seed (replayable failures) — see ADR-0020 / I6.
     setupFiles: ["./vitest.setup.ts"],

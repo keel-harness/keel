@@ -46,9 +46,22 @@ not source needed for Keel's reviewed adapter path:
 ## Local Keel Files
 
 - `VENDOR.md`
+- `patches/wait-for-linux-proxy-readiness.patch`
+- `test/sandbox/linux-proxy-readiness.test.ts`
 
-No upstream source files are patched in this import. Any future local source patch must be listed here with
-the reason, security impact, and upstreamable status.
+## Local Patches
+
+### Wait for Linux proxy listeners
+
+- Patch: `patches/wait-for-linux-proxy-readiness.patch`
+- Applied file: `src/sandbox/linux-sandbox-utils.ts`
+- Reason: the upstream wrapper backgrounds both sandbox-local `socat` listeners and immediately starts the
+  governed command. Under load, a client can reach the proxy ports before either listener has bound.
+- Security impact: startup now waits for both loopback listeners and fails closed after a bounded interval;
+  governed code does not start when its required proxy path is unavailable. This preserves the existing
+  network-isolation and proxy-enforcement design.
+- Upstreamable status: minimal and upstreamable. The race was still present on upstream `main` when this
+  patch was recorded on 2026-08-01; it has not yet been submitted upstream.
 
 ## License And Notice
 
