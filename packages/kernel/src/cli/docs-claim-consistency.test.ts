@@ -516,10 +516,10 @@ describe("landing page claim consistency (site/index.html)", () => {
     const text = pageText();
 
     const claims = [
-      { what: "test count", re: /([\d,]+)\+\s*unit and property tests/i },
-      { what: "statement coverage", re: /~(\d+)%\s*statements/i },
-      { what: "branch coverage", re: /~(\d+)%\s*branches/i },
-      { what: "security-suite count", re: /([\d,]+)\+\s*adversarial/i },
+      { what: "test count", re: /([\d,]+)\s*automated tests passed/i },
+      { what: "statement coverage", re: /(\d+\.\d+)%\s*statements/i },
+      { what: "branch coverage", re: /(\d+\.\d+)%\s*branches/i },
+      { what: "security-suite count", re: /([\d,]+)\s*adversarial/i },
     ];
 
     for (const { what, re } of claims) {
