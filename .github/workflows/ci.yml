@@ -203,16 +203,16 @@ jobs:
         if: runner.os == 'macOS'
         run: pnpm test
 
-      # Later-phase gates. Kept as skipped (NOT green) until their phase lands, so a
-      # passing run never falsely implies these ran (ground rule 4: no enforcement
-      # theater). Flip `if: false` to a real step in the named phase.
-      - name: Integration (Phase 2 — warden via RPC)
+      # Reserved dedicated gates below remain NOT_RUN. Current Warden/RPC and TUI product-path
+      # coverage runs in the active coverage, security, sandbox-real, and package jobs above;
+      # no standalone integration, E2E, or benchmark gate is configured.
+      - name: Dedicated integration gate (reserved; NOT_RUN)
         if: false
         run: exit 1
-      - name: E2E (Phase 1 — pty TUI)
+      - name: Dedicated E2E gate (reserved; NOT_RUN)
         if: false
         run: exit 1
-      - name: Benchmark (Phase 1 — TB-2 subset)
+      - name: Dedicated benchmark gate (reserved; NOT_RUN)
         if: false
         run: exit 1
 

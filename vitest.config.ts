@@ -84,12 +84,10 @@ export default defineConfig({
         functions: 90,
         branches: 90,
         statements: 90,
-        // Per-package floors (MASTER_SPEC §6.1) are only added here when they are STRICTER
-        // than the global 90 — a glob floor below the global is dead config (the global
-        // perFile-90 always dominates). So kernel (§6.1 ≥85) and memory (§6.1 ≥90) need no
-        // override: the global 90 already meets-or-exceeds their floor (kernel is currently
-        // ~98% anyway). Only warden's 95 is stricter — activate it WITH removing warden from
-        // `exclude` when it gains tested source. See ADR-0020.
+        // Per-package floors (MASTER_SPEC §6.1) are added only when stricter than the global 90;
+        // kernel (§6.1 ≥85) and memory (§6.1 ≥90) need no override. Warden's live coverage gate is
+        // 95 for lines/functions/statements and 90 for branches; only its argv wrapper is excluded.
+        // See ADR-0020.
         "packages/warden/src/**": { lines: 95, functions: 95, statements: 95, branches: 90 },
       },
     },
