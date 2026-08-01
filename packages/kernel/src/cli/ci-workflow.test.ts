@@ -187,6 +187,7 @@ describe("CI packaging workflow", () => {
   it("reviews a local-stdio MCP server through the freshly installed npx carrier", () => {
     const workflow = readFileSync(join(repoRoot, ".github", "workflows", "ci.yml"), "utf8");
     const smokePath = join(repoRoot, "packaging", "smoke-npx-mcp-review.mjs");
+    const trustHelperPath = join(repoRoot, "packaging", "smoke-npx-mcp-review-trust.py");
     const smoke = readFileSync(smokePath, "utf8");
 
     expect(workflow).toContain('MCP_REVIEW_SMOKE="$PWD/packaging/smoke-npx-mcp-review.mjs"');
@@ -194,6 +195,11 @@ describe("CI packaging workflow", () => {
     expect(workflow.indexOf("npm install --ignore-scripts")).toBeLessThan(
       workflow.indexOf('node "$MCP_REVIEW_SMOKE" "$KEEL_BIN"'),
     );
+    expect(existsSync(trustHelperPath)).toBe(true);
+    expect(smoke).toContain("mcp review untrusted");
+    expect(smoke).toContain("workspace is not trusted");
+    expect(smoke).toContain("must not spawn the fixture before workspace trust");
+    expect(smoke).toContain("smoke-npx-mcp-review-trust.py");
     expect(smoke).toContain("mcp review missing");
     expect(smoke).toContain("mcp review fixture");
     expect(smoke).toContain("mcp__fixture__echo");
