@@ -177,6 +177,7 @@ function findOverclaims(text: string): { term: string; line: string }[] {
 describe("public docs claim consistency", () => {
   it("keeps README status aligned with open-source preparation evidence and limitations", () => {
     const readme = readRepoFile("README.md");
+    const landingPage = readRepoFile("site/index.html");
     const blockquoteText = readme.replace(/\n>\s*/g, " ");
 
     expect(readme).not.toMatch(/Phase 2A warden build in progress/i);
@@ -191,6 +192,12 @@ describe("public docs claim consistency", () => {
     expect(readme).toMatch(/macOS audit-latency pass/i);
     expect(readme).toMatch(/comparable live TB-2/i);
     expect(readme).toMatch(/out-of-band signer key/i);
+    expect(readme).toMatch(/governed tool surface.*v1 kernel.*OS user.*not\s+compromised/is);
+    expect(readme).toMatch(/checkpoint-signing key.*0600.*same OS user/is);
+    expect(readme).toMatch(/signed by that key.*not.*actor independent/is);
+    expect(readme).toMatch(/OS-keychain.*hardware-backed.*not implemented/is);
+    expect(landingPage).toMatch(/governed tool surface.*v1 kernel.*OS user.*not\s+compromised/is);
+    expect(landingPage).toMatch(/checkpoint-signing key.*0600.*same OS user/is);
     expect(blockquoteText).toMatch(/not a stable or public-alpha\s+release/i);
   });
 

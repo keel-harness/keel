@@ -829,11 +829,12 @@
         </p>
 
         <p class="lede">
-          keel is an open-source coding agent harness. The agent runs behind an enforcement
-          boundary. The model cannot argue past it. The model asks for an action. A
+          keel is an open-source coding agent harness. The agent runs behind an enforcement boundary
+          its governed tool surface cannot argue past, assuming the v1 kernel and OS user are not
+          compromised. The model asks for a governed action. A
           <strong>separate warden process</strong> decides if the action runs, under a hash-pinned
-          policy the model cannot rewrite. Every decision, allowed or denied, goes into a
-          tamper-evident audit record that the agent cannot write to.
+          policy the model cannot rewrite. Every governed decision, allowed or denied, goes into a
+          tamper-evident audit record the agent cannot write through that tool surface.
         </p>
 
         <div class="cta">
@@ -910,7 +911,10 @@
           <a href="https://github.com/keel-harness/keel/blob/main/docs/quality/claim-ledger.md"
             >the claim ledger</a
           >. Before a side-effecting action runs, the warden writes a durable intent record. If it
-          cannot write the audit chain, the action does not run.
+          cannot write the audit chain, the action does not run. The checkpoint-signing key is a
+          local <code>0600</code> at-rest file readable by the same OS user: verification means
+          "signed by that key," not by an actor independent of the host. OS-keychain and
+          hardware-backed/TPM custody are future hardening and are not implemented.
         </p>
       </section>
 
