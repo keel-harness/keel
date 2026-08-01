@@ -19532,7 +19532,10 @@ printf '%s\\n' '${match}'
     const workspace = mkdtempSync(join(tmpdir(), "keel-srt-workspace-"));
     const home = mkdtempSync(join(tmpdir(), "keel-srt-home-"));
     const outsideDir = mkdtempSync(join(tmpdir(), "keel-srt-outside-dir-"));
-    const outsidePath = join(tmpdir(), `keel-srt-outside-${Date.now()}-${process.pid}`);
+    // Keep this target outside both the workspace and temporary scope on every host. Linux uses
+    // /tmp for tmpdir(), while macOS uses a per-user path, so a tmpdir target exercises different
+    // denial layers across platforms instead of consistently proving POL-002.
+    const outsidePath = join(home, `keel-srt-outside-${Date.now()}-${process.pid}`);
     const envPath = join(workspace, ".env");
     const keelHome = join(workspace, ".keel");
     const auditDir = join(keelHome, "audit");
