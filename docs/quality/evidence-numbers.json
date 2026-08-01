@@ -11,6 +11,11 @@
       "command": "pnpm test",
       "detail": "342 test files passed; 12 tests and 2 files skipped"
     },
+    "testsSkipped": {
+      "value": 12,
+      "command": "pnpm test",
+      "detail": "12 tests skipped across 2 files"
+    },
     "securityTestsPassed": {
       "value": 990,
       "command": "pnpm test:security",
@@ -25,6 +30,16 @@
       "value": 93.74,
       "command": "pnpm test:cov",
       "detail": "21878 of 23339 branches"
+    },
+    "perFileCoverageFloorPercent": {
+      "value": 90,
+      "command": "pnpm test:cov",
+      "detail": "global per-file floor for lines, functions, branches, and statements"
+    },
+    "wardenCoverageFloorPercent": {
+      "value": 95,
+      "command": "pnpm test:cov",
+      "detail": "warden per-file floor for lines, functions, and statements; branches remain 90"
     }
   }
 }

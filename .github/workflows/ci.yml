@@ -124,11 +124,11 @@ jobs:
           fi
           pnpm exec prettier --check --ignore-unknown "${changed[@]}"
 
-      # The build + security jobs run this guard via test:cov / test:security, but both are skipped
-      # on docs-only PRs. Run it here so a docs-only edit to a security claim in MASTER_SPEC / README
-      # / SECURITY / package metadata cannot drift past the claim-consistency check (QC §10).
-      - name: Docs claim-consistency guard
-        run: pnpm exec vitest run packages/kernel/src/cli/docs-claim-consistency.test.ts
+      # The build + security jobs run these guards via the full test suites, but both are skipped on
+      # docs-only PRs. Run them here so claim prose and measured evidence cannot drift through the
+      # only required job selected for a documentation-only change.
+      - name: Public-doc claim and evidence guards
+        run: pnpm exec vitest run packages/kernel/src/cli/docs-claim-consistency.test.ts packages/kernel/src/cli/evidence-numbers.test.ts
 
   build:
     # Skip the matrix build on docs/status-only PRs and on the scheduled audit trigger.
