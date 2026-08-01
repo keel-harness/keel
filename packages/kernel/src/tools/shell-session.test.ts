@@ -1,7 +1,8 @@
 import { execFileSync, spawn } from "node:child_process";
-import { appendFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
-import { resolve } from "node:path";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
@@ -966,19 +967,39 @@ describe("PipeShellSession (real bash smoke)", () => {
   it("streams real intermediate output lines live via onOutput, never blank or the marker (Epic 1.5c)", async () => {
     session = new PipeShellSession({ cwd: process.cwd() });
     const lines: string[] = [];
-    // Short sleeps make each echo flush in its own stdout chunk (separate from the completion marker),
-    // so the intermediate lines surface live before the command settles.
-    const r = await session.run(
-      "echo one; sleep 0.05; echo two; sleep 0.05; echo three; sleep 0.05",
-      {
-        onOutput: (l) => lines.push(l),
-      },
-    );
-    expect(r.outcome).toBe("ok");
-    expect(r.output).toBe("one\ntwo\nthree"); // authoritative output unchanged
-    expect(lines).toContain("one"); // intermediate progress surfaced live (timing-tolerant set)
-    expect(lines).toContain("two");
-    expect(lines.every((l) => l.trim() !== "" && !l.includes("__keel_done_"))).toBe(true);
+    const acknowledgements = mkdtempSync(join(tmpdir(), "keel-shell-stream-"));
+    const oneObserved = join(acknowledgements, "one");
+    const twoObserved = join(acknowledgements, "two");
+    try {
+      // Each intermediate line waits for the callback to acknowledge it. This proves live delivery
+      // without assuming a loaded CI runner will schedule a polling timer within a fixed sleep.
+      const r = await session.run(
+        [
+          "echo one",
+          `while [ ! -e ${JSON.stringify(oneObserved)} ]; do sleep 0.01; done`,
+          "echo two",
+          `while [ ! -e ${JSON.stringify(twoObserved)} ]; do sleep 0.01; done`,
+          "echo three",
+        ].join("\n"),
+        {
+          timeoutMs: 5_000,
+          onOutput: (line) => {
+            lines.push(line);
+            if (line === "one") writeFileSync(oneObserved, "");
+            if (line === "two") writeFileSync(twoObserved, "");
+          },
+        },
+      );
+      expect(r.outcome).toBe("ok");
+      expect(r.output).toBe("one\ntwo\nthree"); // authoritative output unchanged
+      expect(lines).toContain("one");
+      expect(lines).toContain("two");
+      expect(lines.every((line) => line.trim() !== "" && !line.includes("__keel_done_"))).toBe(
+        true,
+      );
+    } finally {
+      rmSync(acknowledgements, { recursive: true, force: true });
+    }
   });
 
   it("on timeout, terminates the command's subtree and keeps the shell alive when cleanup is available", async () => {
