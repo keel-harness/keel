@@ -16672,7 +16672,7 @@ printf '%s\\n' '${match}'
     };
 
     try {
-      for (const domain of ["127.0.0.1", "https://example.com"]) {
+      for (const domain of ["localhost", "api.localhost", "127.0.0.1", "https://example.com"]) {
         const rejected = JsonRpcErrorResponse.parse(
           await handleRpcLine(
             JSON.stringify(

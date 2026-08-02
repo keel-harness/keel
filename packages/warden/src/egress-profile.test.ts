@@ -14,9 +14,21 @@ describe("egress profile", () => {
     });
   });
 
-  it("allows localhost as an explicit development-only host without opening IP literals", () => {
-    expect(buildEgressNetworkProfile({ allowedDomains: ["localhost"] })).toEqual({
-      allowedDomains: ["localhost"],
+  it("rejects the complete localhost namespace for exact and wildcard allowlists", () => {
+    for (const domain of [
+      "localhost",
+      "LOCALHOST",
+      "api.localhost",
+      "API.LOCALHOST",
+      "*.localhost",
+    ]) {
+      expect(() => buildEgressNetworkProfile({ allowedDomains: [domain] }), domain).toThrow(
+        InvalidEgressConfigError,
+      );
+    }
+
+    expect(buildEgressNetworkProfile({ allowedDomains: ["localhost.example"] })).toEqual({
+      allowedDomains: ["localhost.example"],
       deniedDomains: [],
       strictAllowlist: true,
     });

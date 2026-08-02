@@ -47,8 +47,27 @@ describe("egress review helper", () => {
   it("normalizes exact grant domains through canonical ASCII without accepting patterns or URLs", () => {
     expect(normalizeEgressGrantDomain(" Example.COM ")).toBe("example.com");
     expect(normalizeEgressGrantDomain("Bücher.Example")).toBe("xn--bcher-kva.example");
+    expect(normalizeEgressGrantDomain("localhost.example")).toBe("localhost.example");
 
-    for (const domain of ["*.example.com", "https://example.com", "", "127.0.0.1"]) {
+    for (const domain of [
+      "*.example.com",
+      "https://example.com",
+      "",
+      "localhost",
+      "LOCALHOST",
+      "api.localhost",
+      "Bücher.Localhost",
+      "localhost.",
+      "api.localhost.",
+      "local\u0000host",
+      "127.0.0.1",
+      "127.1",
+      "2130706433",
+      "0177.0.0.1",
+      "0x7f000001",
+      "[::1]",
+      "[::ffff:127.0.0.1]",
+    ]) {
       expect(() => normalizeEgressGrantDomain(domain)).toThrow(InvalidEgressConfigError);
     }
   });
@@ -56,9 +75,16 @@ describe("egress review helper", () => {
   it("extracts only explicit external http(s) targets from command text", () => {
     expect(extractExplicitEgressTarget("printf no-network")).toEqual({ kind: "none" });
     expect(extractExplicitEgressTarget("curl http://[")).toEqual({ kind: "none" });
-    expect(extractExplicitEgressTarget("curl http://localhost:3000/ok")).toEqual({
-      kind: "none",
-    });
+    for (const url of [
+      "http://localhost:3000/ok",
+      "http://api.localhost:3000/ok",
+      "http://localhost.:3000/ok",
+    ]) {
+      const target = extractExplicitEgressTarget(`curl ${url}`);
+      expect(target, url).toMatchObject({ kind: "invalid" });
+      if (target.kind !== "invalid") throw new Error(`expected invalid target for ${url}`);
+      expect(target.reason, url).toMatch(/localhost|invalid/i);
+    }
     expect(extractExplicitEgressTarget("curl https://Example.COM/releases/latest).")).toEqual({
       kind: "domain",
       domain: "example.com",
