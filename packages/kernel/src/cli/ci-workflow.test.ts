@@ -292,6 +292,9 @@ describe("CI packaging workflow", () => {
     expect(smoke).toContain("egress-address-guard/v1");
     expect(smoke).toContain("warden.resolveReview");
     expect(smoke).toContain("egress-address-exceptions.v1.json");
+    expect(smoke).toContain("requested.review?.allowCommand");
+    expect(smoke).toContain("--scope once --domain ${host}");
+    expect(smoke).not.toContain("requested.review?.domain");
     expect(smoke).toContain("restricted-address-not-excepted");
     expect(smoke).toContain("hard-deny");
     expect(smoke).toContain("carrier egress address guard smoke passed");

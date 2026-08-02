@@ -194,7 +194,16 @@ async function executeWithOneShotReview(warden, id, host, port, path) {
     provenanceContext: { inputTags: ["workspace"] },
   });
   assert.equal(requested.verdict, "review", `${id} must require an explicit egress review`);
-  assert.equal(requested.review?.domain, host);
+  const allowCommand = requested.review?.allowCommand;
+  assert.equal(typeof allowCommand, "string", `${id} review approval command is missing`);
+  assert.ok(
+    allowCommand.endsWith(`--scope once --domain ${host}`),
+    `${id} did not return the exact public egress-review contract: ${JSON.stringify(requested)}`,
+  );
+  assert.ok(
+    requested.review?.summary?.includes(host),
+    `${id} review summary omitted the exact requested host`,
+  );
   assert.ok(requested.review?.reviewId, `${id} review id is missing`);
 
   const approved = await warden.result("warden.resolveReview", `${id}-approve`, {
