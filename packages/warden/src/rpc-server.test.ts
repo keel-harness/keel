@@ -19494,7 +19494,7 @@ printf '%s\\n' '${match}'
     }
   });
 
-  it("runs the opt-in srt egress probes when available, otherwise fails closed", async () => {
+  it("keeps localhost ungrantable in spawned SRT even when ambient allow env is set", async () => {
     const fixture = await listenEgressFixture();
     if (!fixture.ok) {
       expect(fixture.reason).toMatch(/listen|EPERM|EACCES/);
@@ -19541,8 +19541,9 @@ printf '%s\\n' '${match}'
       );
       const defaultDenyRaw = JsonRpcSuccessResponse.parse(await deniedWarden.readJson());
       const defaultDeny = WARDEN_METHODS["warden.execute"].result.parse(defaultDenyRaw.result);
-      expect(defaultDeny.verdict).toBe("allow");
-      expect(commandExecutionResult(defaultDeny).exitCode).not.toBe(0);
+      expect(defaultDeny.verdict).toBe("deny");
+      expect(defaultDeny.guidance).toMatch(/localhost|invalid/i);
+      expect(defaultDeny.result).toBeUndefined();
       expect(hits.ok).toBe(0);
 
       const envIgnoredWarden = spawnWarden({
@@ -19564,8 +19565,9 @@ printf '%s\\n' '${match}'
       );
       const ignoredRaw = JsonRpcSuccessResponse.parse(await envIgnoredWarden.readJson());
       const ignored = WARDEN_METHODS["warden.execute"].result.parse(ignoredRaw.result);
-      expect(ignored.verdict).toBe("allow");
-      expect(commandExecutionResult(ignored).exitCode).not.toBe(0);
+      expect(ignored.verdict).toBe("deny");
+      expect(ignored.guidance).toMatch(/localhost|invalid/i);
+      expect(ignored.result).toBeUndefined();
       expect(hits.ok).toBe(0);
     } finally {
       await closeServer(server);
