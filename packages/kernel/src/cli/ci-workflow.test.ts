@@ -253,6 +253,51 @@ describe("CI packaging workflow", () => {
     }
   });
 
+  it("gates one exact egress-guard npm carrier across Node 20, 22, and 24", () => {
+    const workflow = readFileSync(join(repoRoot, ".github", "workflows", "ci.yml"), "utf8");
+    const packageJob = workflowJob(workflow, "package");
+    const productMatrixJob = workflowJob(workflow, "egress-product-matrix");
+    const aggregateJob = workflowJob(workflow, "ci-required");
+    const productConfig = readFileSync(join(repoRoot, "vitest.egress-product.config.ts"), "utf8");
+    const productSetup = readFileSync(join(repoRoot, "vitest.egress-product.setup.ts"), "utf8");
+    const smoke = readFileSync(
+      join(repoRoot, "packaging", "smoke-egress-address-guard-carrier.mjs"),
+      "utf8",
+    );
+
+    expect(packageJob).toContain("egress-address-guard-npx-carrier");
+    expect(packageJob).toContain("package/bin/keel-kernel.mjs");
+    expect(packageJob).toContain("package/bin/keel-warden.mjs");
+    expect(packageJob).not.toContain("package/packages/warden/src/bin-entry.ts");
+    expect(packageJob).toContain('smoke-egress-address-guard-carrier.mjs --compiled "$BIN"');
+    expect(packageJob).toContain(
+      "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+    );
+    expect(productMatrixJob).toContain("node: [20, 22, 24]");
+    expect(productMatrixJob).toContain("node-version: ${{ matrix.node }}");
+    expect(productMatrixJob).toContain(
+      "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c",
+    );
+    expect(productMatrixJob).toContain("pnpm test:egress-product");
+    expect(productMatrixJob).toContain("pnpm test:sandbox:real");
+    expect(productMatrixJob).toContain("smoke-egress-address-guard-carrier.mjs");
+    expect(productMatrixJob).toContain("npm install --ignore-scripts");
+    expect(productMatrixJob).toContain("npm_config_engine_strict=true");
+    expect(aggregateJob).toContain("egress-product-matrix");
+    expect(aggregateJob).toContain("EGRESS_PRODUCT_MATRIX_RESULT");
+    expect(productConfig).toContain("vendor/sandbox-runtime/test/sandbox/update-config.test.ts");
+    expect(productConfig).toContain("vitest.egress-product.setup.ts");
+    expect(productSetup).toContain("it.runIf(condition)");
+
+    expect(smoke).toContain("egress-address-guard/v1");
+    expect(smoke).toContain("warden.resolveReview");
+    expect(smoke).toContain("egress-address-exceptions.v1.json");
+    expect(smoke).toContain("restricted-address-not-excepted");
+    expect(smoke).toContain("hard-deny");
+    expect(smoke).toContain("carrier egress address guard smoke passed");
+    expect(smoke).toContain("KEEL_INTERNAL_WARDEN_STDIO");
+  });
+
   it("requires the installed final-response carrier on both package platforms", () => {
     const workflow = readFileSync(join(repoRoot, ".github", "workflows", "ci.yml"), "utf8");
     const packageJob = workflowJob(workflow, "package");
@@ -522,6 +567,8 @@ describe("CI packaging workflow", () => {
       "pnpm-lock.yaml",
       "pnpm-workspace.yaml",
       "tsconfig.packaging.json",
+      "vitest*.config.ts",
+      "vitest*.setup.ts",
     ]) {
       expect(packageClassifier).toContain(pathPattern);
     }
@@ -575,7 +622,7 @@ describe("CI packaging workflow", () => {
     expect(workflow).toContain("pnpm test:security");
     expect(workflow).toContain("SECURITY_RESULT");
     expect(workflow).toContain(
-      "needs: [detect-changes, docs, build, node-next, package, security, sandbox-real]",
+      "needs: [detect-changes, docs, build, node-next, package, egress-product-matrix, security, sandbox-real]",
     );
     expect(workflow).not.toMatch(
       /name: Security suite \(Phase 1\/2 — SEC catalog\)\s+if: false\s+run: exit 1/,
@@ -616,7 +663,7 @@ describe("CI packaging workflow", () => {
     // It is a required gate for code PRs: wired into ci-required's needs and its result check.
     expect(workflow).toContain("SANDBOX_REAL_RESULT");
     expect(workflow).toContain(
-      "needs: [detect-changes, docs, build, node-next, package, security, sandbox-real]",
+      "needs: [detect-changes, docs, build, node-next, package, egress-product-matrix, security, sandbox-real]",
     );
   });
 
