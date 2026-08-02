@@ -890,6 +890,35 @@ describe("parseKeelArgs", () => {
       exitCode: 1,
     });
   });
+
+  it("egress exception commands parse without a model run", () => {
+    expect(parseKeelArgs(["egress", "exception", "list", "--workspace", "/tmp/work"])).toEqual({
+      kind: "egress-exception",
+      args: ["list", "--workspace", "/tmp/work"],
+    });
+    expect(
+      parseKeelArgs([
+        "egress",
+        "exception",
+        "add",
+        "--workspace=/tmp/work",
+        "--host=private.example",
+        "--cidr=10.20.0.0/16",
+        "--port=443",
+      ]),
+    ).toMatchObject({ kind: "egress-exception" });
+    for (const args of [
+      ["egress"],
+      ["egress", "exception"],
+      ["egress", "exception", "frob"],
+      ["egress", "other", "list"],
+    ]) {
+      expect(parseKeelArgs(args)).toMatchObject({
+        kind: "usage",
+        message: "usage: keel egress exception <add|list|remove>",
+      });
+    }
+  });
   it("run with no prompt → usage", () => {
     expect(parseKeelArgs(["run", "-p"]).kind).toBe("usage");
     expect(parseKeelArgs(["run"]).kind).toBe("usage");
