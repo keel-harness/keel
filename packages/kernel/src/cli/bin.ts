@@ -4,7 +4,8 @@
 // resolveModelConfig/createModelPort/runKeelCommand. Epic 1.6a Step 2 wires the real provider here.
 import { createInterface } from "node:readline/promises";
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync, realpathSync } from "node:fs";
+import { join, resolve } from "node:path";
 import { resolveRgPath } from "../tools/index.js";
 import { KEEL_VERSION } from "../version.js";
 import { CREDENTIAL_PROXY_CONFIG_ENV } from "@keel/shared";
@@ -170,6 +171,53 @@ function readFileOrNull(path: string): string | null {
   }
 }
 
+function shellQuote(value: string): string {
+  return `'${value.replaceAll("'", `'"'"'`)}'`;
+}
+
+function egressExceptionDoctorFix(error: string, cwd: string): string {
+  const home = keelHome(process.env);
+  const path = join(home, "egress-address-exceptions.v1.json");
+  if (process.platform !== "win32" && error.includes("KEEL_HOME")) {
+    try {
+      const identity = lstatSync(home);
+      if (
+        identity.isDirectory() &&
+        !identity.isSymbolicLink() &&
+        realpathSync(home) === resolve(home)
+      ) {
+        return `chmod 700 -- ${shellQuote(home)} && keel doctor`;
+      }
+    } catch {
+      return `mkdir -p -- ${shellQuote(home)} && chmod 700 -- ${shellQuote(home)} && keel doctor`;
+    }
+  }
+  if (process.platform !== "win32" && error.includes("0600")) {
+    return `chmod 600 -- ${shellQuote(path)} && keel doctor`;
+  }
+  return (
+    `repair ${path} as strict version-1 JSON owned by your user with mode 0600, ` +
+    `then run: keel egress exception list --workspace ${shellQuote(cwd)}`
+  );
+}
+
+function gatherEgressExceptionStoreProbe(): NonNullable<
+  DoctorInput["egressAddressExceptionStore"]
+> {
+  const cwd = process.cwd();
+  const result = runEgressExceptionCommandResult({
+    env: process.env,
+    args: ["list", "--workspace", cwd],
+  });
+  if (result.ok) return { status: "ok", detail: "validated; immutable snapshot not activated" };
+  const error = result.output.replace(/^keel egress exception:\s*/u, "");
+  return {
+    status: "error",
+    detail: error,
+    fix: egressExceptionDoctorFix(error, cwd),
+  };
+}
+
 /** Gather the raw `keel doctor` probe facts impurely — spawn `node`/`rg`, read `/etc/os-release`.
  *  All decision logic lives in the pure, tested `runDoctor`; this is the thin I/O layer (the bin is
  *  coverage-excluded). `runtime` is the standalone `bun --compile` binary vs the node/npx path. */
@@ -216,6 +264,7 @@ function gatherDoctorInput(): DoctorInput {
     procVersionRaw,
     credentialProxyConfigRaw: process.env[CREDENTIAL_PROXY_CONFIG_ENV] ?? null,
     cwd: process.cwd(),
+    egressAddressExceptionStore: gatherEgressExceptionStoreProbe(),
   };
 }
 
