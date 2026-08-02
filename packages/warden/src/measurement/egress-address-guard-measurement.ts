@@ -24,12 +24,14 @@ export interface EgressMeasurementEnvironment {
 export interface EgressMeasurementConfiguration {
   latencySamples: number;
   loadRequests: number;
+  connectionStormRequests: number;
   throughputRequests: number;
   transferBytes: number;
   transferPairs: number;
   budgetOriginRateBytesPerSecond: number;
   maxSettledRssGrowthBytes: number;
   maxSettledFileDescriptorGrowth: number;
+  resourceBaselineDelayMs: number;
   resourceSampleIntervalMs: number;
   resourceSettleDelayMs: number;
   teardownToleranceMs: number;
@@ -55,6 +57,12 @@ export interface EgressAddressGuardMeasurementInput {
       peakQueuedLookups: number;
       queueFullRejections: number;
       completedLookups: number;
+    };
+    connectionStorm: {
+      peakHeldConnections: number;
+      overflowRejections: number;
+      completedConnections: number;
+      overflowOriginHits: number;
     };
     resources: {
       baselineRssBytes: number;
@@ -104,6 +112,7 @@ export interface EgressAddressGuardMeasurementReport extends Omit<
   connectionLatencyMs: SampleStats;
   requestThroughputPerSecond: number;
   resolver: EgressAddressGuardMeasurementInput["measurements"]["resolver"];
+  connectionStorm: EgressAddressGuardMeasurementInput["measurements"]["connectionStorm"];
   resources: EgressAddressGuardMeasurementInput["measurements"]["resources"] & {
     settledRssGrowthBytes: number;
     settledFileDescriptorGrowth: number;
@@ -194,12 +203,14 @@ function validateCounters(input: EgressAddressGuardMeasurementInput): void {
     input.environment.totalMemoryBytes,
     input.configuration.latencySamples,
     input.configuration.loadRequests,
+    input.configuration.connectionStormRequests,
     input.configuration.throughputRequests,
     input.configuration.transferBytes,
     input.configuration.transferPairs,
     input.configuration.budgetOriginRateBytesPerSecond,
     input.configuration.maxSettledRssGrowthBytes,
     input.configuration.maxSettledFileDescriptorGrowth,
+    input.configuration.resourceBaselineDelayMs,
     input.configuration.resourceSampleIntervalMs,
     input.configuration.resourceSettleDelayMs,
     input.configuration.teardownToleranceMs,
@@ -209,6 +220,10 @@ function validateCounters(input: EgressAddressGuardMeasurementInput): void {
     input.measurements.resolver.peakQueuedLookups,
     input.measurements.resolver.queueFullRejections,
     input.measurements.resolver.completedLookups,
+    input.measurements.connectionStorm.peakHeldConnections,
+    input.measurements.connectionStorm.overflowRejections,
+    input.measurements.connectionStorm.completedConnections,
+    input.measurements.connectionStorm.overflowOriginHits,
     input.measurements.resources.baselineRssBytes,
     input.measurements.resources.peakRssBytes,
     input.measurements.resources.settledRssBytes,
@@ -304,6 +319,21 @@ export function buildEgressAddressGuardMeasurement(
     failures.push("resolver saturation must complete the bounded load and reject queue overflow");
   }
 
+  const connectionStorm = measurements.connectionStorm;
+  if (
+    configuration.connectionStormRequests !==
+      EGRESS_ADDRESS_GUARD_LIMITS.maxConcurrentGuardedConnections ||
+    connectionStorm.peakHeldConnections !==
+      EGRESS_ADDRESS_GUARD_LIMITS.maxConcurrentGuardedConnections ||
+    connectionStorm.overflowRejections < 1 ||
+    connectionStorm.completedConnections !== configuration.connectionStormRequests ||
+    connectionStorm.overflowOriginHits !== 0
+  ) {
+    failures.push(
+      "guarded connection storm must hold the fixed cap, reject overflow, complete, and keep overflow from the origin",
+    );
+  }
+
   const audit = measurements.audit;
   if (
     audit.denialRecords !== EGRESS_ADDRESS_GUARD_LIMITS.denialBurstLimit ||
@@ -367,6 +397,7 @@ export function buildEgressAddressGuardMeasurement(
       (measurements.requestThroughput.requests * 1_000) / measurements.requestThroughput.durationMs,
     ),
     resolver: { ...resolver },
+    connectionStorm: { ...connectionStorm },
     resources: { ...resources, settledRssGrowthBytes, settledFileDescriptorGrowth },
     audit: { ...audit, growthBytes: audit.bytesAfter - audit.bytesBefore },
     teardown: { ...teardown },
@@ -406,8 +437,9 @@ export function renderEgressAddressGuardMeasurement(
     `| Connection latency p50 / p95 / p99 (n=${count(report.connectionLatencyMs.count)}) | ${String(report.connectionLatencyMs.p50)} / ${String(report.connectionLatencyMs.p95)} / ${String(report.connectionLatencyMs.p99)} ms |`,
     `| Small-request throughput (${count(report.configuration.throughputRequests)} requests) | ${String(report.requestThroughputPerSecond)} requests/s |`,
     `| Resolver active / queued peak (${count(report.configuration.loadRequests)} lookups) | ${String(report.resolver.peakActiveLookups)} / ${String(report.resolver.peakQueuedLookups)} |`,
-    `| RSS baseline / peak / settled (${String(report.configuration.resourceSampleIntervalMs)} ms cadence; ${String(report.configuration.resourceSettleDelayMs)} ms settle delay) | ${mib(report.resources.baselineRssBytes)} / ${mib(report.resources.peakRssBytes)} / ${mib(report.resources.settledRssBytes)} |`,
-    `| File descriptors baseline / peak / settled (${String(report.configuration.resourceSampleIntervalMs)} ms cadence; ${String(report.configuration.resourceSettleDelayMs)} ms settle delay) | ${String(report.resources.baselineFileDescriptors)} / ${String(report.resources.peakFileDescriptors)} / ${String(report.resources.settledFileDescriptors)} |`,
+    `| Guarded connection storm (${count(report.configuration.connectionStormRequests)} held connections) | ${String(report.connectionStorm.peakHeldConnections)} peak; ${String(report.connectionStorm.overflowRejections)} overflow rejection(s); ${String(report.connectionStorm.overflowOriginHits)} overflow origin hit(s) |`,
+    `| RSS baseline / peak / settled (${count(report.configuration.resourceBaselineDelayMs)} ms baseline delay; ${String(report.configuration.resourceSampleIntervalMs)} ms cadence; ${String(report.configuration.resourceSettleDelayMs)} ms settle delay) | ${mib(report.resources.baselineRssBytes)} / ${mib(report.resources.peakRssBytes)} / ${mib(report.resources.settledRssBytes)} |`,
+    `| File descriptors baseline / peak / settled (${count(report.configuration.resourceBaselineDelayMs)} ms baseline delay; ${String(report.configuration.resourceSampleIntervalMs)} ms cadence; ${String(report.configuration.resourceSettleDelayMs)} ms settle delay) | ${String(report.resources.baselineFileDescriptors)} / ${String(report.resources.peakFileDescriptors)} / ${String(report.resources.settledFileDescriptors)} |`,
     `| Audit growth | ${String(report.audit.growthBytes)} bytes; ${String(report.audit.denialRecords)} denials + ${String(report.audit.quarantineRecords)} quarantine + ${String(report.audit.retryRecords)} retry records |`,
     `| Teardown drained / hung (n=1 each) | ${String(report.teardown.drainedMs)} / ${String(report.teardown.hungMs)} ms |`,
     `| Budget proxy throughput penalty p50 / p95 / p99 (n=${count(report.budgetTransfers.pairs)} pairs) | ${String(report.budgetTransfers.penaltyPercent.p50)}% / ${String(report.budgetTransfers.penaltyPercent.p95)}% / ${String(report.budgetTransfers.penaltyPercent.p99)}% (${report.budgetTransfers.status}) |`,

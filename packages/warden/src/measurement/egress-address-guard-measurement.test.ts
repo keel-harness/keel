@@ -26,12 +26,14 @@ function passingInput(): EgressAddressGuardMeasurementInput {
     configuration: {
       latencySamples: 5,
       loadRequests: 40,
+      connectionStormRequests: 64,
       throughputRequests: 1_000,
       transferBytes: CLAIM_TRANSFER_BYTES,
       transferPairs: 3,
       budgetOriginRateBytesPerSecond: 250 * 1024 * 1024,
       maxSettledRssGrowthBytes: 16 * 1024 * 1024,
       maxSettledFileDescriptorGrowth: 2,
+      resourceBaselineDelayMs: 1_000,
       resourceSampleIntervalMs: 5,
       resourceSettleDelayMs: 100,
       teardownToleranceMs: 750,
@@ -44,6 +46,12 @@ function passingInput(): EgressAddressGuardMeasurementInput {
         peakQueuedLookups: 32,
         queueFullRejections: 1,
         completedLookups: 40,
+      },
+      connectionStorm: {
+        peakHeldConnections: 64,
+        overflowRejections: 1,
+        completedConnections: 64,
+        overflowOriginHits: 0,
       },
       resources: {
         baselineRssBytes: 100 * 1024 * 1024,
@@ -102,6 +110,12 @@ describe("egress address guard measurement contract", () => {
     expect(report.summary).toEqual({ status: "PASS", countsAsPass: true, reasons: [] });
     expect(report.connectionLatencyMs).toMatchObject({ count: 5, p50: 3, p95: 5, p99: 5 });
     expect(report.requestThroughputPerSecond).toBe(2_000);
+    expect(report.connectionStorm).toEqual({
+      peakHeldConnections: 64,
+      overflowRejections: 1,
+      completedConnections: 64,
+      overflowOriginHits: 0,
+    });
     expect(report.budgetTransfers).toMatchObject({
       bytesPerTransfer: CLAIM_TRANSFER_BYTES,
       pairs: 3,
@@ -277,6 +291,34 @@ describe("egress address guard measurement contract", () => {
       "resolver saturation",
     ],
     [
+      "connection storm below its fixed cap",
+      (input: EgressAddressGuardMeasurementInput) => {
+        input.measurements.connectionStorm.peakHeldConnections -= 1;
+      },
+      "guarded connection storm",
+    ],
+    [
+      "missing guarded-connection overflow rejection",
+      (input: EgressAddressGuardMeasurementInput) => {
+        input.measurements.connectionStorm.overflowRejections = 0;
+      },
+      "guarded connection storm",
+    ],
+    [
+      "incomplete guarded-connection load",
+      (input: EgressAddressGuardMeasurementInput) => {
+        input.measurements.connectionStorm.completedConnections -= 1;
+      },
+      "guarded connection storm",
+    ],
+    [
+      "guarded-connection overflow reached the origin",
+      (input: EgressAddressGuardMeasurementInput) => {
+        input.measurements.connectionStorm.overflowOriginHits = 1;
+      },
+      "guarded connection storm",
+    ],
+    [
       "wrong denial count",
       (input: EgressAddressGuardMeasurementInput) => {
         input.measurements.audit.denialRecords -= 1;
@@ -392,6 +434,8 @@ describe("egress address guard measurement contract", () => {
     expect(markdown).toContain("n=5");
     expect(markdown).toContain("1,000 requests");
     expect(markdown).toContain("40 lookups");
+    expect(markdown).toContain("64 held connections");
+    expect(markdown).toContain("1,000 ms baseline delay");
     expect(markdown).toContain("5 ms cadence; 100 ms settle delay");
     expect(markdown).toContain("p95");
     expect(markdown).toContain("does not close Slice 8");

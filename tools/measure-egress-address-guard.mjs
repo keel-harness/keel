@@ -101,6 +101,10 @@ const proxyModule = await tsImport(
   new URL("vendor/sandbox-runtime/src/sandbox/http-proxy.ts", root).href,
   importOptions,
 );
+const destinationDialModule = await tsImport(
+  new URL("vendor/sandbox-runtime/src/sandbox/destination-dial.ts", root).href,
+  importOptions,
+);
 
 const {
   buildEgressAddressGuardMeasurement,
@@ -110,12 +114,14 @@ const {
 const { createBoundedEgressAddressResolver, EGRESS_ADDRESS_GUARD_LIMITS } = resolverModule;
 const { AuditChainWriter } = auditModule;
 const { createHttpProxyServer } = proxyModule;
+const { MAX_CONCURRENT_GUARDED_CONNECTIONS } = destinationDialModule;
 
 const LOAD_REQUESTS =
   EGRESS_ADDRESS_GUARD_LIMITS.maxConcurrentLookups + EGRESS_ADDRESS_GUARD_LIMITS.maxQueuedLookups;
 const BUDGET_ORIGIN_RATE_BYTES_PER_SECOND = 250 * MIB;
 const MAX_SETTLED_RSS_GROWTH_BYTES = 64 * MIB;
 const MAX_SETTLED_FD_GROWTH = 2;
+const RESOURCE_BASELINE_DELAY_MS = 1_000;
 const RESOURCE_SAMPLE_INTERVAL_MS = 5;
 const RESOURCE_SETTLE_DELAY_MS = 100;
 const TEARDOWN_TOLERANCE_MS = 750;
@@ -190,6 +196,7 @@ function writeBody(response, bytes, rateBytesPerSecond) {
 
 function createOriginServer() {
   const hits = new Map();
+  const heldResponses = new Set();
   const server = createServer((incoming, response) => {
     const url = new URL(incoming.url ?? "/", "http://fixture.invalid");
     hits.set(url.pathname, (hits.get(url.pathname) ?? 0) + 1);
@@ -200,6 +207,11 @@ function createOriginServer() {
         connection: "close",
       });
       response.end("k");
+      return;
+    }
+    if (url.pathname === "/hold") {
+      heldResponses.add(response);
+      response.once("close", () => heldResponses.delete(response));
       return;
     }
     const bytes = Number(url.searchParams.get("bytes"));
@@ -222,7 +234,21 @@ function createOriginServer() {
     });
     writeBody(response, bytes, rate);
   });
-  return { server, hits: (path) => hits.get(path) ?? 0 };
+  return {
+    server,
+    hits: (path) => hits.get(path) ?? 0,
+    heldConnections: () => heldResponses.size,
+    releaseHeld() {
+      for (const response of [...heldResponses]) {
+        response.writeHead(200, {
+          "content-type": "application/octet-stream",
+          "content-length": "1",
+          connection: "close",
+        });
+        response.end("k");
+      }
+    },
+  };
 }
 
 function readResponse(options, expectedBytes) {
@@ -267,6 +293,52 @@ function proxyRequest(proxyPort, logicalHost, originPort, path, expectedBytes) {
     },
     expectedBytes,
   );
+}
+
+function deniedProxyRequest(proxyPort, logicalHost, originPort, path) {
+  const absoluteUrl = `http://${logicalHost}:${String(originPort)}${path}`;
+  return new Promise((resolveResponse, reject) => {
+    const outgoing = request(
+      {
+        hostname: "127.0.0.1",
+        port: proxyPort,
+        path: absoluteUrl,
+        method: "GET",
+        headers: { host: `${logicalHost}:${String(originPort)}` },
+        agent: false,
+      },
+      (response) => {
+        response.resume();
+        response.once("error", reject);
+        response.once("end", () => {
+          if (
+            response.statusCode !== 403 ||
+            response.headers["x-proxy-error"] !== "blocked-address-policy"
+          ) {
+            reject(
+              new Error(
+                `unexpected overflow response: status=${String(response.statusCode)} reason=${String(response.headers["x-proxy-error"])}`,
+              ),
+            );
+            return;
+          }
+          resolveResponse();
+        });
+      },
+    );
+    outgoing.once("error", reject);
+    outgoing.end();
+  });
+}
+
+async function waitFor(predicate, description, timeoutMs = 5_000) {
+  const started = performance.now();
+  while (!predicate()) {
+    if (performance.now() - started > timeoutMs) {
+      throw new Error(`timed out waiting for ${description}`);
+    }
+    await new Promise((resolveWait) => setTimeout(resolveWait, 5));
+  }
 }
 
 function fileDescriptorCount() {
@@ -460,6 +532,36 @@ async function measureHungResolverTeardown(origin, originPort) {
   }
 }
 
+async function measureConnectionStorm(origin, proxyPort, originPort) {
+  const requests = Array.from({ length: MAX_CONCURRENT_GUARDED_CONNECTIONS }, () =>
+    proxyRequest(proxyPort, "measure.example", originPort, "/hold", 1),
+  );
+  const completion = Promise.all(requests);
+  void completion.catch(() => {});
+  try {
+    await waitFor(
+      () => origin.heldConnections() === MAX_CONCURRENT_GUARDED_CONNECTIONS,
+      "the guarded connection cap",
+    );
+    const peakHeldConnections = origin.heldConnections();
+    const beforeOverflowHits = origin.hits("/small");
+    await deniedProxyRequest(proxyPort, "measure.example", originPort, "/small");
+    const overflowOriginHits = origin.hits("/small") - beforeOverflowHits;
+    origin.releaseHeld();
+    await completion;
+    return {
+      peakHeldConnections,
+      overflowRejections: 1,
+      completedConnections: requests.length,
+      overflowOriginHits,
+    };
+  } catch (error) {
+    origin.releaseHeld();
+    await completion.catch(() => {});
+    throw error;
+  }
+}
+
 async function measureLatencyAndThroughput(proxyPort, originPort) {
   for (let index = 0; index < 10; index += 1) {
     await proxyRequest(proxyPort, "measure.example", originPort, "/small", 1);
@@ -534,6 +636,7 @@ const outputDir = resolve(
   parsed.options.outputDir ?? mkdtempSync(join(tmpdir(), "keel-egress-measurement-")),
 );
 mkdirSync(outputDir, { recursive: true });
+await new Promise((resolveWait) => setTimeout(resolveWait, RESOURCE_BASELINE_DELAY_MS));
 const resources = startResourceSampler();
 const origin = createOriginServer();
 let originPort;
@@ -571,6 +674,7 @@ try {
   const load = await measureResolverLoad();
   const audit = await measureAuditStorm();
   const teardown = await measureHungResolverTeardown(origin, originPort);
+  const connectionStorm = await measureConnectionStorm(origin, proxyPort, originPort);
   const latencyAndThroughput = await measureLatencyAndThroughput(proxyPort, originPort);
   const saturationTransfers = await measureTransfers(
     parsed.options.fixtureAddress,
@@ -619,12 +723,14 @@ try {
     configuration: {
       latencySamples: parsed.options.latencySamples,
       loadRequests: LOAD_REQUESTS,
+      connectionStormRequests: MAX_CONCURRENT_GUARDED_CONNECTIONS,
       throughputRequests: parsed.options.throughputRequests,
       transferBytes: CLAIM_TRANSFER_BYTES,
       transferPairs: parsed.options.pairs,
       budgetOriginRateBytesPerSecond: 250 * MIB,
       maxSettledRssGrowthBytes: MAX_SETTLED_RSS_GROWTH_BYTES,
       maxSettledFileDescriptorGrowth: MAX_SETTLED_FD_GROWTH,
+      resourceBaselineDelayMs: RESOURCE_BASELINE_DELAY_MS,
       resourceSampleIntervalMs: RESOURCE_SAMPLE_INTERVAL_MS,
       resourceSettleDelayMs: RESOURCE_SETTLE_DELAY_MS,
       teardownToleranceMs: TEARDOWN_TOLERANCE_MS,
@@ -632,6 +738,7 @@ try {
     measurements: {
       ...latencyAndThroughput,
       resolver: load.resolver,
+      connectionStorm,
       resources: resourceMeasurements,
       audit,
       teardown: { drainedMs: load.drainedMs, ...teardown },

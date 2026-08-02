@@ -18,6 +18,8 @@ describe("egress address guard measurement CLI", () => {
     expect(source).toContain("CLAIM_TRANSFER_BYTES");
     expect(source).toContain("createBoundedEgressAddressResolver");
     expect(source).toContain("createHttpProxyServer");
+    expect(source).toContain("MAX_CONCURRENT_GUARDED_CONNECTIONS");
+    expect(source).toContain("measureConnectionStorm");
     expect(source).toContain("AuditChainWriter");
     expect(source).toContain("budgetOriginRateBytesPerSecond: 250 * MIB");
     expect(source).toContain("now: () => 1_000");
