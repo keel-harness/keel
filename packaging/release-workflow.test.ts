@@ -26,6 +26,15 @@ function workflowJob(name: string): string {
   return next === null ? remainder : remainder.slice(0, next.index);
 }
 
+function workflowStep(job: string, name: string): string {
+  const marker = `      - name: ${name}\n`;
+  const start = job.indexOf(marker);
+  if (start < 0) throw new Error(`workflow step is absent: ${name}`);
+  const remainder = job.slice(start + marker.length);
+  const next = /^ {6}- /mu.exec(remainder);
+  return next === null ? remainder : remainder.slice(0, next.index);
+}
+
 describe("public npm release workflow authority", () => {
   it("targets 0.1.1 coherently while preserving the unapproved 0.1.0 history", () => {
     expect(workflow).toContain('KEEL_VERSION: "0.1.1"');
@@ -60,6 +69,21 @@ describe("public npm release workflow authority", () => {
     }
     expect(workflow).not.toContain("cache:");
     expect(workflow).toContain("7aa2f03ee92739cf643279ba3990548b9925d4e22cae13f46831ee62821147fe");
+  });
+
+  it("starts the real-sandbox release gate with the committed credential-TLS fixture CA", () => {
+    const verify = workflowJob("verify");
+    const sourceGates = workflowStep(verify, "Full source and security gates");
+    const realSandbox = workflowStep(
+      verify,
+      "Real OS-sandbox denial probes (fail closed if the backend is unavailable)",
+    );
+
+    expect(sourceGates).not.toContain("pnpm test:sandbox:real");
+    expect(realSandbox).toContain(
+      "NODE_EXTRA_CA_CERTS: ${{ github.workspace }}/vendor/sandbox-runtime/test/fixtures/tls-terminate/ca.crt",
+    );
+    expect(realSandbox).toContain("run: pnpm test:sandbox:real");
   });
 
   it("isolates build, attestation, draft, and stage authority in separate jobs", () => {
