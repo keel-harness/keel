@@ -639,6 +639,73 @@ describe("vendored srt runtime loader", () => {
     ]);
   });
 
+  it("installs credential TLS termination at initialization and preserves it per call", async () => {
+    const initializeConfigs: unknown[] = [];
+    const updateConfigs: unknown[] = [];
+    const manager: VendoredSrtManager = {
+      isSupportedPlatform: () => true,
+      checkDependencies: () => ({ errors: [], warnings: [] }),
+      initialize: async (config) => {
+        initializeConfigs.push(config);
+      },
+      updateConfig: (config) => {
+        updateConfigs.push(config);
+      },
+      wrapWithSandboxArgv: async () => ({
+        argv: ["/usr/bin/env", "true"],
+        env: { SANDBOX_RUNTIME: "1" },
+      }),
+    };
+    const port = await createVendoredSrtSandboxPort({
+      importRuntime: async () => ({ SandboxManager: manager }),
+      hostDependencyErrors: () => [],
+      credentialTlsTermination: true,
+      runner: {
+        run: async () => ({ exitCode: 0, signal: null, stdout: "ok", stderr: "" }),
+      },
+    });
+
+    await port.execute(
+      { command: "true" },
+      { network: { allowedDomains: ["api.example.com"], deniedDomains: [] } },
+      {
+        credentialProxy: {
+          authorizationHeaders: [
+            { host: "api.example.com", scheme: "Bearer", secret: "real-secret" },
+          ],
+        },
+      },
+    );
+
+    expect(initializeConfigs).toEqual([
+      {
+        network: {
+          allowedDomains: [],
+          deniedDomains: ["*"],
+          strictAllowlist: true,
+          tlsTerminate: {},
+        },
+        filesystem: { denyRead: [], allowRead: [], allowWrite: [], denyWrite: [] },
+      },
+    ]);
+    expect(updateConfigs).toEqual([
+      {
+        network: {
+          allowedDomains: ["api.example.com"],
+          deniedDomains: [],
+          tlsTerminate: {},
+        },
+        filesystem: { denyRead: [], allowRead: [], allowWrite: [], denyWrite: [] },
+        credentials: {
+          authorizationHeaders: [
+            { host: "api.example.com", scheme: "Bearer", value: "real-secret" },
+          ],
+          allowPlaintextInject: false,
+        },
+      },
+    ]);
+  });
+
   it("preserves partial network profile data instead of filling unset strictness", async () => {
     const updateConfigs: unknown[] = [];
     const manager: VendoredSrtManager = {
