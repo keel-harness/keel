@@ -5,7 +5,7 @@ const COMMIT = "0123456789abcdef0123456789abcdef01234567";
 
 function manifest() {
   return createPublicNpxManifest({
-    version: "0.1.0",
+    version: "0.1.1",
     sourceCommit: COMMIT,
     sourceDirty: false,
     dependencies: { zod: "3.25.76" },
@@ -25,7 +25,7 @@ describe("public npm carrier metadata", () => {
   it("binds the carrier to the public project, source commit, command, and public access", () => {
     expect(manifest()).toMatchObject({
       name: "keel-harness",
-      version: "0.1.0",
+      version: "0.1.1",
       license: "Apache-2.0",
       type: "module",
       bin: { keel: "./bin/keel.mjs" },

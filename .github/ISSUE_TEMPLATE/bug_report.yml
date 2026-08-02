@@ -14,7 +14,7 @@ body:
     attributes:
       label: keel version
       description: Output of `keel --version`
-      placeholder: keel 0.1.0
+      placeholder: keel 0.1.1
     validations:
       required: true
   - type: input

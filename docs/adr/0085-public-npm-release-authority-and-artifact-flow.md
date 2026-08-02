@@ -4,6 +4,9 @@
 
 **Date:** 2026-07-30
 
+**Amended:** 2026-08-02 for the owner-selected `0.1.1` release target. The authority model is
+unchanged.
+
 **Amends:** ADR-0040's deferred npm-publication decision. The standalone-binary licensing hold is
 unchanged.
 
@@ -33,22 +36,30 @@ The carrier mixes two dependency shapes:
 An npm lockfile or ordinary filesystem scanner sees the first shape but cannot infer the second from
 minified/bundled JavaScript. An SBOM that silently omitted those bundled components would be false.
 
+`0.1.0` was staged but never approved or made public. The owner selected `0.1.1` for the current
+release after Epic 3.22. The existing `0.1.0` stage remains a separate human-controlled object: it
+must be inspected and
+explicitly rejected with 2FA before a `0.1.1` release tag is created. Its draft release and protected
+tag are retained until that decision; they are not publication evidence.
+
 ## Decision
 
 ### 1. Publish only from the curated public repository
 
-The first real carrier is `keel-harness@0.1.0`. It may be staged only from the public
+The first intended public carrier is `keel-harness@0.1.1`. It may be staged only from the public
 `keel-harness/keel` repository after a fresh one-commit public seed has passed the extracted-tree
 gates and public-main CI is green. A separate development workspace may implement and test the
 release mechanism, but it is not a publication authority.
 
-The release ref is a protected annotated `v0.1.0` tag whose peeled commit is the exact green public
+The release ref is a protected annotated `v0.1.1` tag whose peeled commit is the exact green public
 `main` commit. The runtime constant, source-workspace manifest versions, generated carrier version,
 tag, tarball filename, and candidate metadata must all agree. An existing live registry version, a
 lightweight tag, a dirty source tree, a non-main tag commit, or any mismatch fails before artifact
 construction. Existing staged versions are a separate human preflight because the read-only
 candidate job has no registry authority: the operator must prove none exists before creating the tag,
-and an ambiguous result stops release work.
+and an ambiguous result stops release work. For this release, that proof includes an explicit final
+state for the prior `0.1.0` stage; merely observing that `0.1.0` is absent from the public registry is
+not sufficient.
 
 ### 2. One stage-only OIDC authority
 
@@ -152,8 +163,10 @@ staging a package, or changing npm/GitHub settings. Those operations remain sepa
 - Standalone Bun binaries remain non-release-eligible under ADR-0040. This ADR does not sign,
   publish, or imply license completeness for them.
 - P1-007 remains a named failed strict RSS gate. On 2026-07-30 the owner accepted it as a residual
-  risk for the `0.1.0` pre-alpha release only; the gate and threshold remain unchanged, and the
-  release carries no packaged-performance claim.
+  risk for the `0.1.0` pre-alpha candidate only. That decision does not transfer to `0.1.1`.
+  Release issue #49 must record either remediation or a new explicit owner acceptance before the
+  `v0.1.1` tag; the gate and threshold remain unchanged, and the release carries no
+  packaged-performance claim.
 
 ## Rejected alternatives
 

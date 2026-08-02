@@ -8,6 +8,14 @@ const installedCarrierSmoke = readFileSync(
   "utf8",
 );
 const releaseRunbook = readFileSync(join(process.cwd(), "docs", "guide", "releasing.md"), "utf8");
+const releaseAdr = readFileSync(
+  join(process.cwd(), "docs", "adr", "0085-public-npm-release-authority-and-artifact-flow.md"),
+  "utf8",
+);
+const releaseNotes = readFileSync(join(process.cwd(), "docs", "releases", "v0.1.1.md"), "utf8");
+const readme = readFileSync(join(process.cwd(), "README.md"), "utf8");
+const masterSpec = readFileSync(join(process.cwd(), "MASTER_SPEC.md"), "utf8");
+const claimLedger = readFileSync(join(process.cwd(), "docs", "quality", "claim-ledger.md"), "utf8");
 
 function workflowJob(name: string): string {
   const marker = `  ${name}:\n`;
@@ -19,6 +27,21 @@ function workflowJob(name: string): string {
 }
 
 describe("public npm release workflow authority", () => {
+  it("targets 0.1.1 coherently while preserving the unapproved 0.1.0 history", () => {
+    expect(workflow).toContain('KEEL_VERSION: "0.1.1"');
+    expect(workflow).toContain("--notes-file docs/releases/v0.1.1.md");
+    expect(releaseRunbook).toContain("protected `v0.1.1` tag");
+    expect(releaseAdr).toContain("`keel-harness@0.1.1`");
+    expect(releaseAdr).toContain("`0.1.0` was staged but never approved");
+    expect(releaseNotes).toContain("# keel v0.1.1");
+    expect(releaseNotes).toContain("not published until separate 2FA approval");
+    expect(installedCarrierSmoke.match(/keel 0\.1\.1/gu)).toHaveLength(2);
+    expect(installedCarrierSmoke).toContain('chmod 700 "$KEEL_HOME"');
+    expect(readme).toContain("`keel-harness@0.1.1`");
+    expect(masterSpec).toContain("source/runtime/candidate version is `0.1.1`");
+    expect(claimLedger).toContain("**Packaging — `keel-harness@0.1.1` npm release carrier");
+  });
+
   it("is exact-tag, public-repository, public-main, and protected-environment bound", () => {
     expect(workflow).toContain("tags:\n      - v*.*.*");
     expect(workflow).not.toContain("pull_request:");

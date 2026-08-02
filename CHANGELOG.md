@@ -9,13 +9,16 @@ with 0.x pre-release semantics (minor bumps may break).
 
 ### Added
 
-- Prepared the `keel-harness@0.1.0` pre-alpha npm carrier with public source metadata, an exact npm
+- Prepared the `keel-harness@0.1.1` pre-alpha npm carrier with public source metadata, an exact npm
   shrinkwrap, graph-complete SPDX/CycloneDX SBOMs, GitHub attestations, and a stage-only trusted-
   publishing workflow with separate human 2FA approval.
 - Added installed-carrier verification across the pinned Node 20, 22, and 24 lines.
+- Added Warden-owned connect-time resolved-address enforcement for the vendored SRT TCP carrier,
+  including narrow operator-managed private-address exceptions and exact product-path evidence.
 
-The real package is not published yet. The public release record starts only after staged and
-live-registry verification succeeds.
+The `0.1.0` candidate was staged but never approved or made public. The real package is not
+published yet. The public release record starts only after `0.1.1` staged and live-registry
+verification succeeds.
 
 ### Security
 

@@ -289,12 +289,15 @@ describe("public docs claim consistency", () => {
     expect(memoryDescription).toMatch(/not implemented/i);
 
     const packagingSummary = readme.match(
-      /The graph-audited `keel-harness@0\.1\.0`[\s\S]*?\[release runbook\]\(docs\/guide\/releasing\.md\)\./u,
+      /The graph-audited `keel-harness@0\.1\.1`[\s\S]*?\[release runbook\]\(docs\/guide\/releasing\.md\)\./u,
     )?.[0];
     expect(packagingSummary).toBeDefined();
-    expect(packagingSummary).toMatch(/not published.*0\.0\.1.*reserves the name/is);
+    expect(packagingSummary).toMatch(
+      /not\s+published.*0\.0\.1.*reservation\s+placeholder.*do not use it as the release carrier/is,
+    );
+    expect(packagingSummary).toMatch(/0\.1\.0.*staged but\s+never approved or made public/is);
     expect(packagingSummary).toMatch(/Standalone Bun binaries.*test-only/is);
-    expect(packagingSummary?.match(/\.(?=\s|$)/gu) ?? []).toHaveLength(2);
+    expect(packagingSummary?.match(/\.(?=\s|$)/gu) ?? []).toHaveLength(5);
   });
 
   it("uses the locked name (not the taken 'keel' placeholder / working-codename marker) (P0-8)", () => {
