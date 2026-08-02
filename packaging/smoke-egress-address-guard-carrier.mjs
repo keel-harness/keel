@@ -175,10 +175,7 @@ function curlCommand(host, port, path) {
     "''",
     "--max-time",
     "10",
-    "--output",
-    "/dev/null",
-    "--write-out",
-    "%{http_code}",
+    "--include",
     `http://${host}:${String(port)}/${path}`,
   ].join(" ");
 }
@@ -310,7 +307,8 @@ try {
     publicAllowed.port,
     "allowed",
   );
-  assert.equal(publicResult.stdout, "200");
+  assert.ok(publicResult.stdout.includes("HTTP/1.1 200"));
+  assert.ok(publicResult.stdout.includes("public-carrier-ok"));
   assert.equal(publicAllowed.hits(), 1);
   assert.deepEqual(publicAllowed.hosts(), [`${PUBLIC_HOST}:${String(publicAllowed.port)}`]);
 
@@ -321,7 +319,8 @@ try {
     exceptionAllowed.port,
     "allowed",
   );
-  assert.equal(exceptionResult.stdout, "200");
+  assert.ok(exceptionResult.stdout.includes("HTTP/1.1 200"));
+  assert.ok(exceptionResult.stdout.includes("exception-carrier-ok"));
   assert.equal(exceptionAllowed.hits(), 1);
   assert.deepEqual(exceptionAllowed.hosts(), [
     `${EXCEPTION_HOST}:${String(exceptionAllowed.port)}`,
@@ -334,7 +333,8 @@ try {
     exceptionWrongPort.port,
     "denied",
   );
-  assert.equal(wrongPortResult.stdout, "403");
+  assert.ok(wrongPortResult.stdout.includes("HTTP/1.1 403"));
+  assert.ok(wrongPortResult.stdout.includes("Connection blocked by destination address policy"));
   assert.equal(exceptionWrongPort.hits(), 0);
 
   const hardDenyResult = await executeWithOneShotReview(
@@ -344,7 +344,8 @@ try {
     hardDenied.port,
     "denied",
   );
-  assert.equal(hardDenyResult.stdout, "403");
+  assert.ok(hardDenyResult.stdout.includes("HTTP/1.1 403"));
+  assert.ok(hardDenyResult.stdout.includes("Connection blocked by destination address policy"));
   assert.equal(hardDenied.hits(), 0);
 
   const records = loadAuditRecords(auditDir);
