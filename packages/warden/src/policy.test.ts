@@ -954,6 +954,53 @@ describe("Phase-2A starter policy pack", () => {
     }
   });
 
+  it("denies secret reads whose operands follow a redirect (POL-001)", async () => {
+    // A redirection may appear anywhere in a POSIX simple command. The operand scanner used to
+    // STOP at the first `>`/`<` token, so every path after it vanished from the policy input: no
+    // `fs_read` segment was emitted, POL-001 never fired, and because the cat-family is
+    // known-safe no `unknown` fallback segment was appended either — the verdict was `allow`.
+    const policy = await createDefaultPolicyPort();
+    const cases: Array<readonly [string, PolicyDecision["verdict"], string]> = [
+      ["cat >x .env", "deny", "POL-001"],
+      ["cat > x .env", "deny", "POL-001"],
+      ["cat >>x .env", "deny", "POL-001"],
+      ["cat >x ~/.ssh/id_rsa", "deny", "POL-001"],
+      ["head >x .env", "deny", "POL-001"],
+      ["tail -n +1 >x /home/alice/.aws/credentials", "deny", "POL-001"],
+      ["more >x .env", "deny", "POL-001"],
+      ["nl >x .env", "deny", "POL-001"],
+      ["cut -d= -f2 >x .env", "deny", "POL-001"],
+      ["tac >x .env", "deny", "POL-001"],
+      ["rev >x .env", "deny", "POL-001"],
+      // The redirect need not be first: an operand before it must not shield the ones after.
+      ["cat README.md >x .env", "deny", "POL-001"],
+      ["cat -- >x .env", "deny", "POL-001"],
+      ["cat <x .env", "deny", "POL-001"],
+    ];
+
+    for (const [command, verdict, ruleId] of cases) {
+      const decision = await policy.evaluate(policyInput(command));
+      expect(decision.verdict, command).toBe(verdict);
+      expect(decision.matchedRules, command).toContain(ruleId);
+    }
+  });
+
+  it("treats a redirect target as a write, never as a read operand", async () => {
+    // The fix must not over-correct: `x` in `cat >x .env` is the redirect DESTINATION. Counting it
+    // as a read would misreport the side effect and risk spurious denials on benign commands.
+    const input = policyInput("cat >x .env");
+    const segments = input.sideEffect.dynamic.composition.segments;
+    const readPaths = segments
+      .filter((segment) => segment.effectKinds.includes("fs_read"))
+      .flatMap((segment) => segment.targets.map((target) => target.value));
+    const writePaths = segments
+      .filter((segment) => segment.effectKinds.includes("fs_write"))
+      .flatMap((segment) => segment.targets.map((target) => target.value));
+    expect(readPaths).toContain(".env");
+    expect(readPaths).not.toContain("x");
+    expect(writePaths).toContain("x");
+  });
+
   it("does not flag non-secret reads through the widened read verbs", async () => {
     const policy = await createDefaultPolicyPort();
     for (const command of [

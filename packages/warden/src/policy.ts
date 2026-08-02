@@ -998,14 +998,42 @@ function stripShellPathToken(token: string): string {
 
 function pathTokens(fragment: string): string[] {
   const result: string[] = [];
-  for (const raw of fragment.trim().split(/\s+/u)) {
+  const tokens = fragment.trim().split(/\s+/u);
+  for (let index = 0; index < tokens.length; index += 1) {
+    const raw = tokens[index]!;
     if (raw === "" || raw === "--") continue;
-    if (raw.startsWith(">") || raw.startsWith("<")) break;
+    // A redirection may appear ANYWHERE in a POSIX simple command, not just after the operands.
+    // Skip the redirect itself — and, for the standalone form, the target word that follows it,
+    // which is a redirect destination rather than a read operand — then KEEP SCANNING. Stopping
+    // here (the previous behavior) silently dropped every remaining operand, so `cat >x .env`
+    // emitted no `fs_read` at all and POL-001 could not see the secret. Input-redirect targets are
+    // skipped here too and stay modeled by the redirect pass, which is what denies `cat < .env`.
+    const heredoc = heredocArgShape(raw);
+    if (heredoc !== "none") {
+      if (heredoc === "standalone") index += 1;
+      continue;
+    }
+    const redirect = redirectArgShape(raw);
+    if (redirect === "standalone") {
+      index += 1;
+      continue;
+    }
+    if (redirect === "attached") continue;
     if (raw.startsWith("-")) continue;
     const token = stripShellPathToken(raw);
     if (token !== "") result.push(token);
   }
   return result;
+}
+
+/**
+ * Heredoc/herestring shape, checked BEFORE {@link redirectArgShape} because `<<` would otherwise
+ * read as an attached `<` redirect and leave the delimiter word looking like a read operand.
+ */
+function heredocArgShape(raw: string): "none" | "standalone" | "attached" {
+  if (raw === "<<" || raw === "<<-" || raw === "<<<") return "standalone";
+  if (/^<<-?.+/u.test(raw)) return "attached";
+  return "none";
 }
 
 // File-reading verbs whose positional operands are file PATHS, so a secret path among them is
