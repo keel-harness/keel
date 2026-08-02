@@ -224,6 +224,7 @@ const hardDenyOverlays = [
   ["168.63.129.16/32", "provider-metadata"],
   ["100.100.100.200/32", "provider-metadata"],
   ["192.88.99.0/24", "transition-mechanism"],
+  ["192.88.99.2/32", "transition-mechanism"],
   ["::/128", "unspecified"],
   ["::1/128", "loopback"],
   ["::/96", "transition-mechanism"],

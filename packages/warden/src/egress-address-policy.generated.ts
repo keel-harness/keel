@@ -52,6 +52,16 @@ export const GENERATED_EGRESS_ADDRESS_POLICY = {
       source: "keel-adr-0086-hard-deny-overlay",
     },
     {
+      id: "keel-hard-deny-42-transition-mechanism",
+      family: 4,
+      network: "3227017986",
+      prefixLength: 32,
+      kind: "hard-deny",
+      reason: "transition-mechanism",
+      priority: 3,
+      source: "keel-adr-0086-hard-deny-overlay",
+    },
+    {
       id: "keel-hard-deny-38-limited-broadcast",
       family: 4,
       network: "4294967295",
@@ -3262,7 +3272,7 @@ export const GENERATED_EGRESS_ADDRESS_POLICY = {
       source: "iana-ipv4-special-registry",
     },
     {
-      id: "keel-hard-deny-42-unspecified",
+      id: "keel-hard-deny-43-unspecified",
       family: 6,
       network: "0",
       prefixLength: 128,
@@ -3272,7 +3282,7 @@ export const GENERATED_EGRESS_ADDRESS_POLICY = {
       source: "keel-adr-0086-hard-deny-overlay",
     },
     {
-      id: "keel-hard-deny-43-loopback",
+      id: "keel-hard-deny-44-loopback",
       family: 6,
       network: "1",
       prefixLength: 128,
@@ -3282,7 +3292,7 @@ export const GENERATED_EGRESS_ADDRESS_POLICY = {
       source: "keel-adr-0086-hard-deny-overlay",
     },
     {
-      id: "keel-hard-deny-52-provider-metadata",
+      id: "keel-hard-deny-53-provider-metadata",
       family: 6,
       network: "336294982257581694735330614659971547732",
       prefixLength: 128,
@@ -3292,7 +3302,7 @@ export const GENERATED_EGRESS_ADDRESS_POLICY = {
       source: "keel-adr-0086-hard-deny-overlay",
     },
     {
-      id: "keel-hard-deny-53-provider-metadata",
+      id: "keel-hard-deny-54-provider-metadata",
       family: 6,
       network: "336460852754058308267229706403515990612",
       prefixLength: 128,
@@ -3352,7 +3362,7 @@ export const GENERATED_EGRESS_ADDRESS_POLICY = {
       source: "iana-ipv6-special-registry",
     },
     {
-      id: "keel-hard-deny-44-transition-mechanism",
+      id: "keel-hard-deny-45-transition-mechanism",
       family: 6,
       network: "0",
       prefixLength: 96,
@@ -3362,7 +3372,7 @@ export const GENERATED_EGRESS_ADDRESS_POLICY = {
       source: "keel-adr-0086-hard-deny-overlay",
     },
     {
-      id: "keel-hard-deny-45-transition-mechanism",
+      id: "keel-hard-deny-46-transition-mechanism",
       family: 6,
       network: "524413980667603649783483181312245760",
       prefixLength: 96,
@@ -3412,7 +3422,7 @@ export const GENERATED_EGRESS_ADDRESS_POLICY = {
       source: "iana-ipv6-special-registry",
     },
     {
-      id: "keel-hard-deny-46-transition-mechanism",
+      id: "keel-hard-deny-47-transition-mechanism",
       family: 6,
       network: "524413980668812575603097810486951936",
       prefixLength: 48,
@@ -3462,7 +3472,7 @@ export const GENERATED_EGRESS_ADDRESS_POLICY = {
       source: "iana-ipv6-special-registry",
     },
     {
-      id: "keel-hard-deny-47-transition-mechanism",
+      id: "keel-hard-deny-48-transition-mechanism",
       family: 6,
       network: "42540488161975842760550356425300246528",
       prefixLength: 32,
@@ -3832,7 +3842,7 @@ export const GENERATED_EGRESS_ADDRESS_POLICY = {
       source: "iana-ipv6-unicast-assignments",
     },
     {
-      id: "keel-hard-deny-48-transition-mechanism",
+      id: "keel-hard-deny-49-transition-mechanism",
       family: 6,
       network: "42545680458834377588178886921629466624",
       prefixLength: 16,
@@ -4012,7 +4022,7 @@ export const GENERATED_EGRESS_ADDRESS_POLICY = {
       source: "iana-ipv6-unicast-assignments",
     },
     {
-      id: "keel-hard-deny-50-link-local",
+      id: "keel-hard-deny-51-link-local",
       family: 6,
       network: "338288524927261089654018896841347694592",
       prefixLength: 10,
@@ -4022,7 +4032,7 @@ export const GENERATED_EGRESS_ADDRESS_POLICY = {
       source: "keel-adr-0086-hard-deny-overlay",
     },
     {
-      id: "keel-hard-deny-49-deprecated-site-local",
+      id: "keel-hard-deny-50-deprecated-site-local",
       family: 6,
       network: "338620831926207318622244848606417780736",
       prefixLength: 10,
@@ -4062,7 +4072,7 @@ export const GENERATED_EGRESS_ADDRESS_POLICY = {
       source: "iana-ipv6-unicast-assignments",
     },
     {
-      id: "keel-hard-deny-51-multicast",
+      id: "keel-hard-deny-52-multicast",
       family: 6,
       network: "338953138925153547590470800371487866880",
       prefixLength: 8,
