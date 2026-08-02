@@ -2587,7 +2587,7 @@ describe("keel-warden stdio JSON-RPC server", () => {
     }
   });
 
-  it("surfaces loopback and remote console egress in the review audit record", async () => {
+  it("surfaces remote console egress in the review audit record", async () => {
     const dir = mkdtempSync(join(tmpdir(), "keel-rpc-console-egress-review-"));
     try {
       const auditPath = join(dir, "audit.jsonl");
@@ -2595,8 +2595,8 @@ describe("keel-warden stdio JSON-RPC server", () => {
       const brokerEvents: unknown[] = [];
       const target = {
         ...QEMU_CONSOLE_TARGET,
-        targetId: "qemu-loopback",
-        egressDomains: ["localhost", "vm-console.example"] as const,
+        targetId: "qemu-remote-egress",
+        egressDomains: ["vm-console.example"] as const,
       };
 
       const raw = JsonRpcSuccessResponse.parse(
@@ -2644,7 +2644,6 @@ describe("keel-warden stdio JSON-RPC server", () => {
       );
       expect(records[0]?.sideEffect?.dynamic.targets).toEqual(
         expect.arrayContaining([
-          expect.objectContaining({ kind: "host", normalized: "localhost" }),
           expect.objectContaining({ kind: "host", normalized: "vm-console.example" }),
         ]),
       );
@@ -2652,7 +2651,7 @@ describe("keel-warden stdio JSON-RPC server", () => {
         records[0]?.sideEffect?.extensions?.["keel.interactiveConsole"] as {
           readonly egressDomains?: readonly string[];
         },
-      ).toMatchObject({ egressDomains: ["localhost", "vm-console.example"] });
+      ).toMatchObject({ egressDomains: ["vm-console.example"] });
       expect(verifyChain(toChainRecords(records)).ok).toBe(true);
     } finally {
       rmSync(dir, { recursive: true, force: true });

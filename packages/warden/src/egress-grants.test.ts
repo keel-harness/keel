@@ -73,19 +73,21 @@ describe("project egress grants", () => {
       );
       expect(loadProjectEgressGrants(workspaceRoot, env)).toEqual([]);
 
-      writeFileSync(
-        projectEgressGrantFilePath(env),
-        JSON.stringify({
-          version: 1,
-          workspaces: {
-            [realpathSync(workspaceRoot)]: {
-              domains: ["*"],
-              updatedAt: "2026-07-05T00:00:00.000Z",
+      for (const domain of ["*", "localhost", "api.localhost", "Bücher.Localhost"]) {
+        writeFileSync(
+          projectEgressGrantFilePath(env),
+          JSON.stringify({
+            version: 1,
+            workspaces: {
+              [realpathSync(workspaceRoot)]: {
+                domains: [domain],
+                updatedAt: "2026-07-05T00:00:00.000Z",
+              },
             },
-          },
-        }),
-      );
-      expect(loadProjectEgressGrants(workspaceRoot, env)).toEqual([]);
+          }),
+        );
+        expect(loadProjectEgressGrants(workspaceRoot, env), domain).toEqual([]);
+      }
     } finally {
       rmSync(keelHome, { recursive: true, force: true });
       rmSync(workspaceRoot, { recursive: true, force: true });
