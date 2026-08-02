@@ -1075,6 +1075,80 @@ describe("keel-warden stdio JSON-RPC server", () => {
     }
   });
 
+  it("advertises the address guard only from exact initialized SRT feature truth plus audit", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "keel-rpc-address-guard-capability-"));
+    try {
+      const writer = auditWriter(join(dir, "audit.jsonl"));
+      const sandbox = (
+        status: ReturnType<SandboxPort["status"]>,
+      ): SandboxPort => ({
+        status: () => status,
+        execute: async () => ({ exitCode: 0, signal: null, stdout: "", stderr: "" }),
+      });
+      const activeStatus = {
+        available: true,
+        backend: "srt:vendored",
+        enforcementTier: "sandbox:srt",
+        features: ["egress-address-guard/v1"],
+      };
+      const capabilitySet = async (id: string, options: WardenRpcHandlerOptions) => {
+        const hello = JsonRpcSuccessResponse.parse(
+          await handleRpcLine(JSON.stringify(helloFrame(id)), options),
+        );
+        return WARDEN_METHODS["warden.hello"].result.parse(hello.result).capabilities;
+      };
+
+      await expect(
+        capabilitySet("address-guard-active", {
+          auditWriter: writer,
+          sandbox: sandbox(activeStatus),
+        }),
+      ).resolves.toContain("egress-address-guard/v1");
+      await expect(
+        capabilitySet("address-guard-no-audit", { sandbox: sandbox(activeStatus) }),
+      ).resolves.not.toContain("egress-address-guard/v1");
+      await expect(
+        capabilitySet("address-guard-no-feature", {
+          auditWriter: writer,
+          sandbox: sandbox({
+            available: true,
+            backend: "srt:vendored",
+            enforcementTier: "sandbox:srt",
+          }),
+        }),
+      ).resolves.not.toContain("egress-address-guard/v1");
+      await expect(
+        capabilitySet("address-guard-other-backend", {
+          auditWriter: writer,
+          sandbox: sandbox({ ...activeStatus, backend: "other" }),
+        }),
+      ).resolves.not.toContain("egress-address-guard/v1");
+      await expect(
+        capabilitySet("address-guard-stopped", {
+          auditWriter: writer,
+          sandbox: sandbox({
+            available: false,
+            backend: "srt:vendored",
+            enforcementTier: "none",
+            reason: "sandbox runtime is stopped",
+          }),
+        }),
+      ).resolves.not.toContain("egress-address-guard/v1");
+
+      const status = JsonRpcSuccessResponse.parse(
+        await handleRpcLine(JSON.stringify(rpcFrame("warden.status", {}, "guard-status")), {
+          auditWriter: writer,
+          sandbox: sandbox(activeStatus),
+        }),
+      );
+      expect(Object.keys(WARDEN_METHODS["warden.status"].result.parse(status.result)).sort()).toEqual(
+        ["auditHead", "enforcementTier", "pendingReviews", "policyPack", "sandboxBackend"],
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("rejects malformed protocol versions and malformed MCP tool names", async () => {
     const badProtocol = JsonRpcErrorResponse.parse(
       await handleRpcLine(JSON.stringify(helloFrame("bad-protocol", "999.0.0"))),

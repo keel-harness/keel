@@ -798,6 +798,48 @@ describe("vendored srt runtime loader", () => {
     ]);
   });
 
+  it("reports the initialized address guard as a lifecycle-scoped feature and clears it on shutdown", async () => {
+    let resetCalls = 0;
+    const resolver = async () => [{ address: "192.0.2.1", family: 4 as const }];
+    const manager = {
+      isSupportedPlatform: () => true,
+      checkDependencies: () => ({ errors: [], warnings: [] }),
+      initialize: async () => {},
+      updateConfig: () => {},
+      wrapWithSandboxArgv: async () => ({ argv: ["/usr/bin/env", "true"], env: {} }),
+      reset: async () => {
+        resetCalls += 1;
+      },
+    };
+
+    const components = await createVendoredSrtSandboxComponents({
+      importRuntime: async () => ({ SandboxManager: manager }),
+      hostDependencyErrors: () => [],
+      resolveDestination: resolver,
+    });
+
+    expect(components.sandbox.status()).toEqual({
+      available: true,
+      backend: "srt:vendored",
+      enforcementTier: "sandbox:srt",
+      features: ["egress-address-guard/v1"],
+    });
+
+    await components.shutdown();
+    await components.shutdown();
+
+    expect(resetCalls).toBe(1);
+    expect(components.sandbox.status()).toMatchObject({
+      available: false,
+      backend: "srt:vendored",
+      enforcementTier: "none",
+    });
+    expect(components.sandbox.status()).not.toHaveProperty("features");
+    await expect(components.sandbox.execute({ command: "true" }, {})).rejects.toThrow(
+      "sandbox runtime is stopped",
+    );
+  });
+
   it("can create an available default-runner port without optional fields", async () => {
     const manager: VendoredSrtManager = {
       isSupportedPlatform: () => true,

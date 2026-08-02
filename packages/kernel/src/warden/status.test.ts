@@ -1,11 +1,30 @@
 import { describe, expect, it } from "vitest";
 import { cockpitStatusLine, initialView } from "../tui/view-model.js";
-import { wardenStatusViewConfig } from "./status.js";
+import { wardenStatusViewConfig, type WardenStatusViewOptions } from "./status.js";
 
 const HASH = `sha256:${"a".repeat(64)}`;
 const ZERO_HASH = `sha256:${"0".repeat(64)}`;
 
 describe("warden status view config", () => {
+  it("derives egress truth from the address-guard capability rather than the sandbox tier", () => {
+    const status = {
+      enforcementTier: "sandbox:srt",
+      sandboxBackend: "srt:vendored",
+      policyPack: { name: "phase2a-starter-policy-pack", hash: HASH },
+      auditHead: { seq: 3, hash: HASH },
+      pendingReviews: 0,
+    };
+    const guarded = wardenStatusViewConfig(status, {
+      wardenCapabilities: ["egress-address-guard/v1"],
+    } as WardenStatusViewOptions);
+    const nameOnly = wardenStatusViewConfig(status, {
+      wardenCapabilities: [],
+    } as WardenStatusViewOptions);
+
+    expect(guarded.posture).toMatchObject({ sandbox: true, egress: true });
+    expect(nameOnly.posture).toMatchObject({ sandbox: true, egress: false });
+  });
+
   it("maps live warden status into an honest Phase-2A cockpit line", () => {
     const config = wardenStatusViewConfig({
       enforcementTier: "sandbox:srt",
