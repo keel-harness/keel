@@ -192,13 +192,17 @@ describe("warden capability manifest projection", () => {
       strictAllowlist: true,
     });
 
-    expect(() => capabilityManifestWithEgressDomains(["127.0.0.1"])).not.toThrow();
-    expect(() =>
-      buildSandboxProfileFromCapabilityManifest(
-        capabilityManifestWithEgressDomains(["127.0.0.1"]),
-        baseOptions,
-      ),
-    ).toThrow(InvalidEgressConfigError);
+    for (const domain of ["localhost", "api.localhost", "*.localhost", "127.0.0.1"]) {
+      expect(() => capabilityManifestWithEgressDomains([domain]), domain).not.toThrow();
+      expect(
+        () =>
+          buildSandboxProfileFromCapabilityManifest(
+            capabilityManifestWithEgressDomains([domain]),
+            baseOptions,
+          ),
+        domain,
+      ).toThrow(InvalidEgressConfigError);
+    }
   });
 
   it("declares default typed file tools with least-privilege filesystem envelopes", () => {

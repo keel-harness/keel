@@ -185,6 +185,10 @@ describe("default warden sandbox profile", () => {
       "/repo/.keel",
       ...executionMetadataDenyWrite("/repo"),
     ]);
+    expect(profile.filesystem?.denyWrite).toContain("/keel-home");
+    expect(profile.filesystem?.allowWrite).not.toContain(
+      "/keel-home/egress-address-exceptions.v1.json",
+    );
   });
 
   it("can build from the process environment default for the production server path", () => {

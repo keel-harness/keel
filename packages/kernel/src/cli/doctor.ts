@@ -65,6 +65,12 @@ export interface DoctorInput {
   readonly credentialProxyConfigRaw?: string | null;
   /** Workspace root used only to resolve relative file source paths while validating explicit config. */
   readonly cwd?: string;
+  /** Result of asking the process-separated Warden owner to validate this workspace's store. */
+  readonly egressAddressExceptionStore?: {
+    readonly status: "ok" | "error";
+    readonly detail: string;
+    readonly fix?: string;
+  };
 }
 
 export type CheckStatus = "ok" | "warn" | "missing";
@@ -76,7 +82,8 @@ export type DoctorCheckId =
   | "macos-sandbox"
   | "wsl2"
   | "windows-sandbox"
-  | "credential-proxy-config";
+  | "credential-proxy-config"
+  | "egress-address-exception-store";
 
 export interface DoctorCheck {
   readonly id: DoctorCheckId;
@@ -354,6 +361,28 @@ function credentialProxyConfigCheck(input: DoctorInput): DoctorCheck | undefined
   }
 }
 
+function egressAddressExceptionStoreCheck(input: DoctorInput): DoctorCheck | undefined {
+  const probe = input.egressAddressExceptionStore;
+  if (probe === undefined) return undefined;
+  const detail = safeProbeDetail(probe.detail).slice(0, 240);
+  if (probe.status === "ok") {
+    return {
+      id: "egress-address-exception-store",
+      label: "egress exceptions",
+      status: "ok",
+      detail,
+    };
+  }
+  return {
+    id: "egress-address-exception-store",
+    label: "egress exceptions",
+    status: "missing",
+    detail,
+    why: "private-address exception authority cannot be loaded safely",
+    ...(probe.fix === undefined ? {} : { fix: safeProbeDetail(probe.fix).slice(0, 512) }),
+  };
+}
+
 /** Decide the doctor report from raw probe facts (pure). */
 export function runDoctor(input: DoctorInput): DoctorReport {
   const checks: DoctorCheck[] = [];
@@ -363,6 +392,8 @@ export function runDoctor(input: DoctorInput): DoctorReport {
   checks.push(...platformSandboxChecks(input));
   const credentialProxy = credentialProxyConfigCheck(input);
   if (credentialProxy !== undefined) checks.push(credentialProxy);
+  const egressExceptions = egressAddressExceptionStoreCheck(input);
+  if (egressExceptions !== undefined) checks.push(egressExceptions);
   const ok = !checks.some((c) => c.status === "missing");
   return { checks, ok, exitCode: ok ? 0 : 1 };
 }

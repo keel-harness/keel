@@ -44,7 +44,10 @@ def source_command(node: str) -> list[str]:
 
 def run_scenario(harness: ModuleType, node: str, scenario: str) -> dict[str, object]:
     with tempfile.TemporaryDirectory(prefix=f"keel-terminal-{scenario}-") as directory:
-        root = Path(directory)
+        # macOS exposes its physical temporary root through the /var -> /private/var alias.
+        # The product intentionally rejects path aliases for KEEL_HOME authority, so fixtures use
+        # the physical path just as production callers must.
+        root = Path(directory).resolve()
         workspace = root / "workspace"
         home = root / "keel-home"
         workspace.mkdir(mode=0o700)

@@ -1,8 +1,10 @@
 # tlsTerminate test fixture CA
 
 `ca.crt` / `ca.key` are a **test-only** self-signed CA used by
-`test/sandbox/mitm-ca.test.ts`. The private key is intentionally committed —
-it is never used outside the test suite and must never be trusted by anything.
+`test/sandbox/mitm-ca.test.ts`. `localhost.crt`, `wrong-host.crt`, and `server.key` are test-only
+upstream-server fixtures signed by that CA for Keel's real credential-TLS acceptance suite. The
+private keys are intentionally committed — they are never used outside the test suite and must never
+be trusted by anything.
 
 Generated with:
 

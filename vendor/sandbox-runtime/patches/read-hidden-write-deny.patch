@@ -1,0 +1,109 @@
+diff --git a/src/sandbox/linux-sandbox-utils.ts b/src/sandbox/linux-sandbox-utils.ts
+index acd3de1..40b84f6 100644
+--- a/src/sandbox/linux-sandbox-utils.ts
++++ b/src/sandbox/linux-sandbox-utils.ts
+@@ -1097,2 +1097,3 @@ async function generateFilesystemArgs(
+-  //   (read-denied) contents read-only. Writes inside the tmpfs never reach
+-  //   the host, so the write-deny stays enforced without the bind. Exception:
++  //   (read-denied) contents read-only. Record these overlaps so the hidden
++  //   tmpfs mount is remounted read-only below; a writable decoy would protect
++  //   host bytes but falsely report a denied authority write as successful. Exception:
+@@ -1102,0 +1104 @@ async function generateFilesystemArgs(
++  const hiddenDenyWriteDests: string[] = []
+@@ -1116,0 +1119 @@ async function generateFilesystemArgs(
++      hiddenDenyWriteDests.push(dest)
+@@ -1155,0 +1159,35 @@ async function generateFilesystemArgs(
++  // A read-denied directory is represented by a writable tmpfs so its host contents stay hidden.
++  // When denyWrite overlaps that hidden region, leaving the tmpfs writable makes the governed
++  // command observe a false success even though only ephemeral bytes changed. Remount every
++  // overlapping tmpfs read-only after the stacking repairs above, then make any explicitly
++  // re-bound write child covered by the deny root read-only as well. This preserves read hiding,
++  // keeps unrelated allowWrite carve-outs writable, and makes authority writes fail structurally.
++  const remountedTmpfs = new Set<string>()
++  for (const tmpfsDir of tmpfsDirs) {
++    const overlapsHiddenWriteDeny = hiddenDenyWriteDests.some(
++      dest =>
++        dest === tmpfsDir ||
++        dest.startsWith(tmpfsDir + '/') ||
++        tmpfsDir.startsWith(dest + '/'),
++    )
++    if (!overlapsHiddenWriteDeny || remountedTmpfs.has(tmpfsDir)) continue
++    remountedTmpfs.add(tmpfsDir)
++    args.push('--remount-ro', tmpfsDir)
++    logForDebugging(
++      `[Sandbox Linux] Remounted read-hidden write-denied directory read-only: ${tmpfsDir}`,
++    )
++  }
++
++  const reboundReadOnly = new Set<string>()
++  for (const writePath of allowedWritePaths) {
++    const coveredByHiddenWriteDeny = hiddenDenyWriteDests.some(
++      dest => writePath === dest || writePath.startsWith(dest + '/'),
++    )
++    if (!coveredByHiddenWriteDeny || reboundReadOnly.has(writePath)) continue
++    reboundReadOnly.add(writePath)
++    args.push('--ro-bind', writePath, writePath)
++    logForDebugging(
++      `[Sandbox Linux] Re-bound write path under hidden denyWrite authority read-only: ${writePath}`,
++    )
++  }
++
+diff --git a/test/sandbox/wrap-with-sandbox.test.ts b/test/sandbox/wrap-with-sandbox.test.ts
+index 81d0ee1..3fb14f7 100644
+--- a/test/sandbox/wrap-with-sandbox.test.ts
++++ b/test/sandbox/wrap-with-sandbox.test.ts
+@@ -6 +6 @@ import { wrapCommandWithSandboxMacOS } from '../../src/sandbox/macos-sandbox-uti
+-import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
++import { mkdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+@@ -936,0 +937,51 @@ describe('allowWrite glob suffix handling', () => {
++  it(
++    'makes a read-hidden directory read-only when denyWrite covers the same Linux mount',
++    async () => {
++      const parentAlias = join(tmpdir(), `srt-test-hidden-write-deny-${Date.now()}`)
++      mkdirSync(parentAlias, { recursive: true })
++      const parentDir = realpathSync(parentAlias)
++      const protectedDir = join(parentDir, 'protected')
++      const protectedChild = join(protectedDir, 'child')
++      mkdirSync(protectedChild, { recursive: true })
++
++      try {
++        const result = await wrapCommandWithSandboxLinux({
++          command: `printf widened > ${join(protectedDir, 'authority.json')}`,
++          needsNetworkRestriction: false,
++          readConfig: {
++            denyOnly: [protectedDir, protectedChild],
++            allowWithinDeny: [],
++          },
++          writeConfig: {
++            allowOnly: [parentDir, protectedChild],
++            denyWithinAllow: [protectedDir],
++          },
++          enableWeakerNestedSandbox: true,
++          allowAllUnixSockets: true,
++          mandatoryDenySearchDepth: 0,
++        })
++
++        const tmpfsAt = result.indexOf(`--tmpfs ${protectedDir}`)
++        const readOnlyAt = result.indexOf(`--remount-ro ${protectedDir}`)
++        expect(tmpfsAt).toBeGreaterThan(-1)
++        expect(readOnlyAt).toBeGreaterThan(tmpfsAt)
++        const childTmpfsAt = result.indexOf(`--tmpfs ${protectedChild}`)
++        const childReadOnlyAt = result.indexOf(
++          `--remount-ro ${protectedChild}`,
++        )
++        expect(childTmpfsAt).toBeGreaterThan(-1)
++        expect(childReadOnlyAt).toBeGreaterThan(childTmpfsAt)
++        const childWriteBindAt = result.lastIndexOf(
++          `--bind ${protectedChild} ${protectedChild}`,
++        )
++        const childDenyBindAt = result.lastIndexOf(
++          `--ro-bind ${protectedChild} ${protectedChild}`,
++        )
++        expect(childWriteBindAt).toBeGreaterThan(-1)
++        expect(childDenyBindAt).toBeGreaterThan(childWriteBindAt)
++      } finally {
++        rmSync(parentDir, { recursive: true, force: true })
++      }
++    },
++  )
++

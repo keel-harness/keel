@@ -1,0 +1,854 @@
+diff --git a/src/index.ts b/src/index.ts
+index 275cb17..14eee2d 100644
+--- a/src/index.ts
++++ b/src/index.ts
+@@ -42,0 +43,6 @@ export type {
++// Initialization-scoped connect-time destination authority (Keel ADR-0086).
++export type {
++  ResolveDestination,
++  ResolvedDestinationAddress,
++} from './sandbox/destination-dial.js'
++
+diff --git a/src/sandbox/destination-dial.ts b/src/sandbox/destination-dial.ts
+new file mode 100644
+index 0000000..fffddc4
+--- /dev/null
++++ b/src/sandbox/destination-dial.ts
+@@ -0,0 +1,360 @@
++import type { LookupAddress } from 'node:dns'
++import type { ClientRequest } from 'node:http'
++import { connect as netConnect, isIP, type LookupFunction, type Socket } from 'node:net'
++import { URL } from 'node:url'
++
++export interface ResolvedDestinationAddress {
++  readonly address: string
++  readonly family: 4 | 6
++}
++
++export type ResolveDestination = (
++  hostname: string,
++  port: number,
++  signal: AbortSignal,
++) => Promise<readonly ResolvedDestinationAddress[]>
++
++export interface PreparedDestinationDial {
++  readonly hostname: string
++  readonly port: number
++  readonly lookup?: LookupFunction
++  /** Guard-owned signal combining caller cancellation with the fixed dial deadline. */
++  readonly signal: AbortSignal
++  /** Stop the dial deadline after the transport connection is established. */
++  markConnected(): void
++  /** Release the fixed guarded-connection permit. Idempotent. */
++  release(): void
++}
++
++export const MAX_DESTINATION_ADDRESSES = 16
++export const MAX_CONCURRENT_GUARDED_CONNECTIONS = 64
++export const TOTAL_GUARDED_DIAL_TIMEOUT_MS = 30_000
++// Preserve the pre-ADR legacy socket deadline even when no guard is configured.
++const LEGACY_CONNECT_TIMEOUT_MS = 30_000
++
++interface GuardedConnectionLease {
++  readonly signal: AbortSignal
++  markConnected(): void
++  release(): void
++}
++
++const activeGuardedConnections = new Set<GuardedConnectionLease>()
++
++/**
++ * Stable fail-closed error for an unavailable, rejected, or defective
++ * destination resolver. Raw resolver diagnostics are deliberately discarded:
++ * they may contain private addresses or host-specific NSS details.
++ */
++export class DestinationAddressPolicyError extends Error {
++  constructor() {
++    super('destination address policy denied the connection')
++    this.name = 'DestinationAddressPolicyError'
++  }
++}
++
++export function isDestinationAddressPolicyError(
++  error: unknown,
++): error is DestinationAddressPolicyError {
++  return error instanceof DestinationAddressPolicyError
++}
++
++function deny(): never {
++  throw new DestinationAddressPolicyError()
++}
++
++function unguardedLease(signal: AbortSignal): GuardedConnectionLease {
++  return { signal, markConnected: () => {}, release: () => {} }
++}
++
++function acquireGuardedConnection(
++  resolveDestination: ResolveDestination | undefined,
++  callerSignal: AbortSignal,
++): GuardedConnectionLease {
++  if (resolveDestination === undefined) return unguardedLease(callerSignal)
++  if (
++    callerSignal.aborted ||
++    activeGuardedConnections.size >= MAX_CONCURRENT_GUARDED_CONNECTIONS
++  ) {
++    return deny()
++  }
++
++  const controller = new AbortController()
++  let released = false
++  let deadline: ReturnType<typeof setTimeout> | undefined
++  const abortFromCaller = () => controller.abort()
++  callerSignal.addEventListener('abort', abortFromCaller, { once: true })
++
++  const lease: GuardedConnectionLease = {
++    signal: controller.signal,
++    markConnected(): void {
++      if (deadline !== undefined) clearTimeout(deadline)
++      deadline = undefined
++    },
++    release(): void {
++      if (released) return
++      released = true
++      if (deadline !== undefined) clearTimeout(deadline)
++      deadline = undefined
++      callerSignal.removeEventListener('abort', abortFromCaller)
++      controller.abort()
++      activeGuardedConnections.delete(lease)
++    },
++  }
++  activeGuardedConnections.add(lease)
++  deadline = setTimeout(
++    () => controller.abort(),
++    TOTAL_GUARDED_DIAL_TIMEOUT_MS,
++  )
++  deadline.unref?.()
++  return lease
++}
++
++/** Abort and forget all guarded dials during manager reset or terminal quarantine. */
++export function resetDestinationGuardConnections(): void {
++  for (const lease of [...activeGuardedConnections]) lease.release()
++}
++
++/**
++ * Retain a guarded-connection permit for an agent:false request until its
++ * one-shot transport closes. The dial deadline ends only after TCP (or TLS)
++ * establishment; request lifetime remains bounded by the fixed permit cap.
++ */
++export function trackPreparedDestinationRequest(
++  request: ClientRequest,
++  prepared: PreparedDestinationDial,
++  secure: boolean,
++): void {
++  request.once('socket', socket => {
++    if (secure) {
++      socket.once('secureConnect', prepared.markConnected)
++    } else if (socket.connecting) {
++      socket.once('connect', prepared.markConnected)
++    } else {
++      prepared.markConnected()
++    }
++  })
++  request.once('error', prepared.release)
++  request.once('close', prepared.release)
++}
++
++function resolveWithAbort(
++  resolveDestination: ResolveDestination,
++  hostname: string,
++  port: number,
++  signal: AbortSignal,
++): Promise<readonly ResolvedDestinationAddress[]> {
++  return new Promise((resolve, reject) => {
++    let settled = false
++    const finish = (
++      result:
++        | { kind: 'resolve'; answers: readonly ResolvedDestinationAddress[] }
++        | { kind: 'reject' },
++    ): void => {
++      if (settled) return
++      settled = true
++      signal.removeEventListener('abort', onAbort)
++      if (result.kind === 'resolve') resolve(result.answers)
++      else reject(new DestinationAddressPolicyError())
++    }
++    const onAbort = () => finish({ kind: 'reject' })
++    if (signal.aborted) {
++      finish({ kind: 'reject' })
++      return
++    }
++    signal.addEventListener('abort', onAbort, { once: true })
++    Promise.resolve()
++      .then(() => resolveDestination(hostname, port, signal))
++      .then(
++        answers => finish({ kind: 'resolve', answers }),
++        () => finish({ kind: 'reject' }),
++      )
++  })
++}
++
++function normalizeAddress(address: string, family: 4 | 6): string {
++  if (address.includes('%') || isIP(address) !== family) return deny()
++  try {
++    const parsed =
++      family === 6
++        ? new URL(`http://[${address}]/`).hostname.slice(1, -1)
++        : new URL(`http://${address}/`).hostname
++    if (isIP(parsed) !== family) return deny()
++    return parsed.toLowerCase()
++  } catch {
++    return deny()
++  }
++}
++
++function validateAnswers(
++  hostname: string,
++  raw: readonly ResolvedDestinationAddress[],
++): readonly LookupAddress[] {
++  if (!Array.isArray(raw) || raw.length === 0 || raw.length > MAX_DESTINATION_ADDRESSES) {
++    return deny()
++  }
++
++  const seen = new Set<string>()
++  const answers: LookupAddress[] = []
++  for (const item of raw) {
++    if (
++      typeof item !== 'object' ||
++      item === null ||
++      (item.family !== 4 && item.family !== 6) ||
++      typeof item.address !== 'string'
++    ) {
++      return deny()
++    }
++    const address = normalizeAddress(item.address, item.family)
++    const key = `${String(item.family)}:${address}`
++    if (seen.has(key)) return deny()
++    seen.add(key)
++    answers.push({ address, family: item.family })
++  }
++
++  const literalFamily = isIP(hostname)
++  if (literalFamily !== 0) {
++    const family = literalFamily as 4 | 6
++    const literal = normalizeAddress(hostname, family)
++    if (
++      answers.length !== 1 ||
++      answers[0]!.family !== family ||
++      answers[0]!.address !== literal
++    ) {
++      return deny()
++    }
++  }
++  return answers
++}
++
++function pinnedLookup(answers: readonly LookupAddress[]): LookupFunction {
++  return (_hostname, options, callback) => {
++    const requestedFamily =
++      options.family === 4 || options.family === 6 ? options.family : 0
++    const eligible =
++      requestedFamily === 0
++        ? answers
++        : answers.filter(answer => answer.family === requestedFamily)
++    if (eligible.length === 0) {
++      const error = new DestinationAddressPolicyError() as NodeJS.ErrnoException
++      error.code = 'EAI_NONAME'
++      callback(error, '', 0)
++      return
++    }
++    if (options.all) {
++      callback(null, eligible.map(answer => ({ ...answer })))
++      return
++    }
++    const selected = eligible[0]!
++    callback(null, selected.address, selected.family)
++  }
++}
++
++/**
++ * Resolve exactly once before a destination dial and build a lookup function
++ * backed only by that immutable vetted set. With no resolver the function
++ * preserves upstream SRT behaviour for consumers that have not enabled the
++ * guard.
++ */
++export async function prepareDestinationDial(
++  hostname: string,
++  port: number,
++  resolveDestination: ResolveDestination | undefined,
++  signal: AbortSignal,
++): Promise<PreparedDestinationDial> {
++  if (signal.aborted) return deny()
++  const lease = acquireGuardedConnection(resolveDestination, signal)
++  if (resolveDestination === undefined) {
++    return {
++      hostname,
++      port,
++      signal: lease.signal,
++      markConnected: lease.markConnected,
++      release: lease.release,
++    }
++  }
++
++  let raw: readonly ResolvedDestinationAddress[]
++  try {
++    raw = await resolveWithAbort(
++      resolveDestination,
++      hostname,
++      port,
++      lease.signal,
++    )
++  } catch {
++    lease.release()
++    return deny()
++  }
++  if (lease.signal.aborted) {
++    lease.release()
++    return deny()
++  }
++  try {
++    const answers = validateAnswers(hostname, raw)
++    return {
++      hostname,
++      port,
++      lookup: pinnedLookup(answers),
++      signal: lease.signal,
++      markConnected: lease.markConnected,
++      release: lease.release,
++    }
++  } catch {
++    lease.release()
++    return deny()
++  }
++}
++
++/** Open one direct TCP destination using only the prepared pinned lookup. */
++export async function dialDestination(
++  hostname: string,
++  port: number,
++  resolveDestination: ResolveDestination | undefined,
++  signal: AbortSignal,
++): Promise<Socket> {
++  const prepared = await prepareDestinationDial(
++    hostname,
++    port,
++    resolveDestination,
++    signal,
++  )
++  return await new Promise((resolve, reject) => {
++    let socket: Socket
++    try {
++      socket = netConnect({
++        host: prepared.hostname,
++        port: prepared.port,
++        ...(prepared.lookup === undefined ? {} : { lookup: prepared.lookup }),
++        signal: prepared.signal,
++      })
++    } catch (error) {
++      prepared.release()
++      reject(error)
++      return
++    }
++    let settled = false
++    const fail = (error: Error) => {
++      if (settled) return
++      settled = true
++      prepared.release()
++      socket.destroy()
++      reject(error)
++    }
++    const onClose = () => fail(new Error('socket closed before connect'))
++    socket.setTimeout(LEGACY_CONNECT_TIMEOUT_MS, () =>
++      fail(new Error('Direct connection timed out')),
++    )
++    socket.once('error', fail)
++    socket.once('close', onClose)
++    socket.once('connect', () => {
++      if (settled) return
++      settled = true
++      prepared.markConnected()
++      socket.setTimeout(0)
++      socket.removeListener('error', fail)
++      socket.removeListener('close', onClose)
++      socket.once('close', prepared.release)
++      resolve(socket)
++    })
++  })
++}
+diff --git a/src/sandbox/http-proxy.ts b/src/sandbox/http-proxy.ts
+index 8ae3b4f..6fa3dae 100644
+--- a/src/sandbox/http-proxy.ts
++++ b/src/sandbox/http-proxy.ts
+@@ -20,0 +21,7 @@ import type { ResolvedParentProxy } from './parent-proxy.js'
++import {
++  dialDestination,
++  isDestinationAddressPolicyError,
++  prepareDestinationDial,
++  trackPreparedDestinationRequest,
++  type ResolveDestination,
++} from './destination-dial.js'
+@@ -23 +30 @@ import {
+-  dialDirect,
++  canonicalizeHost,
+@@ -88,0 +96,3 @@ export interface HttpProxyServerOptions {
++  /** Initialization-scoped resolver authority for every direct destination. */
++  resolveDestination?: ResolveDestination
++
+@@ -118,0 +129 @@ export function createHttpProxyServer(options: HttpProxyServerOptions): Server {
++    const dialAbort = new AbortController()
+@@ -120,0 +132 @@ export function createHttpProxyServer(options: HttpProxyServerOptions): Server {
++      dialAbort.abort()
+@@ -184 +196,7 @@ export function createHttpProxyServer(options: HttpProxyServerOptions): Server {
+-            { hostname, port, upstreamCA: options.tlsTerminateUpstreamCA },
++            {
++              hostname,
++              port,
++              upstreamCA: options.tlsTerminateUpstreamCA,
++              resolveDestination: options.resolveDestination,
++              signal: dialAbort.signal,
++            },
+@@ -217 +235,6 @@ export function createHttpProxyServer(options: HttpProxyServerOptions): Server {
+-          upstream = await dialDirect(hostname, port)
++          upstream = await dialDestination(
++            hostname,
++            port,
++            options.resolveDestination,
++            dialAbort.signal,
++          )
+@@ -226 +249,9 @@ export function createHttpProxyServer(options: HttpProxyServerOptions): Server {
+-        else socket.end('HTTP/1.1 502 Bad Gateway\r\n\r\n')
++        else if (isDestinationAddressPolicyError(err)) {
++          socket.end(
++            'HTTP/1.1 403 Forbidden\r\n' +
++              'Content-Type: text/plain\r\n' +
++              'X-Proxy-Error: blocked-address-policy\r\n' +
++              '\r\n' +
++              'Connection blocked by destination address policy',
++          )
++        } else socket.end('HTTP/1.1 502 Bad Gateway\r\n\r\n')
+@@ -269 +300,6 @@ export function createHttpProxyServer(options: HttpProxyServerOptions): Server {
+-      const hostname = stripBrackets(url.hostname)
++      const hostname = canonicalizeHost(stripBrackets(url.hostname))
++      if (hostname === undefined) {
++        res.writeHead(400, { 'Content-Type': 'text/plain' })
++        res.end('Invalid destination host')
++        return
++      }
+@@ -291,0 +328,2 @@ export function createHttpProxyServer(options: HttpProxyServerOptions): Server {
++      const dialAbort = new AbortController()
++      res.once('close', () => dialAbort.abort())
+@@ -317,2 +354,0 @@ export function createHttpProxyServer(options: HttpProxyServerOptions): Server {
+-        const ac = new AbortController()
+-        res.once('close', () => ac.abort())
+@@ -324 +360 @@ export function createHttpProxyServer(options: HttpProxyServerOptions): Server {
+-          ac.signal,
++          dialAbort.signal,
+@@ -375,12 +411,5 @@ export function createHttpProxyServer(options: HttpProxyServerOptions): Server {
+-        proxyReq = requestFn(
+-          {
+-            hostname,
+-            port,
+-            path: url.pathname + url.search,
+-            method: req.method,
+-            headers: fwdHeaders,
+-          },
+-          proxyRes => {
+-            res.writeHead(proxyRes.statusCode!, stripHopByHop(proxyRes.headers))
+-            proxyRes.pipe(res)
+-          },
++        const prepared = await prepareDestinationDial(
++          hostname,
++          port,
++          options.resolveDestination,
++          dialAbort.signal,
+@@ -387,0 +417,31 @@ export function createHttpProxyServer(options: HttpProxyServerOptions): Server {
++        try {
++          proxyReq = requestFn(
++            {
++              hostname: prepared.hostname,
++              port,
++              path: url.pathname + url.search,
++              method: req.method,
++              headers: fwdHeaders,
++              ...(prepared.lookup === undefined
++                ? {}
++                : { lookup: prepared.lookup }),
++              signal: prepared.signal,
++              agent: false,
++            },
++            proxyRes => {
++              res.writeHead(
++                proxyRes.statusCode!,
++                stripHopByHop(proxyRes.headers),
++              )
++              proxyRes.pipe(res)
++            },
++          )
++          trackPreparedDestinationRequest(
++            proxyReq,
++            prepared,
++            url.protocol === 'https:',
++          )
++        } catch (error) {
++          prepared.release()
++          throw error
++        }
+@@ -409,2 +469,10 @@ export function createHttpProxyServer(options: HttpProxyServerOptions): Server {
+-        res.writeHead(500, { 'Content-Type': 'text/plain' })
+-        res.end('Internal Server Error')
++        if (isDestinationAddressPolicyError(err)) {
++          res.writeHead(403, {
++            'Content-Type': 'text/plain',
++            'X-Proxy-Error': 'blocked-address-policy',
++          })
++          res.end('Connection blocked by destination address policy')
++        } else {
++          res.writeHead(500, { 'Content-Type': 'text/plain' })
++          res.end('Internal Server Error')
++        }
+@@ -432 +500,3 @@ function parseConnectTarget(
+-  return { hostname: m[1]!, port }
++  const hostname = canonicalizeHost(m[1]!)
++  if (hostname === undefined) return undefined
++  return { hostname, port }
+diff --git a/src/sandbox/parent-proxy.ts b/src/sandbox/parent-proxy.ts
+index 686c5b6..d4196c2 100644
+--- a/src/sandbox/parent-proxy.ts
++++ b/src/sandbox/parent-proxy.ts
+@@ -65,0 +66 @@ export function resolveParentProxy(
++  inheritProxyEnv = true,
+@@ -68 +69,4 @@ export function resolveParentProxy(
+-    cfg?.http ?? process.env.HTTP_PROXY ?? process.env.http_proxy ?? undefined
++    cfg?.http ??
++    (inheritProxyEnv
++      ? (process.env.HTTP_PROXY ?? process.env.http_proxy ?? undefined)
++      : undefined)
+@@ -71,2 +75,3 @@ export function resolveParentProxy(
+-    process.env.HTTPS_PROXY ??
+-    process.env.https_proxy ??
++    (inheritProxyEnv
++      ? (process.env.HTTPS_PROXY ?? process.env.https_proxy ?? undefined)
++      : undefined) ??
+@@ -77 +82,2 @@ export function resolveParentProxy(
+-    cfg?.noProxy ?? process.env.NO_PROXY ?? process.env.no_proxy ?? ''
++    cfg?.noProxy ??
++    (inheritProxyEnv ? (process.env.NO_PROXY ?? process.env.no_proxy ?? '') : '')
+@@ -484,31 +489,0 @@ export function canonicalizeHost(h: string): string | undefined {
+-
+-/**
+- * Dial `host:port` directly with a bounded timeout. Shared by the HTTP and
+- * SOCKS direct-connect paths so they get the same timeout behaviour as the
+- * CONNECT-tunnelled paths.
+- */
+-export function dialDirect(
+-  host: string,
+-  port: number,
+-  timeoutMs = CONNECT_TIMEOUT_MS,
+-): Promise<Socket> {
+-  return new Promise((resolve, reject) => {
+-    const s = netConnect(port, host)
+-    let settled = false
+-    const done = (err?: Error) => {
+-      if (settled) return
+-      settled = true
+-      s.setTimeout(0)
+-      if (err) {
+-        s.destroy()
+-        reject(err)
+-      } else {
+-        resolve(s)
+-      }
+-    }
+-    s.setTimeout(timeoutMs, () => done(new Error('connect timed out')))
+-    s.once('connect', () => done())
+-    s.once('error', done)
+-    s.once('close', () => done(new Error('socket closed before connect')))
+-  })
+-}
+diff --git a/src/sandbox/sandbox-config.ts b/src/sandbox/sandbox-config.ts
+index b433712..de2c711 100644
+--- a/src/sandbox/sandbox-config.ts
++++ b/src/sandbox/sandbox-config.ts
+@@ -9,0 +10 @@ import { z } from 'zod'
++import type { ResolveDestination } from './destination-dial.js'
+@@ -355,0 +357,18 @@ export const NetworkConfigSchema = z.object({
++  resolveDestination: z
++    .custom<ResolveDestination>(v => typeof v === 'function', {
++      message: 'resolveDestination must be a function',
++    })
++    .optional()
++    .describe(
++      'Initialization-scoped host resolver authority. Every direct TCP ' +
++        'destination is resolved once through this callback and dialed only ' +
++        'through its validated returned address set.',
++    ),
++  inheritProxyEnv: z
++    .boolean()
++    .optional()
++    .describe(
++      'Whether parent proxy settings may fall back to HTTP_PROXY, ' +
++        'HTTPS_PROXY, and NO_PROXY in the SRT host process. Defaults to true; ' +
++        'must be false when resolveDestination is configured.',
++    ),
+diff --git a/src/sandbox/sandbox-manager.ts b/src/sandbox/sandbox-manager.ts
+index b540f65..b673d0c 100644
+--- a/src/sandbox/sandbox-manager.ts
++++ b/src/sandbox/sandbox-manager.ts
+@@ -13,0 +14 @@ import type {
++  NetworkConfig,
+@@ -57 +57,0 @@ import {
+-  canonicalizeHost,
+@@ -65,0 +66,4 @@ import { EOL } from 'node:os'
++import {
++  resetDestinationGuardConnections,
++  type ResolveDestination,
++} from './destination-dial.js'
+@@ -85,0 +90,3 @@ let mitmCA: MitmCA | undefined
++// Connect-time authority is captured only by initialize(). Live profile
++// updates may change name policy but cannot replace or remove this resolver.
++let destinationResolver: ResolveDestination | undefined
+@@ -98,0 +106,14 @@ const sentinelRegistry = new SentinelRegistry()
++function assertDestinationGuardRoutesCompatible(network: NetworkConfig): void {
++  const incompatible = [
++    network.parentProxy === undefined ? undefined : 'parentProxy',
++    network.mitmProxy === undefined ? undefined : 'mitmProxy',
++    network.httpProxyPort === undefined ? undefined : 'httpProxyPort',
++    network.socksProxyPort === undefined ? undefined : 'socksProxyPort',
++  ].filter((name): name is string => name !== undefined)
++  if (incompatible.length > 0) {
++    throw new Error(
++      `network.${incompatible.join(', network.')} is incompatible with network.resolveDestination`,
++    )
++  }
++}
++
+@@ -138,5 +158,0 @@ async function filterNetworkRequest(
+-  // Canonicalize so string comparisons match what getaddrinfo() will dial.
+-  // Without this, inet_aton shorthand like `2852039166` (= 169.254.169.254)
+-  // or `127.1` slips past a denylist entry for the dotted-decimal form.
+-  const canonicalHost = canonicalizeHost(host) ?? host
+-
+@@ -145 +161 @@ async function filterNetworkRequest(
+-    if (matchesDomainPattern(canonicalHost, deniedDomain)) {
++    if (matchesDomainPattern(host, deniedDomain)) {
+@@ -153 +169 @@ async function filterNetworkRequest(
+-    if (matchesDomainPattern(canonicalHost, allowedDomain)) {
++    if (matchesDomainPattern(host, allowedDomain)) {
+@@ -434,0 +451 @@ async function startHttpProxyServer(
++    resolveDestination: destinationResolver,
+@@ -462,0 +480 @@ async function startSocksProxyServer(
++    resolveDestination: destinationResolver,
+@@ -509 +527,11 @@ async function initialize(
+-  // Store config for use by other functions
++  const requestedResolver = runtimeConfig.network.resolveDestination
++  if (requestedResolver !== undefined) {
++    if (runtimeConfig.network.inheritProxyEnv !== false) {
++      throw new Error(
++        'network.inheritProxyEnv must be false when network.resolveDestination is configured',
++      )
++    }
++    assertDestinationGuardRoutesCompatible(runtimeConfig.network)
++  }
++
++  // Store config and capture initialization-scoped resolver authority.
+@@ -510,0 +539 @@ async function initialize(
++  destinationResolver = requestedResolver
+@@ -514 +543,4 @@ async function initialize(
+-  parentProxy = resolveParentProxy(runtimeConfig.network.parentProxy)
++  parentProxy = resolveParentProxy(
++    runtimeConfig.network.parentProxy,
++    runtimeConfig.network.inheritProxyEnv !== false,
++  )
+@@ -1247,0 +1280,3 @@ function updateConfig(newConfig: SandboxRuntimeConfig): void {
++  if (destinationResolver !== undefined) {
++    assertDestinationGuardRoutesCompatible(newConfig.network)
++  }
+@@ -1251 +1286,6 @@ function updateConfig(newConfig: SandboxRuntimeConfig): void {
+-  const { filterRequest, ...rest } = newConfig.network
++  const {
++    filterRequest,
++    resolveDestination: _ignoredResolver,
++    inheritProxyEnv: _ignoredProxyEnvAuthority,
++    ...rest
++  } = newConfig.network
+@@ -1253,0 +1294,2 @@ function updateConfig(newConfig: SandboxRuntimeConfig): void {
++  config.network.resolveDestination = destinationResolver
++  if (destinationResolver !== undefined) config.network.inheritProxyEnv = false
+@@ -1258 +1300,7 @@ function updateConfig(newConfig: SandboxRuntimeConfig): void {
+-  parentProxy = resolveParentProxy(newConfig.network.parentProxy)
++  parentProxy =
++    destinationResolver === undefined
++      ? resolveParentProxy(
++          newConfig.network.parentProxy,
++          newConfig.network.inheritProxyEnv !== false,
++        )
++      : undefined
+@@ -1388,0 +1437,4 @@ async function reset(): Promise<void> {
++  // Abort guarded resolution/dial work before closing proxy listeners. Lease
++  // release is idempotent, so later socket close events cannot revive state.
++  resetDestinationGuardConnections()
++
+@@ -1467,0 +1520,2 @@ async function reset(): Promise<void> {
++  config = undefined
++  destinationResolver = undefined
+diff --git a/src/sandbox/socks-proxy.ts b/src/sandbox/socks-proxy.ts
+index 99c2666..5be697b 100644
+--- a/src/sandbox/socks-proxy.ts
++++ b/src/sandbox/socks-proxy.ts
+@@ -4,0 +5,4 @@ import { logForDebugging } from '../utils/debug.js'
++import {
++  dialDestination,
++  type ResolveDestination,
++} from './destination-dial.js'
+@@ -8 +12 @@ import {
+-  dialDirect,
++  canonicalizeHost,
+@@ -23,0 +28,3 @@ export interface SocksProxyServerOptions {
++  /** Initialization-scoped resolver authority for every direct destination. */
++  resolveDestination?: ResolveDestination
++
+@@ -43,0 +51 @@ export function createSocksProxyServer(
++  const canonicalHostByConnection = new WeakMap<object, string>()
+@@ -58 +66 @@ export function createSocksProxyServer(
+-      const hostname = conn.destAddress
++      const hostname = canonicalizeHost(conn.destAddress)
+@@ -65 +73 @@ export function createSocksProxyServer(
+-      if (!isValidHost(hostname)) {
++      if (hostname === undefined || !isValidHost(hostname)) {
+@@ -84,0 +93 @@ export function createSocksProxyServer(
++      canonicalHostByConnection.set(conn as object, hostname)
+@@ -98 +107 @@ export function createSocksProxyServer(
+-    const host = conn.destAddress
++    const host = canonicalHostByConnection.get(conn as object)
+@@ -99,0 +109,9 @@ export function createSocksProxyServer(
++    canonicalHostByConnection.delete(conn as object)
++    if (host === undefined) {
++      try {
++        sendStatus('HOST_UNREACHABLE')
++      } catch {
++        conn.socket.destroy()
++      }
++      return
++    }
+@@ -103,0 +122 @@ export function createSocksProxyServer(
++    const dialAbort = new AbortController()
+@@ -105,0 +125 @@ export function createSocksProxyServer(
++      dialAbort.abort()
+@@ -119 +139,6 @@ export function createSocksProxyServer(
+-      : dialDirect(host, port)
++      : dialDestination(
++          host,
++          port,
++          options.resolveDestination,
++          dialAbort.signal,
++        )
+@@ -151 +176 @@ export function createSocksProxyServer(
+-  // connections to finish, and a SOCKS connection mid-`dialDirect()` (30s
++  // connections to finish, and a SOCKS connection mid-destination dial (30s
+diff --git a/src/sandbox/tls-terminate-proxy.ts b/src/sandbox/tls-terminate-proxy.ts
+index 3dc6403..b86e593 100644
+--- a/src/sandbox/tls-terminate-proxy.ts
++++ b/src/sandbox/tls-terminate-proxy.ts
+@@ -22,0 +23,6 @@ import { logForDebugging } from '../utils/debug.js'
++import {
++  isDestinationAddressPolicyError,
++  prepareDestinationDial,
++  trackPreparedDestinationRequest,
++  type ResolveDestination,
++} from './destination-dial.js'
+@@ -97,0 +104,2 @@ export type TerminateTarget = {
++  resolveDestination?: ResolveDestination
++  signal: AbortSignal
+@@ -250,0 +259,24 @@ async function forwardUpstream(
++  let prepared
++  try {
++    prepared = await prepareDestinationDial(
++      target.hostname,
++      target.port,
++      target.resolveDestination,
++      target.signal,
++    )
++  } catch (error) {
++    if (isDestinationAddressPolicyError(error) && !res.headersSent) {
++      res.writeHead(403, {
++        'Content-Type': 'text/plain',
++        'X-Proxy-Error': 'blocked-address-policy',
++      })
++      res.end('Connection blocked by destination address policy')
++    } else if (!res.headersSent) {
++      res.writeHead(502, { 'Content-Type': 'text/plain' })
++      res.end('Bad Gateway')
++    } else {
++      res.destroy()
++    }
++    return
++  }
++
+@@ -252,26 +284,41 @@ async function forwardUpstream(
+-  const upstream = httpsRequest(
+-    {
+-      host: target.hostname,
+-      port: target.port,
+-      path: req.url,
+-      method: req.method,
+-      headers: fwdHeaders,
+-      // We're a TLS-terminating proxy, not a trust boundary for the upstream
+-      // server's identity — let the runtime do normal verification against
+-      // system roots (and NODE_EXTRA_CA_CERTS). servername must match the
+-      // host the client intended; SNI cannot carry an IP literal, and Bun's
+-      // https.request treats `servername: undefined` differently from
+-      // omitting the key, so spread conditionally.
+-      ...(isIP(target.hostname) ? {} : { servername: target.hostname }),
+-      ...(target.upstreamCA ? { ca: target.upstreamCA } : {}),
+-      // No global agent: a proxy's outbound leg shouldn't share a connection
+-      // pool keyed on the proxy process. Also works around a Bun quirk where
+-      // the first request's `ca:` value is cached on the global agent and
+-      // subsequent calls with a different `ca:` are silently ignored.
+-      agent: false,
+-    },
+-    upRes => {
+-      res.writeHead(upRes.statusCode ?? 502, stripHopByHop(upRes.headers))
+-      upRes.pipe(res)
+-    },
+-  )
++  let upstream: ReturnType<typeof httpsRequest>
++  try {
++    upstream = httpsRequest(
++      {
++        host: prepared.hostname,
++        port: target.port,
++        path: req.url,
++        method: req.method,
++        headers: fwdHeaders,
++        // We're a TLS-terminating proxy, not a trust boundary for the upstream
++        // server's identity — let the runtime do normal verification against
++        // system roots (and NODE_EXTRA_CA_CERTS). servername must match the
++        // host the client intended; SNI cannot carry an IP literal, and Bun's
++        // https.request treats `servername: undefined` differently from
++        // omitting the key, so spread conditionally.
++        ...(isIP(target.hostname) ? {} : { servername: target.hostname }),
++        ...(target.upstreamCA ? { ca: target.upstreamCA } : {}),
++        ...(prepared.lookup === undefined ? {} : { lookup: prepared.lookup }),
++        signal: prepared.signal,
++        // No global agent: a proxy's outbound leg shouldn't share a connection
++        // pool keyed on the proxy process. Also works around a Bun quirk where
++        // the first request's `ca:` value is cached on the global agent and
++        // subsequent calls with a different `ca:` are silently ignored.
++        agent: false,
++      },
++      upRes => {
++        res.writeHead(upRes.statusCode ?? 502, stripHopByHop(upRes.headers))
++        upRes.pipe(res)
++      },
++    )
++    trackPreparedDestinationRequest(upstream, prepared, true)
++  } catch {
++    prepared.release()
++    if (!res.headersSent) {
++      res.writeHead(502, { 'Content-Type': 'text/plain' })
++      res.end('Bad Gateway')
++    } else {
++      res.destroy()
++    }
++    return
++  }

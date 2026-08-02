@@ -22,6 +22,7 @@ export * from "./common/search-path.js";
 // Kernel↔warden data contracts (ADR-0071 P1-10): pure MCP wire/launch shapes + the
 // cross-process wiring constants, so the kernel imports no warden enforcement library.
 export * from "./common/subprocess-contracts.js";
+export * from "./common/egress-address-exception-admin.js";
 export * from "./mcp/contracts.js";
 export * from "./audit/record.js";
 // Audit hash-chain primitives (Epic 2.6): RFC 8785 canonicalization, record hashing, chain

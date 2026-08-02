@@ -4,6 +4,7 @@ import { connect } from 'net'
 import { getPlatform } from '../../src/utils/platform.js'
 import { spawnAsync } from '../helpers/spawn.js'
 import { isLinux } from '../helpers/platform.js'
+import type { ResolveDestination } from '../../src/sandbox/destination-dial.js'
 
 /**
  * Helper to make a CONNECT request through the proxy using raw TCP
@@ -354,6 +355,123 @@ describe('SandboxManager.updateConfig proxy filtering', () => {
     // Final state should allow example.com
     const result = await proxyRequest(proxyPort!, 'example.com')
     expect(result.allowed).toBe(true)
+  })
+})
+
+describe('destination resolver authority', () => {
+  const resolver: ResolveDestination = async () => [
+    { address: '192.0.2.1', family: 4 },
+  ]
+  const base = {
+    allowedDomains: ['example.com'],
+    deniedDomains: [],
+    resolveDestination: resolver,
+    inheritProxyEnv: false,
+  } as const
+
+  beforeEach(async () => {
+    await SandboxManager.reset()
+  })
+  afterEach(async () => {
+    await SandboxManager.reset()
+  })
+
+  it('requires an explicit ambient parent-proxy opt-out', async () => {
+    await expect(
+      SandboxManager.initialize({
+        network: {
+          allowedDomains: ['example.com'],
+          deniedDomains: [],
+          resolveDestination: resolver,
+        },
+        filesystem: { denyRead: [], allowWrite: [], denyWrite: [] },
+      }),
+    ).rejects.toThrow('network.inheritProxyEnv must be false')
+  })
+
+  it.each([
+    ['parentProxy', { parentProxy: { http: 'http://proxy.example:8080' } }],
+    [
+      'mitmProxy',
+      { mitmProxy: { socketPath: '/tmp/mitm.sock', domains: ['example.com'] } },
+    ],
+    ['httpProxyPort', { httpProxyPort: 8080 }],
+    ['socksProxyPort', { socksProxyPort: 1080 }],
+  ])('rejects incompatible %s routing while guarded', async (_name, extra) => {
+    await expect(
+      SandboxManager.initialize({
+        network: { ...base, ...extra },
+        filesystem: { denyRead: [], allowWrite: [], denyWrite: [] },
+      }),
+    ).rejects.toThrow('incompatible with network.resolveDestination')
+  })
+
+  it('keeps the initialization resolver across updateConfig override attempts', async () => {
+    const replacement: ResolveDestination = async () => [
+      { address: '198.51.100.2', family: 4 },
+    ]
+    await SandboxManager.initialize({
+      network: base,
+      filesystem: { denyRead: [], allowWrite: [], denyWrite: [] },
+    })
+
+    SandboxManager.updateConfig({
+      network: {
+        allowedDomains: ['other.example'],
+        deniedDomains: [],
+        resolveDestination: replacement,
+        inheritProxyEnv: true,
+      },
+      filesystem: { denyRead: [], allowWrite: [], denyWrite: [] },
+    })
+
+    expect(SandboxManager.getConfig()?.network.resolveDestination).toBe(
+      resolver,
+    )
+    expect(SandboxManager.getConfig()?.network.inheritProxyEnv).toBe(false)
+  })
+
+  it.each([
+    ['parentProxy', { parentProxy: { http: 'http://proxy.example:8080' } }],
+    [
+      'mitmProxy',
+      { mitmProxy: { socketPath: '/tmp/mitm.sock', domains: ['example.com'] } },
+    ],
+    ['httpProxyPort', { httpProxyPort: 8080 }],
+    ['socksProxyPort', { socksProxyPort: 1080 }],
+  ])('rejects a live %s route injection while guarded', async (_name, extra) => {
+    await SandboxManager.initialize({
+      network: base,
+      filesystem: { denyRead: [], allowWrite: [], denyWrite: [] },
+    })
+
+    expect(() =>
+      SandboxManager.updateConfig({
+        network: { ...base, ...extra },
+        filesystem: { denyRead: [], allowWrite: [], denyWrite: [] },
+      }),
+    ).toThrow('incompatible with network.resolveDestination')
+    expect(SandboxManager.getConfig()?.network.resolveDestination).toBe(
+      resolver,
+    )
+    expect(SandboxManager.getConfig()?.network.mitmProxy).toBeUndefined()
+    expect(SandboxManager.getConfig()?.network.parentProxy).toBeUndefined()
+    expect(SandboxManager.getConfig()?.network.httpProxyPort).toBeUndefined()
+    expect(SandboxManager.getConfig()?.network.socksProxyPort).toBeUndefined()
+  })
+
+  it('withholds the resolver feature after reset until reinitialized', async () => {
+    await SandboxManager.initialize({
+      network: base,
+      filesystem: { denyRead: [], allowWrite: [], denyWrite: [] },
+    })
+    expect(SandboxManager.getConfig()?.network.resolveDestination).toBe(
+      resolver,
+    )
+
+    await SandboxManager.reset()
+
+    expect(SandboxManager.getConfig()?.network.resolveDestination).toBeUndefined()
   })
 })
 

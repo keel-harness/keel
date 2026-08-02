@@ -11,6 +11,7 @@ import { randomBytes } from 'node:crypto'
 import type { IncomingHttpHeaders } from 'node:http'
 import type {
   CredentialsConfig,
+  NetworkConfig,
   SandboxRuntimeConfig,
   SeccompConfig,
 } from './sandbox-config.js'
@@ -54,7 +55,6 @@ import type {
   RequestDecision,
 } from './request-filter.js'
 import {
-  canonicalizeHost,
   isValidHost,
   redactUrl,
   resolveParentProxy,
@@ -63,6 +63,10 @@ import { matchesDomainPattern } from './domain-pattern.js'
 import type { ChildProcess } from 'node:child_process'
 import type { ResolvedParentProxy } from './parent-proxy.js'
 import { EOL } from 'node:os'
+import {
+  resetDestinationGuardConnections,
+  type ResolveDestination,
+} from './destination-dial.js'
 
 interface HostNetworkManagerContext {
   httpProxyPort: number
@@ -83,6 +87,9 @@ let cleanupRegistered = false
 let logMonitorShutdown: (() => void) | undefined
 let parentProxy: ResolvedParentProxy | undefined
 let mitmCA: MitmCA | undefined
+// Connect-time authority is captured only by initialize(). Live profile
+// updates may change name policy but cannot replace or remove this resolver.
+let destinationResolver: ResolveDestination | undefined
 // Per-session proxy auth token. Generated at proxy start, exported only into
 // the sandbox child env, checked on every CONNECT/request — so a host process
 // dialing 127.0.0.1:<proxyPort> can't reach the filter callback.
@@ -95,6 +102,20 @@ const sentinelRegistry = new SentinelRegistry()
 // ============================================================================
 // Private Helper Functions (not exported)
 // ============================================================================
+
+function assertDestinationGuardRoutesCompatible(network: NetworkConfig): void {
+  const incompatible = [
+    network.parentProxy === undefined ? undefined : 'parentProxy',
+    network.mitmProxy === undefined ? undefined : 'mitmProxy',
+    network.httpProxyPort === undefined ? undefined : 'httpProxyPort',
+    network.socksProxyPort === undefined ? undefined : 'socksProxyPort',
+  ].filter((name): name is string => name !== undefined)
+  if (incompatible.length > 0) {
+    throw new Error(
+      `network.${incompatible.join(', network.')} is incompatible with network.resolveDestination`,
+    )
+  }
+}
 
 function registerCleanup(): void {
   if (cleanupRegistered) {
@@ -135,14 +156,9 @@ async function filterNetworkRequest(
     return false
   }
 
-  // Canonicalize so string comparisons match what getaddrinfo() will dial.
-  // Without this, inet_aton shorthand like `2852039166` (= 169.254.169.254)
-  // or `127.1` slips past a denylist entry for the dotted-decimal form.
-  const canonicalHost = canonicalizeHost(host) ?? host
-
   // Check denied domains first
   for (const deniedDomain of config.network.deniedDomains) {
-    if (matchesDomainPattern(canonicalHost, deniedDomain)) {
+    if (matchesDomainPattern(host, deniedDomain)) {
       logForDebugging(`Denied by config rule: ${host}:${port}`)
       return false
     }
@@ -150,7 +166,7 @@ async function filterNetworkRequest(
 
   // Check allowed domains
   for (const allowedDomain of config.network.allowedDomains) {
-    if (matchesDomainPattern(canonicalHost, allowedDomain)) {
+    if (matchesDomainPattern(host, allowedDomain)) {
       logForDebugging(`Allowed by config rule: ${host}:${port}`)
       return true
     }
@@ -432,6 +448,7 @@ async function startHttpProxyServer(
     mutateHeaders: injectCredentials,
     mutateHeadersPlaintext: injectPlaintextCredentials,
     parentProxy,
+    resolveDestination: destinationResolver,
     proxyAuthToken,
   })
 
@@ -460,6 +477,7 @@ async function startSocksProxyServer(
     filter: (port: number, host: string) =>
       filterNetworkRequest(port, host, sandboxAskCallback),
     parentProxy,
+    resolveDestination: destinationResolver,
     proxyAuthToken,
   })
 
@@ -506,12 +524,26 @@ async function initialize(
     return
   }
 
-  // Store config for use by other functions
+  const requestedResolver = runtimeConfig.network.resolveDestination
+  if (requestedResolver !== undefined) {
+    if (runtimeConfig.network.inheritProxyEnv !== false) {
+      throw new Error(
+        'network.inheritProxyEnv must be false when network.resolveDestination is configured',
+      )
+    }
+    assertDestinationGuardRoutesCompatible(runtimeConfig.network)
+  }
+
+  // Store config and capture initialization-scoped resolver authority.
   config = runtimeConfig
+  destinationResolver = requestedResolver
 
   // Resolve parent/upstream proxy from config or HTTP_PROXY env before we
   // start our own listeners (which will later shadow those vars in the child).
-  parentProxy = resolveParentProxy(runtimeConfig.network.parentProxy)
+  parentProxy = resolveParentProxy(
+    runtimeConfig.network.parentProxy,
+    runtimeConfig.network.inheritProxyEnv !== false,
+  )
   if (parentProxy) {
     logForDebugging(
       `Parent proxy configured: http=${redactUrl(parentProxy.httpUrl)} ` +
@@ -1245,17 +1277,33 @@ function getConfig(): SandboxRuntimeConfig | undefined {
  * @param newConfig - The new configuration to use
  */
 function updateConfig(newConfig: SandboxRuntimeConfig): void {
+  if (destinationResolver !== undefined) {
+    assertDestinationGuardRoutesCompatible(newConfig.network)
+  }
   // Deep clone the config to avoid mutations. structuredClone cannot clone
   // functions, so pull filterRequest out, clone the rest, and put it back —
   // a function reference is immutable in the sense that matters here.
-  const { filterRequest, ...rest } = newConfig.network
+  const {
+    filterRequest,
+    resolveDestination: _ignoredResolver,
+    inheritProxyEnv: _ignoredProxyEnvAuthority,
+    ...rest
+  } = newConfig.network
   config = structuredClone({ ...newConfig, network: rest })
   config.network.filterRequest = filterRequest
+  config.network.resolveDestination = destinationResolver
+  if (destinationResolver !== undefined) config.network.inheritProxyEnv = false
   // Re-resolve parent proxy so hot-reload picks up changes. Note: the proxy
   // servers capture `parentProxy` by value at creation, so changes here take
   // effect only on re-initialize. This keeps the state consistent for the
   // next initialize() call.
-  parentProxy = resolveParentProxy(newConfig.network.parentProxy)
+  parentProxy =
+    destinationResolver === undefined
+      ? resolveParentProxy(
+          newConfig.network.parentProxy,
+          newConfig.network.inheritProxyEnv !== false,
+        )
+      : undefined
   logForDebugging('Sandbox configuration updated')
 }
 
@@ -1386,6 +1434,10 @@ function forceCloseHttpServer(
 }
 
 async function reset(): Promise<void> {
+  // Abort guarded resolution/dial work before closing proxy listeners. Lease
+  // release is idempotent, so later socket close events cannot revive state.
+  resetDestinationGuardConnections()
+
   // Clean up any leftover bwrap mount points. Force past the
   // active-sandbox counter — reset() means the session is over.
   cleanupBwrapMountPoints({ force: true })
@@ -1465,6 +1517,8 @@ async function reset(): Promise<void> {
   initializationPromise = undefined
   parentProxy = undefined
   mitmCA = undefined
+  config = undefined
+  destinationResolver = undefined
   sentinelRegistry.clear()
 }
 

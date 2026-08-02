@@ -32,10 +32,16 @@ export default tseslint.config(
     languageOptions: {
       parserOptions: {
         projectService: {
-          // vitest.config.ts, vitest.setup.ts, and eslint.config.js live at the
-          // root and are not in any package tsconfig's "include". Allow them via
-          // the default project so type-aware rules still run on these files.
-          allowDefaultProject: ["vitest.config.ts", "vitest.setup.ts", "eslint.config.js"],
+          // Test/lint configuration files live at the root and are not in any package tsconfig's
+          // "include". Allow the exact reviewed files via the default project so type-aware rules
+          // still run on them without admitting a broad glob.
+          allowDefaultProject: [
+            "vitest.config.ts",
+            "vitest.setup.ts",
+            "vitest.egress-product.config.ts",
+            "vitest.egress-product.setup.ts",
+            "eslint.config.js",
+          ],
         },
         tsconfigRootDir: import.meta.dirname,
       },

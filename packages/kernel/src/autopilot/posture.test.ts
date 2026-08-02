@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { cockpitStatusLine, initialView } from "../tui/view-model.js";
-import { wardenStatusViewConfig } from "../warden/status.js";
+import { EGRESS_ADDRESS_GUARD_CAPABILITY, wardenStatusViewConfig } from "../warden/status.js";
 import {
   buildModeChangeAuditEvent,
   resolveAutonomyPosture,
@@ -31,7 +31,13 @@ function status(options: { readonly audit?: boolean; readonly enforcement?: bool
 function statusLine(request: AutonomyPostureRequest, options = {}): string {
   const autonomy = resolveAutonomyPosture(request, { trustedWorkspace: true });
   const view = initialView([], {
-    ...wardenStatusViewConfig(status(options), { autonomy }),
+    ...wardenStatusViewConfig(status(options), {
+      autonomy,
+      wardenCapabilities:
+        (options as { enforcement?: boolean }).enforcement === false
+          ? []
+          : [EGRESS_ADDRESS_GUARD_CAPABILITY],
+    }),
   });
   return cockpitStatusLine(view.status);
 }

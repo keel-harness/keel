@@ -20,6 +20,12 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { Duplex, Readable } from 'node:stream'
 import { logForDebugging } from '../utils/debug.js'
+import {
+  isDestinationAddressPolicyError,
+  prepareDestinationDial,
+  trackPreparedDestinationRequest,
+  type ResolveDestination,
+} from './destination-dial.js'
 import type { MitmCA } from './mitm-ca.js'
 import {
   decideAndRespond,
@@ -95,6 +101,8 @@ export type TerminateTarget = {
    * is read at process start, so tests can't set it from inside the suite).
    */
   upstreamCA?: string | Buffer | Array<string | Buffer>
+  resolveDestination?: ResolveDestination
+  signal: AbortSignal
 }
 
 /**
@@ -248,33 +256,72 @@ async function forwardUpstream(
   // reach an unverified server.
   mutateHeaders?.(fwdHeaders, target.hostname)
 
+  let prepared
+  try {
+    prepared = await prepareDestinationDial(
+      target.hostname,
+      target.port,
+      target.resolveDestination,
+      target.signal,
+    )
+  } catch (error) {
+    if (isDestinationAddressPolicyError(error) && !res.headersSent) {
+      res.writeHead(403, {
+        'Content-Type': 'text/plain',
+        'X-Proxy-Error': 'blocked-address-policy',
+      })
+      res.end('Connection blocked by destination address policy')
+    } else if (!res.headersSent) {
+      res.writeHead(502, { 'Content-Type': 'text/plain' })
+      res.end('Bad Gateway')
+    } else {
+      res.destroy()
+    }
+    return
+  }
+
   // TODO(terminating-tls): honour parentProxy for the upstream leg.
-  const upstream = httpsRequest(
-    {
-      host: target.hostname,
-      port: target.port,
-      path: req.url,
-      method: req.method,
-      headers: fwdHeaders,
-      // We're a TLS-terminating proxy, not a trust boundary for the upstream
-      // server's identity — let the runtime do normal verification against
-      // system roots (and NODE_EXTRA_CA_CERTS). servername must match the
-      // host the client intended; SNI cannot carry an IP literal, and Bun's
-      // https.request treats `servername: undefined` differently from
-      // omitting the key, so spread conditionally.
-      ...(isIP(target.hostname) ? {} : { servername: target.hostname }),
-      ...(target.upstreamCA ? { ca: target.upstreamCA } : {}),
-      // No global agent: a proxy's outbound leg shouldn't share a connection
-      // pool keyed on the proxy process. Also works around a Bun quirk where
-      // the first request's `ca:` value is cached on the global agent and
-      // subsequent calls with a different `ca:` are silently ignored.
-      agent: false,
-    },
-    upRes => {
-      res.writeHead(upRes.statusCode ?? 502, stripHopByHop(upRes.headers))
-      upRes.pipe(res)
-    },
-  )
+  let upstream: ReturnType<typeof httpsRequest>
+  try {
+    upstream = httpsRequest(
+      {
+        host: prepared.hostname,
+        port: target.port,
+        path: req.url,
+        method: req.method,
+        headers: fwdHeaders,
+        // We're a TLS-terminating proxy, not a trust boundary for the upstream
+        // server's identity — let the runtime do normal verification against
+        // system roots (and NODE_EXTRA_CA_CERTS). servername must match the
+        // host the client intended; SNI cannot carry an IP literal, and Bun's
+        // https.request treats `servername: undefined` differently from
+        // omitting the key, so spread conditionally.
+        ...(isIP(target.hostname) ? {} : { servername: target.hostname }),
+        ...(target.upstreamCA ? { ca: target.upstreamCA } : {}),
+        ...(prepared.lookup === undefined ? {} : { lookup: prepared.lookup }),
+        signal: prepared.signal,
+        // No global agent: a proxy's outbound leg shouldn't share a connection
+        // pool keyed on the proxy process. Also works around a Bun quirk where
+        // the first request's `ca:` value is cached on the global agent and
+        // subsequent calls with a different `ca:` are silently ignored.
+        agent: false,
+      },
+      upRes => {
+        res.writeHead(upRes.statusCode ?? 502, stripHopByHop(upRes.headers))
+        upRes.pipe(res)
+      },
+    )
+    trackPreparedDestinationRequest(upstream, prepared, true)
+  } catch {
+    prepared.release()
+    if (!res.headersSent) {
+      res.writeHead(502, { 'Content-Type': 'text/plain' })
+      res.end('Bad Gateway')
+    } else {
+      res.destroy()
+    }
+    return
+  }
 
   upstream.on('error', err => {
     logForDebugging(

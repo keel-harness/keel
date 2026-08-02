@@ -7,6 +7,7 @@ import type { FilterRequestCallback } from './request-filter.js'
 
 import { isAbsolute } from 'node:path'
 import { z } from 'zod'
+import type { ResolveDestination } from './destination-dial.js'
 import { isInjectHostCoveredByAllowedDomains } from './domain-pattern.js'
 
 /**
@@ -352,6 +353,24 @@ export const NetworkConfigSchema = z.object({
         'request is denied. Applies to plain HTTP through the proxy and, ' +
         'when tlsTerminate is configured, to terminated HTTPS. SRT does not ' +
         'provide a policy language; library consumers own matching.',
+    ),
+  resolveDestination: z
+    .custom<ResolveDestination>(v => typeof v === 'function', {
+      message: 'resolveDestination must be a function',
+    })
+    .optional()
+    .describe(
+      'Initialization-scoped host resolver authority. Every direct TCP ' +
+        'destination is resolved once through this callback and dialed only ' +
+        'through its validated returned address set.',
+    ),
+  inheritProxyEnv: z
+    .boolean()
+    .optional()
+    .describe(
+      'Whether parent proxy settings may fall back to HTTP_PROXY, ' +
+        'HTTPS_PROXY, and NO_PROXY in the SRT host process. Defaults to true; ' +
+        'must be false when resolveDestination is configured.',
     ),
   tlsTerminate: z
     .object({

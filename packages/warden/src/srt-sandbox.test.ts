@@ -331,6 +331,40 @@ describe("SrtSandboxPort", () => {
     ]);
   });
 
+  it("strips exception-admin authority and KEEL_HOME from governed child environments", async () => {
+    const descriptors: unknown[] = [];
+    const port = createSrtSandboxPort({
+      runtime: {
+        wrapWithSandboxArgv: async () => ({
+          argv: ["/usr/bin/env"],
+          env: {
+            PATH: "/usr/bin",
+            KEEL_HOME: "/owner/keel-home",
+            KEEL_INTERNAL_EGRESS_EXCEPTION_ADMIN: "1",
+            KEEL_INTERNAL_EGRESS_EXCEPTION_ADMIN_REQUEST_B64: "model-controlled",
+          },
+        }),
+      },
+      runner: {
+        run: async (descriptor) => {
+          descriptors.push(descriptor);
+          return { exitCode: 0, stdout: "", stderr: "" };
+        },
+      },
+      status: {
+        available: true,
+        backend: "srt:fake",
+        enforcementTier: "sandbox:srt",
+      },
+    });
+
+    await port.execute({ command: "/usr/bin/env", cwd: "/workspace" }, profile("/workspace"));
+
+    expect(descriptors).toEqual([
+      { argv: ["/usr/bin/env"], cwd: "/workspace", env: { PATH: "/usr/bin" } },
+    ]);
+  });
+
   it("passes credential proxy secrets only through the host-side srt config", async () => {
     const secret = "keel-real-token-sec027-srt-adapter";
     const placeholder = "keelcred_test_srt_adapter";

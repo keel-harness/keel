@@ -146,7 +146,6 @@ export function extractExplicitEgressTarget(command: string): ExplicitEgressTarg
     }
     try {
       const domain = normalizeEgressGrantDomain(url.hostname);
-      if (domain === "localhost") continue;
       return { kind: "domain", domain, url: token };
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error);

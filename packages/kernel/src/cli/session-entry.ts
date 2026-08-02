@@ -165,6 +165,8 @@ export const HELP_TEXT = [
   "  keel autopilot grants revoke (--domain <domain> | --command-key <sha256:key>)",
   "  keel autopilot plan preview [--plan-id <id>] [--step <text> ...] (--domain <domain> | --command-key <sha256:key>) ...",
   "    preview exact Plan Autopilot resources; grants nothing",
+  "  keel egress exception add|list|remove   manage exact private-address exceptions",
+  "    requires --workspace; add/remove require --host, --cidr, and one or more --port",
   "  keel audit export <session>  export a per-session evidence bundle",
   "  keel audit verify <bundle>   verify a signed evidence bundle offline",
   "  keel mcp review <server>     review and pin a local-stdio MCP server",
@@ -231,13 +233,14 @@ async function throwEvalDirectConsoleBridgeStartupFailure(
 
 const USAGE =
   "usage: keel [--trust] [--autopilot]\n" +
-  "usage: keel [run -p <prompt> [--trust] [--autopilot] | autopilot <grants|mode|plan> <…> | audit export <session> | audit verify <bundle> | sessions <…> | auth <…> | doctor | --version | --help]\n" +
+  "usage: keel [run -p <prompt> [--trust] [--autopilot] | autopilot <grants|mode|plan> <…> | egress exception <add|list|remove> | audit export <session> | audit verify <bundle> | sessions <…> | auth <…> | doctor | --version | --help]\n" +
   "usage: keel mcp review <server>\n" +
   "Run `keel` with no arguments for an interactive session; run `keel --help` for commands.";
 const AUTOPILOT_PARSE_USAGE = "usage: keel autopilot <grants|mode|plan>";
 const AUTOPILOT_GRANTS_PARSE_USAGE = "usage: keel autopilot grants <list|revoke>";
 const AUTOPILOT_MODE_PARSE_USAGE = "usage: keel autopilot mode <status|set|clear>";
 const AUTOPILOT_PLAN_PARSE_USAGE = "usage: keel autopilot plan <preview>";
+const EGRESS_EXCEPTION_PARSE_USAGE = "usage: keel egress exception <add|list|remove>";
 const RUN_USAGE =
   "usage: keel run -p <prompt> [--replay <recording.json>] [--trust] [--autopilot] [[--plan-confirm] [--plan-id <id>] (--plan-domain <domain> | --plan-command-key <sha256:key>) ...]";
 const AUDIT_EXPORT_USAGE = "usage: keel audit export <session> [--out <dir>]";
@@ -284,6 +287,7 @@ export type KeelCommand =
   | { readonly kind: "autopilot-grants"; readonly args: readonly string[] }
   | { readonly kind: "autopilot-mode"; readonly args: readonly string[] }
   | { readonly kind: "autopilot-plan"; readonly args: readonly string[] }
+  | { readonly kind: "egress-exception"; readonly args: readonly string[] }
   | { readonly kind: "mcp-review"; readonly serverKey: string }
   | { readonly kind: "sessions"; readonly args: readonly string[] }
   | { readonly kind: "auth"; readonly args: readonly string[] }
@@ -363,6 +367,24 @@ export function parseKeelArgs(argv: readonly string[]): KeelCommand {
     };
   }
   if (cmd === "doctor") return { kind: "doctor" };
+  if (cmd === "egress") {
+    if (trust || verbose) {
+      const flag = trust ? "--trust" : "--verbose";
+      return {
+        kind: "usage",
+        message: `${flag} is only valid for the interactive and run commands. ${EGRESS_EXCEPTION_PARSE_USAGE}`,
+        exitCode: 1,
+      };
+    }
+    const [area, subcommand, ...egressRest] = rest;
+    if (
+      area !== "exception" ||
+      (subcommand !== "add" && subcommand !== "list" && subcommand !== "remove")
+    ) {
+      return { kind: "usage", message: EGRESS_EXCEPTION_PARSE_USAGE };
+    }
+    return { kind: "egress-exception", args: [subcommand, ...egressRest] };
+  }
   if (cmd === "autopilot") {
     if (trust) {
       const usage =

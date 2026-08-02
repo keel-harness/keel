@@ -113,6 +113,41 @@ describe("runDoctor — all dependencies present", () => {
     });
     expect(JSON.stringify(row)).not.toContain("KEEL_FIXTURE_TOKEN");
   });
+
+  it("reports exception-store readiness and one bounded remediation without claiming activation", () => {
+    const ready = runDoctor({
+      ...base,
+      egressAddressExceptionStore: { status: "ok", detail: "validated; 0 exceptions" },
+    });
+    expect(ready.checks.find((row) => row.id === "egress-address-exception-store")).toEqual({
+      id: "egress-address-exception-store",
+      label: "egress exceptions",
+      status: "ok",
+      detail: "validated; 0 exceptions",
+    });
+
+    const invalid = runDoctor({
+      ...base,
+      egressAddressExceptionStore: {
+        status: "error",
+        detail: "owner mode invalid\nsecret follow-on",
+        fix: "chmod 600 -- '/tmp/egress-address-exceptions.v1.json' && keel doctor",
+      },
+    });
+    const row = invalid.checks.find(
+      (candidate) => candidate.id === "egress-address-exception-store",
+    );
+    expect(row).toEqual({
+      id: "egress-address-exception-store",
+      label: "egress exceptions",
+      status: "missing",
+      detail: "owner mode invalid secret follow-on",
+      why: "private-address exception authority cannot be loaded safely",
+      fix: "chmod 600 -- '/tmp/egress-address-exceptions.v1.json' && keel doctor",
+    });
+    expect(invalid.ok).toBe(false);
+    expect(formatDoctorReport(invalid, { color: false })).not.toContain("address guard on");
+  });
 });
 
 describe("runDoctor — Phase 2A sandbox preflight", () => {
