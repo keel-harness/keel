@@ -260,7 +260,7 @@ def run_scenario(
 def run_smoke(launcher: Path) -> dict[str, object]:
     lifecycle = load_lifecycle()
     with tempfile.TemporaryDirectory(prefix="keel-npx-urgent-steering-") as directory:
-        root = Path(directory)
+        root = Path(directory).resolve()
         scenarios = [
             run_scenario(lifecycle, launcher, control, nonce, root)
             for control, nonce in SCENARIOS
