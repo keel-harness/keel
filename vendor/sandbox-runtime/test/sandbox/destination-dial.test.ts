@@ -5,6 +5,7 @@ import {
   MAX_CONCURRENT_GUARDED_CONNECTIONS,
   MAX_DESTINATION_ADDRESSES,
   TOTAL_GUARDED_DIAL_TIMEOUT_MS,
+  dialDestination,
   prepareDestinationDial,
   resetDestinationGuardConnections,
   trackPreparedDestinationRequest,
@@ -365,5 +366,29 @@ describe('prepareDestinationDial', () => {
     )
     replacement.release()
     for (const item of rest) item.release()
+  })
+
+  test('releases guarded permits when net.connect throws before returning a socket', async () => {
+    const resolveDestination: ResolveDestination = async () => [
+      { address: '192.0.2.1', family: 4 },
+    ]
+    for (let index = 0; index < MAX_CONCURRENT_GUARDED_CONNECTIONS; index += 1) {
+      await expect(
+        dialDestination(
+          'invalid-port.example',
+          -1,
+          resolveDestination,
+          signal(),
+        ),
+      ).rejects.toThrow()
+    }
+
+    const replacement = await prepareDestinationDial(
+      'after-sync-throw.example',
+      443,
+      resolveDestination,
+      signal(),
+    )
+    replacement.release()
   })
 })
