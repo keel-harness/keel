@@ -14,7 +14,7 @@ import { interactiveConsoleProductOptionsFromEnv } from "./interactive-console/p
 import { resolveWardenKeelHome } from "./capability-manifest.js";
 import { loadOrCreateAuditCheckpointKey } from "./audit/checkpoint-key.js";
 import { SessionAuditLog } from "./audit/session-log.js";
-import { credentialProxyRulesFromEnvValues } from "./credential-proxy.js";
+import { credentialProxyRulesFromEnvValues, type CredentialProxyRule } from "./credential-proxy.js";
 import {
   createSandboxTypedMutationRunner,
   type TypedMutationRunner,
@@ -86,9 +86,14 @@ interface SandboxComponentsFromEnv {
   readonly consoleLaunchPreparer?: ConsoleSandboxLaunchPreparer;
 }
 
-async function sandboxComponentsFromEnv(): Promise<SandboxComponentsFromEnv> {
+async function sandboxComponentsFromEnv(
+  credentialProxyRules?: readonly CredentialProxyRule[],
+): Promise<SandboxComponentsFromEnv> {
   if (process.env["KEEL_WARDEN_SANDBOX"] !== "srt") return {};
-  const components = await createVendoredSrtSandboxComponents();
+  const components =
+    credentialProxyRules !== undefined && credentialProxyRules.length > 0
+      ? await createVendoredSrtSandboxComponents({ credentialTlsTermination: true })
+      : await createVendoredSrtSandboxComponents();
   return {
     sandbox: components.sandbox,
     ...(components.launchPreparer === undefined
@@ -97,8 +102,10 @@ async function sandboxComponentsFromEnv(): Promise<SandboxComponentsFromEnv> {
   };
 }
 
-async function sandboxFromEnv(): Promise<SandboxPort | undefined> {
-  return (await sandboxComponentsFromEnv()).sandbox;
+async function sandboxFromEnv(
+  credentialProxyRules?: readonly CredentialProxyRule[],
+): Promise<SandboxPort | undefined> {
+  return (await sandboxComponentsFromEnv(credentialProxyRules)).sandbox;
 }
 
 function auditDirFromEnv(): string {
@@ -249,10 +256,10 @@ export async function runMcpDiscoveryFromEnv(): Promise<void> {
   process.once("SIGTERM", abortDiscovery);
   process.once("SIGINT", abortDiscovery);
   try {
-    const sandbox = await sandboxFromEnv();
-    if (sandbox === undefined) throw new Error("MCP discovery requires the warden sandbox");
     const workspaceRoot = process.env["KEEL_WARDEN_WORKSPACE_ROOT"] ?? process.cwd();
     const credentialProxyRules = credentialProxyRulesFromEnv(workspaceRoot);
+    const sandbox = await sandboxFromEnv(credentialProxyRules);
+    if (sandbox === undefined) throw new Error("MCP discovery requires the warden sandbox");
     sandboxTempRoot.assertOwned();
     const discovery = await discoverMcpServerWithSandbox({
       sandbox,
@@ -279,9 +286,12 @@ export async function runMcpDiscoveryFromEnv(): Promise<void> {
 
 export async function runWardenFromEnv(): Promise<void> {
   const sandboxTempRoot = installSandboxTempRootFromEnv();
+  const workspaceRoot = process.env["KEEL_WARDEN_WORKSPACE_ROOT"];
   let sandboxComponents: SandboxComponentsFromEnv;
+  let credentialProxyRules: CredentialProxyRule[] | undefined;
   try {
-    sandboxComponents = await sandboxComponentsFromEnv();
+    credentialProxyRules = credentialProxyRulesFromEnv(workspaceRoot);
+    sandboxComponents = await sandboxComponentsFromEnv(credentialProxyRules);
   } catch (error) {
     cleanupSandboxTempRootAfterReap(sandboxTempRoot, true);
     throw error;
@@ -291,10 +301,8 @@ export async function runWardenFromEnv(): Promise<void> {
   let setupMutationPresentation: MutationPresentationWalkingSkeletonTransport | undefined;
   try {
     const sandbox = sandboxComponents.sandbox;
-    const workspaceRoot = process.env["KEEL_WARDEN_WORKSPACE_ROOT"];
     const auditDir = auditDirFromEnv();
     const checkpointKey = loadOrCreateAuditCheckpointKey(auditDir);
-    const credentialProxyRules = credentialProxyRulesFromEnv(workspaceRoot);
     const lifecycleManifest = lifecycleManifestFromEnv(process.env);
     const workspaceTrusted = process.env["KEEL_WARDEN_WORKSPACE_TRUSTED"] === "1";
     const mcpTrustedServers = workspaceTrusted ? mcpTrustedServersFromEnv(process.env) : {};

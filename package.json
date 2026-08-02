@@ -31,7 +31,7 @@
     "test": "vitest run",
     "test:security": "vitest run packages/kernel/src/warden/security-suite.test.ts packages/kernel/src/cli/security-suite-inventory.test.ts packages/kernel/src/cli/docs-claim-consistency.test.ts packages/kernel/src/cli/product-path-honesty.test.ts packages/kernel/src/cli/sec-012.test.ts packages/kernel/src/secrets/redact.test.ts packages/kernel/src/tools/file-access.test.ts packages/kernel/src/tools/search.test.ts packages/shared/src/audit/checkpoint.test.ts packages/shared/src/audit/record.test.ts packages/shared/src/audit/verify.test.ts packages/shared/src/policy/capability-manifest.test.ts packages/shared/src/policy/input.test.ts packages/shared/src/policy/side-effect.corpus.test.ts packages/shared/src/rpc/methods.test.ts packages/kernel/src/audit/evidence-bundle.test.ts packages/warden/src/audit/checkpoint-key.test.ts packages/warden/src/audit/session-log.test.ts packages/warden/src/audit/writer.test.ts packages/warden/src/capability-manifest.test.ts packages/warden/src/egress-profile.test.ts packages/warden/src/egress-review.test.ts packages/warden/src/mutable-execution-metadata.test.ts packages/warden/src/policy.test.ts packages/warden/src/rpc-server.test.ts packages/warden/src/sandbox-profile.test.ts packages/warden/src/srt-sandbox.test.ts vendor/sandbox-runtime/test/sandbox/linux-proxy-readiness.test.ts",
     "test:cov": "vitest run --coverage",
-    "test:sandbox:real": "KEEL_REQUIRE_REAL_SANDBOX=1 vitest run packages/warden/src/srt-sandbox.real.test.ts",
+    "test:sandbox:real": "KEEL_REQUIRE_REAL_SANDBOX=1 vitest run packages/warden/src/srt-sandbox.real.test.ts packages/warden/src/srt-credential-tls.real.test.ts",
     "test:watch": "vitest"
   },
   "devDependencies": {

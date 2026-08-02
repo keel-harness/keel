@@ -343,6 +343,10 @@ jobs:
           fi
 
       - name: Real OS-sandbox denial probes (fail closed if the backend is unavailable)
+        env:
+          # Trust only the committed local fixture CA in this test process. Verification remains on;
+          # the acceptance suite includes a valid-chain/wrong-host rejection probe.
+          NODE_EXTRA_CA_CERTS: ${{ github.workspace }}/vendor/sandbox-runtime/test/fixtures/tls-terminate/ca.crt
         run: pnpm test:sandbox:real
 
   package:
