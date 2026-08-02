@@ -28,7 +28,7 @@ import {
 import { type AuditAppendInput, type AuditSink, readAuditLog } from "./audit/writer.js";
 import { sessionAuditLogPath } from "./audit/session-log.js";
 import { buildEvidenceBundle } from "./audit/bundle.js";
-import { isInside } from "./path-util.js";
+import { isInside, isInsideCanonical } from "./path-util.js";
 import {
   EGRESS_ADDRESS_GUARD_CAPABILITY,
   missingSandboxPort,
@@ -667,8 +667,21 @@ function pathAllowedBy(roots: readonly string[] | undefined, target: string): bo
   return roots.some((root) => isInside(root, target));
 }
 
+/**
+ * Deny-root containment, compared on the FILE rather than the spelling.
+ *
+ * Typed-tool policy targets keep their lexical spelling (see `typedPathTarget`), so a byte
+ * comparison against the profile's deny roots was evaded by any alternate spelling of the same
+ * file: an in-workspace symlink, the macOS `/var` -> `/private/var` alias between a realpath'd deny
+ * root and a lexical target, a case variant on a case-insensitive volume, or a different Unicode
+ * normalization form. Deny is the safe direction to over-match, so this side canonicalizes.
+ *
+ * `pathAllowedBy` deliberately stays lexical: both operands there are keel-produced in the same
+ * form, and canonicalizing only one side of an ALLOW check turns every read in a `/var`- or
+ * `/tmp`-rooted workspace into a spurious mismatch.
+ */
 function pathDeniedBy(roots: readonly string[] | undefined, target: string): boolean {
-  return roots?.some((root) => isInside(root, target)) ?? false;
+  return roots?.some((root) => isInsideCanonical(root, target)) ?? false;
 }
 
 function uniqueFindings(
@@ -3549,6 +3562,10 @@ async function executeTypedTool(
         output = await executeSearchTool(typedArgs, {
           workspaceRoot: context.workspaceRoot,
           env: context.env,
+          // `search` reads files the policy input never names: its target is the search scope, so
+          // `policySandboxFindings` cannot gate individual results. Hand the tool the profile's
+          // deny-read roots so a denied file cannot surface as a match.
+          denyReadRoots: profile.filesystem?.denyRead ?? [],
           ...(context.signal === undefined ? {} : { signal: context.signal }),
           onLimited: () => {
             limited = true;

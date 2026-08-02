@@ -545,15 +545,27 @@ function normalizePathTarget(rawPath: string, basePath: string, env: NodeJS.Proc
 }
 
 function rawPathMentionsDotEnvNamespace(rawPath: string): boolean {
-  const normalized = rawPath.replace(/\\/gu, "/");
+  const normalized = foldSecretPath(rawPath.replace(/\\/gu, "/"));
   return /(^|[/{,])\.env/u.test(normalized) || /(^|[/{,])\.\{[^}]*\benv\b/u.test(normalized);
+}
+
+/**
+ * Case/Unicode fold for dotenv matching. On a case-insensitive volume (macOS/APFS, Windows) the OS
+ * opens `.ENV` as `.env`, and `realpathSync` canonicalizes neither case nor normalization form — so
+ * a case-sensitive match let `config/.ENV.staging` past POL-001. Typed `read` is warden-hosted with
+ * no OS sandbox behind it, so that miss was a disclosure, not just a wrong verdict. Folding
+ * unconditionally over-matches slightly on case-sensitive volumes (a genuinely distinct `.ENV` file
+ * is treated as a secret), which is the safe direction for a secret classifier.
+ */
+function foldSecretPath(path: string): string {
+  return path.normalize("NFC").toLowerCase();
 }
 
 function secretPath(rawPath: string, normalized: string, env: NodeJS.ProcessEnv): boolean {
   const home = homeRoot(env);
   return (
     rawPathMentionsDotEnvNamespace(rawPath) ||
-    normalized.includes(`${sep}.env`) ||
+    foldSecretPath(normalized).includes(`${sep}.env`) ||
     // Any process's environ, incl. the per-thread `/proc/<pid>/task/<tid>/environ` (QC: the plain
     // `/proc/self/environ` form was too narrow — a thread's environ holds the same secrets).
     /^\/proc\/[^/]+(\/task\/[^/]+)?\/environ$/u.test(normalized) ||

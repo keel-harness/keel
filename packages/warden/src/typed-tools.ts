@@ -30,6 +30,7 @@ import {
   type JsonObjectT,
 } from "@keel/shared";
 import { MUTATION_PRESENTATION_MAX_IMAGE_BYTES } from "./mutation-presentation-bounds.js";
+import { isInsideCanonical } from "./path-util.js";
 
 export const READ_MAX_OUTPUT_BYTES = 64 * 1024;
 export const READ_MAX_FILE_BYTES = 8 * 1024 * 1024;
@@ -1719,6 +1720,14 @@ export interface ExecuteSearchToolOptions {
   readonly timeoutMs?: number;
   readonly signal?: AbortSignal;
   readonly onLimited?: () => void;
+  /**
+   * Sandbox-profile deny-read roots, enforced PER RESULT. The policy layer cannot do this for
+   * `search`: its policy target is the search SCOPE (a directory, often the workspace root), which
+   * sits inside no deny root — so `policySandboxFindings` sees nothing to reject while the tool
+   * returns matched line content from a denied file. Comparison uses the RESOLVED path, so an
+   * in-workspace symlink cannot launder a denied target.
+   */
+  readonly denyReadRoots?: readonly string[];
 }
 
 export async function executeSearchTool(
@@ -1730,10 +1739,17 @@ export async function executeSearchTool(
   const root = realpath(resolve(options.workspaceRoot));
   const args = parseSearchArgs(rawArgs, { workspaceRoot: root, realpath });
   const cap = Math.min(args.maxResults ?? SEARCH_MAX_RESULTS, SEARCH_MAX_RESULTS);
+  const denyReadRoots = options.denyReadRoots ?? [];
   const keep = (path: string): boolean => {
     if (!isVisibleSearchPath(path)) return false;
     try {
-      resolveWorkspacePath(root, path, realpath);
+      const resolved = resolveWorkspacePath(root, path, realpath);
+      if (
+        denyReadRoots.length > 0 &&
+        denyReadRoots.some((deny) => isInsideCanonical(deny, resolved.lexical, realpath))
+      ) {
+        return false;
+      }
       return true;
     } catch {
       return false;

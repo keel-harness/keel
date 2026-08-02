@@ -8087,6 +8087,148 @@ describe("keel-warden stdio JSON-RPC server", () => {
     }
   });
 
+  it("denies typed reads that reach a protected file under an alternate spelling", async () => {
+    // Typed `read` is warden-hosted, so there is no OS sandbox behind it: the deny decision IS the
+    // enforcement. Those decisions compared path STRINGS, so the same file under a different
+    // spelling — an in-workspace symlink, or a case variant on a case-insensitive volume — walked
+    // straight through and returned the secret's bytes to the model.
+    const dir = mkdtempSync(join(tmpdir(), "keel-rpc-read-spelling-"));
+    try {
+      const workspace = join(dir, "workspace");
+      mkdirSync(join(workspace, "secrets"), { recursive: true });
+      mkdirSync(join(workspace, "config"), { recursive: true });
+      const credentialSource = join(workspace, "secrets", "token");
+      writeFileSync(credentialSource, "CANARY_CRED_do_not_leak\n", { mode: 0o600 });
+      writeFileSync(join(workspace, ".env"), "CANARY_ROOTENV_do_not_leak\n");
+      writeFileSync(join(workspace, "config", ".env.staging"), "CANARY_NESTED_do_not_leak\n");
+      symlinkSync(credentialSource, join(workspace, "notes.txt"));
+
+      const fakeSandbox: SandboxPort = {
+        status: () => ({
+          available: true,
+          backend: "fake-sandbox",
+          enforcementTier: "sandbox:fake",
+        }),
+        execute: async () => ({ exitCode: 0, signal: null, stdout: "", stderr: "" }),
+      };
+      const policy = await createDefaultPolicyPort();
+      const writer = auditWriter(join(dir, "audit.jsonl"));
+      const readVia = async (path: string): Promise<string> => {
+        const raw = await handleRpcLine(
+          JSON.stringify(toolExecuteFrame(`read-${path.replace(/\W/gu, "-")}`, "read", { path })),
+          {
+            sandbox: fakeSandbox,
+            policy,
+            auditWriter: writer,
+            workspaceRoot: workspace,
+            workspaceTrusted: true,
+            credentialProxyRules: [
+              {
+                id: "fixture-api",
+                mode: "swap_on_access",
+                host: "api.example.com",
+                scheme: "Bearer",
+                source: { kind: "file", path: credentialSource },
+              },
+            ],
+            env: { HOME: join(dir, "home"), KEEL_HOME: join(dir, "keel-home") },
+          },
+        );
+        return JSON.stringify(raw);
+      };
+
+      // Baselines: the canonical spellings are already denied today.
+      expect(await readVia("secrets/token")).not.toContain("CANARY_CRED_do_not_leak");
+      expect(await readVia(".env")).not.toContain("CANARY_ROOTENV_do_not_leak");
+      // Alternate spellings of those same files must be denied too.
+      expect(await readVia("notes.txt")).not.toContain("CANARY_CRED_do_not_leak");
+      expect(await readVia(".ENV")).not.toContain("CANARY_ROOTENV_do_not_leak");
+      expect(await readVia("config/.env.staging")).not.toContain("CANARY_NESTED_do_not_leak");
+      expect(await readVia("config/.ENV.staging")).not.toContain("CANARY_NESTED_do_not_leak");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("does not return search matches from a deny-read credential-proxy source file", async () => {
+    // `search`'s policy target is the search SCOPE, not the files it reads, so a recursive search
+    // carries the workspace root as its target — inside no deny root — and `policySandboxFindings`
+    // has nothing to reject. The tool then returned matched LINE CONTENT from every non-hidden
+    // file, including a credential-proxy source that the profile deny-reads precisely so the model
+    // never sees the token. No symlink, no case trick, no alias: one ordinary search call.
+    const dir = mkdtempSync(join(tmpdir(), "keel-rpc-search-denyread-"));
+    try {
+      const workspace = join(dir, "workspace");
+      mkdirSync(join(workspace, "secrets"), { recursive: true });
+      const secretPath = join(workspace, "secrets", "token");
+      writeFileSync(secretPath, "CANARY_TOKEN_do_not_leak\n", { mode: 0o600 });
+      const fakeRg = join(dir, "rg-fixture");
+      const match = JSON.stringify({
+        type: "match",
+        data: {
+          path: { text: "secrets/token" },
+          line_number: 1,
+          lines: { text: "CANARY_TOKEN_do_not_leak\n" },
+          submatches: [{ start: 0 }],
+        },
+      });
+      writeFileSync(
+        fakeRg,
+        `#!/bin/sh
+printf '%s\\n' '${match}'
+`,
+      );
+      chmodSync(fakeRg, 0o755);
+      const writer = auditWriter(join(dir, "audit.jsonl"));
+      const fakeSandbox: SandboxPort = {
+        status: () => ({
+          available: true,
+          backend: "fake-sandbox",
+          enforcementTier: "sandbox:fake",
+        }),
+        execute: async () => ({ exitCode: 0, signal: null, stdout: "", stderr: "" }),
+      };
+
+      const raw = JsonRpcSuccessResponse.parse(
+        await handleRpcLine(
+          JSON.stringify(
+            toolExecuteFrame("typed-search-denyread", "search", {
+              pattern: "CANARY_TOKEN",
+              output_mode: "content",
+            }),
+          ),
+          {
+            sandbox: fakeSandbox,
+            policy: await createDefaultPolicyPort(),
+            auditWriter: writer,
+            workspaceRoot: workspace,
+            workspaceTrusted: true,
+            credentialProxyRules: [
+              {
+                id: "fixture-api",
+                mode: "swap_on_access",
+                host: "api.example.com",
+                scheme: "Bearer",
+                source: { kind: "file", path: secretPath },
+              },
+            ],
+            env: {
+              HOME: join(dir, "home"),
+              KEEL_HOME: join(dir, "keel-home"),
+              KEEL_RG_PATH: fakeRg,
+              PATH: "/usr/bin:/bin",
+            },
+          },
+        ),
+      );
+
+      const result = WARDEN_METHODS["warden.execute"].result.parse(raw.result);
+      expect(JSON.stringify(result)).not.toContain("CANARY_TOKEN_do_not_leak");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("executes governed search locally through the typed-tool path", async () => {
     const dir = mkdtempSync(join(tmpdir(), "keel-rpc-search-allow-"));
     try {
