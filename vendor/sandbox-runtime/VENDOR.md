@@ -49,6 +49,7 @@ not source needed for Keel's reviewed adapter path:
 - `patches/read-hidden-write-deny.patch`
 - `patches/wait-for-linux-proxy-readiness.patch`
 - `patches/connect-time-destination-resolver.patch`
+- `patches/reemit-macos-glob-read-denies.patch`
 - `test/sandbox/linux-proxy-readiness.test.ts`
 - `test/sandbox/destination-dial.test.ts`
 - `test/sandbox/destination-guard-proxy.test.ts`
@@ -67,6 +68,25 @@ not source needed for Keel's reviewed adapter path:
   re-bound read-only. Read-denied host bytes stay hidden and authority writes now fail structurally.
 - Upstreamable status: minimal and intended for upstream submission after Keel's Linux conformance
   gate validates the end-to-end denial. It has not yet been submitted upstream.
+
+### Re-emit macOS glob read denies after allowWithinDeny
+
+- Patch: `patches/reemit-macos-glob-read-denies.patch`
+- Applied file: `src/sandbox/macos-sandbox-utils.ts`
+- Reason: `generateReadRules` emits `denyOnly` rules before the `allowWithinDeny` re-allows, then
+  re-emits only the LITERAL denies afterwards so they win under SBPL last-match-wins. Glob denies were
+  skipped, so a glob deny paired with an allowRead covering the matching files was present in the
+  generated profile but enforced nothing. Keel's fail-closed workspace secret backstop
+  (`<workspace>/**/.env*`, emitted when the bounded nested-`.env` enumeration cannot complete) is
+  exactly that shape, so nested `.env` files were readable on macOS while Linux enforced them.
+- Security impact: restores the intended deny precedence on macOS and brings it to parity with Linux,
+  which already expands the same glob into concrete `--ro-bind` masks. `allowWithinDeny` still takes
+  precedence for the paths it names: any allowed subpath the glob itself matches is re-allowed after
+  the re-emitted deny, so an explicit re-allow cannot be silently overridden by a broad glob.
+- Upstreamable status: minimal and upstreamable. The upstream comment justified the skip by pointing at
+  a `denyReadAlways` schema lever, but no such field exists in `FsReadRestrictionConfig`
+  (`{denyOnly, allowWithinDeny}`), so there was no alternative lever. Recorded 2026-08-01; not yet
+  submitted upstream.
 
 ### Wait for Linux proxy listeners
 

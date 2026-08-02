@@ -17,6 +17,7 @@ const expected = {
     "patches/connect-time-destination-resolver.patch",
     "patches/read-hidden-write-deny.patch",
     "patches/wait-for-linux-proxy-readiness.patch",
+    "patches/reemit-macos-glob-read-denies.patch",
     "package.json",
     "package-lock.json",
     "src/index.ts",

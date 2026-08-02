@@ -552,6 +552,48 @@ suite("real SRT sandbox enforcement (opt-in: KEEL_REQUIRE_REAL_SANDBOX=1)", () =
     expect(result.stdout).not.toContain(marker);
   });
 
+  it("does not leak a nested .env covered ONLY by the workspace **/.env* glob deny", async () => {
+    // The fail-closed backstop in `withWorkspaceSecretDenyRead`: when the bounded nested-.env
+    // enumeration cannot complete (routine for a node_modules-sized repo, and ALWAYS for an
+    // untrusted workspace), keel emits a workspace-wide `**/.env*` deny instead of concrete roots.
+    // This probe pins that the BACKEND actually enforces that glob. It is deliberately the glob
+    // ALONE — no concrete deny root — because the profile-object assertions elsewhere cannot tell a
+    // rule the backend honors from one it silently discards.
+    const nestedDir = join(workRoot, "pkg", "api");
+    mkdirSync(nestedDir, { recursive: true });
+    const nestedEnv = join(nestedDir, ".env");
+    const marker = "NESTED-DOTENV-KEEL-C1";
+    writeFileSync(nestedEnv, `NESTED_SECRET=${marker}\n`);
+    const readable = join(nestedDir, "plain.txt");
+    const readableMarker = "PUBLIC-NESTED-KEEL-C1";
+    writeFileSync(readable, readableMarker);
+
+    const profile: SandboxProfile = {
+      filesystem: {
+        allowRead: [workRoot],
+        allowWrite: [workRoot],
+        denyRead: [join(workRoot, "**", ".env*")],
+        denyWrite: [],
+      },
+      network: { allowedDomains: [], deniedDomains: ["*"], strictAllowlist: true },
+    };
+
+    // Positive control: a non-matching sibling in the same directory IS readable, proving the
+    // sandbox runs and the glob is not simply denying everything.
+    const control = await sandbox.execute(
+      { command: "/bin/cat", argv: ["/bin/cat", readable] },
+      profile,
+    );
+    expect(control.exitCode).toBe(0);
+    expect(control.stdout).toContain(readableMarker);
+
+    const result = await sandbox.execute(
+      { command: "/bin/cat", argv: ["/bin/cat", nestedEnv] },
+      profile,
+    );
+    expect(result.stdout).not.toContain(marker);
+  });
+
   it("DENIES network egress that the same command makes unsandboxed", async () => {
     // A local listener → deterministic, needs no external network. On macOS seatbelt blocks the
     // connect; on Linux `--unshare-net` gives the sandbox its own namespace-local loopback, so the

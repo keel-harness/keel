@@ -3900,7 +3900,12 @@ function withWorkspaceSecretDenyRead(
     // workspace-wide `**/.env*` glob deny that the sandbox backend expands so undiscovered nested
     // `.env` stay denied regardless of entry count.
     //
-    // Platform coverage: on macOS this is a native regex deny (complete, no walk). On Linux, bwrap has
+    // Platform coverage: on macOS this becomes a native regex deny (complete, no walk), evaluated by
+    // the kernel at access time. NOTE: until 2026-08-01 the vendored generator emitted glob denies
+    // BEFORE its `allowWithinDeny` re-allows and re-emitted only literal denies afterwards, so under
+    // SBPL last-match-wins this rule was present but enforced nothing — nested `.env` was readable on
+    // macOS. `patches/reemit-macos-glob-read-denies.patch` fixes that; enforcement (not just profile
+    // contents) is pinned by the `**/.env*` case in `srt-sandbox.real.test.ts`. On Linux, bwrap has
     // no native globs, so the vendored runtime expands the glob with its own recursive readdir — which
     // aborts on an unreadable (EACCES) directory. So the residual, DOCUMENTED gap is: a Linux workspace
     // that BOTH exceeds the enumeration cap AND contains an unreadable subdir may leave nested `.env`

@@ -295,14 +295,39 @@ function generateReadRules(
       )
     }
   }
-  // A literal denyOnly path nested inside a literal allowWithinDeny subpath
-  // would otherwise be re-allowed (last-match-wins). Re-emit it so the
-  // more-specific deny lands last. Glob denies aren't re-emitted: nesting
-  // of regex-vs-subpath isn't decidable here, and the schema's denyReadAlways
-  // is the explicit lever for that case.
+  // A denyOnly path nested inside a literal allowWithinDeny subpath would otherwise be
+  // re-allowed (SBPL is last-match-wins). Re-emit it so the more-specific deny lands last.
+  //
+  // This applies to GLOB denies too. A glob deny is emitted above, before the allowWithinDeny
+  // re-allows, so any allowed subpath covering the matching files silently discards it — the
+  // rule is present in the profile but enforces nothing. That is exactly the shape of a
+  // workspace-wide secret backstop such as `<workspace>/**/.env*` paired with an allowRead of
+  // the workspace root, which is why a profile-object assertion cannot detect the gap.
+  // allowWithinDeny still takes precedence for the paths it names: after re-emitting the glob
+  // deny we re-allow any allowed subpath the glob itself matches, so an explicit re-allow is
+  // never silently overridden by a broad glob.
   for (const denyPath of config.denyOnly || []) {
-    if (containsGlobChars(denyPath)) continue
     const normalized = normalizePathForSandbox(denyPath)
+    if (containsGlobChars(normalized)) {
+      if (allowedSubpaths.length === 0) continue
+      const regexPattern = globToRegex(normalized)
+      rules.push(
+        `(deny file-read*`,
+        `  (regex ${escapePath(regexPattern)})`,
+        `  (with message "${logTag}"))`,
+      )
+      const matchesGlob = new RegExp(regexPattern)
+      for (const allowed of allowedSubpaths) {
+        if (matchesGlob.test(allowed)) {
+          rules.push(
+            `(allow file-read*`,
+            `  (subpath ${escapePath(allowed)})`,
+            `  (with message "${logTag}"))`,
+          )
+        }
+      }
+      continue
+    }
     if (allowedSubpaths.some(a => normalized.startsWith(a + '/'))) {
       rules.push(
         `(deny file-read*`,
