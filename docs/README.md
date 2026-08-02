@@ -6,7 +6,7 @@ A map of the docs, by what you're trying to do. New here? Start with the
 ## Start here
 
 - **[architecture.md](architecture.md)**: the one-page tour: the kernel/warden split, the ports,
-  "the model requests, the warden decides", the audit record, and honest phasing.
+  connect-time egress checks, the audit record, and honest phasing.
 - **[../README.md](../README.md)**: what it is, how to try it, configuration, and the honest
   status/limitations.
 - **[roadmap.md](roadmap.md)**: where keel is going and roughly in what order: what's shipped,
@@ -19,7 +19,7 @@ A map of the docs, by what you're trying to do. New here? Start with the
 - **[guide/concepts.md](guide/concepts.md)**: the core ideas: the model/warden split, trust,
   autonomy postures, reviews, and evidence.
 - **[guide/reference.md](guide/reference.md)**: every command, run flag, environment variable,
-  and file.
+  operator-managed egress exception, and file.
 - **[guide/policy-guide.md](guide/policy-guide.md)**: autonomy modes, live approvals, and grant
   scopes: what the footer, `/policies`, Autopilot, and YOLO mean.
 - **[guide/untrusted-repos.md](guide/untrusted-repos.md)**: running keel on a repo you did not
@@ -29,8 +29,8 @@ A map of the docs, by what you're trying to do. New here? Start with the
 
 ## Understanding keel
 
-- **[guide/security-model.md](guide/security-model.md)**: the threat model in plain language:
-  what is enforced, what is partially proven, and what is out of scope.
+- **[guide/security-model.md](guide/security-model.md)**: the threat model in plain language,
+  including connect-time egress enforcement and its backend-specific limits.
 - **[guide/architecture.md](guide/architecture.md)**: the deep-dive: processes, RPC, the
   enforcement chain, and the audit chain. (For the short version, the
   [one-pager](architecture.md).)

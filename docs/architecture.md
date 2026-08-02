@@ -31,8 +31,8 @@ conversation) can only ask.
   every such action flows through `warden.execute`.
 - **warden (`packages/warden`)** — the enforcement plane, in its own process. It evaluates a
   hash-pinned policy pack, runs actions inside an OS sandbox profile, mediates network egress,
-  and writes the audit chain. The model cannot alter policy, because policy is not part of the
-  model's writable world.
+  checks the resolved address used by supported TCP connections, and writes the audit chain. The
+  model cannot alter policy, because policy is not part of the model's writable world.
 
 Shared, frozen contracts (RPC, audit, session, policy schemas) live in `packages/shared`;
 `packages/simulator` is a scripted model for deterministic tests; `packages/eval` is the
@@ -44,6 +44,25 @@ Volatile dependencies sit behind stable interfaces so implementations can be swa
 changing contracts: **ModelPort**, **UIPort**, **PolicyPort**, **SandboxPort**, **ExecutorPort**.
 This is what makes a future Rust warden or a native sandbox backend a drop-in rather than a
 rewrite.
+
+## Egress is checked at the final dial
+
+For governed TCP egress through the vendored SRT backend, allowing a hostname is only the first
+gate. Before every new connection, the warden:
+
+1. resolves the requested hostname;
+2. classifies every returned address;
+3. denies the whole attempt if any answer is unsafe, malformed, or not covered by a narrow
+   operator exception; and
+4. gives SRT only the vetted address set to use for the socket.
+
+The original hostname remains the HTTP Host value and the TLS certificate/SNI name. This prevents
+SRT from resolving the name again after the address check. Private-address exceptions require an
+exact workspace, hostname, CIDR, and port match, and the hostname still needs its ordinary egress
+grant. This is an `srt:vendored` TCP property, not a claim about provider API calls, UDP/QUIC, or
+every future sandbox backend. See
+[ADR-0086](adr/0086-warden-owned-egress-address-guard.md) and the
+[security model](guide/security-model.md).
 
 ## The record survives the agent
 

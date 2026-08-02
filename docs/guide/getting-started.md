@@ -114,6 +114,7 @@ Standard Emacs line editing (`Ctrl-A/E/U/K/W/Y`, `Alt-B/F`) works at the prompt.
 | `keel autopilot mode …` | Read/set/clear the persisted autonomy posture. |
 | `keel autopilot grants …` | List/revoke persisted project grants. |
 | `keel autopilot plan preview …` | Preview exact Plan-Autopilot resources (grants nothing). |
+| `keel egress exception add\|list\|remove …` | Manage exact private-address exceptions for one workspace. |
 | `keel audit export <session>` | Export a signed evidence bundle. |
 | `keel audit verify <bundle>` | Verify a bundle offline. |
 | `keel sessions <list\|resume\|branch>` | Inspect session ledgers. |

@@ -1304,6 +1304,10 @@
                 <dd>Seatbelt / bubblewrap</dd>
               </div>
               <div class="row">
+                <dt>egress</dt>
+                <dd>SRT address guard</dd>
+              </div>
+              <div class="row">
                 <dt>audit</dt>
                 <dd>SHA-256 chain</dd>
               </div>
@@ -1506,7 +1510,7 @@
             <ul role="list">
               <li>hash-pinned policy</li>
               <li>OS sandbox profile</li>
-              <li>network egress control</li>
+              <li>domain + resolved-address egress control</li>
               <li>writes the audit chain</li>
             </ul>
           </div>
@@ -1535,8 +1539,10 @@
             <span class="n">04</span>
             <span class="t"
               >An allowed governed <code>bash</code> action runs inside an
-              <strong>OS sandbox</strong>: Seatbelt on macOS, bubblewrap on Linux. Network egress
-              goes through an allowlist proxy.</span
+              <strong>OS sandbox</strong>: Seatbelt on macOS, bubblewrap on Linux. For vendored SRT
+              TCP, the warden resolves every destination immediately before connect, denies the
+              whole answer set if any address is unsafe, and pins the vetted set to the
+              socket.</span
             >
           </li>
           <li>
@@ -1619,11 +1625,12 @@
             </p>
           </div>
           <div class="prop">
-            <p class="k">Verifiable gates</p>
-            <h3>CI cannot pass by skipping</h3>
+            <p class="k">Connect-time egress</p>
+            <h3>Approved names still face an address check</h3>
             <p>
-              The real-sandbox job runs with a flag that turns an unavailable backend into a hard
-              failure. A gate that cannot run fails. It does not skip and report success.
+              For vendored SRT TCP, the warden resolves and classifies every destination before a
+              new connection. One unsafe answer denies the whole attempt. SRT can dial only the
+              vetted address set.
             </p>
           </div>
           <div class="prop">
@@ -1753,6 +1760,14 @@
                 <td><span class="run">pnpm test:sandbox:real</span></td>
               </tr>
               <tr>
+                <td>Connect-time egress guard</td>
+                <td>
+                  Product, carrier, policy, resolver, exception, audit, and final-dial paths for the
+                  vendored SRT TCP backend
+                </td>
+                <td><span class="run">pnpm test:egress-product</span></td>
+              </tr>
+              <tr>
                 <td>Audit integrity</td>
                 <td>Hash chain plus an offline evidence-bundle verifier</td>
                 <td><span class="run">pnpm keel audit verify &lt;bundle&gt;</span></td>
@@ -1812,8 +1827,11 @@
           </li>
           <li>
             <span class="t"
-              ><strong>Provider API egress is not governed.</strong> Calls to the model provider do
-              not route through the warden.</span
+              ><strong
+                >Provider API egress is not governed; the address guard is SRT TCP only.</strong
+              >
+              Provider calls do not route through the warden. UDP/QUIC, proxy-unaware traffic, guest
+              activity, and alternate backends do not inherit this guard.</span
             >
           </li>
           <li>
@@ -1873,8 +1891,9 @@
           </li>
           <li>
             <span class="t"
-              ><strong>Egress allowlisting is domain-level.</strong> Allowing a domain allows every
-              path on it.</span
+              ><strong>Egress authorization is still domain-level.</strong> Allowing a host allows
+              every URL path on it. The address guard filters the resolved destination, not request
+              paths.</span
             >
           </li>
           <li>
@@ -1978,6 +1997,12 @@ pnpm keel run -p <span class="s">"fix the failing test in src/foo.ts"</span></pr
           <a href="https://github.com/keel-harness/keel/blob/main/docs/adr/README.md"
             ><span class="f">ADR index</span
             ><span class="d">Every significant design decision, with its reasoning.</span
+            ><span class="x" aria-hidden="true">↗</span></a
+          >
+          <a
+            href="https://github.com/keel-harness/keel/blob/main/docs/adr/0086-warden-owned-egress-address-guard.md"
+            ><span class="f">ADR-0086</span
+            ><span class="d">The connect-time egress guard, its enforcement point, and limits.</span
             ><span class="x" aria-hidden="true">↗</span></a
           >
           <a href="https://github.com/keel-harness/keel/blob/main/docs/guide/getting-started.md"

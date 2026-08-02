@@ -15,6 +15,11 @@ Use this guide when you need to understand what the footer, `/policies`, live re
 
 It does not edit policy, approve a review, trust a workspace, change Autopilot mode, or prove stronger enforcement than the footer already shows. If `/policies` and the footer disagree, treat that as a bug and trust the weaker reading until it is investigated.
 
+`egress on` means the active warden advertised `egress-address-guard/v1` after the SRT proxy,
+resolver, classifier, exception snapshot, and audit sink initialized. A domain allowlist by itself is
+not enough for that label. A backend that does not advertise the capability must report the weaker
+state.
+
 `audit unseen` means warden protections are active but the TUI has not observed a non-empty audit head. It is an evidence statement, not queued work or a promise that a write will occur. `audit on` appears only after the runtime has observed evidence in the chain.
 
 ## Where policy is configured
@@ -71,13 +76,27 @@ Session exact-resource scope applies only to the exact domain or command envelop
 
 Project scope is persisted only through the explicit Project Autopilot grant path. It must name the exact stored authority and remain revocable. The TUI should not offer a generic "approve and remember" button unless the warden has supplied an exact, supported grant path.
 
+## Address exceptions are not grants
+
+A hostname grant answers whether a domain may be contacted. A private-address exception answers a
+different question: whether one exact hostname and port, for one resolved workspace, may use an
+address inside one restricted CIDR. Both must match before the SRT connect-time guard allows the
+connection.
+
+Only a human manages exceptions through `keel egress exception add|list|remove`. They live in
+keel-owned user configuration, not the project, and they cannot cover loopback, metadata, or other
+hard-denied destinations. A running warden keeps its startup snapshot, so changing an exception does
+not silently widen a live session; restart it to activate the new revision. Exact syntax and storage
+details are in the [reference](reference.md#egress-address-exceptions).
+
 ## Admin checklist
 
 1. Start with `keel autopilot mode status` to see configured mode and whether the workspace is trusted.
 2. Use `keel autopilot grants list` to inspect persisted project grants.
-3. Use `/policies` in the TUI to inspect what the live session actually knows.
-4. Use `/reviews` to audit review-needed receipts, but do not treat it as an approval surface.
-5. Prefer Guided for unfamiliar or sensitive repos; use Autopilot only where the warden status, trust state, and grant scope are understood.
+3. Use `keel egress exception list --workspace <path>` to inspect separate private-address authority.
+4. Use `/policies` in the TUI to inspect what the live session actually knows.
+5. Use `/reviews` to audit review-needed receipts, but do not treat it as an approval surface.
+6. Prefer Guided for unfamiliar or sensitive repos; use Autopilot only where the warden status, trust state, and grant scope are understood.
 
 ## Non-claims
 

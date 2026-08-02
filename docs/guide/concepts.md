@@ -12,9 +12,10 @@ keel splits into two processes:
   TUI, and your provider key. It has no code path that executes a governed tool
   directly.
 - The **warden** is a separate process the kernel spawns. It owns policy, the OS
-  sandbox, egress control, and the audit record. Every governed tool call crosses a
-  JSON-RPC boundary to the warden, which returns a verdict: `allow`, `deny`,
-  `review`, `warn`, or `modify`.
+  sandbox, egress control, and the audit record. On the vendored SRT TCP path it also checks and
+  pins the destination's resolved addresses immediately before connect. Every governed tool call
+  crosses a JSON-RPC boundary to the warden, which returns a verdict: `allow`, `deny`, `review`,
+  `warn`, or `modify`.
 
 This is structural enforcement. It does not depend on the model behaving well,
 because the process that runs actions is not the process the model talks through.

@@ -22,6 +22,18 @@ stores (`~/.ssh`, `~/.aws`, `~/.kube`, and similar), workspace `.env` files, and
 keel's own config, policy, and audit directories. Network egress is deny-all
 until a human grants a domain.
 
+**Allowed hostnames still face a connect-time address check.** For governed TCP through the
+vendored SRT backend, the warden resolves the requested destination immediately before each new
+connection and classifies every answer. One unsafe, malformed, or uncovered address denies the
+whole attempt. SRT receives only the vetted address set and cannot resolve the hostname again before
+the socket opens. The original hostname remains in HTTP Host, TLS certificate verification, and
+SNI. Denials are bounded and recorded without exposing an exact private address.
+
+Private enterprise endpoints require an owner-managed exception that matches the exact workspace,
+hostname, CIDR, and port. The hostname also needs an ordinary egress grant. Exceptions are stored
+outside the project, cannot make hard-denied loopback or metadata destinations reachable, and take
+effect only after the warden restarts.
+
 **The audit record is not the agent's to write.** Every governed action, denials
 included, is appended by the warden to a per-session hash chain with
 Ed25519-signed checkpoints. An intent record is written and fsynced before the
@@ -44,6 +56,7 @@ Claims here map to executable evidence:
 
 ```sh
 pnpm test:security        # 990 adversarial and denied-path tests passed
+pnpm test:egress-product  # connect-time guard product and policy paths
 pnpm test:sandbox:real    # real Seatbelt/bubblewrap denial probes (opt-in)
 keel audit export <id>    # then verify the bundle offline:
 keel audit verify <bundle>
@@ -75,8 +88,13 @@ the claim ledger's.
   recorded with an unexpanded literal path today. Its classifier reports unknown,
   policy reviews it, and the sandbox denies the real secret read, but the recorded
   path target is not a semantically exact expansion.
-- **Egress granularity is domain-level** (documented gap). Allowing
-  `github.com` allows all of `github.com`.
+- **Egress authorization is still domain-level** (documented gap). Allowing
+  `github.com` allows every URL path on that host. The connect-time address guard is a second layer;
+  it filters resolved destinations, not request paths.
+- **Resolved-address coverage is backend-specific** (`DOC-LIMIT`). The connect-time guard is
+  implemented and tested for SRT-mediated TCP, but SEC-003 remains `DOC-LIMIT` rather than a generic
+  DNS-rebinding claim. SEC-015 also remains `DOC-LIMIT`: keel does not claim general CONNECT/SNI
+  equivalence or domain-fronting prevention.
 - **Redaction is best-effort** (Proven for its stated scope). Documented blind
   spots include AWS secret access keys, bare JWTs, and short or split secrets.
   Redaction protects records at rest; a secret the model already read is in its
@@ -94,8 +112,10 @@ them:
 - **Kernel-asserted authority.** Human approvals and mode changes are asserted by
   the kernel process, which is trusted in v1. Warden-owned consent is future
   hardening.
-- **Covert channels** (timing, DNS volume, steganography) and full DNS-rebinding
-  defense at resolved-address time.
+- **Covert channels** (timing, DNS volume, steganography) and DNS-query confidentiality.
+- **Network paths outside the SRT address guard.** Provider API calls, UDP/QUIC, proxy-unaware
+  traffic, interactive-console guest activity, and alternate sandbox backends do not inherit this
+  connect-time enforcement.
 - **The interactive-console guest OS**: the host process is governed, the guest
   OS inside it is not.
 - **MCP servers** are pinned trust-on-first-use; pinning is not containment of a
