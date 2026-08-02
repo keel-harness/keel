@@ -7290,7 +7290,7 @@ export function runStdioWardenServer(options: StdioWardenServerOptions = {}): St
         if (options.mutationPresentation !== undefined) {
           await cleanupMutationPresentationOnce();
         }
-        await cleanupRuntimeOnce();
+        if (options.shutdownRuntime !== undefined) await cleanupRuntimeOnce();
         options.onShutdown?.({ reaped: true });
       }
     }

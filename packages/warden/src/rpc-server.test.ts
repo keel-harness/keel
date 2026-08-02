@@ -122,7 +122,9 @@ class WardenHarness {
   #waiters: ((line: string) => void)[] = [];
 
   constructor(env: NodeJS.ProcessEnv = {}, cwd = ROOT) {
-    this.keelHome = mkdtempSync(join(tmpdir(), "keel-warden-home-"));
+    // macOS exposes tmpdir through /var -> /private/var. The exception authority intentionally
+    // rejects path aliases, so spawned Warden fixtures must pass the physical KEEL_HOME identity.
+    this.keelHome = realpathSync(mkdtempSync(join(tmpdir(), "keel-warden-home-")));
     this.child = spawn(
       process.execPath,
       ["--import", "tsx/esm", "--conditions=@keel/source", WARDEN_BIN],
@@ -19470,10 +19472,19 @@ printf '%s\\n' '${match}'
     expect(["none", "sandbox:srt"]).toContain(status.enforcementTier);
     expect(status.policyPack.name).toBe("phase2a-starter-policy-pack");
     expect(status.auditHead.seq).toBe(0);
+
+    warden.send(helloFrame("srt-guard-capability"));
+    const helloRaw = JsonRpcSuccessResponse.parse(await warden.readJson());
+    const hello = WARDEN_METHODS["warden.hello"].result.parse(helloRaw.result);
+    if (status.enforcementTier === "sandbox:srt") {
+      expect(hello.capabilities).toContain("egress-address-guard/v1");
+    } else {
+      expect(hello.capabilities).not.toContain("egress-address-guard/v1");
+    }
   });
 
   it("runs the opt-in srt filesystem hardening probes when available, otherwise fails closed", async () => {
-    const workspace = mkdtempSync(join(tmpdir(), "keel-srt-workspace-"));
+    const workspace = realpathSync(mkdtempSync(join(tmpdir(), "keel-srt-workspace-")));
     const home = mkdtempSync(join(tmpdir(), "keel-srt-home-"));
     const outsideDir = mkdtempSync(join(tmpdir(), "keel-srt-outside-dir-"));
     // Keep this target outside both the workspace and temporary scope on every host. Linux uses
@@ -19505,7 +19516,8 @@ printf '%s\\n' '${match}'
         "});",
       ].join("\n"),
     );
-    mkdirSync(auditDir, { recursive: true });
+    mkdirSync(keelHome, { mode: 0o700 });
+    mkdirSync(auditDir);
     writeFileSync(auditPath, "audit-sealed\n");
     symlinkSync(outsideDir, symlinkPath, "dir");
     try {
@@ -19607,7 +19619,7 @@ printf '%s\\n' '${match}'
       return;
     }
     const { server, port, hits } = fixture;
-    const workspace = mkdtempSync(join(tmpdir(), "keel-srt-egress-workspace-"));
+    const workspace = realpathSync(mkdtempSync(join(tmpdir(), "keel-srt-egress-workspace-")));
     const home = mkdtempSync(join(tmpdir(), "keel-srt-egress-home-"));
     try {
       const deniedWarden = spawnWarden({
