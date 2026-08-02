@@ -28,6 +28,9 @@ The parts of keel you can rely on now:
 - **Session persistence** — append-only session ledgers with `--continue` / `--resume`.
 - **Governed tool surface** — governed bash, trusted file tools, and reviewed
   local-stdio MCP route through the warden; unreviewed tools fail closed.
+- **Connect-time egress address guard** — the vendored SRT TCP path resolves destinations in the
+  warden immediately before each connection, rejects unsafe or mixed answer sets, and pins the
+  vetted addresses to the final dial. The claim is backend-specific.
 
 See the [getting-started guide](guide/getting-started.md) for how to use these.
 

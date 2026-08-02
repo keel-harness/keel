@@ -550,6 +550,39 @@ describe("overclaim vocabulary guard (P1-7)", () => {
   });
 });
 
+describe("connect-time egress documentation", () => {
+  it("keeps the shipped guard, backend scope, and residual limits together", () => {
+    for (const path of [
+      "README.md",
+      "MASTER_SPEC.md",
+      "docs/guide/security-model.md",
+      "site/index.html",
+    ]) {
+      const text = readRepoFile(path);
+      expect(text, `${path} dropped the connect-time egress guard`).toMatch(/connect-time/i);
+      expect(text, `${path} dropped the vendored SRT scope`).toMatch(/srt:vendored|vendored SRT/i);
+      expect(text, `${path} dropped the provider API boundary`).toMatch(/provider API/i);
+      expect(text, `${path} dropped the non-TCP boundary`).toMatch(/UDP\/QUIC/i);
+    }
+
+    const spec = readRepoFile("MASTER_SPEC.md");
+    const claimLedger = readRepoFile("docs/quality/claim-ledger.md");
+    const securitySuite = readRepoFile("docs/quality/security-suite-v1.md");
+    expect(spec).toContain("SEC-003 therefore remains `DOC-LIMIT`");
+    expect(claimLedger).toContain("SEC-003 and SEC-015 remain `DOC-LIMIT`");
+    expect(securitySuite).toContain("SEC-003 and SEC-015 remain `DOC-LIMIT`");
+  });
+
+  it("documents exceptions as narrower than hostname grants", () => {
+    const reference = readRepoFile("docs/guide/reference.md");
+    const policyGuide = readRepoFile("docs/guide/policy-guide.md");
+    expect(reference).toContain("keel egress exception add --workspace");
+    expect(reference).toMatch(/exception alone opens nothing/i);
+    expect(policyGuide).toMatch(/Address exceptions are not grants/i);
+    expect(policyGuide).toMatch(/Both must match/i);
+  });
+});
+
 // --- Published landing page (site/index.html) ---
 //
 // The landing page is a claim surface with no reviewer between it and the public: it is what a

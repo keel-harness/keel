@@ -24,6 +24,7 @@ same CLI.
 | `keel autopilot mode status\|set <mode>\|clear` | View or set the persisted per-workspace autonomy mode. |
 | `keel autopilot grants list\|revoke ...` | List or revoke persisted project grants. |
 | `keel autopilot plan preview ...` | Preview an exact-resource plan envelope. Grants nothing. |
+| `keel egress exception add\|list\|remove ...` | Manage exact private-address exceptions for one workspace. |
 | `keel mcp review <server>` | Review and pin a local MCP server from `.keel/mcp.json`. |
 
 **Exit codes.** Interactive and `run` sessions exit non-zero when the run stopped
@@ -135,6 +136,28 @@ selects `prompt` or `prestop` (the latter needs `KEEL_PRESTOP_CHECK_CMD`).
 must exist and be non-empty before a clean stop; it requires a trusted workspace.
 These default off; earlier always-on versions measured net-negative.
 
+## Egress address exceptions
+
+The SRT connect-time guard denies private and other restricted addresses by default. If a trusted
+enterprise service intentionally resolves into private space, a human can add one exact exception:
+
+```sh
+keel egress exception list --workspace /path/to/project
+keel egress exception add --workspace /path/to/project \
+  --host registry.corp.example --cidr 10.20.0.0/16 --port 443
+keel egress exception remove --workspace /path/to/project \
+  --host registry.corp.example --cidr 10.20.0.0/16 --port 443
+```
+
+An exception matches the resolved workspace, one exact hostname, one canonical CIDR, and one or more
+exact ports. It accepts no wildcard hostname, IP-literal hostname, port wildcard, or port range.
+Loopback, metadata, link-local, multicast, unspecified, and other hard-denied destinations cannot be
+excepted. The hostname must also have its ordinary egress grant; the exception alone opens nothing.
+
+The warden reads one immutable exception snapshot at startup. After `add` or `remove`, stop the
+running warden and continue the workspace session as instructed by the command output. `keel doctor`
+reports an unsafe or malformed exception store and prints one remediation.
+
 ## Files
 
 Under `KEEL_HOME`:
@@ -149,6 +172,7 @@ Under `KEEL_HOME`:
 | `credentials.json` | Provider keys (`0600`). |
 | `project-autopilot-modes.json` | Persisted per-workspace autonomy mode. |
 | `egress-project-grants.json`, `command-project-grants.json` | Persisted project grants. |
+| `egress-address-exceptions.v1.json` | Owner-managed private-address exceptions; strict versioned JSON, owner-only `0600`. |
 | `mcp-trust.json` | Pinned MCP server trust. |
 | `config-change-receipts.jsonl` | Redacted log of config changes, each with an undo command. |
 | `snapshots/<session-id>/` | Faithful run-start workspace safety copy for human-only recovery. |

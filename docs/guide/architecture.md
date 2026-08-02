@@ -73,6 +73,36 @@ swapped without touching the contract:
 9. The verdict envelope returns to the kernel. A deny becomes a
    "blocked by warden (not executed)" message with guidance for self-correction.
 
+## One governed TCP connection, end to end
+
+The vendored SRT backend applies two separate egress gates. The ordinary grant or allowlist decides
+whether the requested hostname is allowed. The connect-time address guard then decides whether the
+address actually used by the socket is safe:
+
+1. SRT passes the canonical hostname and port to a warden-owned resolver immediately before a new
+   connection.
+2. The warden resolves the hostname once and classifies every returned address. IP literals go
+   through the same classifier without DNS.
+3. If any answer is malformed, restricted, hard-denied, or not covered by a matching exception, the
+   entire attempt is denied. The warden never hides a denied answer by selecting only the acceptable
+   subset.
+4. SRT receives only the vetted address set. That set is authoritative for the connection; SRT does
+   not resolve the hostname again or fall back to a raw hostname dial.
+5. HTTP Host, TLS certificate verification, and SNI continue to use the original hostname.
+
+Private enterprise destinations can use an owner-managed exception keyed to the exact workspace,
+hostname, CIDR, and port. An exception does not grant the hostname; the ordinary hostname grant must
+also allow it. The exception file is loaded as one immutable snapshot when the warden starts, so a
+CLI mutation requires a restart before it becomes active.
+
+The warden advertises `egress-address-guard/v1` only after the exception store, classifier, resolver,
+SRT proxy, and authoritative audit sink initialize successfully. The kernel can report egress as on
+only from that capability. A different sandbox backend gets no credit from this implementation.
+
+This mechanism covers SRT-mediated TCP. It does not cover provider API calls, UDP/QUIC,
+proxy-unaware traffic, interactive-console guest activity, or CONNECT/SNI equivalence. See
+[ADR-0086](../adr/0086-warden-owned-egress-address-guard.md).
+
 ## The audit chain
 
 Each record carries `prevHash` and `hash`, where the hash is SHA-256 over the

@@ -47,8 +47,16 @@ Where the claims stand, and how to verify them yourself:
 | Coverage | 97.89% statements / 93.74% branches, enforced gate (per-file ≥90%; warden ≥95% lines/functions/statements) | `pnpm test:cov` |
 | Security suite | 990 adversarial / denied-path tests passed | `pnpm test:security` |
 | Real OS sandbox | Seatbelt (macOS) + bubblewrap (Linux) denial probes run in CI | `pnpm test:sandbox:real` |
+| Connect-time egress guard | The vendored SRT TCP backend resolves, checks, and pins every destination before a new connection | `pnpm test:egress-product` |
 | Audit integrity | tamper-evident hash chain + Ed25519 checkpoints (local `0600` key, readable by the same OS user) + offline evidence-bundle verifier | `keel audit verify <bundle>` |
 | Capability benchmarks | TerminalBench numbers with full caveats: single-trial, subset, sandbox-off | [docs/benchmarks.md](docs/benchmarks.md) |
+
+**Connect-time egress guard.** A hostname grant is not enough to open a socket. On the vendored SRT
+TCP backend, the warden resolves the destination immediately before each new connection, rejects the
+whole answer set if any address is unsafe or not covered by a narrow operator exception, and pins the
+vetted set to the final dial. This scope does not include provider API calls, UDP/QUIC, or alternate
+sandbox backends; see the [security model](docs/guide/security-model.md) and
+[ADR-0086](docs/adr/0086-warden-owned-egress-address-guard.md).
 
 The checkpoint-signing key is an at-rest `0600` file readable by the same OS user. Bundle
 verification proves "signed by that key," not "signed by an actor independent of the audited
