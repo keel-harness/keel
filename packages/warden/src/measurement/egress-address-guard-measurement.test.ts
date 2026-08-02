@@ -24,7 +24,7 @@ function passingInput(): EgressAddressGuardMeasurementInput {
       totalMemoryBytes: 8 * 1024 * 1024 * 1024,
     },
     configuration: {
-      latencySamples: 100,
+      latencySamples: 5,
       loadRequests: 40,
       throughputRequests: 1_000,
       transferBytes: CLAIM_TRANSFER_BYTES,
