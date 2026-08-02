@@ -2,10 +2,14 @@ import type { Server as NetServer, Socket } from 'net'
 import type { Socks5Server } from '@pondwader/socks5-server'
 import { createServer } from '@pondwader/socks5-server'
 import { logForDebugging } from '../utils/debug.js'
+import {
+  dialDestination,
+  type ResolveDestination,
+} from './destination-dial.js'
 import type { ResolvedParentProxy } from './parent-proxy.js'
 import {
   connectViaParentProxy,
-  dialDirect,
+  canonicalizeHost,
   isValidHost,
   selectParentProxyUrl,
   shouldBypassParentProxy,
@@ -20,6 +24,9 @@ export interface SocksProxyServerOptions {
    * NO_PROXY-matched hosts still connect directly.
    */
   parentProxy?: ResolvedParentProxy
+
+  /** Initialization-scoped resolver authority for every direct destination. */
+  resolveDestination?: ResolveDestination
 
   /**
    * Per-session token (same value as the HTTP proxy's). When set, the
@@ -41,6 +48,7 @@ export function createSocksProxyServer(
   options: SocksProxyServerOptions,
 ): SocksProxyWrapper {
   const socksServer = createServer()
+  const canonicalHostByConnection = new WeakMap<object, string>()
 
   if (options.proxyAuthToken) {
     socksServer.setAuthHandler((conn, accept, deny) => {
@@ -55,14 +63,14 @@ export function createSocksProxyServer(
 
   socksServer.setRulesetValidator(async conn => {
     try {
-      const hostname = conn.destAddress
+      const hostname = canonicalizeHost(conn.destAddress)
       const port = conn.destPort
 
       // SOCKS5 DOMAINNAME is a raw length-prefixed byte string with zero
       // validation from the protocol or the library. Reject control chars
       // (null bytes, CRLF) here so they never reach the allowlist matcher,
       // where string suffix matching would be trivially fooled.
-      if (!isValidHost(hostname)) {
+      if (hostname === undefined || !isValidHost(hostname)) {
         logForDebugging(
           `Rejecting malformed SOCKS host: ${JSON.stringify(hostname)}`,
           { level: 'error' },
@@ -82,6 +90,7 @@ export function createSocksProxyServer(
       }
 
       logForDebugging(`Connection allowed to ${hostname}:${port}`)
+      canonicalHostByConnection.set(conn as object, hostname)
       return true
     } catch (error) {
       logForDebugging(`Error validating connection: ${error}`, {
@@ -95,14 +104,25 @@ export function createSocksProxyServer(
   // HTTP proxy when one is configured. The default handler does a straight
   // net.connect() which fails when direct egress is blocked.
   socksServer.setConnectionHandler((conn, sendStatus) => {
-    const host = conn.destAddress
+    const host = canonicalHostByConnection.get(conn as object)
     const port = conn.destPort
+    canonicalHostByConnection.delete(conn as object)
+    if (host === undefined) {
+      try {
+        sendStatus('HOST_UNREACHABLE')
+      } catch {
+        conn.socket.destroy()
+      }
+      return
+    }
 
     // Track client liveness so we can abort the upstream dial if they bail.
     let clientGone = false
     let upstreamRef: Socket | undefined
+    const dialAbort = new AbortController()
     conn.socket.once('close', () => {
       clientGone = true
+      dialAbort.abort()
       upstreamRef?.destroy()
     })
     conn.socket.on('error', () => upstreamRef?.destroy())
@@ -116,7 +136,12 @@ export function createSocksProxyServer(
 
     const open = parentUrl
       ? connectViaParentProxy(parentUrl, host, port)
-      : dialDirect(host, port)
+      : dialDestination(
+          host,
+          port,
+          options.resolveDestination,
+          dialAbort.signal,
+        )
 
     open
       .then(upstream => {
@@ -148,7 +173,7 @@ export function createSocksProxyServer(
 
   // Track every accepted client socket so close() can tear them down
   // immediately. `net.Server.close()`'s callback waits for all open
-  // connections to finish, and a SOCKS connection mid-`dialDirect()` (30s
+  // connections to finish, and a SOCKS connection mid-destination dial (30s
   // timeout) or mid-relay holds the server open indefinitely. During
   // SandboxManager.reset() that turns into a hang that can outlive bun's
   // 5s test/hook timeout, so we destroy connections rather than drain them.

@@ -55,6 +55,15 @@ describe("warden bin interactive console product wiring", () => {
     vi.doMock("./srt-runtime-loader.js", () => ({
       createVendoredSrtSandboxComponents: async () => ({ sandbox, launchPreparer }),
     }));
+    vi.doMock("./egress-address-exceptions.js", () => ({
+      ensureEgressAddressExceptionAuthorityHome: () => "/tmp/keel-home",
+      loadEgressAddressExceptionSnapshot: () => ({
+        revision: "none",
+        workspaceRealpath: process.cwd(),
+        exceptions: [],
+        allowsRestrictedAddress: () => false,
+      }),
+    }));
     vi.doMock("./interactive-console/product-config.js", () => ({
       interactiveConsoleProductOptionsFromEnv,
     }));
@@ -129,6 +138,15 @@ describe("warden bin interactive console product wiring", () => {
     );
     vi.doMock("./srt-runtime-loader.js", () => ({
       createVendoredSrtSandboxComponents: async () => ({ sandbox, launchPreparer }),
+    }));
+    vi.doMock("./egress-address-exceptions.js", () => ({
+      ensureEgressAddressExceptionAuthorityHome: () => "/tmp/keel-home",
+      loadEgressAddressExceptionSnapshot: () => ({
+        revision: "none",
+        workspaceRealpath: process.cwd(),
+        exceptions: [],
+        allowsRestrictedAddress: () => false,
+      }),
     }));
     vi.doMock("./interactive-console/product-config.js", () => ({
       interactiveConsoleProductOptionsFromEnv,

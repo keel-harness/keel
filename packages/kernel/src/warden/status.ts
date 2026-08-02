@@ -11,6 +11,7 @@ type WardenStatus = ReturnType<(typeof WARDEN_METHODS)["warden.status"]["result"
 
 const ZERO_HASH = `sha256:${"0".repeat(64)}`;
 const SHA256_PREFIX = "sha256:";
+export const EGRESS_ADDRESS_GUARD_CAPABILITY = "egress-address-guard/v1";
 
 export interface WardenStatusViewConfig {
   /** Optional for source compatibility; `wardenStatusViewConfig` always reports `governed`. */
@@ -24,6 +25,7 @@ export interface WardenStatusViewConfig {
 export interface WardenStatusViewOptions {
   readonly autonomy?: ResolvedAutonomyPosture;
   readonly planApprovalSummary?: PlanApprovalSummary;
+  readonly wardenCapabilities?: readonly string[];
 }
 
 function hashPrefix(hash: string): string {
@@ -38,6 +40,8 @@ export function wardenStatusViewConfig(
   options: WardenStatusViewOptions = {},
 ): WardenStatusViewConfig {
   const sandboxOn = status.enforcementTier !== "none";
+  const addressGuardOn =
+    sandboxOn && options.wardenCapabilities?.includes(EGRESS_ADDRESS_GUARD_CAPABILITY) === true;
   const policyActive = status.policyPack.name !== "none" && status.policyPack.hash !== ZERO_HASH;
   const view = {
     protectionRoute: "governed" as const,
@@ -47,7 +51,7 @@ export function wardenStatusViewConfig(
     },
     posture: {
       sandbox: sandboxOn,
-      egress: sandboxOn,
+      egress: addressGuardOn,
       audit: status.auditHead.hash !== ZERO_HASH,
     },
     lastWardenPendingReviews: status.pendingReviews,

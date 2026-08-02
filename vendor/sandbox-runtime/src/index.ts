@@ -40,6 +40,12 @@ export type {
   MutateForwardedHeaders,
 } from './sandbox/request-filter.js'
 
+// Initialization-scoped connect-time destination authority (Keel ADR-0086).
+export type {
+  ResolveDestination,
+  ResolvedDestinationAddress,
+} from './sandbox/destination-dial.js'
+
 // Platform-specific utilities
 export type { SandboxViolationEvent } from './sandbox/macos-sandbox-utils.js'
 export { type SandboxDependencyCheck } from './sandbox/linux-sandbox-utils.js'

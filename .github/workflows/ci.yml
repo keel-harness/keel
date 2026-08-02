@@ -73,7 +73,7 @@ jobs:
             esac
 
             case "$path" in
-              .github/workflows/**|.npmrc|LICENSE|NOTICE|package.json|pnpm-lock.yaml|pnpm-workspace.yaml|tsconfig.base.json|tsconfig.packaging.json|packaging/**|patches/**|packages/*/package.json|packages/kernel/**|packages/warden/**|packages/shared/**|tools/**|vendor/**)
+              .github/workflows/**|.npmrc|LICENSE|NOTICE|package.json|pnpm-lock.yaml|pnpm-workspace.yaml|tsconfig.base.json|tsconfig.packaging.json|vitest*.config.ts|vitest*.setup.ts|packaging/**|patches/**|packages/*/package.json|packages/kernel/**|packages/warden/**|packages/shared/**|tools/**|vendor/**)
                 package=true
                 ;;
             esac
@@ -343,6 +343,10 @@ jobs:
           fi
 
       - name: Real OS-sandbox denial probes (fail closed if the backend is unavailable)
+        env:
+          # Trust only the committed local fixture CA in this test process. Verification remains on;
+          # the acceptance suite includes a valid-chain/wrong-host rejection probe.
+          NODE_EXTRA_CA_CERTS: ${{ github.workspace }}/vendor/sandbox-runtime/test/fixtures/tls-terminate/ca.crt
         run: pnpm test:sandbox:real
 
   package:
@@ -412,11 +416,33 @@ jobs:
             bun packaging/build.ts bin darwin-arm64 darwin-x64
           fi
 
+      - name: Configure hermetic egress carrier fixture addresses
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            command -v ip >/dev/null 2>&1 || { sudo apt-get update; sudo apt-get install -y iproute2; }
+            sudo ip address add 93.184.216.34/32 dev lo
+            sudo ip address add 192.0.2.10/32 dev lo
+          else
+            sudo ifconfig lo0 alias 93.184.216.34 255.255.255.255
+            sudo ifconfig lo0 alias 192.0.2.10 255.255.255.255
+          fi
+          printf '%s\n' \
+            '127.0.0.1 carrier-hard-deny.example' \
+            '93.184.216.34 carrier-public.example' \
+            '192.0.2.10 carrier-exception.example' \
+            | sudo tee -a /etc/hosts >/dev/null
+
       - name: Smoke the native binary (--version + doctor + hermetic one-task replay run)
         shell: bash
         run: |
           set -euo pipefail
           if [ "$RUNNER_OS" = "Linux" ]; then BIN=./build/bin/keel-linux-x64; else BIN=./build/bin/keel-darwin-arm64; fi
+          SMOKE_ROOT="$(mktemp -d)"
+          trap 'rm -rf -- "$SMOKE_ROOT"' EXIT
+          export KEEL_HOME="$SMOKE_ROOT/keel-home"
+          mkdir -m 700 -- "$KEEL_HOME"
           "$BIN" --version | grep -qE '^keel [0-9]+\.[0-9]+\.[0-9]+'
           "$BIN" doctor
           # A real one-task run through the loop — driven by a recorded Recording (ADR-0031): no API
@@ -448,6 +474,13 @@ jobs:
           set -euo pipefail
           if [ "$RUNNER_OS" = "Linux" ]; then BIN=./build/bin/keel-linux-x64; else BIN=./build/bin/keel-darwin-arm64; fi
           node packaging/smoke-compiled-warden.mjs "$BIN"
+
+      - name: Smoke native compiled carrier egress address guard
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$RUNNER_OS" = "Linux" ]; then BIN=./build/bin/keel-linux-x64; else BIN=./build/bin/keel-darwin-arm64; fi
+          node packaging/smoke-egress-address-guard-carrier.mjs --compiled "$BIN"
 
       - name: Smoke native two-iteration loop continuation
         shell: bash
@@ -548,6 +581,10 @@ jobs:
           # path from there — not from the repo root.
           cd build/npx
           TGZ="$PWD/$(npm pack --silent | tail -1)"
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            mkdir -p "$GITHUB_WORKSPACE/build/carrier"
+            cp -- "$TGZ" "$GITHUB_WORKSPACE/build/carrier/keel-harness.tgz"
+          fi
           WORK=$(mktemp -d)
           cd "$WORK"
           npm init -y >/dev/null 2>&1
@@ -577,7 +614,9 @@ jobs:
           python3 "$URGENT_STEERING_SMOKE" "$KEEL_BIN"
           # Prove the npx package's bundled @vscode/ripgrep works while keeping Linux sandbox deps
           # reachable for Phase-2A doctor preflight.
-          PATH="$NODE_BIN:$WORK/node_modules/.bin:/usr/bin:/bin:/usr/sbin:/sbin" ./node_modules/.bin/keel doctor
+          DOCTOR_KEEL_HOME="$WORK/doctor-keel-home"
+          mkdir -m 700 -- "$DOCTOR_KEEL_HOME"
+          KEEL_HOME="$DOCTOR_KEEL_HOME" PATH="$NODE_BIN:$WORK/node_modules/.bin:/usr/bin:/bin:/usr/sbin:/sbin" ./node_modules/.bin/keel doctor
           set +e
           OUT=$(./node_modules/.bin/keel run -p "verify the shell" --verbose --replay "$REC" 2>&1)
           STATUS=$?
@@ -598,6 +637,156 @@ jobs:
             printf 'npx replay output missing replay-smoke-complete:\n%s\n' "$OUT"
             exit 1
           fi
+
+      - name: Inspect exact npm carrier for the egress product matrix
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          TARBALL="$PWD/build/carrier/keel-harness.tgz"
+          test -f "$TARBALL"
+          tar -tzf "$TARBALL" > "$PWD/build/carrier/contents.txt"
+          grep -Fxq package/package.json "$PWD/build/carrier/contents.txt"
+          grep -Fxq package/bin/keel.mjs "$PWD/build/carrier/contents.txt"
+          grep -Fxq package/bin/keel-kernel.mjs "$PWD/build/carrier/contents.txt"
+          grep -Fxq package/bin/keel-warden.mjs "$PWD/build/carrier/contents.txt"
+
+      - name: Preserve exact npm carrier for the Node product matrix
+        if: runner.os == 'Linux'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: egress-address-guard-npx-carrier
+          path: build/carrier/keel-harness.tgz
+          if-no-files-found: error
+          retention-days: 1
+
+  egress-product-matrix:
+    # ADR-0086 Slice 7: use the one npm tarball built and inspected by the Linux package leg for
+    # every supported Node line. The source-mode proofs run under the same runtime matrix.
+    if: github.event_name != 'schedule' && needs.detect-changes.outputs.package == 'true'
+    needs: [detect-changes, package]
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [20, 22, 24]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      KEEL_REQUIRE_REAL_SANDBOX: "1"
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: ${{ matrix.node }}
+          cache: pnpm
+
+      - name: Install (frozen lockfile, scripts ignored)
+        run: pnpm install --frozen-lockfile
+
+      - name: Install real sandbox and carrier fixture prerequisites
+        shell: bash
+        run: |
+          set -euo pipefail
+          missing=()
+          command -v rg >/dev/null 2>&1 || missing+=(ripgrep)
+          command -v bwrap >/dev/null 2>&1 || missing+=(bubblewrap)
+          command -v socat >/dev/null 2>&1 || missing+=(socat)
+          command -v ip >/dev/null 2>&1 || missing+=(iproute2)
+          if [ "${#missing[@]}" -gt 0 ]; then
+            sudo apt-get update
+            sudo apt-get install -y "${missing[@]}"
+          fi
+          if sysctl -n kernel.apparmor_restrict_unprivileged_userns >/dev/null 2>&1; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
+          # Hermetic socket controls: the first alias is classified as ordinary public space but
+          # routes only to this disposable runner; the second is documentation/restricted space.
+          # This proves classification and final-dial behavior, not live Internet reachability.
+          sudo ip address add 93.184.216.34/32 dev lo
+          sudo ip address add 192.0.2.10/32 dev lo
+          printf '%s\n' \
+            '127.0.0.1 carrier-hard-deny.example' \
+            '93.184.216.34 carrier-public.example' \
+            '192.0.2.10 carrier-exception.example' \
+            | sudo tee -a /etc/hosts >/dev/null
+
+      - name: Source-mode egress guard product paths
+        run: pnpm test:egress-product
+
+      - name: Real Linux address guard, credential TLS, and authority denials
+        env:
+          NODE_EXTRA_CA_CERTS: ${{ github.workspace }}/vendor/sandbox-runtime/test/fixtures/tls-terminate/ca.crt
+        run: pnpm test:sandbox:real
+
+      - name: Download the exact inspected npm carrier
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: egress-address-guard-npx-carrier
+          path: build/carrier
+
+      - name: Installed npm carrier address-guard socket proof
+        shell: bash
+        run: |
+          set -euo pipefail
+          WORK=$(mktemp -d)
+          trap 'rm -rf -- "$WORK"' EXIT
+          cd "$WORK"
+          npm init -y >/dev/null 2>&1
+          npm_config_engine_strict=true npm install --ignore-scripts "$GITHUB_WORKSPACE/build/carrier/keel-harness.tgz"
+          KEEL_BIN="$WORK/node_modules/.bin/keel"
+          test -x "$KEEL_BIN"
+          node "$GITHUB_WORKSPACE/packaging/smoke-egress-address-guard-carrier.mjs" "$KEEL_BIN"
+
+  egress-scale:
+    # ADR-0086 Slice 8: one claim-grade, paired, hermetic 500 MiB measurement on a disposable
+    # public-classified loopback alias. The runner records the exact environment and fails when the
+    # strict p95 <5% proxy budget or any bounded queue/resource/audit/teardown invariant misses.
+    if: github.event_name != 'schedule' && needs.detect-changes.outputs.code == 'true'
+    needs: detect-changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install (frozen lockfile, scripts ignored)
+        run: pnpm install --frozen-lockfile
+
+      - name: Configure hermetic public-classified measurement address
+        run: sudo ip address add 93.184.216.35/32 dev lo
+
+      - name: Measure address-guard load, resources, teardown, and proxy throughput
+        env:
+          KEEL_MEASUREMENT_COMMAND: >-
+            pnpm measure:egress-address-guard -- --fixture-address 93.184.216.35
+            --output-dir artifacts/egress-address-guard --pairs 5 --latency-samples 200
+            --throughput-requests 1000
+        run: >-
+          pnpm measure:egress-address-guard -- --fixture-address 93.184.216.35
+          --output-dir artifacts/egress-address-guard --pairs 5 --latency-samples 200
+          --throughput-requests 1000
+
+      - name: Remove hermetic measurement address
+        if: always()
+        run: sudo ip address del 93.184.216.35/32 dev lo
+
+      - name: Preserve exact measurement report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: egress-address-guard-measurement
+          path: |
+            artifacts/egress-address-guard/egress-address-guard-measurement.json
+            artifacts/egress-address-guard/egress-address-guard-measurement.md
+          if-no-files-found: warn
+          retention-days: 7
 
   cross-arch-runtime-smoke:
     # ER-028 closeout: run the formerly cross-only binaries on native hosted runners. Kept to
@@ -664,6 +853,10 @@ jobs:
         run: |
           set -euo pipefail
           BIN="${{ matrix.bin }}"
+          SMOKE_ROOT="$(mktemp -d)"
+          trap 'rm -rf -- "$SMOKE_ROOT"' EXIT
+          export KEEL_HOME="$SMOKE_ROOT/keel-home"
+          mkdir -m 700 -- "$KEEL_HOME"
           "$BIN" --version | grep -qE '^keel [0-9]+\.[0-9]+\.[0-9]+'
           "$BIN" doctor
           set +e
@@ -691,7 +884,7 @@ jobs:
     # Configure branch protection to require this stable aggregate status. The selected expensive
     # jobs may be intentionally skipped on PRs, but this job fails if any required selected gate fails.
     if: always() && github.event_name != 'schedule'
-    needs: [detect-changes, docs, build, node-next, package, security, sandbox-real]
+    needs: [detect-changes, docs, build, node-next, package, egress-product-matrix, egress-scale, security, sandbox-real]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -703,6 +896,8 @@ jobs:
           BUILD_RESULT: ${{ needs.build.result }}
           NODE_NEXT_RESULT: ${{ needs.node-next.result }}
           PACKAGE_RESULT: ${{ needs.package.result }}
+          EGRESS_PRODUCT_MATRIX_RESULT: ${{ needs.egress-product-matrix.result }}
+          EGRESS_SCALE_RESULT: ${{ needs.egress-scale.result }}
           SECURITY_RESULT: ${{ needs.security.result }}
           SANDBOX_REAL_RESULT: ${{ needs.sandbox-real.result }}
           DOCS_ONLY: ${{ needs.detect-changes.outputs.docs_only }}
@@ -716,6 +911,8 @@ jobs:
           echo "build: $BUILD_RESULT (code=$CODE_CHANGED)"
           echo "node-next: $NODE_NEXT_RESULT (code=$CODE_CHANGED)"
           echo "package: $PACKAGE_RESULT (package=$PACKAGE_CHANGED)"
+          echo "egress-product-matrix: $EGRESS_PRODUCT_MATRIX_RESULT (package=$PACKAGE_CHANGED)"
+          echo "egress-scale: $EGRESS_SCALE_RESULT (code=$CODE_CHANGED)"
           echo "security: $SECURITY_RESULT (code=$CODE_CHANGED)"
           echo "sandbox-real: $SANDBOX_REAL_RESULT (code=$CODE_CHANGED)"
 
@@ -749,8 +946,18 @@ jobs:
             exit 1
           fi
 
+          if [ "$CODE_CHANGED" = "true" ] && [ "$EGRESS_SCALE_RESULT" != "success" ]; then
+            echo "::error::code PR did not pass the egress scale and performance gate"
+            exit 1
+          fi
+
           if [ "$PACKAGE_CHANGED" = "true" ] && [ "$PACKAGE_RESULT" != "success" ]; then
             echo "::error::packaging-sensitive PR did not pass the package gate"
+            exit 1
+          fi
+
+          if [ "$PACKAGE_CHANGED" = "true" ] && [ "$EGRESS_PRODUCT_MATRIX_RESULT" != "success" ]; then
+            echo "::error::packaging-sensitive PR did not pass the egress product matrix"
             exit 1
           fi
 

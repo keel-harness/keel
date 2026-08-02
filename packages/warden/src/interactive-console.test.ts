@@ -274,7 +274,7 @@ describe("interactive console warden primitives", () => {
     );
 
     const egressProfile = buildConsoleSandboxProfile(
-      { ...targetProfile, egressDomains: ["localhost", "Example.COM"] },
+      { ...targetProfile, egressDomains: ["console.example", "Example.COM"] },
       {
         workspaceRoot: "/workspace",
         env: { HOME: "/home/alice", KEEL_HOME: "/keel" },
@@ -282,10 +282,21 @@ describe("interactive console warden primitives", () => {
       },
     );
     expect(egressProfile.network).toEqual({
-      allowedDomains: ["localhost", "example.com"],
+      allowedDomains: ["console.example", "example.com"],
       deniedDomains: [],
       strictAllowlist: true,
     });
+
+    expect(() =>
+      buildConsoleSandboxProfile(
+        { ...targetProfile, egressDomains: ["localhost"] },
+        {
+          workspaceRoot: "/workspace",
+          env: { HOME: "/home/alice", KEEL_HOME: "/keel" },
+          auditDir: "/audit",
+        },
+      ),
+    ).toThrow(/localhost egress domain pattern is not allowed/u);
   });
 
   it("fails closed for console sandbox profiles outside workspace/temp containment", () => {

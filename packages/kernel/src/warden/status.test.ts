@@ -1,19 +1,42 @@
 import { describe, expect, it } from "vitest";
 import { cockpitStatusLine, initialView } from "../tui/view-model.js";
-import { wardenStatusViewConfig } from "./status.js";
+import { EGRESS_ADDRESS_GUARD_CAPABILITY, wardenStatusViewConfig } from "./status.js";
 
 const HASH = `sha256:${"a".repeat(64)}`;
 const ZERO_HASH = `sha256:${"0".repeat(64)}`;
+const GUARDED = { wardenCapabilities: [EGRESS_ADDRESS_GUARD_CAPABILITY] } as const;
 
 describe("warden status view config", () => {
-  it("maps live warden status into an honest Phase-2A cockpit line", () => {
-    const config = wardenStatusViewConfig({
+  it("derives egress truth from the address-guard capability rather than the sandbox tier", () => {
+    const status = {
       enforcementTier: "sandbox:srt",
       sandboxBackend: "srt:vendored",
       policyPack: { name: "phase2a-starter-policy-pack", hash: HASH },
       auditHead: { seq: 3, hash: HASH },
-      pendingReviews: 2,
+      pendingReviews: 0,
+    };
+    const guarded = wardenStatusViewConfig(status, {
+      wardenCapabilities: ["egress-address-guard/v1"],
     });
+    const nameOnly = wardenStatusViewConfig(status, {
+      wardenCapabilities: [],
+    });
+
+    expect(guarded.posture).toMatchObject({ sandbox: true, egress: true });
+    expect(nameOnly.posture).toMatchObject({ sandbox: true, egress: false });
+  });
+
+  it("maps live warden status into an honest Phase-2A cockpit line", () => {
+    const config = wardenStatusViewConfig(
+      {
+        enforcementTier: "sandbox:srt",
+        sandboxBackend: "srt:vendored",
+        policyPack: { name: "phase2a-starter-policy-pack", hash: HASH },
+        auditHead: { seq: 3, hash: HASH },
+        pendingReviews: 2,
+      },
+      GUARDED,
+    );
     const view = initialView([], {
       ...config,
     });
@@ -74,6 +97,7 @@ describe("warden status view config", () => {
           pendingReviews: 0,
         },
         {
+          ...GUARDED,
           planApprovalSummary: {
             planId: "plan_auth_fix",
             accepted: 1,
@@ -98,6 +122,7 @@ describe("warden status view config", () => {
           pendingReviews: 0,
         },
         {
+          ...GUARDED,
           planApprovalSummary: {
             planId: "plan_rejected",
             accepted: 0,
@@ -118,6 +143,7 @@ describe("warden status view config", () => {
           pendingReviews: 0,
         },
         {
+          ...GUARDED,
           planApprovalSummary: {
             planId: "plan_auth_fix",
             accepted: 1,
@@ -138,6 +164,7 @@ describe("warden status view config", () => {
           pendingReviews: 0,
         },
         {
+          ...GUARDED,
           planApprovalSummary: {
             planId: "plan_auth_fix",
             accepted: 1,
@@ -158,6 +185,7 @@ describe("warden status view config", () => {
           pendingReviews: 0,
         },
         {
+          ...GUARDED,
           planApprovalSummary: {
             planId: "plan_auth_fix",
             accepted: 1,

@@ -1,7 +1,7 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { EventEmitter } from "node:events";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir as systemTmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import { pathToFileURL } from "node:url";
@@ -88,7 +88,7 @@ function spawnFixture(script: string): ChildProcessWithoutNullStreams {
 }
 
 function isolatedKeelHome(): string {
-  const dir = mkdtempSync(join(tmpdir(), "keel-warden-client-"));
+  const dir = mkdtempSync(join(realpathSync(systemTmpdir()), "keel-warden-client-"));
   tempDirs.push(dir);
   return dir;
 }

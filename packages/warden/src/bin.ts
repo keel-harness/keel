@@ -3,6 +3,7 @@ import { userInfo } from "node:os";
 import { join } from "node:path";
 import {
   runStdioWardenServer,
+  DEFAULT_AUDIT_SESSION_ID,
   DEFAULT_MAX_LINE_BYTES,
   WARDEN_TEARDOWN_BUDGET_MS,
 } from "./rpc-server.js";
@@ -14,7 +15,16 @@ import { interactiveConsoleProductOptionsFromEnv } from "./interactive-console/p
 import { resolveWardenKeelHome } from "./capability-manifest.js";
 import { loadOrCreateAuditCheckpointKey } from "./audit/checkpoint-key.js";
 import { SessionAuditLog } from "./audit/session-log.js";
-import { credentialProxyRulesFromEnvValues } from "./credential-proxy.js";
+import {
+  ensureEgressAddressExceptionAuthorityHome,
+  loadEgressAddressExceptionSnapshot,
+} from "./egress-address-exceptions.js";
+import {
+  createBoundedEgressAddressResolver,
+  type BoundedEgressAddressResolver,
+  type EgressResolverAuditRecord,
+} from "./egress-resolver.js";
+import { credentialProxyRulesFromEnvValues, type CredentialProxyRule } from "./credential-proxy.js";
 import {
   createSandboxTypedMutationRunner,
   type TypedMutationRunner,
@@ -84,25 +94,41 @@ export function installSandboxTempRootFromEnv(
 interface SandboxComponentsFromEnv {
   readonly sandbox?: SandboxPort;
   readonly consoleLaunchPreparer?: ConsoleSandboxLaunchPreparer;
+  readonly shutdown?: () => Promise<void>;
 }
 
-async function sandboxComponentsFromEnv(): Promise<SandboxComponentsFromEnv> {
+async function sandboxComponentsFromEnv(
+  credentialProxyRules?: readonly CredentialProxyRule[],
+  resolveDestination?: BoundedEgressAddressResolver["resolveDestination"],
+): Promise<SandboxComponentsFromEnv> {
   if (process.env["KEEL_WARDEN_SANDBOX"] !== "srt") return {};
-  const components = await createVendoredSrtSandboxComponents();
+  const options = {
+    ...(credentialProxyRules !== undefined && credentialProxyRules.length > 0
+      ? { credentialTlsTermination: true }
+      : {}),
+    ...(resolveDestination === undefined ? {} : { resolveDestination }),
+  };
+  const components =
+    Object.keys(options).length === 0
+      ? await createVendoredSrtSandboxComponents()
+      : await createVendoredSrtSandboxComponents(options);
   return {
     sandbox: components.sandbox,
+    shutdown: components.shutdown,
     ...(components.launchPreparer === undefined
       ? {}
       : { consoleLaunchPreparer: components.launchPreparer }),
   };
 }
 
-async function sandboxFromEnv(): Promise<SandboxPort | undefined> {
-  return (await sandboxComponentsFromEnv()).sandbox;
+async function sandboxFromEnv(
+  credentialProxyRules?: readonly CredentialProxyRule[],
+): Promise<SandboxPort | undefined> {
+  return (await sandboxComponentsFromEnv(credentialProxyRules)).sandbox;
 }
 
-function auditDirFromEnv(): string {
-  return process.env["KEEL_WARDEN_AUDIT_DIR"] ?? join(resolveWardenKeelHome(process.env), "audit");
+function auditDirFromEnv(home = resolveWardenKeelHome(process.env)): string {
+  return process.env["KEEL_WARDEN_AUDIT_DIR"] ?? join(home, "audit");
 }
 
 function credentialProxyRulesFromEnv(workspaceRoot: string | undefined) {
@@ -174,6 +200,25 @@ function parseMcpDiscoveryRequest(env: NodeJS.ProcessEnv): McpStdioLaunchConfig 
 
 export interface AuditLogForExit {
   close(): void;
+}
+
+function egressAddressGuardAuditSink(auditLog: Pick<SessionAuditLog, "append">) {
+  return {
+    append(record: EgressResolverAuditRecord): void {
+      auditLog.append({
+        eventType: "egress.deny",
+        sessionId: DEFAULT_AUDIT_SESSION_ID,
+        payload: {
+          host: record.host,
+          port: record.port,
+          reason: record.reason,
+          addressClass: record.addressClass,
+          answerCount: record.answerCount,
+          exceptionPolicyRevision: record.exceptionPolicyRevision,
+        },
+      });
+    },
+  };
 }
 
 export function closeAuditLogForExit(
@@ -249,10 +294,10 @@ export async function runMcpDiscoveryFromEnv(): Promise<void> {
   process.once("SIGTERM", abortDiscovery);
   process.once("SIGINT", abortDiscovery);
   try {
-    const sandbox = await sandboxFromEnv();
-    if (sandbox === undefined) throw new Error("MCP discovery requires the warden sandbox");
     const workspaceRoot = process.env["KEEL_WARDEN_WORKSPACE_ROOT"] ?? process.cwd();
     const credentialProxyRules = credentialProxyRulesFromEnv(workspaceRoot);
+    const sandbox = await sandboxFromEnv(credentialProxyRules);
+    if (sandbox === undefined) throw new Error("MCP discovery requires the warden sandbox");
     sandboxTempRoot.assertOwned();
     const discovery = await discoverMcpServerWithSandbox({
       sandbox,
@@ -279,24 +324,59 @@ export async function runMcpDiscoveryFromEnv(): Promise<void> {
 
 export async function runWardenFromEnv(): Promise<void> {
   const sandboxTempRoot = installSandboxTempRootFromEnv();
-  let sandboxComponents: SandboxComponentsFromEnv;
-  try {
-    sandboxComponents = await sandboxComponentsFromEnv();
-  } catch (error) {
-    cleanupSandboxTempRootAfterReap(sandboxTempRoot, true);
-    throw error;
-  }
+  const workspaceRoot = process.env["KEEL_WARDEN_WORKSPACE_ROOT"] ?? process.cwd();
+  let sandboxComponents: SandboxComponentsFromEnv = {};
+  let credentialProxyRules: CredentialProxyRule[] | undefined;
   let setupAuditLog: AuditLogForExit | undefined;
+  let setupEgressResolver: BoundedEgressAddressResolver | undefined;
   let setupTypedMutationRunner: TypedMutationRunner | undefined;
   let setupMutationPresentation: MutationPresentationWalkingSkeletonTransport | undefined;
   try {
-    const sandbox = sandboxComponents.sandbox;
-    const workspaceRoot = process.env["KEEL_WARDEN_WORKSPACE_ROOT"];
-    const auditDir = auditDirFromEnv();
+    // Establish owner-controlled state and the authoritative audit sink before constructing any
+    // address authority or importing SRT. A malformed exception store therefore fails before a
+    // proxy listener, sandboxed child, or RPC request can exist.
+    const keelHome = ensureEgressAddressExceptionAuthorityHome(process.env);
+    const auditDir = auditDirFromEnv(keelHome);
     const checkpointKey = loadOrCreateAuditCheckpointKey(auditDir);
-    const credentialProxyRules = credentialProxyRulesFromEnv(workspaceRoot);
-    const lifecycleManifest = lifecycleManifestFromEnv(process.env);
     const workspaceTrusted = process.env["KEEL_WARDEN_WORKSPACE_TRUSTED"] === "1";
+    const auditLog = new SessionAuditLog({
+      auditDir,
+      principal: principalFromEnv(),
+      policyPack: defaultPolicyPackRef(),
+      checkpoint: { secretKey: checkpointKey.secretKey },
+    });
+    setupAuditLog = auditLog;
+
+    let quarantineRequested = false;
+    if (process.env["KEEL_WARDEN_SANDBOX"] === "srt") {
+      const exceptionSnapshot = loadEgressAddressExceptionSnapshot(workspaceRoot, process.env);
+      const egressResolver = createBoundedEgressAddressResolver({
+        audit: egressAddressGuardAuditSink(auditLog),
+        onQuarantine: () => {
+          quarantineRequested = true;
+          void sandboxComponents.shutdown?.().catch(() => {});
+        },
+        ...(workspaceTrusted
+          ? { allowsRestrictedAddress: exceptionSnapshot.allowsRestrictedAddress }
+          : {}),
+        exceptionPolicyRevision: workspaceTrusted ? exceptionSnapshot.revision : "none",
+      });
+      setupEgressResolver = egressResolver;
+    }
+
+    credentialProxyRules = credentialProxyRulesFromEnv(workspaceRoot);
+    const activeEgressResolver = setupEgressResolver;
+    sandboxComponents = await sandboxComponentsFromEnv(
+      credentialProxyRules,
+      activeEgressResolver === undefined
+        ? undefined
+        : (hostname, port, signal) =>
+            activeEgressResolver.resolveDestination(hostname, port, signal),
+    );
+    if (quarantineRequested) await sandboxComponents.shutdown?.();
+
+    const sandbox = sandboxComponents.sandbox;
+    const lifecycleManifest = lifecycleManifestFromEnv(process.env);
     const mcpTrustedServers = workspaceTrusted ? mcpTrustedServersFromEnv(process.env) : {};
     const typedMutationRunner =
       sandbox === undefined
@@ -328,15 +408,6 @@ export async function runWardenFromEnv(): Promise<void> {
             : { launchPreparer: sandboxComponents.consoleLaunchPreparer },
         )
       : {};
-    // Per-session chains: each session writes its own <auditDir>/<sessionId>.jsonl so
-    // the evidence bundle can export a complete, verifiable single-session chain.
-    const auditLog = new SessionAuditLog({
-      auditDir,
-      principal: principalFromEnv(),
-      policyPack: defaultPolicyPackRef(),
-      checkpoint: { secretKey: checkpointKey.secretKey },
-    });
-    setupAuditLog = auditLog;
     let auditClosed = false;
     let tempRootCleaned = false;
     const closeResources = (reaped: boolean): void => {
@@ -356,7 +427,7 @@ export async function runWardenFromEnv(): Promise<void> {
       declaredTempRoots: sandboxTempRoot.declaredTempRoots,
       validateSandboxTempRoot: () => sandboxTempRoot.assertOwned(),
       ...(sandbox === undefined ? {} : { sandbox }),
-      ...(workspaceRoot === undefined ? {} : { workspaceRoot }),
+      workspaceRoot,
       ...(credentialProxyRules === undefined ? {} : { credentialProxyRules }),
       ...(lifecycleManifest === undefined ? {} : { lifecycleManifest }),
       ...(typedMutationRunner === undefined ? {} : { typedMutationRunner }),
@@ -364,6 +435,9 @@ export async function runWardenFromEnv(): Promise<void> {
       mcpTrustedServers,
       validationPostureId,
       workspaceTrusted,
+      shutdownRuntime: async () => {
+        await Promise.allSettled([setupEgressResolver?.shutdown(), sandboxComponents.shutdown?.()]);
+      },
       ...interactiveConsoleOptions,
       onShutdown: ({ reaped }: { readonly reaped: boolean }) => {
         closeResources(reaped);
@@ -408,6 +482,7 @@ export async function runWardenFromEnv(): Promise<void> {
         // transport, and process exit remains the final memory boundary if cleanup itself fails.
       }
     }
+    await Promise.allSettled([setupEgressResolver?.shutdown(), sandboxComponents.shutdown?.()]);
     if (setupAuditLog !== undefined) closeAuditLogForExit(setupAuditLog, reportAuditCloseError);
     cleanupTypedMutationAndSandboxTempAfterReap(setupTypedMutationRunner, sandboxTempRoot, true);
     throw error;

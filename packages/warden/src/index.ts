@@ -49,6 +49,24 @@ export {
   type ProjectEgressGrantRevokeResult,
 } from "./egress-grants.js";
 export {
+  addEgressAddressException,
+  EGRESS_ADDRESS_EXCEPTION_LIMITS,
+  EgressAddressExceptionStoreError,
+  egressAddressExceptionFilePath,
+  listEgressAddressExceptions,
+  loadEgressAddressExceptionSnapshot,
+  removeEgressAddressException,
+  type EgressAddressException,
+  type EgressAddressExceptionMutationDeps,
+  type EgressAddressExceptionMutationResult,
+  type EgressAddressExceptionSnapshot,
+  type EgressAddressExceptionStoreDeps,
+} from "./egress-address-exceptions.js";
+export {
+  runEgressAddressExceptionAdminFromEnv,
+  runEgressAddressExceptionAdminRequest,
+} from "./egress-address-exception-admin.js";
+export {
   INTERNAL_MCP_DISCOVERY_ENV,
   MCP_DISCOVERY_REQUEST_ENV,
   runMcpDiscoveryFromEnv,

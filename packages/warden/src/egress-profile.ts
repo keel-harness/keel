@@ -24,7 +24,6 @@ function normalizeDomainPattern(pattern: string): string {
   if (normalized === "") {
     throw new InvalidEgressConfigError("egress domain must not be empty");
   }
-  if (normalized === "localhost") return normalized;
   if (
     normalized === "*" ||
     normalized.includes(":") ||
@@ -40,6 +39,11 @@ function normalizeDomainPattern(pattern: string): string {
   }
 
   const domain = wildcard ? normalized.slice(2) : normalized;
+  if (domain === "localhost" || domain.endsWith(".localhost")) {
+    throw new InvalidEgressConfigError(
+      `localhost egress domain pattern is not allowed: ${pattern}`,
+    );
+  }
   const labels = domain.split(".");
   if (labels.length < 2 || labels.some((label) => !DOMAIN_LABEL.test(label))) {
     throw new InvalidEgressConfigError(`invalid egress domain pattern: ${pattern}`);

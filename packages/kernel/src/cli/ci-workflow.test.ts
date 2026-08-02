@@ -198,6 +198,11 @@ describe("CI packaging workflow", () => {
     expect(smoke).toContain("mcp review fixture");
     expect(smoke).toContain("mcp__fixture__echo");
     expect(smoke).toContain("mcp-trust.json");
+    expect(smoke).toContain('join(keelHome, "trust.json")');
+    expect(smoke).toContain('decision: "trusted"');
+    expect(smoke).toContain("mode: 0o700");
+    expect(smoke).toContain("mode: 0o600");
+    expect(smoke).not.toContain('KEEL_TRUST: "1"');
     expect(smoke).not.toContain("ANTHROPIC_API_KEY");
     expect(smoke).not.toContain("OPENAI_API_KEY");
   });
@@ -246,6 +251,83 @@ describe("CI packaging workflow", () => {
     ]) {
       expect(selfTest).toContain(`rejected:${rejected}`);
     }
+  });
+
+  it("gates one exact egress-guard npm carrier across Node 20, 22, and 24", () => {
+    const workflow = readFileSync(join(repoRoot, ".github", "workflows", "ci.yml"), "utf8");
+    const packageJob = workflowJob(workflow, "package");
+    const productMatrixJob = workflowJob(workflow, "egress-product-matrix");
+    const aggregateJob = workflowJob(workflow, "ci-required");
+    const productConfig = readFileSync(join(repoRoot, "vitest.egress-product.config.ts"), "utf8");
+    const productSetup = readFileSync(join(repoRoot, "vitest.egress-product.setup.ts"), "utf8");
+    const smoke = readFileSync(
+      join(repoRoot, "packaging", "smoke-egress-address-guard-carrier.mjs"),
+      "utf8",
+    );
+
+    expect(packageJob).toContain("egress-address-guard-npx-carrier");
+    expect(packageJob).toContain("package/bin/keel-kernel.mjs");
+    expect(packageJob).toContain("package/bin/keel-warden.mjs");
+    expect(packageJob).not.toContain("package/packages/warden/src/bin-entry.ts");
+    expect(packageJob).toContain('smoke-egress-address-guard-carrier.mjs --compiled "$BIN"');
+    expect(packageJob).toContain(
+      "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+    );
+    expect(productMatrixJob).toContain("node: [20, 22, 24]");
+    expect(productMatrixJob).toContain("node-version: ${{ matrix.node }}");
+    expect(productMatrixJob).toContain(
+      "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c",
+    );
+    expect(productMatrixJob).toContain("pnpm test:egress-product");
+    expect(productMatrixJob).toContain("pnpm test:sandbox:real");
+    expect(productMatrixJob).toContain("smoke-egress-address-guard-carrier.mjs");
+    expect(productMatrixJob).toContain("npm install --ignore-scripts");
+    expect(productMatrixJob).toContain("npm_config_engine_strict=true");
+    expect(aggregateJob).toContain("egress-product-matrix");
+    expect(aggregateJob).toContain("EGRESS_PRODUCT_MATRIX_RESULT");
+    expect(productConfig).toContain("vendor/sandbox-runtime/test/sandbox/update-config.test.ts");
+    expect(productConfig).toContain("vitest.egress-product.setup.ts");
+    expect(productSetup).toContain("it.runIf(condition)");
+
+    expect(smoke).toContain("egress-address-guard/v1");
+    expect(smoke).toContain("warden.resolveReview");
+    expect(smoke).toContain("egress-address-exceptions.v1.json");
+    expect(smoke).toContain("requested.review?.allowCommand");
+    expect(smoke).toContain("--scope once --domain ${host}");
+    expect(smoke).not.toContain("requested.review?.domain");
+    expect(smoke).toContain('"--include"');
+    expect(smoke).not.toContain('"--output"');
+    expect(smoke).not.toContain('"%{http_code}"');
+    expect(smoke).toContain("HTTP/1.1 403");
+    expect(smoke).toContain('"content-length"');
+    expect(smoke).toContain('connection: "close"');
+    expect(smoke).toContain("restricted-address-not-excepted");
+    expect(smoke).toContain("hard-deny");
+    expect(smoke).toContain("carrier egress address guard smoke passed");
+    expect(smoke).toContain("KEEL_INTERNAL_WARDEN_STDIO");
+  });
+
+  it("gates the claim-grade 500 MiB egress measurement and preserves its exact report", () => {
+    const workflow = readFileSync(join(repoRoot, ".github", "workflows", "ci.yml"), "utf8");
+    const measurementJob = workflowJob(workflow, "egress-scale");
+    const aggregateJob = workflowJob(workflow, "ci-required");
+
+    expect(measurementJob).toContain("node-version: 24");
+    expect(measurementJob).toContain(
+      "ref: ${{ github.event.pull_request.head.sha || github.sha }}",
+    );
+    expect(measurementJob).toContain("sudo ip address add 93.184.216.35/32 dev lo");
+    expect(measurementJob).toContain("pnpm measure:egress-address-guard");
+    expect(measurementJob).toContain("--pairs 5");
+    expect(measurementJob).toContain("--latency-samples 200");
+    expect(measurementJob).toContain("--throughput-requests 1000");
+    expect(measurementJob).toContain("egress-address-guard-measurement.json");
+    expect(measurementJob).toContain(
+      "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+    );
+    expect(measurementJob).toContain("sudo ip address del 93.184.216.35/32 dev lo");
+    expect(aggregateJob).toContain("egress-scale");
+    expect(aggregateJob).toContain("EGRESS_SCALE_RESULT");
   });
 
   it("requires the installed final-response carrier on both package platforms", () => {
@@ -461,8 +543,10 @@ describe("CI packaging workflow", () => {
     const workflow = readFileSync(join(repoRoot, ".github", "workflows", "ci.yml"), "utf8");
 
     expect(workflow).toContain('NODE_BIN="$(dirname "$(command -v node)")"');
+    expect(workflow).toContain('DOCTOR_KEEL_HOME="$WORK/doctor-keel-home"');
+    expect(workflow).toContain('mkdir -m 700 -- "$DOCTOR_KEEL_HOME"');
     expect(workflow).toContain(
-      'PATH="$NODE_BIN:$WORK/node_modules/.bin:/usr/bin:/bin:/usr/sbin:/sbin" ./node_modules/.bin/keel doctor',
+      'KEEL_HOME="$DOCTOR_KEEL_HOME" PATH="$NODE_BIN:$WORK/node_modules/.bin:/usr/bin:/bin:/usr/sbin:/sbin" ./node_modules/.bin/keel doctor',
     );
   });
 
@@ -515,6 +599,8 @@ describe("CI packaging workflow", () => {
       "pnpm-lock.yaml",
       "pnpm-workspace.yaml",
       "tsconfig.packaging.json",
+      "vitest*.config.ts",
+      "vitest*.setup.ts",
     ]) {
       expect(packageClassifier).toContain(pathPattern);
     }
@@ -524,7 +610,8 @@ describe("CI packaging workflow", () => {
   it("keeps standalone binaries test-only and never uploads them as workflow artifacts", () => {
     const workflow = readFileSync(join(repoRoot, ".github", "workflows", "ci.yml"), "utf8");
     const uploadSteps = workflow
-      .split("\n      - ")
+      .split(/^ {2}[a-zA-Z0-9_-]+:\n/mu)
+      .flatMap((job) => job.split("\n      - "))
       .filter((step) => step.includes("actions/upload-artifact"));
 
     expect(workflow).not.toContain("keel-linux-binaries");
@@ -568,7 +655,7 @@ describe("CI packaging workflow", () => {
     expect(workflow).toContain("pnpm test:security");
     expect(workflow).toContain("SECURITY_RESULT");
     expect(workflow).toContain(
-      "needs: [detect-changes, docs, build, node-next, package, security, sandbox-real]",
+      "needs: [detect-changes, docs, build, node-next, package, egress-product-matrix, egress-scale, security, sandbox-real]",
     );
     expect(workflow).not.toMatch(
       /name: Security suite \(Phase 1\/2 — SEC catalog\)\s+if: false\s+run: exit 1/,
@@ -609,7 +696,7 @@ describe("CI packaging workflow", () => {
     // It is a required gate for code PRs: wired into ci-required's needs and its result check.
     expect(workflow).toContain("SANDBOX_REAL_RESULT");
     expect(workflow).toContain(
-      "needs: [detect-changes, docs, build, node-next, package, security, sandbox-real]",
+      "needs: [detect-changes, docs, build, node-next, package, egress-product-matrix, egress-scale, security, sandbox-real]",
     );
   });
 

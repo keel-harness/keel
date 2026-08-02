@@ -46,10 +46,27 @@ not source needed for Keel's reviewed adapter path:
 ## Local Keel Files
 
 - `VENDOR.md`
+- `patches/read-hidden-write-deny.patch`
 - `patches/wait-for-linux-proxy-readiness.patch`
+- `patches/connect-time-destination-resolver.patch`
 - `test/sandbox/linux-proxy-readiness.test.ts`
+- `test/sandbox/destination-dial.test.ts`
+- `test/sandbox/destination-guard-proxy.test.ts`
 
 ## Local Patches
+
+### Preserve write denial inside read-hidden Linux mounts
+
+- Patch: `patches/read-hidden-write-deny.patch`
+- Applied file: `src/sandbox/linux-sandbox-utils.ts`
+- Reason: Linux represents a read-denied directory with a writable tmpfs. When the same authority
+  was also write-denied, the hidden mount protected the host bytes but let the governed command
+  observe a false-successful write into ephemeral storage.
+- Security impact: overlapping hidden tmpfs mounts are remounted read-only after read/write mount
+  stacking is complete. Explicitly re-bound write children covered by the same deny root are also
+  re-bound read-only. Read-denied host bytes stay hidden and authority writes now fail structurally.
+- Upstreamable status: minimal and intended for upstream submission after Keel's Linux conformance
+  gate validates the end-to-end denial. It has not yet been submitted upstream.
 
 ### Wait for Linux proxy listeners
 
@@ -62,6 +79,31 @@ not source needed for Keel's reviewed adapter path:
   network-isolation and proxy-enforcement design.
 - Upstreamable status: minimal and upstreamable. The race was still present on upstream `main` when this
   patch was recorded on 2026-08-01; it has not yet been submitted upstream.
+
+### Connect-time destination resolver seam
+
+- Patch: `patches/connect-time-destination-resolver.patch`
+- Applied files: `src/index.ts`, `src/sandbox/destination-dial.ts`, `src/sandbox/http-proxy.ts`,
+  `src/sandbox/parent-proxy.ts`, `src/sandbox/sandbox-config.ts`,
+  `src/sandbox/sandbox-manager.ts`, `src/sandbox/socks-proxy.ts`, and
+  `src/sandbox/tls-terminate-proxy.ts`.
+- Reason: SRT previously authorized a requested hostname and then let each final direct dial resolve
+  it independently. Keel ADR-0086 requires the Warden to resolve and classify once at connect time,
+  with SRT dialing only the returned validated address set.
+- Security impact: when the initialization-scoped resolver is active, every supported direct TCP
+  path (CONNECT, SOCKS, absolute HTTP/HTTPS, and TLS-terminated HTTPS) uses one pinned lookup. Empty,
+  malformed, duplicate, oversized, aborted, or rejected answers fail closed. Parent proxies,
+  external proxy ports, `mitmProxy`, ambient proxy inheritance, and live route injection are
+  incompatible. Guarded dials also use a fixed process-local limit of 64 concurrent connection
+  leases and a fixed 30-second total dial deadline. A lease remains held through resolver and
+  transport setup, transfers to the outbound request or socket after connection, and is released
+  only on close or terminal failure. Sandbox-manager reset aborts all outstanding guarded work and
+  restores the limiter. The original hostname remains the HTTP Host and TLS identity.
+- Compatibility: consumers that omit `network.resolveDestination` retain upstream v0.0.59 routing.
+  `network.inheritProxyEnv` defaults to the upstream-compatible enabled behavior and must be
+  explicitly false with the resolver.
+- Upstreamable status: minimal and intended for upstream submission after Keel's full Epic 3.22
+  conformance matrix passes. It has not yet been submitted upstream.
 
 ## License And Notice
 

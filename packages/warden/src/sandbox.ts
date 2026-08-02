@@ -4,7 +4,11 @@ export interface SandboxStatus {
   enforcementTier: string;
   reason?: string;
   fixCommand?: string;
+  /** Process-local implementation facts. These are not projected into frozen `warden.status`. */
+  features?: readonly string[];
 }
+
+export const EGRESS_ADDRESS_GUARD_CAPABILITY = "egress-address-guard/v1";
 
 export interface SandboxProfile {
   readonly filesystem?: {

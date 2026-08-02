@@ -14,7 +14,7 @@ import {
   ALL_OFF_POSTURE,
 } from "./view-model.js";
 import { resolveAutonomyPosture } from "../autopilot/posture.js";
-import { wardenStatusViewConfig } from "../warden/status.js";
+import { EGRESS_ADDRESS_GUARD_CAPABILITY, wardenStatusViewConfig } from "../warden/status.js";
 
 const ESC = String.fromCharCode(27); // ANSI escapes start with this byte
 const BEL = String.fromCharCode(7);
@@ -51,6 +51,7 @@ function governedStatus(
       },
       {
         autonomy: resolveAutonomyPosture(request, { trustedWorkspace: true }),
+        wardenCapabilities: enforcement ? [EGRESS_ADDRESS_GUARD_CAPABILITY] : [],
       },
     ),
   };

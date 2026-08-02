@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdtempSync, realpathSync, writeFileSync } from "node:fs";
+import { tmpdir as systemTmpdir } from "node:os";
 import { join } from "node:path";
 import type {
   ModelMessageT,
@@ -13,7 +13,7 @@ import { HeadlessUI } from "../tui/headless.js";
 import { runKeelCommand } from "./session-entry.js";
 import { createToolRuntime } from "./runtime.js";
 
-const tmp = (): string => mkdtempSync(join(tmpdir(), "keel-trust-"));
+const tmp = (): string => mkdtempSync(join(realpathSync(systemTmpdir()), "keel-trust-"));
 const GOVERNED_TYPED_FILE_TOOLS = ["bash", "read", "search", "write", "edit"];
 
 /** Captures the messages + tools handed to the model on the first turn (the seed). */

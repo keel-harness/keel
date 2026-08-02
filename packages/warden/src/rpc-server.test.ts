@@ -122,7 +122,9 @@ class WardenHarness {
   #waiters: ((line: string) => void)[] = [];
 
   constructor(env: NodeJS.ProcessEnv = {}, cwd = ROOT) {
-    this.keelHome = mkdtempSync(join(tmpdir(), "keel-warden-home-"));
+    // macOS exposes tmpdir through /var -> /private/var. The exception authority intentionally
+    // rejects path aliases, so spawned Warden fixtures must pass the physical KEEL_HOME identity.
+    this.keelHome = realpathSync(mkdtempSync(join(tmpdir(), "keel-warden-home-")));
     this.child = spawn(
       process.execPath,
       ["--import", "tsx/esm", "--conditions=@keel/source", WARDEN_BIN],
@@ -341,42 +343,9 @@ async function listenEgressFixture(): Promise<EgressFixture> {
       resolve({ ok: false, reason: error.message });
     };
     server.once("error", onError);
-    server.listen(0, "localhost", () => {
+    server.listen(0, "127.0.0.1", () => {
       server.off("error", onError);
       resolve({ ok: true, server, port: (server.address() as AddressInfo).port, hits });
-    });
-  });
-}
-
-type AuthorizationFixture =
-  | { ok: true; server: Server; port: number; seen: string[] }
-  | { ok: false; reason: string };
-
-async function listenAuthorizationFixture(
-  expectedAuthorization: string,
-): Promise<AuthorizationFixture> {
-  const seen: string[] = [];
-  const server = createServer((req, res) => {
-    const authorization = req.headers.authorization ?? "";
-    seen.push(authorization);
-    if (req.url === "/ok" && authorization === expectedAuthorization) {
-      res.writeHead(200, { "content-type": "text/plain" });
-      res.end("auth-ok\n");
-      return;
-    }
-    res.writeHead(401, { "content-type": "text/plain" });
-    res.end("missing-auth\n");
-  });
-
-  return await new Promise<AuthorizationFixture>((resolve) => {
-    const onError = (error: Error): void => {
-      server.close();
-      resolve({ ok: false, reason: error.message });
-    };
-    server.once("error", onError);
-    server.listen(0, "localhost", () => {
-      server.off("error", onError);
-      resolve({ ok: true, server, port: (server.address() as AddressInfo).port, seen });
     });
   });
 }
@@ -1103,6 +1072,86 @@ describe("keel-warden stdio JSON-RPC server", () => {
         }),
       ).resolves.not.toContain("mutation-presentation/v1");
       await mutationPresentation.clear();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("advertises the address guard only from exact initialized SRT feature truth plus audit", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "keel-rpc-address-guard-capability-"));
+    try {
+      const writer = auditWriter(join(dir, "audit.jsonl"));
+      const sandbox = (status: ReturnType<SandboxPort["status"]>): SandboxPort => ({
+        status: () => status,
+        execute: async () => ({ exitCode: 0, signal: null, stdout: "", stderr: "" }),
+      });
+      const activeStatus = {
+        available: true,
+        backend: "srt:vendored",
+        enforcementTier: "sandbox:srt",
+        features: ["egress-address-guard/v1"],
+      };
+      const capabilitySet = async (id: string, options: WardenRpcHandlerOptions) => {
+        const hello = JsonRpcSuccessResponse.parse(
+          await handleRpcLine(JSON.stringify(helloFrame(id)), options),
+        );
+        return WARDEN_METHODS["warden.hello"].result.parse(hello.result).capabilities;
+      };
+
+      await expect(
+        capabilitySet("address-guard-active", {
+          auditWriter: writer,
+          sandbox: sandbox(activeStatus),
+        }),
+      ).resolves.toContain("egress-address-guard/v1");
+      await expect(
+        capabilitySet("address-guard-no-audit", { sandbox: sandbox(activeStatus) }),
+      ).resolves.not.toContain("egress-address-guard/v1");
+      await expect(
+        capabilitySet("address-guard-no-feature", {
+          auditWriter: writer,
+          sandbox: sandbox({
+            available: true,
+            backend: "srt:vendored",
+            enforcementTier: "sandbox:srt",
+          }),
+        }),
+      ).resolves.not.toContain("egress-address-guard/v1");
+      await expect(
+        capabilitySet("address-guard-other-backend", {
+          auditWriter: writer,
+          sandbox: sandbox({ ...activeStatus, backend: "other" }),
+        }),
+      ).resolves.not.toContain("egress-address-guard/v1");
+      await expect(
+        capabilitySet("address-guard-stopped", {
+          auditWriter: writer,
+          sandbox: sandbox({
+            available: false,
+            backend: "srt:vendored",
+            enforcementTier: "none",
+            reason: "sandbox runtime is stopped",
+          }),
+        }),
+      ).resolves.not.toContain("egress-address-guard/v1");
+
+      const status = JsonRpcSuccessResponse.parse(
+        await handleRpcLine(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: "guard-status",
+            method: "warden.status",
+            params: {},
+          }),
+          {
+            auditWriter: writer,
+            sandbox: sandbox(activeStatus),
+          },
+        ),
+      );
+      expect(
+        Object.keys(WARDEN_METHODS["warden.status"].result.parse(status.result)).sort(),
+      ).toEqual(["auditHead", "enforcementTier", "pendingReviews", "policyPack", "sandboxBackend"]);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -2587,7 +2636,7 @@ describe("keel-warden stdio JSON-RPC server", () => {
     }
   });
 
-  it("surfaces loopback and remote console egress in the review audit record", async () => {
+  it("surfaces remote console egress in the review audit record", async () => {
     const dir = mkdtempSync(join(tmpdir(), "keel-rpc-console-egress-review-"));
     try {
       const auditPath = join(dir, "audit.jsonl");
@@ -2595,8 +2644,8 @@ describe("keel-warden stdio JSON-RPC server", () => {
       const brokerEvents: unknown[] = [];
       const target = {
         ...QEMU_CONSOLE_TARGET,
-        targetId: "qemu-loopback",
-        egressDomains: ["localhost", "vm-console.example"] as const,
+        targetId: "qemu-remote-egress",
+        egressDomains: ["vm-console.example"] as const,
       };
 
       const raw = JsonRpcSuccessResponse.parse(
@@ -2644,7 +2693,6 @@ describe("keel-warden stdio JSON-RPC server", () => {
       );
       expect(records[0]?.sideEffect?.dynamic.targets).toEqual(
         expect.arrayContaining([
-          expect.objectContaining({ kind: "host", normalized: "localhost" }),
           expect.objectContaining({ kind: "host", normalized: "vm-console.example" }),
         ]),
       );
@@ -2652,7 +2700,7 @@ describe("keel-warden stdio JSON-RPC server", () => {
         records[0]?.sideEffect?.extensions?.["keel.interactiveConsole"] as {
           readonly egressDomains?: readonly string[];
         },
-      ).toMatchObject({ egressDomains: ["localhost", "vm-console.example"] });
+      ).toMatchObject({ egressDomains: ["vm-console.example"] });
       expect(verifyChain(toChainRecords(records)).ok).toBe(true);
     } finally {
       rmSync(dir, { recursive: true, force: true });
@@ -10438,64 +10486,32 @@ printf '%s\\n' '${match}'
     }
   });
 
-  it("secretless egress: injected Authorization reaches a fixture upstream through real srt when available", async () => {
+  it("secretless egress: rejects loopback credential authority before sandbox execution", async () => {
     const secret = "keel-real-token-sec027-live";
-    const expectedAuthorization = `Bearer ${secret}`;
-    const fixture = await listenAuthorizationFixture(expectedAuthorization);
-    if (!fixture.ok) {
-      expect(fixture.reason).toMatch(/listen|EPERM|EACCES/);
-      return;
-    }
-    const { server, port, seen } = fixture;
-    const workspace = mkdtempSync(join(tmpdir(), "keel-srt-credential-workspace-"));
-    const home = mkdtempSync(join(tmpdir(), "keel-srt-credential-home-"));
-    const dir = mkdtempSync(join(tmpdir(), "keel-srt-credential-audit-"));
-    try {
-      const sandboxPort = await createVendoredSrtSandboxPort();
-      const auditPath = join(dir, "audit.jsonl");
-      const writer = auditWriter(auditPath);
-
-      if (sandboxPort.status().enforcementTier !== "sandbox:srt") {
-        const unavailable = JsonRpcErrorResponse.parse(
-          await handleRpcLine(
-            JSON.stringify(
-              executeFrame(
-                "credential-proxy-live-unavailable",
-                `curl -fsS --noproxy '' --max-time 5 http://localhost:${port}/ok`,
-              ),
-            ),
-            {
-              sandbox: sandboxPort,
-              policy: ALLOW_POLICY,
-              workspaceRoot: workspace,
-              env: { HOME: home, KEEL_FIXTURE_TOKEN: secret },
-              credentialProxyRules: [
-                {
-                  id: "fixture-api",
-                  mode: "swap_on_access",
-                  host: "localhost",
-                  scheme: "Bearer",
-                  source: { kind: "env", name: "KEEL_FIXTURE_TOKEN" },
-                  allowPlaintextInject: true,
-                },
-              ],
-            },
+    let executed = false;
+    const sandboxPort: SandboxPort = {
+      status: () => ({
+        available: true,
+        backend: "fake-sandbox",
+        enforcementTier: "sandbox:fake",
+      }),
+      execute: async () => {
+        executed = true;
+        return { exitCode: 0, signal: null, stdout: "must-not-run", stderr: "" };
+      },
+    };
+    const raw = JsonRpcErrorResponse.parse(
+      await handleRpcLine(
+        JSON.stringify(
+          executeFrame(
+            "credential-proxy-loopback-rejected",
+            "curl -fsS --max-time 5 http://localhost/ok",
           ),
-        );
-        expect(unavailable.error.data?.code).toBe("TIER_UNAVAILABLE");
-        return;
-      }
-
-      const command =
-        `env | sort; printf '__CURL__\\n'; ` +
-        `curl -fsS --noproxy '' --max-time 5 http://localhost:${port}/ok`;
-      const raw = JsonRpcSuccessResponse.parse(
-        await handleRpcLine(JSON.stringify(executeFrame("credential-proxy-live", command)), {
+        ),
+        {
           sandbox: sandboxPort,
           policy: ALLOW_POLICY,
-          auditWriter: writer,
-          workspaceRoot: workspace,
-          env: { HOME: home, KEEL_FIXTURE_TOKEN: secret },
+          env: { KEEL_FIXTURE_TOKEN: secret },
           credentialProxyRules: [
             {
               id: "fixture-api",
@@ -10506,207 +10522,15 @@ printf '%s\\n' '${match}'
               allowPlaintextInject: true,
             },
           ],
-        }),
-      );
+        },
+      ),
+    );
 
-      const result = WARDEN_METHODS["warden.execute"].result.parse(raw.result);
-      expect(result.verdict).toBe("allow");
-      const execution = commandExecutionResult(result);
-      expect(execution.exitCode).toBe(0);
-      expect(execution.stdout).toContain("__CURL__\nauth-ok\n");
-      expect(execution.stdout).not.toContain(secret);
-      expect(seen).toContain(expectedAuthorization);
-
-      const rawAudit = readFileSync(auditPath, "utf8");
-      expect(rawAudit).not.toContain(secret);
-      expect(JSON.stringify(raw.result)).not.toContain(secret);
-
-      seen.splice(0);
-      const wrongHostRaw = JsonRpcSuccessResponse.parse(
-        await handleRpcLine(
-          JSON.stringify(
-            executeFrame(
-              "credential-proxy-wrong-host",
-              `curl -sS --noproxy '' --max-time 5 -o /dev/null -w '%{http_code}' http://localhost:${port}/ok`,
-            ),
-          ),
-          {
-            sandbox: sandboxPort,
-            policy: ALLOW_POLICY,
-            auditWriter: writer,
-            workspaceRoot: workspace,
-            allowedEgressDomains: ["localhost"],
-            env: { HOME: home, KEEL_FIXTURE_TOKEN: secret },
-            credentialProxyRules: [
-              {
-                id: "fixture-api",
-                mode: "swap_on_access",
-                host: "api.example.com",
-                scheme: "Bearer",
-                source: { kind: "env", name: "KEEL_FIXTURE_TOKEN" },
-                allowPlaintextInject: true,
-              },
-            ],
-          },
-        ),
-      );
-      const wrongHost = WARDEN_METHODS["warden.execute"].result.parse(wrongHostRaw.result);
-      expect(wrongHost.verdict).toBe("allow");
-      expect(commandExecutionResult(wrongHost).stdout).toBe("401");
-      expect(seen).not.toContain(expectedAuthorization);
-      expect(seen).toContain("");
-
-      seen.splice(0);
-      const callerAuthorization = "Bearer caller-owned-token";
-      const existingAuthRaw = JsonRpcSuccessResponse.parse(
-        await handleRpcLine(
-          JSON.stringify(
-            executeFrame(
-              "credential-proxy-existing-auth",
-              `curl -sS --noproxy '' --max-time 5 -H ${shQuote(
-                `Authorization: ${callerAuthorization}`,
-              )} -o /dev/null -w '%{http_code}' http://localhost:${port}/ok`,
-            ),
-          ),
-          {
-            sandbox: sandboxPort,
-            policy: ALLOW_POLICY,
-            auditWriter: writer,
-            workspaceRoot: workspace,
-            env: { HOME: home, KEEL_FIXTURE_TOKEN: secret },
-            credentialProxyRules: [
-              {
-                id: "fixture-api",
-                mode: "swap_on_access",
-                host: "localhost",
-                scheme: "Bearer",
-                source: { kind: "env", name: "KEEL_FIXTURE_TOKEN" },
-                allowPlaintextInject: true,
-              },
-            ],
-          },
-        ),
-      );
-      const existingAuth = WARDEN_METHODS["warden.execute"].result.parse(existingAuthRaw.result);
-      expect(existingAuth.verdict).toBe("allow");
-      expect(commandExecutionResult(existingAuth).stdout).toBe("401");
-      expect(seen).toEqual([callerAuthorization]);
-      expect(readFileSync(auditPath, "utf8")).not.toContain(secret);
-
-      seen.splice(0);
-      const placeholderRaw = JsonRpcSuccessResponse.parse(
-        await handleRpcLine(
-          JSON.stringify(
-            executeFrame(
-              "credential-proxy-placeholder-live",
-              `printf 'placeholder=%s\\n' "$KEEL_FIXTURE_AUTH"; ` +
-                `curl -fsS --noproxy '' --max-time 5 -H 'Authorization: Bearer '$KEEL_FIXTURE_AUTH http://localhost:${port}/ok`,
-            ),
-          ),
-          {
-            sandbox: sandboxPort,
-            policy: ALLOW_POLICY,
-            auditWriter: writer,
-            workspaceRoot: workspace,
-            env: { HOME: home, KEEL_FIXTURE_TOKEN: secret },
-            credentialProxyRules: [
-              {
-                id: "fixture-api",
-                mode: "placeholder",
-                host: "localhost",
-                scheme: "Bearer",
-                source: { kind: "env", name: "KEEL_FIXTURE_TOKEN" },
-                placeholderEnv: "KEEL_FIXTURE_AUTH",
-                allowPlaintextInject: true,
-              },
-            ],
-          },
-        ),
-      );
-      const placeholderResult = WARDEN_METHODS["warden.execute"].result.parse(
-        placeholderRaw.result,
-      );
-      expect(placeholderResult.verdict).toBe("allow");
-      expect(commandExecutionResult(placeholderResult).exitCode).toBe(0);
-      expect(commandExecutionResult(placeholderResult).stdout).toContain("auth-ok\n");
-      expect(commandExecutionResult(placeholderResult).stdout).toMatch(/placeholder=keelcred_/);
-      expect(commandExecutionResult(placeholderResult).stdout).not.toContain(secret);
-      expect(seen).toEqual([expectedAuthorization]);
-      expect(readFileSync(auditPath, "utf8")).not.toContain(secret);
-
-      seen.splice(0);
-      const wrongPlaceholderRaw = JsonRpcSuccessResponse.parse(
-        await handleRpcLine(
-          JSON.stringify(
-            executeFrame(
-              "credential-proxy-placeholder-wrong-host",
-              `curl -sS --noproxy '' --max-time 5 -H 'Authorization: Bearer '$KEEL_FIXTURE_AUTH ` +
-                `-o /dev/null -w '%{http_code}' http://localhost:${port}/ok`,
-            ),
-          ),
-          {
-            sandbox: sandboxPort,
-            policy: ALLOW_POLICY,
-            auditWriter: writer,
-            workspaceRoot: workspace,
-            allowedEgressDomains: ["localhost"],
-            env: { HOME: home, KEEL_FIXTURE_TOKEN: secret },
-            credentialProxyRules: [
-              {
-                id: "fixture-api",
-                mode: "placeholder",
-                host: "api.example.com",
-                scheme: "Bearer",
-                source: { kind: "env", name: "KEEL_FIXTURE_TOKEN" },
-                placeholderEnv: "KEEL_FIXTURE_AUTH",
-                allowPlaintextInject: true,
-              },
-            ],
-          },
-        ),
-      );
-      const wrongPlaceholder = WARDEN_METHODS["warden.execute"].result.parse(
-        wrongPlaceholderRaw.result,
-      );
-      expect(wrongPlaceholder.verdict).toBe("allow");
-      expect(commandExecutionResult(wrongPlaceholder).stdout).toBe("403");
-      expect(seen).toEqual([]);
-
-      const unknownPlaceholderRaw = JsonRpcSuccessResponse.parse(
-        await handleRpcLine(
-          JSON.stringify(
-            executeFrame(
-              "credential-proxy-placeholder-unknown",
-              `curl -sS --noproxy '' --max-time 5 -H 'Authorization: Bearer keelcred_unknown_fixture' ` +
-                `-o /dev/null -w '%{http_code}' http://localhost:${port}/ok`,
-            ),
-          ),
-          {
-            sandbox: sandboxPort,
-            policy: ALLOW_POLICY,
-            auditWriter: writer,
-            workspaceRoot: workspace,
-            allowedEgressDomains: ["localhost"],
-            env: { HOME: home },
-          },
-        ),
-      );
-      const unknownPlaceholder = WARDEN_METHODS["warden.execute"].result.parse(
-        unknownPlaceholderRaw.result,
-      );
-      expect(unknownPlaceholder.verdict).toBe("allow");
-      expect(commandExecutionResult(unknownPlaceholder).stdout).toBe("403");
-      expect(seen).toEqual([]);
-      expect(readFileSync(auditPath, "utf8")).toContain('"stdout":"403"');
-      expect(readFileSync(auditPath, "utf8")).not.toContain(secret);
-    } finally {
-      await closeServer(server);
-      rmSync(workspace, { recursive: true, force: true });
-      rmSync(home, { recursive: true, force: true });
-      rmSync(dir, { recursive: true, force: true });
-    }
+    expect(raw.error.data?.code).toBe("INVALID_EGRESS_CONFIG");
+    expect(raw.error.message).toMatch(/localhost/u);
+    expect(JSON.stringify(raw)).not.toContain(secret);
+    expect(executed).toBe(false);
   });
-
   it("SEC-002: vendored proxy rechecks redirected requests against the allowlist", async () => {
     const fixture = await listenEgressFixture();
     if (!fixture.ok) {
@@ -10772,8 +10596,18 @@ printf '%s\\n' '${match}'
     const auditPath = join(dir, "audit.jsonl");
     const writer = auditWriter(auditPath);
     try {
-      const sandboxPort = await createVendoredSrtSandboxPort();
-      const command = `curl -fsSL --noproxy '' --max-time 5 http://localhost:${port}/redirect-to-ip`;
+      const fixtureHost = "redirect-fixture.example";
+      const resolverCalls: string[] = [];
+      const sandboxPort = await createVendoredSrtSandboxPort({
+        resolveDestination: async (hostname, targetPort) => {
+          resolverCalls.push(`${hostname}:${String(targetPort)}`);
+          if (hostname !== fixtureHost || targetPort !== port) {
+            throw new Error("unexpected redirect fixture destination");
+          }
+          return [{ address: "127.0.0.1", family: 4 }];
+        },
+      });
+      const command = `curl -fsSL --noproxy '' --max-time 5 http://${fixtureHost}:${port}/redirect-to-ip`;
 
       if (sandboxPort.status().enforcementTier !== "sandbox:srt") {
         const unavailable = JsonRpcErrorResponse.parse(
@@ -10781,7 +10615,7 @@ printf '%s\\n' '${match}'
             sandbox: sandboxPort,
             policy: ALLOW_POLICY,
             workspaceRoot: workspace,
-            allowedEgressDomains: ["localhost"],
+            allowedEgressDomains: [fixtureHost],
             env: { HOME: home },
           }),
         );
@@ -10795,7 +10629,7 @@ printf '%s\\n' '${match}'
           policy: ALLOW_POLICY,
           auditWriter: writer,
           workspaceRoot: workspace,
-          allowedEgressDomains: ["localhost"],
+          allowedEgressDomains: [fixtureHost],
           env: { HOME: home },
         }),
       );
@@ -10807,6 +10641,7 @@ printf '%s\\n' '${match}'
       expect(`${execution.stdout}\n${execution.stderr}`).toMatch(/403|allowlist|Forbidden/i);
       expect(hits.redirect).toBe(1);
       expect(hits.ok).toBe(0);
+      expect(resolverCalls).toEqual([`${fixtureHost}:${String(port)}`]);
 
       const records = loadAuditRecords(auditPath);
       expect(verifyChain(toChainRecords(records)).ok).toBe(true);
@@ -16672,7 +16507,7 @@ printf '%s\\n' '${match}'
     };
 
     try {
-      for (const domain of ["127.0.0.1", "https://example.com"]) {
+      for (const domain of ["localhost", "api.localhost", "127.0.0.1", "https://example.com"]) {
         const rejected = JsonRpcErrorResponse.parse(
           await handleRpcLine(
             JSON.stringify(
@@ -19298,6 +19133,58 @@ printf '%s\\n' '${match}'
     expect(state.settled).toBe(true);
   });
 
+  it("awaits process-owned runtime teardown exactly once across repeated closes", async () => {
+    const input = new PassThrough();
+    const output = new PassThrough();
+    output.resume();
+    let releaseRuntime!: () => void;
+    const runtimeReleased = new Promise<void>((resolve) => {
+      releaseRuntime = resolve;
+    });
+    const shutdownRuntime = vi.fn(() => runtimeReleased);
+    const server = runStdioWardenServer({ input, output, shutdownRuntime });
+
+    let closed = false;
+    const firstClose = server.close().then(() => {
+      closed = true;
+    });
+    await vi.waitFor(() => expect(shutdownRuntime).toHaveBeenCalledOnce());
+    expect(closed).toBe(false);
+
+    releaseRuntime();
+    await firstClose;
+    await server.close();
+
+    expect(closed).toBe(true);
+    expect(shutdownRuntime).toHaveBeenCalledOnce();
+  });
+
+  it("keeps clean RPC shutdown bounded when process-owned runtime teardown fails", async () => {
+    const input = new PassThrough();
+    const output = new PassThrough();
+    const order: string[] = [];
+    const shutdownRuntime = vi.fn(async () => {
+      order.push("runtime");
+      throw new Error("runtime teardown failed");
+    });
+    const server = runStdioWardenServer({
+      input,
+      output,
+      shutdownRuntime,
+      onShutdown: () => {
+        order.push("shutdown");
+      },
+    });
+
+    const shutdownLine = readStreamLine(output);
+    input.write(`${JSON.stringify(request("runtime-shutdown", "warden.shutdown"))}\n`);
+    expect(success(await shutdownLine).id).toBe("runtime-shutdown");
+    await vi.waitFor(() => expect(order).toEqual(["runtime", "shutdown"]));
+
+    await server.close();
+    expect(shutdownRuntime).toHaveBeenCalledOnce();
+  });
+
   it("threads lifecycle and credential proxy options through the stdio execute boundary", async () => {
     const input = new PassThrough();
     const output = new PassThrough();
@@ -19611,10 +19498,19 @@ printf '%s\\n' '${match}'
     expect(["none", "sandbox:srt"]).toContain(status.enforcementTier);
     expect(status.policyPack.name).toBe("phase2a-starter-policy-pack");
     expect(status.auditHead.seq).toBe(0);
+
+    warden.send(helloFrame("srt-guard-capability"));
+    const helloRaw = JsonRpcSuccessResponse.parse(await warden.readJson());
+    const hello = WARDEN_METHODS["warden.hello"].result.parse(helloRaw.result);
+    if (status.enforcementTier === "sandbox:srt") {
+      expect(hello.capabilities).toContain("egress-address-guard/v1");
+    } else {
+      expect(hello.capabilities).not.toContain("egress-address-guard/v1");
+    }
   });
 
   it("runs the opt-in srt filesystem hardening probes when available, otherwise fails closed", async () => {
-    const workspace = mkdtempSync(join(tmpdir(), "keel-srt-workspace-"));
+    const workspace = realpathSync(mkdtempSync(join(tmpdir(), "keel-srt-workspace-")));
     const home = mkdtempSync(join(tmpdir(), "keel-srt-home-"));
     const outsideDir = mkdtempSync(join(tmpdir(), "keel-srt-outside-dir-"));
     // Keep this target outside both the workspace and temporary scope on every host. Linux uses
@@ -19646,7 +19542,8 @@ printf '%s\\n' '${match}'
         "});",
       ].join("\n"),
     );
-    mkdirSync(auditDir, { recursive: true });
+    mkdirSync(keelHome, { mode: 0o700 });
+    mkdirSync(auditDir);
     writeFileSync(auditPath, "audit-sealed\n");
     symlinkSync(outsideDir, symlinkPath, "dir");
     try {
@@ -19741,14 +19638,14 @@ printf '%s\\n' '${match}'
     }
   });
 
-  it("runs the opt-in srt egress probes when available, otherwise fails closed", async () => {
+  it("keeps localhost ungrantable in spawned SRT even when ambient allow env is set", async () => {
     const fixture = await listenEgressFixture();
     if (!fixture.ok) {
       expect(fixture.reason).toMatch(/listen|EPERM|EACCES/);
       return;
     }
     const { server, port, hits } = fixture;
-    const workspace = mkdtempSync(join(tmpdir(), "keel-srt-egress-workspace-"));
+    const workspace = realpathSync(mkdtempSync(join(tmpdir(), "keel-srt-egress-workspace-")));
     const home = mkdtempSync(join(tmpdir(), "keel-srt-egress-home-"));
     try {
       const deniedWarden = spawnWarden({
@@ -19788,8 +19685,9 @@ printf '%s\\n' '${match}'
       );
       const defaultDenyRaw = JsonRpcSuccessResponse.parse(await deniedWarden.readJson());
       const defaultDeny = WARDEN_METHODS["warden.execute"].result.parse(defaultDenyRaw.result);
-      expect(defaultDeny.verdict).toBe("allow");
-      expect(commandExecutionResult(defaultDeny).exitCode).not.toBe(0);
+      expect(defaultDeny.verdict).toBe("deny");
+      expect(defaultDeny.guidance).toMatch(/localhost|invalid/i);
+      expect(defaultDeny.result).toBeUndefined();
       expect(hits.ok).toBe(0);
 
       const envIgnoredWarden = spawnWarden({
@@ -19811,8 +19709,9 @@ printf '%s\\n' '${match}'
       );
       const ignoredRaw = JsonRpcSuccessResponse.parse(await envIgnoredWarden.readJson());
       const ignored = WARDEN_METHODS["warden.execute"].result.parse(ignoredRaw.result);
-      expect(ignored.verdict).toBe("allow");
-      expect(commandExecutionResult(ignored).exitCode).not.toBe(0);
+      expect(ignored.verdict).toBe("deny");
+      expect(ignored.guidance).toMatch(/localhost|invalid/i);
+      expect(ignored.result).toBeUndefined();
       expect(hits.ok).toBe(0);
     } finally {
       await closeServer(server);

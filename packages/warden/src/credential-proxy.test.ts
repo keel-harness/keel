@@ -449,11 +449,26 @@ describe("credential proxy rules", () => {
   });
 
   it("rejects invalid hosts and authorization schemes before any sandbox execution", () => {
-    expect(() =>
-      resolveCredentialProxyRules([rule({ host: "127.0.0.1" })], {
-        KEEL_FIXTURE_TOKEN: SECRET,
-      }),
-    ).toThrow(/egress domain|IP-like/i);
+    for (const host of [
+      "localhost",
+      "LOCALHOST",
+      "api.localhost",
+      "Bücher.Localhost",
+      "127.0.0.1",
+      "[::ffff:127.0.0.1]",
+    ]) {
+      const rules = [rule({ host })];
+      expect(() => credentialProxyPublicSummary(rules), host).toThrow(
+        /egress domain|IP-like|localhost|invalid/i,
+      );
+      expect(() => credentialProxyAllowedDomains(rules), host).toThrow(
+        /egress domain|IP-like|localhost|invalid/i,
+      );
+      expect(
+        () => resolveCredentialProxyRules(rules, { KEEL_FIXTURE_TOKEN: SECRET }),
+        host,
+      ).toThrow(/egress domain|IP-like|localhost|invalid/i);
+    }
 
     expect(() =>
       resolveCredentialProxyRules([rule({ scheme: "Bearer injected" })], {
