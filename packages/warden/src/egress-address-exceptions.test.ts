@@ -1,4 +1,5 @@
 import {
+  appendFileSync,
   chmodSync,
   mkdirSync,
   mkdtempSync,
@@ -19,6 +20,7 @@ import {
   egressAddressExceptionFilePath,
   loadEgressAddressExceptionSnapshot,
 } from "./egress-address-exceptions.js";
+import { createBoundedEgressAddressResolver } from "./egress-resolver.js";
 
 const cleanupRoots: string[] = [];
 
@@ -117,6 +119,44 @@ describe("egress address exception authority", () => {
     expect(allows("registry.corp.example", 80, "10.20.1.1")).toBe(false);
     expect(allows("registry.corp.example", 443, "8.8.8.8")).toBe(false);
     expect(allows("xn--bcher-kva.corp.example", 443, "fd01:20::1")).toBe(true);
+    expect(
+      snapshot.allowsRestrictedAddress({
+        hostname: "registry.corp.example",
+        port: 443,
+        address: "10.20.1.1",
+        family: 6,
+        classification: classifyEgressAddress("10.20.1.1"),
+      }),
+    ).toBe(false);
+  });
+
+  it("denies a complete resolver answer set when the immutable exception misses one answer", async () => {
+    const { env, workspace, path } = fixture();
+    writeStore(path, validStore(workspace));
+    const snapshot = loadEgressAddressExceptionSnapshot(workspace, env);
+    const records: unknown[] = [];
+    const resolver = createBoundedEgressAddressResolver({
+      lookup: (_hostname, _options, callback) =>
+        callback(null, [
+          { address: "10.20.1.1", family: 4 },
+          { address: "10.21.1.1", family: 4 },
+        ]),
+      audit: { append: (record) => records.push(record) },
+      onQuarantine: () => undefined,
+      allowsRestrictedAddress: snapshot.allowsRestrictedAddress,
+      exceptionPolicyRevision: snapshot.revision,
+    });
+
+    await expect(
+      resolver.resolveDestination("registry.corp.example", 443, new AbortController().signal),
+    ).rejects.toMatchObject({ code: "restricted-address-not-excepted" });
+    expect(records).toEqual([
+      expect.objectContaining({
+        reason: "restricted-address-not-excepted",
+        answerCount: 2,
+        exceptionPolicyRevision: snapshot.revision,
+      }),
+    ]);
   });
 
   it("keys authority to the trusted workspace realpath and ignores unrelated entries", () => {
@@ -203,16 +243,37 @@ describe("egress address exception authority", () => {
     );
   });
 
+  it("rejects malformed JSON and duplicate exception entries", () => {
+    const { env, workspace, path } = fixture();
+    writeFileSync(path, "{", { encoding: "utf8", mode: 0o600 });
+    expect(() => loadEgressAddressExceptionSnapshot(workspace, env)).toThrow(/JSON/u);
+
+    const entry = { host: "private.example", cidr: "10.20.0.0/16", ports: [443] };
+    writeStore(path, {
+      version: 1,
+      workspaces: [{ realpath: workspace, exceptions: [entry, entry] }],
+    });
+    expect(() => loadEgressAddressExceptionSnapshot(workspace, env)).toThrow(
+      /duplicate exception/u,
+    );
+  });
+
   it.each([
     ["uppercase host", "REGISTRY.CORP.EXAMPLE", "10.20.0.0/16", [443]],
     ["unicode host", "bücher.corp.example", "10.20.0.0/16", [443]],
     ["root-qualified host", "registry.corp.example.", "10.20.0.0/16", [443]],
     ["wildcard host", "*.corp.example", "10.20.0.0/16", [443]],
     ["IP-literal host", "10.20.1.1", "10.20.0.0/16", [443]],
+    ["hard-denied host", "metadata.google.internal", "10.20.0.0/16", [443]],
+    ["malformed CIDR address", "registry.corp.example", "10.20.0/16", [443]],
+    ["malformed CIDR prefix", "registry.corp.example", "10.20.0.0/x", [443]],
+    ["oversized CIDR prefix", "registry.corp.example", "10.20.0.0/33", [443]],
+    ["non-canonical CIDR prefix", "registry.corp.example", "10.20.0.0/016", [443]],
     ["non-network CIDR", "registry.corp.example", "10.20.1.0/16", [443]],
     ["public CIDR", "registry.corp.example", "8.8.8.0/24", [443]],
     ["hard-deny CIDR", "registry.corp.example", "127.0.0.0/8", [443]],
     ["restricted CIDR containing metadata", "registry.corp.example", "100.64.0.0/10", [443]],
+    ["ULA CIDR containing metadata", "registry.corp.example", "fd00::/8", [443]],
     ["empty ports", "registry.corp.example", "10.20.0.0/16", []],
     ["duplicate ports", "registry.corp.example", "10.20.0.0/16", [443, 443]],
     ["zero port", "registry.corp.example", "10.20.0.0/16", [0]],
@@ -267,6 +328,16 @@ describe("egress address exception authority", () => {
     );
   });
 
+  it("requires existing real KEEL_HOME and workspace directories", () => {
+    const { workspace, keelHome } = fixture();
+    expect(() =>
+      loadEgressAddressExceptionSnapshot(workspace, { KEEL_HOME: `${keelHome}-missing` }),
+    ).toThrow(/KEEL_HOME/u);
+    expect(() =>
+      loadEgressAddressExceptionSnapshot(`${workspace}-missing`, { KEEL_HOME: keelHome }),
+    ).toThrow(/workspace realpath/u);
+  });
+
   it("caps bytes, workspaces, exceptions, and ports before accepting authority", () => {
     const { env, workspace, path } = fixture();
     writeFileSync(path, " ".repeat(EGRESS_ADDRESS_EXCEPTION_LIMITS.maxFileBytes + 1), {
@@ -319,6 +390,20 @@ describe("egress address exception authority", () => {
       ],
     });
     expect(() => loadEgressAddressExceptionSnapshot(workspace, env)).toThrow(/port limit/u);
+
+    writeStore(path, {
+      version: 1,
+      workspaces: Array.from({ length: 5 }, (_, workspaceIndex) => ({
+        realpath: `/tmp/total-${String(workspaceIndex)}`,
+        exceptions: Array.from(
+          { length: EGRESS_ADDRESS_EXCEPTION_LIMITS.maxExceptionsPerWorkspace },
+          () => exception,
+        ),
+      })),
+    });
+    expect(() => loadEgressAddressExceptionSnapshot(workspace, env)).toThrow(
+      /total exception limit/u,
+    );
   });
 
   it("rejects a file owned by a different effective user", () => {
@@ -342,6 +427,55 @@ describe("egress address exception authority", () => {
         },
       }),
     ).toThrow(/identity changed/u);
+  });
+
+  it("fails closed when no-follow identity is unavailable or open loses the file", () => {
+    const { env, workspace, path } = fixture();
+    writeStore(path, validStore(workspace));
+    expect(() =>
+      loadEgressAddressExceptionSnapshot(workspace, env, { noFollowFlag: null }),
+    ).toThrow(/no-follow/u);
+    expect(() =>
+      loadEgressAddressExceptionSnapshot(workspace, env, {
+        afterInitialLstat: () => rmSync(path),
+      }),
+    ).toThrow(/no-follow read failed/u);
+  });
+
+  it("rejects growth after lstat and mutation during descriptor read", () => {
+    const { env, workspace, path } = fixture();
+    writeStore(path, validStore(workspace));
+    expect(() =>
+      loadEgressAddressExceptionSnapshot(workspace, env, {
+        afterInitialLstat: () =>
+          appendFileSync(path, " ".repeat(EGRESS_ADDRESS_EXCEPTION_LIMITS.maxFileBytes)),
+      }),
+    ).toThrow(/size limit/u);
+
+    writeStore(path, validStore(workspace));
+    expect(() =>
+      loadEgressAddressExceptionSnapshot(workspace, env, {
+        afterRead: () => appendFileSync(path, " "),
+      }),
+    ).toThrow(/changed during read/u);
+  });
+
+  it("rejects unavailable effective-user identity and non-canonical workspace keys", () => {
+    const { env, workspace, path } = fixture();
+    writeStore(path, validStore(workspace));
+    for (const invalidUid of [-1, 1.5]) {
+      expect(() =>
+        loadEgressAddressExceptionSnapshot(workspace, env, { effectiveUid: () => invalidUid }),
+      ).toThrow(/effective-user ownership/u);
+    }
+
+    writeStore(path, {
+      version: 1,
+      workspaces: [{ realpath: "/tmp/../tmp/work", exceptions: [] }],
+    });
+    expect(() => loadEgressAddressExceptionSnapshot(workspace, env)).toThrow(
+      /absolute canonical realpath/u,
+    );
   });
 
   it("never returns mutable file bytes or unrelated authority", () => {

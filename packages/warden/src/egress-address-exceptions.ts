@@ -53,8 +53,12 @@ export interface EgressAddressExceptionSnapshot {
 
 export interface EgressAddressExceptionStoreDeps {
   readonly effectiveUid?: () => number;
+  /** `null` simulates a platform without O_NOFOLLOW for fail-closed portability tests. */
+  readonly noFollowFlag?: number | null;
   /** Deterministic race seam used only after the initial path identity is captured. */
   readonly afterInitialLstat?: () => void;
+  /** Deterministic race seam used after bytes are read but before identity is revalidated. */
+  readonly afterRead?: () => void;
 }
 
 interface CanonicalCidr {
@@ -99,19 +103,11 @@ const PersistedStore = z
   })
   .strict();
 
-type PersistedStoreT = z.infer<typeof PersistedStore>;
-
 const IPV4_MAPPED_BASE = 0xffffn << 32n;
 const IPV4_SPACE_SIZE = 1n << 32n;
 
 function fail(message: string): never {
   throw new EgressAddressExceptionStoreError(message);
-}
-
-function errno(error: unknown): string | undefined {
-  return typeof error === "object" && error !== null
-    ? (error as NodeJS.ErrnoException).code
-    : undefined;
 }
 
 function sameIdentity(left: BigIntStats, right: BigIntStats): boolean {
@@ -165,13 +161,14 @@ function readSecureStoreFile(
   try {
     initial = lstatSync(path, { bigint: true });
   } catch (error) {
-    if (errno(error) === "ENOENT") return undefined;
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
     return fail("exception file lstat failed");
   }
-  if (!initial.isFile() || initial.isSymbolicLink()) {
+  if (!initial.isFile()) {
     return fail("exception file must be a no-follow regular file");
   }
-  if (typeof fsConstants.O_NOFOLLOW !== "number") {
+  const noFollowFlag = deps.noFollowFlag === undefined ? fsConstants.O_NOFOLLOW : deps.noFollowFlag;
+  if (typeof noFollowFlag !== "number") {
     return fail("no-follow file identity is unavailable");
   }
   if (initial.size > BigInt(EGRESS_ADDRESS_EXCEPTION_LIMITS.maxFileBytes)) {
@@ -181,7 +178,7 @@ function readSecureStoreFile(
   deps.afterInitialLstat?.();
   let fd: number | undefined;
   try {
-    fd = openSync(path, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
+    fd = openSync(path, fsConstants.O_RDONLY | noFollowFlag);
     const opened = fstatSync(fd, { bigint: true });
     const current = lstatSync(path, { bigint: true });
     if (!sameIdentity(initial, opened) || !sameIdentity(opened, current)) {
@@ -195,6 +192,7 @@ function readSecureStoreFile(
     }
 
     const text = readFileSync(fd, { encoding: "utf8" });
+    deps.afterRead?.();
     const afterRead = fstatSync(fd, { bigint: true });
     const finalPath = lstatSync(path, { bigint: true });
     if (
@@ -309,7 +307,6 @@ function canonicalWorkspaceKey(value: string): string {
 }
 
 function compileStore(raw: unknown): {
-  readonly store: PersistedStoreT;
   readonly compiled: ReadonlyMap<string, readonly CompiledException[]>;
 } {
   const parsed = PersistedStore.safeParse(raw);
@@ -341,7 +338,7 @@ function compileStore(raw: unknown): {
     });
     compiled.set(workspaceRealpath, entries);
   }
-  return { store: parsed.data, compiled };
+  return { compiled };
 }
 
 function publicEntries(entries: readonly CompiledException[]): readonly EgressAddressException[] {
@@ -377,7 +374,11 @@ export function loadEgressAddressExceptionSnapshot(
     try {
       raw = parseJsonRejectingDuplicateKeys(text);
     } catch (error) {
-      return fail(error instanceof Error ? error.message : "JSON parse failed");
+      return fail(
+        error instanceof Error && error.name === "DuplicateKeyError"
+          ? "duplicate object key"
+          : "invalid JSON",
+      );
     }
     const compiled = compileStore(raw).compiled;
     selected = compiled.get(workspaceRealpath) ?? [];
