@@ -47,7 +47,10 @@ not source needed for Keel's reviewed adapter path:
 
 - `VENDOR.md`
 - `patches/wait-for-linux-proxy-readiness.patch`
+- `patches/connect-time-destination-resolver.patch`
 - `test/sandbox/linux-proxy-readiness.test.ts`
+- `test/sandbox/destination-dial.test.ts`
+- `test/sandbox/destination-guard-proxy.test.ts`
 
 ## Local Patches
 
@@ -62,6 +65,27 @@ not source needed for Keel's reviewed adapter path:
   network-isolation and proxy-enforcement design.
 - Upstreamable status: minimal and upstreamable. The race was still present on upstream `main` when this
   patch was recorded on 2026-08-01; it has not yet been submitted upstream.
+
+### Connect-time destination resolver seam
+
+- Patch: `patches/connect-time-destination-resolver.patch`
+- Applied files: `src/index.ts`, `src/sandbox/destination-dial.ts`, `src/sandbox/http-proxy.ts`,
+  `src/sandbox/parent-proxy.ts`, `src/sandbox/sandbox-config.ts`,
+  `src/sandbox/sandbox-manager.ts`, `src/sandbox/socks-proxy.ts`, and
+  `src/sandbox/tls-terminate-proxy.ts`.
+- Reason: SRT previously authorized a requested hostname and then let each final direct dial resolve
+  it independently. Keel ADR-0086 requires the Warden to resolve and classify once at connect time,
+  with SRT dialing only the returned validated address set.
+- Security impact: when the initialization-scoped resolver is active, every supported direct TCP
+  path (CONNECT, SOCKS, absolute HTTP/HTTPS, and TLS-terminated HTTPS) uses one pinned lookup. Empty,
+  malformed, duplicate, oversized, aborted, or rejected answers fail closed. Parent proxies,
+  external proxy ports, `mitmProxy`, ambient proxy inheritance, and live route injection are
+  incompatible. The original hostname remains the HTTP Host and TLS identity.
+- Compatibility: consumers that omit `network.resolveDestination` retain upstream v0.0.59 routing.
+  `network.inheritProxyEnv` defaults to the upstream-compatible enabled behavior and must be
+  explicitly false with the resolver.
+- Upstreamable status: minimal and intended for upstream submission after Keel's full Epic 3.22
+  conformance matrix passes. It has not yet been submitted upstream.
 
 ## License And Notice
 

@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'bun:test'
+import { describe, expect, test } from 'vitest'
 import {
   DestinationAddressPolicyError,
   MAX_DESTINATION_ADDRESSES,
@@ -160,5 +160,48 @@ describe('prepareDestinationDial', () => {
       ),
     ).rejects.toBeInstanceOf(DestinationAddressPolicyError)
     expect(called).toBe(false)
+  })
+
+  test('rejects an answer that arrives after the caller aborts', async () => {
+    const controller = new AbortController()
+    let finish!: (
+      answers: readonly { address: string; family: 4 | 6 }[],
+    ) => void
+    const pending = prepareDestinationDial(
+      'api.example.com',
+      443,
+      async () =>
+        await new Promise(resolve => {
+          finish = resolve
+        }),
+      controller.signal,
+    )
+    controller.abort()
+    finish([{ address: '192.0.2.1', family: 4 }])
+    await expect(pending).rejects.toBeInstanceOf(
+      DestinationAddressPolicyError,
+    )
+  })
+
+  test('converts a hostile answer getter into the stable policy denial', async () => {
+    const hostile = new Proxy(
+      {},
+      {
+        get() {
+          throw new Error('private getter diagnostic 10.0.0.9')
+        },
+      },
+    )
+    await expect(
+      prepareDestinationDial(
+        'api.example.com',
+        443,
+        async () => [hostile] as never,
+        signal(),
+      ),
+    ).rejects.toMatchObject({
+      name: 'DestinationAddressPolicyError',
+      message: 'destination address policy denied the connection',
+    })
   })
 })

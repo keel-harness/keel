@@ -341,7 +341,7 @@ async function listenEgressFixture(): Promise<EgressFixture> {
       resolve({ ok: false, reason: error.message });
     };
     server.once("error", onError);
-    server.listen(0, "localhost", () => {
+    server.listen(0, "127.0.0.1", () => {
       server.off("error", onError);
       resolve({ ok: true, server, port: (server.address() as AddressInfo).port, hits });
     });
@@ -10514,8 +10514,18 @@ printf '%s\\n' '${match}'
     const auditPath = join(dir, "audit.jsonl");
     const writer = auditWriter(auditPath);
     try {
-      const sandboxPort = await createVendoredSrtSandboxPort();
-      const command = `curl -fsSL --noproxy '' --max-time 5 http://localhost:${port}/redirect-to-ip`;
+      const fixtureHost = "redirect-fixture.example";
+      const resolverCalls: string[] = [];
+      const sandboxPort = await createVendoredSrtSandboxPort({
+        resolveDestination: async (hostname, targetPort) => {
+          resolverCalls.push(`${hostname}:${String(targetPort)}`);
+          if (hostname !== fixtureHost || targetPort !== port) {
+            throw new Error("unexpected redirect fixture destination");
+          }
+          return [{ address: "127.0.0.1", family: 4 }];
+        },
+      });
+      const command = `curl -fsSL --noproxy '' --max-time 5 http://${fixtureHost}:${port}/redirect-to-ip`;
 
       if (sandboxPort.status().enforcementTier !== "sandbox:srt") {
         const unavailable = JsonRpcErrorResponse.parse(
@@ -10523,7 +10533,7 @@ printf '%s\\n' '${match}'
             sandbox: sandboxPort,
             policy: ALLOW_POLICY,
             workspaceRoot: workspace,
-            allowedEgressDomains: ["localhost"],
+            allowedEgressDomains: [fixtureHost],
             env: { HOME: home },
           }),
         );
@@ -10537,7 +10547,7 @@ printf '%s\\n' '${match}'
           policy: ALLOW_POLICY,
           auditWriter: writer,
           workspaceRoot: workspace,
-          allowedEgressDomains: ["localhost"],
+          allowedEgressDomains: [fixtureHost],
           env: { HOME: home },
         }),
       );
@@ -10549,6 +10559,7 @@ printf '%s\\n' '${match}'
       expect(`${execution.stdout}\n${execution.stderr}`).toMatch(/403|allowlist|Forbidden/i);
       expect(hits.redirect).toBe(1);
       expect(hits.ok).toBe(0);
+      expect(resolverCalls).toEqual([`${fixtureHost}:${String(port)}`]);
 
       const records = loadAuditRecords(auditPath);
       expect(verifyChain(toChainRecords(records)).ok).toBe(true);

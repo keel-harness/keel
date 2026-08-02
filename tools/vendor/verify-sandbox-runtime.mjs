@@ -14,16 +14,21 @@ const expected = {
     "LICENSE",
     "README.md",
     "VENDOR.md",
+    "patches/connect-time-destination-resolver.patch",
     "patches/wait-for-linux-proxy-readiness.patch",
     "package.json",
     "package-lock.json",
     "src/index.ts",
+    "src/sandbox/destination-dial.ts",
+    "src/sandbox/http-proxy.ts",
     "src/sandbox/sandbox-manager.ts",
     "src/sandbox/linux-sandbox-utils.ts",
     "src/sandbox/macos-sandbox-utils.ts",
     "src/sandbox/windows-sandbox-utils.ts",
     "test/sandbox/wrap-with-sandbox.test.ts",
     "test/sandbox/linux-proxy-readiness.test.ts",
+    "test/sandbox/destination-dial.test.ts",
+    "test/sandbox/destination-guard-proxy.test.ts",
     "vendor/seccomp-src/apply-seccomp.c",
     "vendor/srt-win-src/Cargo.toml",
   ],
@@ -92,6 +97,30 @@ for (const path of expected.excludedSubpaths) {
 
 const licenseText = await readFile(new URL("LICENSE", vendorDir), "utf8");
 assert(licenseText.includes("Apache License"), "LICENSE does not look like Apache-2.0 text");
+
+const resolverPatch = await readFile(
+  new URL("patches/connect-time-destination-resolver.patch", vendorDir),
+  "utf8",
+);
+for (const requiredPath of [
+  "src/sandbox/destination-dial.ts",
+  "src/sandbox/http-proxy.ts",
+  "src/sandbox/socks-proxy.ts",
+  "src/sandbox/tls-terminate-proxy.ts",
+  "src/sandbox/sandbox-manager.ts",
+]) {
+  assert(resolverPatch.includes(requiredPath), `resolver patch omits ${requiredPath}`);
+}
+for (const [path, token] of [
+  ["src/sandbox/destination-dial.ts", "prepareDestinationDial"],
+  ["src/sandbox/http-proxy.ts", "blocked-address-policy"],
+  ["src/sandbox/socks-proxy.ts", "resolveDestination"],
+  ["src/sandbox/tls-terminate-proxy.ts", "prepareDestinationDial"],
+  ["src/sandbox/sandbox-manager.ts", "assertDestinationGuardRoutesCompatible"],
+]) {
+  const source = await readFile(new URL(path, vendorDir), "utf8");
+  assert(source.includes(token), `${path} is missing resolver patch token ${token}`);
+}
 
 console.log(
   `sandbox-runtime vendor verified: ${expected.name}@${expected.version} (${expected.license})`,

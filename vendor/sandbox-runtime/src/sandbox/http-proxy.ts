@@ -19,8 +19,14 @@ import {
 } from './tls-terminate-proxy.js'
 import type { ResolvedParentProxy } from './parent-proxy.js'
 import {
+  dialDestination,
+  isDestinationAddressPolicyError,
+  prepareDestinationDial,
+  type ResolveDestination,
+} from './destination-dial.js'
+import {
   connectViaParentProxy,
-  dialDirect,
+  canonicalizeHost,
   openConnectTunnel,
   proxyAuthHeader,
   selectParentProxyUrl,
@@ -86,6 +92,9 @@ export interface HttpProxyServerOptions {
    */
   parentProxy?: ResolvedParentProxy
 
+  /** Initialization-scoped resolver authority for every direct destination. */
+  resolveDestination?: ResolveDestination
+
   /**
    * Per-session bearer token. When set, every CONNECT and absolute-URI
    * request must carry `Proxy-Authorization: Basic base64("srt:<token>")`
@@ -116,8 +125,10 @@ export function createHttpProxyServer(options: HttpProxyServerOptions): Server {
 
     // Track client liveness so we can abort the upstream dial if they bail.
     let clientGone = false
+    const dialAbort = new AbortController()
     socket.once('close', () => {
       clientGone = true
+      dialAbort.abort()
     })
 
     try {
@@ -181,7 +192,13 @@ export function createHttpProxyServer(options: HttpProxyServerOptions): Server {
             options.mutateHeaders,
             socket,
             peeked.head,
-            { hostname, port, upstreamCA: options.tlsTerminateUpstreamCA },
+            {
+              hostname,
+              port,
+              upstreamCA: options.tlsTerminateUpstreamCA,
+              resolveDestination: options.resolveDestination,
+              signal: dialAbort.signal,
+            },
           )
           return
         }
@@ -214,7 +231,12 @@ export function createHttpProxyServer(options: HttpProxyServerOptions): Server {
         } else if (parentUrl) {
           upstream = await connectViaParentProxy(parentUrl, hostname, port)
         } else {
-          upstream = await dialDirect(hostname, port)
+          upstream = await dialDestination(
+            hostname,
+            port,
+            options.resolveDestination,
+            dialAbort.signal,
+          )
         }
       } catch (err) {
         logForDebugging(`CONNECT tunnel failed: ${(err as Error).message}`, {
@@ -223,7 +245,15 @@ export function createHttpProxyServer(options: HttpProxyServerOptions): Server {
         // If we already sent 200 (mitmCA sniff path), an HTTP status line now
         // would land inside the tunnel as payload. Just close.
         if (wrote200) socket.destroy()
-        else socket.end('HTTP/1.1 502 Bad Gateway\r\n\r\n')
+        else if (isDestinationAddressPolicyError(err)) {
+          socket.end(
+            'HTTP/1.1 403 Forbidden\r\n' +
+              'Content-Type: text/plain\r\n' +
+              'X-Proxy-Error: blocked-address-policy\r\n' +
+              '\r\n' +
+              'Connection blocked by destination address policy',
+          )
+        } else socket.end('HTTP/1.1 502 Bad Gateway\r\n\r\n')
         return
       }
 
@@ -266,7 +296,12 @@ export function createHttpProxyServer(options: HttpProxyServerOptions): Server {
         return
       }
       const url = new URL(req.url!)
-      const hostname = stripBrackets(url.hostname)
+      const hostname = canonicalizeHost(stripBrackets(url.hostname))
+      if (hostname === undefined) {
+        res.writeHead(400, { 'Content-Type': 'text/plain' })
+        res.end('Invalid destination host')
+        return
+      }
       const port = url.port
         ? parseInt(url.port, 10)
         : url.protocol === 'https:'
@@ -289,6 +324,8 @@ export function createHttpProxyServer(options: HttpProxyServerOptions): Server {
       // Client may have disconnected while we awaited the filter; bail now
       // rather than dialing an upstream nobody will read from.
       if (req.socket.destroyed) return
+      const dialAbort = new AbortController()
+      res.once('close', () => dialAbort.abort())
 
       const fwdHeaders = { ...stripHopByHop(req.headers), host: url.host }
       options.mutateHeadersPlaintext?.(fwdHeaders, hostname)
@@ -314,14 +351,12 @@ export function createHttpProxyServer(options: HttpProxyServerOptions): Server {
       // client could bypass it by using http:// where the upstream serves it.
       let body: Readable = req
       if (options.filterRequest) {
-        const ac = new AbortController()
-        res.once('close', () => ac.abort())
         const out = await decideAndRespond(
           options.filterRequest,
           req,
           res,
           absUrl,
-          ac.signal,
+          dialAbort.signal,
         )
         if (out === null) return
         body = out
@@ -372,13 +407,24 @@ export function createHttpProxyServer(options: HttpProxyServerOptions): Server {
         )
       } else {
         const requestFn = url.protocol === 'https:' ? httpsRequest : httpRequest
+        const prepared = await prepareDestinationDial(
+          hostname,
+          port,
+          options.resolveDestination,
+          dialAbort.signal,
+        )
         proxyReq = requestFn(
           {
-            hostname,
+            hostname: prepared.hostname,
             port,
             path: url.pathname + url.search,
             method: req.method,
             headers: fwdHeaders,
+            ...(prepared.lookup === undefined
+              ? {}
+              : { lookup: prepared.lookup }),
+            signal: dialAbort.signal,
+            agent: false,
           },
           proxyRes => {
             res.writeHead(proxyRes.statusCode!, stripHopByHop(proxyRes.headers))
@@ -406,8 +452,16 @@ export function createHttpProxyServer(options: HttpProxyServerOptions): Server {
     } catch (err) {
       logForDebugging(`Error handling HTTP request: ${err}`, { level: 'error' })
       if (!res.headersSent) {
-        res.writeHead(500, { 'Content-Type': 'text/plain' })
-        res.end('Internal Server Error')
+        if (isDestinationAddressPolicyError(err)) {
+          res.writeHead(403, {
+            'Content-Type': 'text/plain',
+            'X-Proxy-Error': 'blocked-address-policy',
+          })
+          res.end('Connection blocked by destination address policy')
+        } else {
+          res.writeHead(500, { 'Content-Type': 'text/plain' })
+          res.end('Internal Server Error')
+        }
       } else {
         res.destroy()
       }
@@ -429,5 +483,7 @@ function parseConnectTarget(
   if (!m) return undefined
   const port = Number(m[2])
   if (!Number.isInteger(port) || port < 1 || port > 65535) return undefined
-  return { hostname: m[1]!, port }
+  const hostname = canonicalizeHost(m[1]!)
+  if (hostname === undefined) return undefined
+  return { hostname, port }
 }
