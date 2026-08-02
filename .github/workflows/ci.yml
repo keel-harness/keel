@@ -585,7 +585,9 @@ jobs:
           python3 "$URGENT_STEERING_SMOKE" "$KEEL_BIN"
           # Prove the npx package's bundled @vscode/ripgrep works while keeping Linux sandbox deps
           # reachable for Phase-2A doctor preflight.
-          PATH="$NODE_BIN:$WORK/node_modules/.bin:/usr/bin:/bin:/usr/sbin:/sbin" ./node_modules/.bin/keel doctor
+          DOCTOR_KEEL_HOME="$WORK/doctor-keel-home"
+          mkdir -m 700 -- "$DOCTOR_KEEL_HOME"
+          KEEL_HOME="$DOCTOR_KEEL_HOME" PATH="$NODE_BIN:$WORK/node_modules/.bin:/usr/bin:/bin:/usr/sbin:/sbin" ./node_modules/.bin/keel doctor
           set +e
           OUT=$(./node_modules/.bin/keel run -p "verify the shell" --verbose --replay "$REC" 2>&1)
           STATUS=$?

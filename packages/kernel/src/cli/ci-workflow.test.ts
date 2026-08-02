@@ -466,8 +466,10 @@ describe("CI packaging workflow", () => {
     const workflow = readFileSync(join(repoRoot, ".github", "workflows", "ci.yml"), "utf8");
 
     expect(workflow).toContain('NODE_BIN="$(dirname "$(command -v node)")"');
+    expect(workflow).toContain('DOCTOR_KEEL_HOME="$WORK/doctor-keel-home"');
+    expect(workflow).toContain('mkdir -m 700 -- "$DOCTOR_KEEL_HOME"');
     expect(workflow).toContain(
-      'PATH="$NODE_BIN:$WORK/node_modules/.bin:/usr/bin:/bin:/usr/sbin:/sbin" ./node_modules/.bin/keel doctor',
+      'KEEL_HOME="$DOCTOR_KEEL_HOME" PATH="$NODE_BIN:$WORK/node_modules/.bin:/usr/bin:/bin:/usr/sbin:/sbin" ./node_modules/.bin/keel doctor',
     );
   });
 
