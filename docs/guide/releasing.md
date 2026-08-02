@@ -25,8 +25,10 @@ Stop unless all of these are true:
   action contracts against current primary documentation.
 - The intended version is absent from both live and staged versions. Any ambiguous registry result
   is a stop, not permission to rerun.
-- The prior `0.1.0` stage has been explicitly inspected and rejected with 2FA under owner direction;
-  its draft/tag disposition is recorded. Public-registry absence alone does not satisfy this check.
+- The owner has opened npm's authenticated account-level **Staged Packages** view and confirmed that
+  no versions are waiting for review. For `0.1.0`, the 2026-08-02 view exposed nothing to approve or
+  reject; that observable final state is recorded in issue #49 without guessing why the stage was
+  removed. Public-registry absence alone does not satisfy this check.
 - P1-007 remains named and failed in release notes. The owner's 2026-08-02 acceptance is scoped to
   `0.1.1` pre-alpha only and is recorded in issue #49; it does not change the threshold or support a
   packaged-performance claim.

@@ -37,10 +37,12 @@ An npm lockfile or ordinary filesystem scanner sees the first shape but cannot i
 minified/bundled JavaScript. An SBOM that silently omitted those bundled components would be false.
 
 `0.1.0` was staged but never approved or made public. The owner selected `0.1.1` for the current
-release after Epic 3.22. The existing `0.1.0` stage remains a separate human-controlled object: it
-must be inspected and
-explicitly rejected with 2FA before a `0.1.1` release tag is created. Its draft release and protected
-tag are retained until that decision; they are not publication evidence.
+release after Epic 3.22. On 2026-08-02 the owner opened npm's authenticated account-level **Staged
+Packages** view; it reported that no package versions were waiting for review, while the public
+registry still exposed only `0.0.1`. No `0.1.0` stage remained available to approve or reject. This
+records the observable final state without claiming whether npm expired or otherwise removed the
+stage. The `0.1.0` draft release and protected tag remain non-publication historical evidence until
+a separately authorized disposition.
 
 ## Decision
 
@@ -57,9 +59,9 @@ tag, tarball filename, and candidate metadata must all agree. An existing live r
 lightweight tag, a dirty source tree, a non-main tag commit, or any mismatch fails before artifact
 construction. Existing staged versions are a separate human preflight because the read-only
 candidate job has no registry authority: the operator must prove none exists before creating the tag,
-and an ambiguous result stops release work. For this release, that proof includes an explicit final
-state for the prior `0.1.0` stage; merely observing that `0.1.0` is absent from the public registry is
-not sufficient.
+and an ambiguous result stops release work. For this release, that proof is the owner's authenticated
+Staged Packages view showing no versions waiting for review, together with public-registry absence.
+Public-registry absence alone is not sufficient.
 
 ### 2. One stage-only OIDC authority
 
