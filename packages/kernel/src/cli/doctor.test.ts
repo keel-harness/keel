@@ -260,6 +260,52 @@ describe("runDoctor — Phase 2A sandbox preflight", () => {
   });
 });
 
+describe("runDoctor — harness install inside the workspace", () => {
+  it("stays silent when keel's own code lives outside the workspace (npx/global)", () => {
+    const r = runDoctor({
+      ...base,
+      cwd: "/project",
+      harnessExecutablePaths: [
+        "/home/dev/.npm/_npx/a/node_modules/keel-harness/bin/keel-warden.mjs",
+      ],
+    });
+    expect(r.checks.some((c) => c.id === "harness-outside-workspace")).toBe(false);
+    expect(r.ok).toBe(true);
+  });
+
+  it("reports reduced enforcement when keel's own code is inside the workspace", () => {
+    // In an in-tree install the harness's own bytes sit in the model-writable workspace, so a
+    // governed write can replace the code that decides policy. keel cannot contain this — when the
+    // workspace IS the harness source that is the whole point of the task — so it must say so
+    // rather than let the assumption stay invisible.
+    const r = runDoctor({
+      ...base,
+      cwd: "/project",
+      harnessExecutablePaths: [
+        "/project/node_modules/keel-harness/bin/keel-warden.mjs",
+        "/opt/elsewhere/rg",
+      ],
+    });
+    const check = r.checks.find((c) => c.id === "harness-outside-workspace");
+    expect(check?.status).toBe("warn");
+    expect(check?.detail).toBe("reduced enforcement: keel's own code is workspace-writable");
+    expect(check?.why).toMatch(/governed write/i);
+    expect(check?.fix).toMatch(/npx|global/i);
+    // A posture warning, not a hard failure: it must not break an in-tree dev workflow.
+    expect(r.ok).toBe(true);
+    expect(r.exitCode).toBe(0);
+  });
+
+  it("treats the workspace root itself as inside (self-hosting keel)", () => {
+    const r = runDoctor({
+      ...base,
+      cwd: "/keel",
+      harnessExecutablePaths: ["/keel/packages/warden/src/bin-entry.ts"],
+    });
+    expect(r.checks.find((c) => c.id === "harness-outside-workspace")?.status).toBe("warn");
+  });
+});
+
 describe("runDoctor — ripgrep missing (required → failure)", () => {
   it("flags ripgrep missing, fails the exit code, names why it matters", () => {
     const r = runDoctor({ ...base, rgVersionRaw: null });

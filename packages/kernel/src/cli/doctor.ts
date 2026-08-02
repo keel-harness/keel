@@ -14,6 +14,7 @@
  * because the binary bundles its own runtime (ADR-0009); node is only required for the `npx`/`npm`
  * path.
  */
+import { resolve, sep } from "node:path";
 import { KEEL_VERSION } from "../version.js";
 import { parseCredentialProxyConfig } from "@keel/warden";
 
@@ -71,6 +72,12 @@ export interface DoctorInput {
     readonly detail: string;
     readonly fix?: string;
   };
+  /**
+   * Absolute paths to keel's OWN executable bytes — the warden entry, the vendored sandbox runtime,
+   * the resolved ripgrep. Supplied by the caller so this check stays pure (impure resolution lives
+   * in `bin.ts`). Any of them inside the workspace is a reduced-enforcement posture, not a fault.
+   */
+  readonly harnessExecutablePaths?: readonly string[];
 }
 
 export type CheckStatus = "ok" | "warn" | "missing";
@@ -82,6 +89,7 @@ export type DoctorCheckId =
   | "macos-sandbox"
   | "wsl2"
   | "windows-sandbox"
+  | "harness-outside-workspace"
   | "credential-proxy-config"
   | "egress-address-exception-store";
 
@@ -383,6 +391,41 @@ function egressAddressExceptionStoreCheck(input: DoctorInput): DoctorCheck | und
   };
 }
 
+/**
+ * Warn when keel's OWN executable bytes sit inside the model-writable workspace.
+ *
+ * The warden entry, the vendored sandbox runtime and the resolved ripgrep are all executed with the
+ * harness's authority — the warden entry and the vendored runtime IN the process that decides
+ * policy. `npx`/global installs keep them outside the workspace, where no governed tool can reach
+ * them. An in-tree install (keel as a project devDependency, or keel developing itself) puts them
+ * under the workspace root, which `allowWrite` covers and no `denyWrite` token protects, so a
+ * governed write can replace the code that enforces the boundary.
+ *
+ * keel cannot contain this. Deny-writing the paths would break `npm install`, and when the
+ * workspace IS the harness source, editing it is the task. Per §3.4 ("real enforcement or honest
+ * absence — never theater") this is therefore a reduced-enforcement POSTURE, reported the way
+ * native Windows is: a `warn` with a remedy, never a hard failure that would break the workflow.
+ */
+function harnessOutsideWorkspaceCheck(input: DoctorInput): DoctorCheck | undefined {
+  const workspace = input.cwd;
+  const paths = input.harnessExecutablePaths ?? [];
+  if (workspace === undefined || paths.length === 0) return undefined;
+  const root = resolve(workspace);
+  const inside = paths.filter((candidate) => {
+    const resolved = resolve(candidate);
+    return resolved === root || resolved.startsWith(`${root}${sep}`);
+  });
+  if (inside.length === 0) return undefined;
+  return {
+    id: "harness-outside-workspace",
+    label: "keel install location",
+    status: "warn",
+    detail: "reduced enforcement: keel's own code is workspace-writable",
+    why: "a governed write can replace the warden/runtime bytes keel executes",
+    fix: "install keel outside the workspace (npx keel-harness, or a global install)",
+  };
+}
+
 /** Decide the doctor report from raw probe facts (pure). */
 export function runDoctor(input: DoctorInput): DoctorReport {
   const checks: DoctorCheck[] = [];
@@ -390,6 +433,8 @@ export function runDoctor(input: DoctorInput): DoctorReport {
   if (input.runtime === "node") checks.push(nodeCheck(input));
   checks.push(ripgrepCheck(input));
   checks.push(...platformSandboxChecks(input));
+  const harness = harnessOutsideWorkspaceCheck(input);
+  if (harness !== undefined) checks.push(harness);
   const credentialProxy = credentialProxyConfigCheck(input);
   if (credentialProxy !== undefined) checks.push(credentialProxy);
   const egressExceptions = egressAddressExceptionStoreCheck(input);

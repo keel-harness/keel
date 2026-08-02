@@ -5,8 +5,9 @@
 import { createInterface } from "node:readline/promises";
 import { execFileSync } from "node:child_process";
 import { existsSync, lstatSync, readFileSync, realpathSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { join, resolve, sep } from "node:path";
 import { resolveRgPath } from "../tools/index.js";
+import { resolveProductionWardenStart } from "../warden/runtime.js";
 import { KEEL_VERSION } from "../version.js";
 import { CREDENTIAL_PROXY_CONFIG_ENV } from "@keel/shared";
 import {
@@ -265,7 +266,23 @@ function gatherDoctorInput(): DoctorInput {
     credentialProxyConfigRaw: process.env[CREDENTIAL_PROXY_CONFIG_ENV] ?? null,
     cwd: process.cwd(),
     egressAddressExceptionStore: gatherEgressExceptionStoreProbe(),
+    // keel's own executable bytes. The warden entry executes as the process that decides policy;
+    // ripgrep is spawned by it. Doctor REPORTS (never enforces) when any of them sits inside the
+    // model-writable workspace — see `harnessOutsideWorkspaceCheck`.
+    harnessExecutablePaths: harnessExecutablePaths(),
   };
+}
+
+/** Resolve keel's own executable bytes for the doctor posture check (impure; the check is pure). */
+function harnessExecutablePaths(): readonly string[] {
+  const paths: string[] = [resolveRgPath(process.env)];
+  try {
+    paths.push(...resolveProductionWardenStart().args.filter((arg) => arg.includes(sep)));
+  } catch {
+    // No resolvable warden entry (an unknown bundle layout). The sandbox-tier checks already report
+    // that; this posture check simply has one fewer path to consider.
+  }
+  return paths;
 }
 
 async function main(): Promise<void> {

@@ -101,6 +101,12 @@ them:
 - **MCP servers** are pinned trust-on-first-use; pinning is not containment of a
   server that is malicious on first contact.
 - **Native Windows** enforces nothing OS-level. WSL2 is the supported path.
+- **keel installed *inside* the workspace it is pointed at.** Everything above assumes
+  keel's own code lives outside your project. `npx keel-harness` and a global install
+  do. Installing keel as a local devDependency — or pointing keel at its own source
+  tree — puts the warden and its runtime under the workspace root, where a governed
+  write can replace the code that enforces all of this. `keel doctor` warns about it
+  (`keel install location`); the fix is to install keel outside the workspace.
 
 ## Reporting
 
