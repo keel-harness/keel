@@ -52,7 +52,11 @@ function listen(address, marker) {
   const server = createServer((request, response) => {
     hits += 1;
     hosts.push(request.headers.host ?? "");
-    response.writeHead(200, { "content-type": "text/plain" });
+    response.writeHead(200, {
+      "content-type": "text/plain",
+      "content-length": Buffer.byteLength(marker),
+      connection: "close",
+    });
     response.end(marker);
   });
   return new Promise((resolveListen, reject) => {

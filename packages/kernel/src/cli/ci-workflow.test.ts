@@ -299,6 +299,8 @@ describe("CI packaging workflow", () => {
     expect(smoke).not.toContain('"--output"');
     expect(smoke).not.toContain('"%{http_code}"');
     expect(smoke).toContain("HTTP/1.1 403");
+    expect(smoke).toContain('"content-length"');
+    expect(smoke).toContain('connection: "close"');
     expect(smoke).toContain("restricted-address-not-excepted");
     expect(smoke).toContain("hard-deny");
     expect(smoke).toContain("carrier egress address guard smoke passed");
