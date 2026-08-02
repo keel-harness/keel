@@ -23,6 +23,7 @@ import { logForDebugging } from '../utils/debug.js'
 import {
   isDestinationAddressPolicyError,
   prepareDestinationDial,
+  trackPreparedDestinationRequest,
   type ResolveDestination,
 } from './destination-dial.js'
 import type { MitmCA } from './mitm-ca.js'
@@ -280,34 +281,47 @@ async function forwardUpstream(
   }
 
   // TODO(terminating-tls): honour parentProxy for the upstream leg.
-  const upstream = httpsRequest(
-    {
-      host: prepared.hostname,
-      port: target.port,
-      path: req.url,
-      method: req.method,
-      headers: fwdHeaders,
-      // We're a TLS-terminating proxy, not a trust boundary for the upstream
-      // server's identity — let the runtime do normal verification against
-      // system roots (and NODE_EXTRA_CA_CERTS). servername must match the
-      // host the client intended; SNI cannot carry an IP literal, and Bun's
-      // https.request treats `servername: undefined` differently from
-      // omitting the key, so spread conditionally.
-      ...(isIP(target.hostname) ? {} : { servername: target.hostname }),
-      ...(target.upstreamCA ? { ca: target.upstreamCA } : {}),
-      ...(prepared.lookup === undefined ? {} : { lookup: prepared.lookup }),
-      signal: target.signal,
-      // No global agent: a proxy's outbound leg shouldn't share a connection
-      // pool keyed on the proxy process. Also works around a Bun quirk where
-      // the first request's `ca:` value is cached on the global agent and
-      // subsequent calls with a different `ca:` are silently ignored.
-      agent: false,
-    },
-    upRes => {
-      res.writeHead(upRes.statusCode ?? 502, stripHopByHop(upRes.headers))
-      upRes.pipe(res)
-    },
-  )
+  let upstream: ReturnType<typeof httpsRequest>
+  try {
+    upstream = httpsRequest(
+      {
+        host: prepared.hostname,
+        port: target.port,
+        path: req.url,
+        method: req.method,
+        headers: fwdHeaders,
+        // We're a TLS-terminating proxy, not a trust boundary for the upstream
+        // server's identity — let the runtime do normal verification against
+        // system roots (and NODE_EXTRA_CA_CERTS). servername must match the
+        // host the client intended; SNI cannot carry an IP literal, and Bun's
+        // https.request treats `servername: undefined` differently from
+        // omitting the key, so spread conditionally.
+        ...(isIP(target.hostname) ? {} : { servername: target.hostname }),
+        ...(target.upstreamCA ? { ca: target.upstreamCA } : {}),
+        ...(prepared.lookup === undefined ? {} : { lookup: prepared.lookup }),
+        signal: prepared.signal,
+        // No global agent: a proxy's outbound leg shouldn't share a connection
+        // pool keyed on the proxy process. Also works around a Bun quirk where
+        // the first request's `ca:` value is cached on the global agent and
+        // subsequent calls with a different `ca:` are silently ignored.
+        agent: false,
+      },
+      upRes => {
+        res.writeHead(upRes.statusCode ?? 502, stripHopByHop(upRes.headers))
+        upRes.pipe(res)
+      },
+    )
+    trackPreparedDestinationRequest(upstream, prepared, true)
+  } catch {
+    prepared.release()
+    if (!res.headersSent) {
+      res.writeHead(502, { 'Content-Type': 'text/plain' })
+      res.end('Bad Gateway')
+    } else {
+      res.destroy()
+    }
+    return
+  }
 
   upstream.on('error', err => {
     logForDebugging(

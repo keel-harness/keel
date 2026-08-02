@@ -1,4 +1,5 @@
 import type { LookupAddress } from 'node:dns'
+import type { ClientRequest } from 'node:http'
 import { connect as netConnect, isIP, type LookupFunction, type Socket } from 'node:net'
 import { URL } from 'node:url'
 
@@ -17,10 +18,27 @@ export interface PreparedDestinationDial {
   readonly hostname: string
   readonly port: number
   readonly lookup?: LookupFunction
+  /** Guard-owned signal combining caller cancellation with the fixed dial deadline. */
+  readonly signal: AbortSignal
+  /** Stop the dial deadline after the transport connection is established. */
+  markConnected(): void
+  /** Release the fixed guarded-connection permit. Idempotent. */
+  release(): void
 }
 
 export const MAX_DESTINATION_ADDRESSES = 16
-const CONNECT_TIMEOUT_MS = 30_000
+export const MAX_CONCURRENT_GUARDED_CONNECTIONS = 64
+export const TOTAL_GUARDED_DIAL_TIMEOUT_MS = 30_000
+// Preserve the pre-ADR legacy socket deadline even when no guard is configured.
+const LEGACY_CONNECT_TIMEOUT_MS = 30_000
+
+interface GuardedConnectionLease {
+  readonly signal: AbortSignal
+  markConnected(): void
+  release(): void
+}
+
+const activeGuardedConnections = new Set<GuardedConnectionLease>()
 
 /**
  * Stable fail-closed error for an unavailable, rejected, or defective
@@ -42,6 +60,115 @@ export function isDestinationAddressPolicyError(
 
 function deny(): never {
   throw new DestinationAddressPolicyError()
+}
+
+function unguardedLease(signal: AbortSignal): GuardedConnectionLease {
+  return { signal, markConnected: () => {}, release: () => {} }
+}
+
+function acquireGuardedConnection(
+  resolveDestination: ResolveDestination | undefined,
+  callerSignal: AbortSignal,
+): GuardedConnectionLease {
+  if (resolveDestination === undefined) return unguardedLease(callerSignal)
+  if (
+    callerSignal.aborted ||
+    activeGuardedConnections.size >= MAX_CONCURRENT_GUARDED_CONNECTIONS
+  ) {
+    return deny()
+  }
+
+  const controller = new AbortController()
+  let released = false
+  let deadline: ReturnType<typeof setTimeout> | undefined
+  const abortFromCaller = () => controller.abort()
+  callerSignal.addEventListener('abort', abortFromCaller, { once: true })
+
+  const lease: GuardedConnectionLease = {
+    signal: controller.signal,
+    markConnected(): void {
+      if (deadline !== undefined) clearTimeout(deadline)
+      deadline = undefined
+    },
+    release(): void {
+      if (released) return
+      released = true
+      if (deadline !== undefined) clearTimeout(deadline)
+      deadline = undefined
+      callerSignal.removeEventListener('abort', abortFromCaller)
+      controller.abort()
+      activeGuardedConnections.delete(lease)
+    },
+  }
+  activeGuardedConnections.add(lease)
+  deadline = setTimeout(
+    () => controller.abort(),
+    TOTAL_GUARDED_DIAL_TIMEOUT_MS,
+  )
+  deadline.unref?.()
+  return lease
+}
+
+/** Abort and forget all guarded dials during manager reset or terminal quarantine. */
+export function resetDestinationGuardConnections(): void {
+  for (const lease of [...activeGuardedConnections]) lease.release()
+}
+
+/**
+ * Retain a guarded-connection permit for an agent:false request until its
+ * one-shot transport closes. The dial deadline ends only after TCP (or TLS)
+ * establishment; request lifetime remains bounded by the fixed permit cap.
+ */
+export function trackPreparedDestinationRequest(
+  request: ClientRequest,
+  prepared: PreparedDestinationDial,
+  secure: boolean,
+): void {
+  request.once('socket', socket => {
+    if (secure) {
+      socket.once('secureConnect', prepared.markConnected)
+    } else if (socket.connecting) {
+      socket.once('connect', prepared.markConnected)
+    } else {
+      prepared.markConnected()
+    }
+  })
+  request.once('error', prepared.release)
+  request.once('close', prepared.release)
+}
+
+function resolveWithAbort(
+  resolveDestination: ResolveDestination,
+  hostname: string,
+  port: number,
+  signal: AbortSignal,
+): Promise<readonly ResolvedDestinationAddress[]> {
+  return new Promise((resolve, reject) => {
+    let settled = false
+    const finish = (
+      result:
+        | { kind: 'resolve'; answers: readonly ResolvedDestinationAddress[] }
+        | { kind: 'reject' },
+    ): void => {
+      if (settled) return
+      settled = true
+      signal.removeEventListener('abort', onAbort)
+      if (result.kind === 'resolve') resolve(result.answers)
+      else reject(new DestinationAddressPolicyError())
+    }
+    const onAbort = () => finish({ kind: 'reject' })
+    if (signal.aborted) {
+      finish({ kind: 'reject' })
+      return
+    }
+    signal.addEventListener('abort', onAbort, { once: true })
+    Promise.resolve()
+      .then(() => resolveDestination(hostname, port, signal))
+      .then(
+        answers => finish({ kind: 'resolve', answers }),
+        () => finish({ kind: 'reject' }),
+      )
+  })
 }
 
 function normalizeAddress(address: string, family: 4 | 6): string {
@@ -134,20 +261,46 @@ export async function prepareDestinationDial(
   resolveDestination: ResolveDestination | undefined,
   signal: AbortSignal,
 ): Promise<PreparedDestinationDial> {
-  if (resolveDestination === undefined) return { hostname, port }
   if (signal.aborted) return deny()
+  const lease = acquireGuardedConnection(resolveDestination, signal)
+  if (resolveDestination === undefined) {
+    return {
+      hostname,
+      port,
+      signal: lease.signal,
+      markConnected: lease.markConnected,
+      release: lease.release,
+    }
+  }
 
   let raw: readonly ResolvedDestinationAddress[]
   try {
-    raw = await resolveDestination(hostname, port, signal)
+    raw = await resolveWithAbort(
+      resolveDestination,
+      hostname,
+      port,
+      lease.signal,
+    )
   } catch {
+    lease.release()
     return deny()
   }
-  if (signal.aborted) return deny()
+  if (lease.signal.aborted) {
+    lease.release()
+    return deny()
+  }
   try {
     const answers = validateAnswers(hostname, raw)
-    return { hostname, port, lookup: pinnedLookup(answers) }
+    return {
+      hostname,
+      port,
+      lookup: pinnedLookup(answers),
+      signal: lease.signal,
+      markConnected: lease.markConnected,
+      release: lease.release,
+    }
   } catch {
+    lease.release()
     return deny()
   }
 }
@@ -170,17 +323,18 @@ export async function dialDestination(
       host: prepared.hostname,
       port: prepared.port,
       ...(prepared.lookup === undefined ? {} : { lookup: prepared.lookup }),
-      signal,
+      signal: prepared.signal,
     })
     let settled = false
     const fail = (error: Error) => {
       if (settled) return
       settled = true
+      prepared.release()
       socket.destroy()
       reject(error)
     }
     const onClose = () => fail(new Error('socket closed before connect'))
-    socket.setTimeout(CONNECT_TIMEOUT_MS, () =>
+    socket.setTimeout(LEGACY_CONNECT_TIMEOUT_MS, () =>
       fail(new Error('Direct connection timed out')),
     )
     socket.once('error', fail)
@@ -188,9 +342,11 @@ export async function dialDestination(
     socket.once('connect', () => {
       if (settled) return
       settled = true
+      prepared.markConnected()
       socket.setTimeout(0)
       socket.removeListener('error', fail)
       socket.removeListener('close', onClose)
+      socket.once('close', prepared.release)
       resolve(socket)
     })
   })

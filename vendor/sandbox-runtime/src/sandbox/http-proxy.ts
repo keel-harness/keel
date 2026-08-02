@@ -22,6 +22,7 @@ import {
   dialDestination,
   isDestinationAddressPolicyError,
   prepareDestinationDial,
+  trackPreparedDestinationRequest,
   type ResolveDestination,
 } from './destination-dial.js'
 import {
@@ -413,24 +414,37 @@ export function createHttpProxyServer(options: HttpProxyServerOptions): Server {
           options.resolveDestination,
           dialAbort.signal,
         )
-        proxyReq = requestFn(
-          {
-            hostname: prepared.hostname,
-            port,
-            path: url.pathname + url.search,
-            method: req.method,
-            headers: fwdHeaders,
-            ...(prepared.lookup === undefined
-              ? {}
-              : { lookup: prepared.lookup }),
-            signal: dialAbort.signal,
-            agent: false,
-          },
-          proxyRes => {
-            res.writeHead(proxyRes.statusCode!, stripHopByHop(proxyRes.headers))
-            proxyRes.pipe(res)
-          },
-        )
+        try {
+          proxyReq = requestFn(
+            {
+              hostname: prepared.hostname,
+              port,
+              path: url.pathname + url.search,
+              method: req.method,
+              headers: fwdHeaders,
+              ...(prepared.lookup === undefined
+                ? {}
+                : { lookup: prepared.lookup }),
+              signal: prepared.signal,
+              agent: false,
+            },
+            proxyRes => {
+              res.writeHead(
+                proxyRes.statusCode!,
+                stripHopByHop(proxyRes.headers),
+              )
+              proxyRes.pipe(res)
+            },
+          )
+          trackPreparedDestinationRequest(
+            proxyReq,
+            prepared,
+            url.protocol === 'https:',
+          )
+        } catch (error) {
+          prepared.release()
+          throw error
+        }
       }
 
       proxyReq.on('error', err => {

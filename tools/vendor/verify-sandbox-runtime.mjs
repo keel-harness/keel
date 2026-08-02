@@ -113,10 +113,16 @@ for (const requiredPath of [
 }
 for (const [path, token] of [
   ["src/sandbox/destination-dial.ts", "prepareDestinationDial"],
+  ["src/sandbox/destination-dial.ts", "MAX_CONCURRENT_GUARDED_CONNECTIONS"],
+  ["src/sandbox/destination-dial.ts", "TOTAL_GUARDED_DIAL_TIMEOUT_MS"],
+  ["src/sandbox/destination-dial.ts", "trackPreparedDestinationRequest"],
   ["src/sandbox/http-proxy.ts", "blocked-address-policy"],
+  ["src/sandbox/http-proxy.ts", "trackPreparedDestinationRequest"],
   ["src/sandbox/socks-proxy.ts", "resolveDestination"],
   ["src/sandbox/tls-terminate-proxy.ts", "prepareDestinationDial"],
+  ["src/sandbox/tls-terminate-proxy.ts", "trackPreparedDestinationRequest"],
   ["src/sandbox/sandbox-manager.ts", "assertDestinationGuardRoutesCompatible"],
+  ["src/sandbox/sandbox-manager.ts", "resetDestinationGuardConnections"],
 ]) {
   const source = await readFile(new URL(path, vendorDir), "utf8");
   assert(source.includes(token), `${path} is missing resolver patch token ${token}`);

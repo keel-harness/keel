@@ -63,7 +63,10 @@ import { matchesDomainPattern } from './domain-pattern.js'
 import type { ChildProcess } from 'node:child_process'
 import type { ResolvedParentProxy } from './parent-proxy.js'
 import { EOL } from 'node:os'
-import type { ResolveDestination } from './destination-dial.js'
+import {
+  resetDestinationGuardConnections,
+  type ResolveDestination,
+} from './destination-dial.js'
 
 interface HostNetworkManagerContext {
   httpProxyPort: number
@@ -1431,6 +1434,10 @@ function forceCloseHttpServer(
 }
 
 async function reset(): Promise<void> {
+  // Abort guarded resolution/dial work before closing proxy listeners. Lease
+  // release is idempotent, so later socket close events cannot revive state.
+  resetDestinationGuardConnections()
+
   // Clean up any leftover bwrap mount points. Force past the
   // active-sandbox counter — reset() means the session is over.
   cleanupBwrapMountPoints({ force: true })

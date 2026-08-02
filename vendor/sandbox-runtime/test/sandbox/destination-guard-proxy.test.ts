@@ -272,7 +272,7 @@ describe('destination dial source contract', () => {
       'prepareDestinationDial(',
     )
     expect(source('http-proxy.ts')).toMatch(
-      /trackPreparedDestinationRequest\(proxyReq, prepared, /,
+      /trackPreparedDestinationRequest\(\s*proxyReq,\s*prepared,\s*/,
     )
     expect(source('tls-terminate-proxy.ts')).toMatch(
       /trackPreparedDestinationRequest\(upstream, prepared, true\)/,

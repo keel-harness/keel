@@ -80,7 +80,11 @@ not source needed for Keel's reviewed adapter path:
   path (CONNECT, SOCKS, absolute HTTP/HTTPS, and TLS-terminated HTTPS) uses one pinned lookup. Empty,
   malformed, duplicate, oversized, aborted, or rejected answers fail closed. Parent proxies,
   external proxy ports, `mitmProxy`, ambient proxy inheritance, and live route injection are
-  incompatible. The original hostname remains the HTTP Host and TLS identity.
+  incompatible. Guarded dials also use a fixed process-local limit of 64 concurrent connection
+  leases and a fixed 30-second total dial deadline. A lease remains held through resolver and
+  transport setup, transfers to the outbound request or socket after connection, and is released
+  only on close or terminal failure. Sandbox-manager reset aborts all outstanding guarded work and
+  restores the limiter. The original hostname remains the HTTP Host and TLS identity.
 - Compatibility: consumers that omit `network.resolveDestination` retain upstream v0.0.59 routing.
   `network.inheritProxyEnv` defaults to the upstream-compatible enabled behavior and must be
   explicitly false with the resolver.
