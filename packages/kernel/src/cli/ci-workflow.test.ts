@@ -198,7 +198,11 @@ describe("CI packaging workflow", () => {
     expect(smoke).toContain("mcp review fixture");
     expect(smoke).toContain("mcp__fixture__echo");
     expect(smoke).toContain("mcp-trust.json");
-    expect(smoke).toContain('KEEL_TRUST: "1"');
+    expect(smoke).toContain('join(keelHome, "trust.json")');
+    expect(smoke).toContain('decision: "trusted"');
+    expect(smoke).toContain("mode: 0o700");
+    expect(smoke).toContain("mode: 0o600");
+    expect(smoke).not.toContain('KEEL_TRUST: "1"');
     expect(smoke).not.toContain("ANTHROPIC_API_KEY");
     expect(smoke).not.toContain("OPENAI_API_KEY");
   });

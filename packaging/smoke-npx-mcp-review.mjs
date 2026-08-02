@@ -41,7 +41,6 @@ function runKeel(args, label) {
   const env = {
     ...process.env,
     KEEL_HOME: keelHome,
-    KEEL_TRUST: "1",
     KEEL_WARDEN_SANDBOX: "srt",
     NO_COLOR: "1",
   };
@@ -61,6 +60,25 @@ function runKeel(args, label) {
 
 try {
   mkdirSync(join(workspace, ".keel"), { recursive: true });
+  mkdirSync(keelHome, { recursive: true, mode: 0o700 });
+  writeFileSync(
+    join(keelHome, "trust.json"),
+    `${JSON.stringify(
+      {
+        version: 1,
+        workspaces: {
+          [workspace]: {
+            decision: "trusted",
+            decidedAt: "1970-01-01T00:00:00.000Z",
+            principal: "package-smoke",
+          },
+        },
+      },
+      null,
+      2,
+    )}\n`,
+    { mode: 0o600 },
+  );
   writeFileSync(
     fixturePath,
     `
