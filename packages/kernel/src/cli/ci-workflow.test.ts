@@ -450,6 +450,7 @@ describe("CI packaging workflow", () => {
     });
     expect(selfTest).toContain("compiled warden evidence and lifecycle self-test passed");
     expect(selfTest).toContain("process-group-reaped");
+    expect(selfTest).toContain("canonical-temp-root");
     for (const rejectedField of [
       "status.enforcementTier",
       "status.sandboxBackend",

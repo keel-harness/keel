@@ -19,6 +19,12 @@ import { spawnControlledTarget } from "./process-group-controller.mjs";
 
 const SELF_TEST = "--self-test";
 
+export function createCanonicalTemporaryRoot() {
+  const requestedRoot = join(tmpdir(), `keel-compiled-warden-${process.pid}-${randomUUID()}`);
+  mkdirSync(requestedRoot, { recursive: true, mode: 0o700 });
+  return realpathSync(requestedRoot);
+}
+
 export function assertCompiledWardenEvidence({
   status,
   allowed,
@@ -168,6 +174,14 @@ async function assertProcessGroupCleanup() {
 }
 
 async function runSelfTest() {
+  const canonicalRoot = createCanonicalTemporaryRoot();
+  try {
+    if (canonicalRoot !== realpathSync(canonicalRoot)) {
+      throw new Error(`compiled warden temporary root is not canonical: ${canonicalRoot}`);
+    }
+  } finally {
+    rmSync(canonicalRoot, { recursive: true, force: true });
+  }
   const partialReadiness = appendReadinessOutput("", "re");
   const completeReadiness = appendReadinessOutput(partialReadiness.buffer, "ady\n");
   if (partialReadiness.ready || !completeReadiness.ready) {
@@ -307,7 +321,7 @@ async function runSelfTest() {
   }
   const processGroupEvidence = await assertProcessGroupCleanup();
   console.log(
-    `compiled warden evidence and lifecycle self-test passed ${processGroupEvidence} ${rejectedLabels.join(" ")}`,
+    `compiled warden evidence and lifecycle self-test passed canonical-temp-root ${processGroupEvidence} ${rejectedLabels.join(" ")}`,
   );
 }
 
@@ -315,7 +329,7 @@ async function run(binaryArg) {
   const binary = isAbsolute(binaryArg) ? binaryArg : resolve(process.cwd(), binaryArg);
   if (!existsSync(binary)) throw new Error(`native keel binary does not exist: ${binary}`);
 
-  const root = join(tmpdir(), `keel-compiled-warden-${process.pid}-${randomUUID()}`);
+  const root = createCanonicalTemporaryRoot();
   const workspacePath = join(root, "workspace");
   const keelHome = join(root, "keel-home");
   const sandboxTarget = join(root, "sandbox-escape.txt");
