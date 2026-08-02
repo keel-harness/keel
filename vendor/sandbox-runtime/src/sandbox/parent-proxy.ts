@@ -63,18 +63,24 @@ const HOP_BY_HOP = new Set([
  */
 export function resolveParentProxy(
   cfg?: ParentProxyConfig,
+  inheritProxyEnv = true,
 ): ResolvedParentProxy | undefined {
   const http =
-    cfg?.http ?? process.env.HTTP_PROXY ?? process.env.http_proxy ?? undefined
+    cfg?.http ??
+    (inheritProxyEnv
+      ? (process.env.HTTP_PROXY ?? process.env.http_proxy ?? undefined)
+      : undefined)
   const https =
     cfg?.https ??
-    process.env.HTTPS_PROXY ??
-    process.env.https_proxy ??
+    (inheritProxyEnv
+      ? (process.env.HTTPS_PROXY ?? process.env.https_proxy ?? undefined)
+      : undefined) ??
     // Fall back to HTTP_PROXY for HTTPS if HTTPS_PROXY is unset — this is
     // the de-facto behaviour of curl and most tooling.
     http
   const noProxyRaw =
-    cfg?.noProxy ?? process.env.NO_PROXY ?? process.env.no_proxy ?? ''
+    cfg?.noProxy ??
+    (inheritProxyEnv ? (process.env.NO_PROXY ?? process.env.no_proxy ?? '') : '')
 
   if (!http && !https) return undefined
 
@@ -480,35 +486,4 @@ export function canonicalizeHost(h: string): string | undefined {
   } catch {
     return undefined
   }
-}
-
-/**
- * Dial `host:port` directly with a bounded timeout. Shared by the HTTP and
- * SOCKS direct-connect paths so they get the same timeout behaviour as the
- * CONNECT-tunnelled paths.
- */
-export function dialDirect(
-  host: string,
-  port: number,
-  timeoutMs = CONNECT_TIMEOUT_MS,
-): Promise<Socket> {
-  return new Promise((resolve, reject) => {
-    const s = netConnect(port, host)
-    let settled = false
-    const done = (err?: Error) => {
-      if (settled) return
-      settled = true
-      s.setTimeout(0)
-      if (err) {
-        s.destroy()
-        reject(err)
-      } else {
-        resolve(s)
-      }
-    }
-    s.setTimeout(timeoutMs, () => done(new Error('connect timed out')))
-    s.once('connect', () => done())
-    s.once('error', done)
-    s.once('close', () => done(new Error('socket closed before connect')))
-  })
 }

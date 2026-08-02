@@ -19,6 +19,17 @@ interface VendoredSrtDependencyCheck {
   readonly warnings: readonly string[];
 }
 
+export interface SrtResolvedDestinationAddress {
+  readonly address: string;
+  readonly family: 4 | 6;
+}
+
+export type SrtResolveDestination = (
+  hostname: string,
+  port: number,
+  signal: AbortSignal,
+) => Promise<readonly SrtResolvedDestinationAddress[]>;
+
 export interface VendoredSrtRuntimeConfig {
   readonly network: {
     readonly allowedDomains: readonly string[];
@@ -28,6 +39,8 @@ export interface VendoredSrtRuntimeConfig {
       readonly caCertPath?: string;
       readonly caKeyPath?: string;
     };
+    readonly resolveDestination?: SrtResolveDestination;
+    readonly inheritProxyEnv?: boolean;
   };
   readonly filesystem: {
     readonly denyRead: readonly string[];
@@ -81,6 +94,8 @@ export interface VendoredSrtSandboxPortOptions {
   readonly binShell?: string;
   /** Enables SRT's verified HTTPS termination before any credential-bearing launch is prepared. */
   readonly credentialTlsTermination?: boolean;
+  /** Initialization-scoped Warden authority for connect-time destination resolution. */
+  readonly resolveDestination?: SrtResolveDestination;
 }
 
 export interface VendoredSrtSandboxComponents {
@@ -114,13 +129,17 @@ export interface VendoredSrtRuntimeImportOptions {
   ) => Promise<VendoredSrtModule>;
 }
 
-function initialVendoredRuntimeConfig(credentialTlsTermination: boolean): VendoredSrtRuntimeConfig {
+function initialVendoredRuntimeConfig(
+  credentialTlsTermination: boolean,
+  resolveDestination: SrtResolveDestination | undefined,
+): VendoredSrtRuntimeConfig {
   return {
     network: {
       allowedDomains: [...BASE_RUNTIME_CONFIG.network.allowedDomains],
       deniedDomains: [...BASE_RUNTIME_CONFIG.network.deniedDomains],
       strictAllowlist: true,
       ...(credentialTlsTermination ? { tlsTerminate: {} } : {}),
+      ...(resolveDestination === undefined ? {} : { resolveDestination, inheritProxyEnv: false }),
     },
     filesystem: { denyRead: [], allowRead: [], allowWrite: [], denyWrite: [] },
   };
@@ -129,6 +148,7 @@ function initialVendoredRuntimeConfig(credentialTlsTermination: boolean): Vendor
 function completeVendoredRuntimeConfig(
   customConfig: unknown,
   credentialTlsTermination: boolean,
+  resolveDestination: SrtResolveDestination | undefined,
 ): VendoredSrtRuntimeConfig {
   const config = customConfig as {
     network?: {
@@ -164,6 +184,9 @@ function completeVendoredRuntimeConfig(
           deniedDomains: [...BASE_RUNTIME_CONFIG.network.deniedDomains],
           strictAllowlist: true,
           ...(credentialTlsTermination ? { tlsTerminate: {} } : {}),
+          ...(resolveDestination === undefined
+            ? {}
+            : { resolveDestination, inheritProxyEnv: false }),
         }
       : {
           allowedDomains: [...(config.network.allowedDomains ?? [])],
@@ -172,6 +195,9 @@ function completeVendoredRuntimeConfig(
             ? {}
             : { strictAllowlist: config.network.strictAllowlist }),
           ...(credentialTlsTermination ? { tlsTerminate: {} } : {}),
+          ...(resolveDestination === undefined
+            ? {}
+            : { resolveDestination, inheritProxyEnv: false }),
         };
   const credentials =
     config.credentials === undefined
@@ -344,6 +370,7 @@ export async function createVendoredSrtSandboxComponents(
   options: VendoredSrtSandboxPortOptions = {},
 ): Promise<VendoredSrtSandboxComponents> {
   const credentialTlsTermination = options.credentialTlsTermination === true;
+  const resolveDestination = options.resolveDestination;
   const importRuntime = options.importRuntime ?? importVendoredSrtRuntime;
   let runtimeModule: VendoredSrtModule;
   try {
@@ -376,7 +403,9 @@ export async function createVendoredSrtSandboxComponents(
   }
 
   try {
-    await manager.initialize(initialVendoredRuntimeConfig(credentialTlsTermination));
+    await manager.initialize(
+      initialVendoredRuntimeConfig(credentialTlsTermination, resolveDestination),
+    );
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     return unavailableComponents(
@@ -387,7 +416,9 @@ export async function createVendoredSrtSandboxComponents(
   const runtime: SrtRuntimeAdapter = {
     initialize: async () => {},
     updateConfig: (customConfig) =>
-      manager.updateConfig(completeVendoredRuntimeConfig(customConfig, credentialTlsTermination)),
+      manager.updateConfig(
+        completeVendoredRuntimeConfig(customConfig, credentialTlsTermination, resolveDestination),
+      ),
     wrapWithSandboxArgv: (command, binShell, customConfig, abortSignal) =>
       manager.wrapWithSandboxArgv(command, binShell, customConfig, abortSignal),
     cleanupAfterCommand: () => manager.cleanupAfterCommand?.(),

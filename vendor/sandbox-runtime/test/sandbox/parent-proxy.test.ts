@@ -54,6 +54,17 @@ describe('parent-proxy: resolveParentProxy', () => {
     expect(r?.httpsUrl?.hostname).toBe('env-proxy')
   })
 
+  test('can explicitly disable ambient proxy environment inheritance', () => {
+    process.env.HTTP_PROXY = 'http://env-proxy:8080'
+    process.env.HTTPS_PROXY = 'http://secure-env-proxy:8443'
+    process.env.NO_PROXY = 'example.com'
+    expect(resolveParentProxy(undefined, false)).toBeUndefined()
+    expect(
+      resolveParentProxy({ http: 'http://explicit-proxy:3128' }, false)
+        ?.httpUrl?.hostname,
+    ).toBe('explicit-proxy')
+  })
+
   test('lowercase env vars are honoured', () => {
     process.env.http_proxy = 'http://lower:8080'
     const r = resolveParentProxy(undefined)

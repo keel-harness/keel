@@ -741,6 +741,63 @@ describe("vendored srt runtime loader", () => {
     ]);
   });
 
+  it("installs one resolver at initialization and preserves it across per-call config", async () => {
+    const initializeConfigs: unknown[] = [];
+    const updateConfigs: unknown[] = [];
+    const resolver = async () => [{ address: "192.0.2.1", family: 4 as const }];
+    const manager: VendoredSrtManager = {
+      isSupportedPlatform: () => true,
+      checkDependencies: () => ({ errors: [], warnings: [] }),
+      initialize: async (config) => {
+        initializeConfigs.push(config);
+      },
+      updateConfig: (config) => {
+        updateConfigs.push(config);
+      },
+      wrapWithSandboxArgv: async () => ({
+        argv: ["/usr/bin/env", "true"],
+        env: { PATH: "/usr/bin" },
+      }),
+    };
+    const port = await createVendoredSrtSandboxPort({
+      importRuntime: async () => ({ SandboxManager: manager }),
+      hostDependencyErrors: () => [],
+      resolveDestination: resolver,
+      runner: {
+        run: async () => ({ exitCode: 0, signal: null, stdout: "ok", stderr: "" }),
+      },
+    });
+
+    await port.execute(
+      { command: "true" },
+      { network: { allowedDomains: ["api.example.com"], deniedDomains: [] } },
+    );
+
+    expect(initializeConfigs).toEqual([
+      {
+        network: {
+          allowedDomains: [],
+          deniedDomains: ["*"],
+          strictAllowlist: true,
+          resolveDestination: resolver,
+          inheritProxyEnv: false,
+        },
+        filesystem: { denyRead: [], allowRead: [], allowWrite: [], denyWrite: [] },
+      },
+    ]);
+    expect(updateConfigs).toEqual([
+      {
+        network: {
+          allowedDomains: ["api.example.com"],
+          deniedDomains: [],
+          resolveDestination: resolver,
+          inheritProxyEnv: false,
+        },
+        filesystem: { denyRead: [], allowRead: [], allowWrite: [], denyWrite: [] },
+      },
+    ]);
+  });
+
   it("can create an available default-runner port without optional fields", async () => {
     const manager: VendoredSrtManager = {
       isSupportedPlatform: () => true,

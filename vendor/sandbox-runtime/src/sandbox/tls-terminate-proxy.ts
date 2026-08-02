@@ -20,6 +20,11 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { Duplex, Readable } from 'node:stream'
 import { logForDebugging } from '../utils/debug.js'
+import {
+  isDestinationAddressPolicyError,
+  prepareDestinationDial,
+  type ResolveDestination,
+} from './destination-dial.js'
 import type { MitmCA } from './mitm-ca.js'
 import {
   decideAndRespond,
@@ -95,6 +100,8 @@ export type TerminateTarget = {
    * is read at process start, so tests can't set it from inside the suite).
    */
   upstreamCA?: string | Buffer | Array<string | Buffer>
+  resolveDestination?: ResolveDestination
+  signal: AbortSignal
 }
 
 /**
@@ -248,10 +255,34 @@ async function forwardUpstream(
   // reach an unverified server.
   mutateHeaders?.(fwdHeaders, target.hostname)
 
+  let prepared
+  try {
+    prepared = await prepareDestinationDial(
+      target.hostname,
+      target.port,
+      target.resolveDestination,
+      target.signal,
+    )
+  } catch (error) {
+    if (isDestinationAddressPolicyError(error) && !res.headersSent) {
+      res.writeHead(403, {
+        'Content-Type': 'text/plain',
+        'X-Proxy-Error': 'blocked-address-policy',
+      })
+      res.end('Connection blocked by destination address policy')
+    } else if (!res.headersSent) {
+      res.writeHead(502, { 'Content-Type': 'text/plain' })
+      res.end('Bad Gateway')
+    } else {
+      res.destroy()
+    }
+    return
+  }
+
   // TODO(terminating-tls): honour parentProxy for the upstream leg.
   const upstream = httpsRequest(
     {
-      host: target.hostname,
+      host: prepared.hostname,
       port: target.port,
       path: req.url,
       method: req.method,
@@ -264,6 +295,8 @@ async function forwardUpstream(
       // omitting the key, so spread conditionally.
       ...(isIP(target.hostname) ? {} : { servername: target.hostname }),
       ...(target.upstreamCA ? { ca: target.upstreamCA } : {}),
+      ...(prepared.lookup === undefined ? {} : { lookup: prepared.lookup }),
+      signal: target.signal,
       // No global agent: a proxy's outbound leg shouldn't share a connection
       // pool keyed on the proxy process. Also works around a Bun quirk where
       // the first request's `ca:` value is cached on the global agent and
