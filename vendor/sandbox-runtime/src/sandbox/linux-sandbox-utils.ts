@@ -1094,12 +1094,14 @@ async function generateFilesystemArgs(
   //   --ro-bind /dev/null <host> from denyRead, which landed first.
   // - tmpfs dirs: a dest at or under a denyRead tmpfs is already hidden, and
   //   re-binding the host path on top of the tmpfs would expose the real
-  //   (read-denied) contents read-only. Writes inside the tmpfs never reach
-  //   the host, so the write-deny stays enforced without the bind. Exception:
+  //   (read-denied) contents read-only. Record these overlaps so the hidden
+  //   tmpfs mount is remounted read-only below; a writable decoy would protect
+  //   host bytes but falsely report a denied authority write as successful. Exception:
   //   if an allowed write path at-or-under that tmpfs covers the dest, the
   //   denyRead loop re-bound it (the .git/hooks case) and the write-deny bind
   //   is still required on top.
   const emittedDenyWriteDests: string[] = []
+  const hiddenDenyWriteDests: string[] = []
   for (let i = 0; i < denyWriteArgs.length; i += 3) {
     const dest = denyWriteArgs[i + 2]!
     if (maskedFiles.has(dest)) continue
@@ -1114,6 +1116,7 @@ async function generateFilesystemArgs(
       return !reExposedByWriteBind
     })
     if (hiddenByTmpfs) {
+      hiddenDenyWriteDests.push(dest)
       logForDebugging(
         `[Sandbox Linux] Skipping denyWrite bind already hidden by denyRead tmpfs: ${dest}`,
       )
@@ -1151,6 +1154,41 @@ async function generateFilesystemArgs(
       )
       args.push('--ro-bind', '/dev/null', maskedFile)
     }
+  }
+
+  // A read-denied directory is represented by a writable tmpfs so its host contents stay hidden.
+  // When denyWrite overlaps that hidden region, leaving the tmpfs writable makes the governed
+  // command observe a false success even though only ephemeral bytes changed. Remount every
+  // overlapping tmpfs read-only after the stacking repairs above, then make any explicitly
+  // re-bound write child covered by the deny root read-only as well. This preserves read hiding,
+  // keeps unrelated allowWrite carve-outs writable, and makes authority writes fail structurally.
+  const remountedTmpfs = new Set<string>()
+  for (const tmpfsDir of tmpfsDirs) {
+    const overlapsHiddenWriteDeny = hiddenDenyWriteDests.some(
+      dest =>
+        dest === tmpfsDir ||
+        dest.startsWith(tmpfsDir + '/') ||
+        tmpfsDir.startsWith(dest + '/'),
+    )
+    if (!overlapsHiddenWriteDeny || remountedTmpfs.has(tmpfsDir)) continue
+    remountedTmpfs.add(tmpfsDir)
+    args.push('--remount-ro', tmpfsDir)
+    logForDebugging(
+      `[Sandbox Linux] Remounted read-hidden write-denied directory read-only: ${tmpfsDir}`,
+    )
+  }
+
+  const reboundReadOnly = new Set<string>()
+  for (const writePath of allowedWritePaths) {
+    const coveredByHiddenWriteDeny = hiddenDenyWriteDests.some(
+      dest => writePath === dest || writePath.startsWith(dest + '/'),
+    )
+    if (!coveredByHiddenWriteDeny || reboundReadOnly.has(writePath)) continue
+    reboundReadOnly.add(writePath)
+    args.push('--ro-bind', writePath, writePath)
+    logForDebugging(
+      `[Sandbox Linux] Re-bound write path under hidden denyWrite authority read-only: ${writePath}`,
+    )
   }
 
   return args

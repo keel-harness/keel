@@ -46,6 +46,7 @@ not source needed for Keel's reviewed adapter path:
 ## Local Keel Files
 
 - `VENDOR.md`
+- `patches/read-hidden-write-deny.patch`
 - `patches/wait-for-linux-proxy-readiness.patch`
 - `patches/connect-time-destination-resolver.patch`
 - `test/sandbox/linux-proxy-readiness.test.ts`
@@ -53,6 +54,19 @@ not source needed for Keel's reviewed adapter path:
 - `test/sandbox/destination-guard-proxy.test.ts`
 
 ## Local Patches
+
+### Preserve write denial inside read-hidden Linux mounts
+
+- Patch: `patches/read-hidden-write-deny.patch`
+- Applied file: `src/sandbox/linux-sandbox-utils.ts`
+- Reason: Linux represents a read-denied directory with a writable tmpfs. When the same authority
+  was also write-denied, the hidden mount protected the host bytes but let the governed command
+  observe a false-successful write into ephemeral storage.
+- Security impact: overlapping hidden tmpfs mounts are remounted read-only after read/write mount
+  stacking is complete. Explicitly re-bound write children covered by the same deny root are also
+  re-bound read-only. Read-denied host bytes stay hidden and authority writes now fail structurally.
+- Upstreamable status: minimal and intended for upstream submission after Keel's Linux conformance
+  gate validates the end-to-end denial. It has not yet been submitted upstream.
 
 ### Wait for Linux proxy listeners
 

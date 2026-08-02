@@ -3,7 +3,7 @@ import { SandboxManager } from '../../src/sandbox/sandbox-manager.js'
 import type { SandboxRuntimeConfig } from '../../src/sandbox/sandbox-config.js'
 import { wrapCommandWithSandboxLinux } from '../../src/sandbox/linux-sandbox-utils.js'
 import { wrapCommandWithSandboxMacOS } from '../../src/sandbox/macos-sandbox-utils.js'
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { isLinux, isMacOS, isSupportedPlatform } from '../helpers/platform.js'
@@ -929,6 +929,57 @@ describe('allowWrite glob suffix handling', () => {
         expect(maskAt).toBeGreaterThan(bindAt)
       } finally {
         await SandboxManager.reset()
+        rmSync(parentDir, { recursive: true, force: true })
+      }
+    },
+  )
+
+  it(
+    'makes a read-hidden directory read-only when denyWrite covers the same Linux mount',
+    async () => {
+      const parentAlias = join(tmpdir(), `srt-test-hidden-write-deny-${Date.now()}`)
+      mkdirSync(parentAlias, { recursive: true })
+      const parentDir = realpathSync(parentAlias)
+      const protectedDir = join(parentDir, 'protected')
+      const protectedChild = join(protectedDir, 'child')
+      mkdirSync(protectedChild, { recursive: true })
+
+      try {
+        const result = await wrapCommandWithSandboxLinux({
+          command: `printf widened > ${join(protectedDir, 'authority.json')}`,
+          needsNetworkRestriction: false,
+          readConfig: {
+            denyOnly: [protectedDir, protectedChild],
+            allowWithinDeny: [],
+          },
+          writeConfig: {
+            allowOnly: [parentDir, protectedChild],
+            denyWithinAllow: [protectedDir],
+          },
+          enableWeakerNestedSandbox: true,
+          allowAllUnixSockets: true,
+          mandatoryDenySearchDepth: 0,
+        })
+
+        const tmpfsAt = result.indexOf(`--tmpfs ${protectedDir}`)
+        const readOnlyAt = result.indexOf(`--remount-ro ${protectedDir}`)
+        expect(tmpfsAt).toBeGreaterThan(-1)
+        expect(readOnlyAt).toBeGreaterThan(tmpfsAt)
+        const childTmpfsAt = result.indexOf(`--tmpfs ${protectedChild}`)
+        const childReadOnlyAt = result.indexOf(
+          `--remount-ro ${protectedChild}`,
+        )
+        expect(childTmpfsAt).toBeGreaterThan(-1)
+        expect(childReadOnlyAt).toBeGreaterThan(childTmpfsAt)
+        const childWriteBindAt = result.lastIndexOf(
+          `--bind ${protectedChild} ${protectedChild}`,
+        )
+        const childDenyBindAt = result.lastIndexOf(
+          `--ro-bind ${protectedChild} ${protectedChild}`,
+        )
+        expect(childWriteBindAt).toBeGreaterThan(-1)
+        expect(childDenyBindAt).toBeGreaterThan(childWriteBindAt)
+      } finally {
         rmSync(parentDir, { recursive: true, force: true })
       }
     },

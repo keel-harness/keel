@@ -41,6 +41,7 @@ function runKeel(args, label) {
   const env = {
     ...process.env,
     KEEL_HOME: keelHome,
+    KEEL_TRUST: "1",
     KEEL_WARDEN_SANDBOX: "srt",
     NO_COLOR: "1",
   };

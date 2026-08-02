@@ -15,6 +15,7 @@ const expected = {
     "README.md",
     "VENDOR.md",
     "patches/connect-time-destination-resolver.patch",
+    "patches/read-hidden-write-deny.patch",
     "patches/wait-for-linux-proxy-readiness.patch",
     "package.json",
     "package-lock.json",
