@@ -5,6 +5,7 @@ import {
   mkdtempSync,
   readFileSync,
   realpathSync,
+  renameSync,
   rmSync,
   symlinkSync,
   writeFileSync,
@@ -419,10 +420,13 @@ describe("egress address exception authority", () => {
   it("rejects path replacement between lstat and no-follow open", () => {
     const { env, workspace, path } = fixture();
     writeStore(path, validStore(workspace));
+    const displacedPath = `${path}.displaced`;
     expect(() =>
       loadEgressAddressExceptionSnapshot(workspace, env, {
         afterInitialLstat: () => {
-          rmSync(path);
+          // Keep the original inode live so filesystems cannot immediately reuse it for the
+          // replacement and turn this deterministic TOCTOU probe into a flaky same-identity read.
+          renameSync(path, displacedPath);
           writeStore(path, { version: 1, workspaces: [] });
         },
       }),

@@ -250,6 +250,9 @@ suite("real SRT sandbox enforcement (opt-in: KEEL_REQUIRE_REAL_SANDBOX=1)", () =
     writeFileSync(authority, original, { mode: 0o600 });
     const profile = buildDefaultSandboxProfile({
       workspaceRoot: workspace,
+      // Deliberately allow the common ancestor so this probe proves that keel-owned denyWrite
+      // authority overrides an otherwise writable declared temp root on every real backend.
+      declaredTempRoots: [workRoot],
       env: { ...process.env, HOME: home, KEEL_HOME: keelHome },
     });
 
