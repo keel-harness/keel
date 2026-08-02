@@ -1,8 +1,11 @@
-import { describe, expect, test } from 'vitest'
+import { afterEach, describe, expect, test, vi } from 'vitest'
 import {
   DestinationAddressPolicyError,
+  MAX_CONCURRENT_GUARDED_CONNECTIONS,
   MAX_DESTINATION_ADDRESSES,
+  TOTAL_GUARDED_DIAL_TIMEOUT_MS,
   prepareDestinationDial,
+  resetDestinationGuardConnections,
   type ResolveDestination,
 } from '../../src/sandbox/destination-dial.js'
 
@@ -24,6 +27,11 @@ function lookupAll(
 }
 
 describe('prepareDestinationDial', () => {
+  afterEach(() => {
+    resetDestinationGuardConnections()
+    vi.useRealTimers()
+  })
+
   test('resolves once and pins the exact normalized answer set', async () => {
     const calls: Array<{ hostname: string; port: number; signal: AbortSignal }> = []
     const resolveDestination: ResolveDestination = async (
@@ -58,6 +66,7 @@ describe('prepareDestinationDial', () => {
       { address: '2001:db8::7', family: 6 },
     ])
     expect(calls).toHaveLength(1)
+    prepared.release()
   })
 
   test('invokes the resolver for an IP literal and requires the answer to match it', async () => {
@@ -75,6 +84,7 @@ describe('prepareDestinationDial', () => {
     expect(await lookupAll(prepared.lookup!)).toEqual([
       { address: '192.0.2.9', family: 4 },
     ])
+    prepared.release()
 
     await expect(
       prepareDestinationDial(
@@ -203,5 +213,105 @@ describe('prepareDestinationDial', () => {
       name: 'DestinationAddressPolicyError',
       message: 'destination address policy denied the connection',
     })
+  })
+
+  test('holds a fixed connection permit until release and rejects beyond capacity', async () => {
+    const resolveDestination: ResolveDestination = async () => [
+      { address: '192.0.2.1', family: 4 },
+    ]
+    const prepared = await Promise.all(
+      Array.from({ length: MAX_CONCURRENT_GUARDED_CONNECTIONS }, () =>
+        prepareDestinationDial(
+          'capacity.example',
+          443,
+          resolveDestination,
+          signal(),
+        ),
+      ),
+    )
+
+    await expect(
+      prepareDestinationDial(
+        'over-capacity.example',
+        443,
+        resolveDestination,
+        signal(),
+      ),
+    ).rejects.toBeInstanceOf(DestinationAddressPolicyError)
+
+    prepared[0]!.release()
+    prepared[0]!.release()
+    const replacement = await prepareDestinationDial(
+      'replacement.example',
+      443,
+      resolveDestination,
+      signal(),
+    )
+    replacement.release()
+    for (const item of prepared.slice(1)) item.release()
+  })
+
+  test('aborts and releases a hung guarded dial at the fixed total deadline', async () => {
+    vi.useFakeTimers()
+    let observedSignal: AbortSignal | undefined
+    const pending = prepareDestinationDial(
+      'hung.example',
+      443,
+      async (_hostname, _port, abortSignal) => {
+        observedSignal = abortSignal
+        return await new Promise((resolve, reject) => {
+          abortSignal.addEventListener(
+            'abort',
+            () => reject(new Error('late private resolver diagnostic')),
+            { once: true },
+          )
+        })
+      },
+      signal(),
+    )
+    const rejection = expect(pending).rejects.toBeInstanceOf(
+      DestinationAddressPolicyError,
+    )
+    await vi.advanceTimersByTimeAsync(TOTAL_GUARDED_DIAL_TIMEOUT_MS)
+    await rejection
+    expect(observedSignal?.aborted).toBe(true)
+
+    const next = await prepareDestinationDial(
+      'after-timeout.example',
+      443,
+      async () => [{ address: '192.0.2.1', family: 4 }],
+      signal(),
+    )
+    next.release()
+  })
+
+  test('terminal reset aborts pending guard work and restores an empty limiter', async () => {
+    let observedSignal: AbortSignal | undefined
+    const pending = prepareDestinationDial(
+      'reset.example',
+      443,
+      async (_hostname, _port, abortSignal) => {
+        observedSignal = abortSignal
+        return await new Promise((resolve, reject) => {
+          abortSignal.addEventListener('abort', () => reject(new Error('reset')), {
+            once: true,
+          })
+        })
+      },
+      signal(),
+    )
+    resetDestinationGuardConnections()
+    await expect(pending).rejects.toBeInstanceOf(
+      DestinationAddressPolicyError,
+    )
+    expect(observedSignal?.aborted).toBe(true)
+
+    const next = await prepareDestinationDial(
+      'after-reset.example',
+      443,
+      async () => [{ address: '192.0.2.1', family: 4 }],
+      signal(),
+    )
+    next.release()
   })
 })
