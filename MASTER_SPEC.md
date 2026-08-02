@@ -1093,8 +1093,9 @@ Tasks: API keys stored outside the repo/workspace (**shipped: the `0600` file st
 
 #### Epic 1.10 — Packaging + doctor
 Tasks: the `npx keel-harness` carrier mechanism works in CI (not a public install instruction while
-the registry serves the `0.0.1` placeholder); the source/runtime/candidate version is `0.1.0`, but
-that does not make the placeholder a carrier; `bun build --compile` binaries (macOS arm64/x64, Linux
+the registry serves the `0.0.1` placeholder); the source/runtime/candidate version is `0.1.1`, but
+that does not make the placeholder a carrier; the earlier `0.1.0` candidate was staged but never
+approved or made public; `bun build --compile` binaries (macOS arm64/x64, Linux
 x64/arm64) have smoke tests in CI; `keel doctor` checks node/ripgrep/(Phase 2: bubblewrap+socat on
 Linux), emits one copy-paste fix command per distro, never a wall of docs.
 **Tests first:** doctor output goldens per simulated missing-dep matrix; binary smoke (`--version`, `doctor`, headless one-task run) in CI on both OSes.

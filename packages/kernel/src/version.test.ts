@@ -20,7 +20,7 @@ describe("KEEL_VERSION", () => {
     expect(KEEL_VERSION).toBe(pkg.version);
   });
 
-  it("is the first public pre-alpha version across every private workspace manifest", () => {
+  it("is the current public pre-alpha version across every private workspace manifest", () => {
     const here = dirname(fileURLToPath(import.meta.url));
     const repoRoot = join(here, "..", "..", "..");
     const manifests = [
@@ -33,7 +33,7 @@ describe("KEEL_VERSION", () => {
       "packages/warden/package.json",
     ];
 
-    expect(KEEL_VERSION).toBe("0.1.0");
+    expect(KEEL_VERSION).toBe("0.1.1");
     for (const path of manifests) {
       const manifest = JSON.parse(readFileSync(join(repoRoot, path), "utf8")) as {
         private?: boolean;

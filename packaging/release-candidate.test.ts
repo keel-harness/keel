@@ -9,8 +9,8 @@ const COMMIT = "0123456789abcdef0123456789abcdef01234567";
 
 describe("release-candidate authority", () => {
   const valid = {
-    version: "0.1.0",
-    tag: "v0.1.0",
+    version: "0.1.1",
+    tag: "v0.1.1",
     tagObjectType: "tag",
     headCommit: COMMIT,
     mainCommit: COMMIT,
@@ -24,22 +24,22 @@ describe("release-candidate authority", () => {
     expect(
       candidateMetadata({
         ...valid,
-        tarball: "keel-harness-0.1.0.tgz",
+        tarball: "keel-harness-0.1.1.tgz",
         tarballSha256: "a".repeat(64),
       }),
     ).toMatchObject({
-      version: "0.1.0",
-      tag: "v0.1.0",
+      version: "0.1.1",
+      tag: "v0.1.1",
       sourceCommit: COMMIT,
       repository: "keel-harness/keel",
-      tarball: "keel-harness-0.1.0.tgz",
+      tarball: "keel-harness-0.1.1.tgz",
       tarballSha256: "a".repeat(64),
     });
   });
 
   it.each([
-    ["missing v", { tag: "0.1.0" }, "expected release tag v0.1.0"],
-    ["version mismatch", { tag: "v0.1.1" }, "expected release tag v0.1.0"],
+    ["missing v", { tag: "0.1.1" }, "expected release tag v0.1.1"],
+    ["version mismatch", { tag: "v0.1.2" }, "expected release tag v0.1.1"],
     ["lightweight tag", { tagObjectType: "commit" }, "release tag is not annotated"],
     ["non-main commit", { mainCommit: "f".repeat(40) }, "tag commit is not exact main"],
     ["dirty source", { sourceDirty: true }, "source tree is dirty"],

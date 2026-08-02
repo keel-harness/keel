@@ -1,6 +1,7 @@
 # Releasing the npm carrier
 
-This is the operator runbook for the first public pre-alpha npm carrier. ADR-0085 is authoritative.
+This is the operator runbook for the first intended public pre-alpha npm carrier,
+`keel-harness@0.1.1`. ADR-0085 is authoritative.
 The release is a staged, human-approved publication from `keel-harness/keel`; a private engineering
 archive is never a publication authority. Standalone binaries remain excluded by ADR-0040.
 
@@ -24,11 +25,16 @@ Stop unless all of these are true:
   action contracts against current primary documentation.
 - The intended version is absent from both live and staged versions. Any ambiguous registry result
   is a stop, not permission to rerun.
-- P1-007 remains named and failed in release notes, with the owner's 2026-07-30 acceptance scoped
-  to the `0.1.0` pre-alpha release; no packaged-performance claim is made.
+- The owner has opened npm's authenticated account-level **Staged Packages** view and confirmed that
+  no versions are waiting for review. For `0.1.0`, the 2026-08-02 view exposed nothing to approve or
+  reject; that observable final state is recorded in issue #49 without guessing why the stage was
+  removed. Public-registry absence alone does not satisfy this check.
+- P1-007 remains named and failed in release notes. The owner's 2026-08-02 acceptance is scoped to
+  `0.1.1` pre-alpha only and is recorded in issue #49; it does not change the threshold or support a
+  packaged-performance claim.
 
 Record the exact public-main SHA and the successful public-main CI URL. Creating the annotated,
-protected `v0.1.0` tag is a separately approved operation. The tag's peeled commit must equal both
+protected `v0.1.1` tag is a separately approved operation. The tag's peeled commit must equal both
 `origin/main` and the recorded green commit.
 
 ## 2. What the workflow does

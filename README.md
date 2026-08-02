@@ -158,9 +158,11 @@ The build produces an `npx`-installable package and mechanically testable self-c
 hermetic one-task run). The compiled binary uses your system ripgrep; the npx package bundles its
 own. Bun is a build/CI-only tool; development and tests use Node/pnpm/vitest (ADR-0009).
 
-The graph-audited `keel-harness@0.1.0` npx carrier has passed isolated install/dlx, doctor, replay,
-Warden, and pre-trust `.env` probes on Node 20, 22, and 24, but it is not published; registry version
-`keel-harness@0.0.1` only reserves the name as a placeholder, so do not use it as the release carrier.
+The graph-audited `keel-harness@0.1.1` npx carrier is being prepared for isolated install/dlx,
+doctor, replay, Warden, egress-guard, and pre-trust `.env` proof on Node 20, 22, and 24. It is not
+published. The registry still serves only the `keel-harness@0.0.1` reservation
+placeholder; do not use it as the release carrier. The earlier `0.1.0` candidate was staged but
+never approved or made public.
 Standalone Bun binaries remain test-only pending review of linked LGPL components, while the npx
 release remains gated on protected stage-only OIDC, staged-byte inspection, human 2FA approval, and
 live-registry verification; see the [release runbook](docs/guide/releasing.md).
