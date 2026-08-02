@@ -8,7 +8,7 @@
  * rejection into a stable proxy denial before any upstream socket is opened.
  */
 import { createServer } from "node:http";
-import type { AddressInfo, Server } from "node:net";
+import type { Server } from "node:net";
 import { existsSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -18,7 +18,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { SessionAuditLog } from "./audit/session-log.js";
 import { readAuditLog } from "./audit/writer.js";
 import { isRealSandboxRequired, resolveRealSandboxGate } from "./real-sandbox-gate.js";
-import type { SandboxPort, SandboxProfile } from "./sandbox.js";
+import type { SandboxProfile } from "./sandbox.js";
 import { createVendoredSrtSandboxComponents } from "./srt-runtime-loader.js";
 
 const required = isRealSandboxRequired(process.env);
@@ -42,7 +42,7 @@ function listen(server: Server): Promise<number> {
         reject(new Error("expected a TCP fixture address"));
         return;
       }
-      resolveListen((address as AddressInfo).port);
+      resolveListen(address.port);
     });
   });
 }
@@ -129,7 +129,7 @@ suite("real SRT connect-time destination address guard (opt-in)", () => {
       });
       if (gate.action === "fail") throw new Error(gate.reason);
 
-      const result = await (components.sandbox as SandboxPort).execute(
+      const result = await components.sandbox.execute(
         {
           command: "curl",
           argv: [
