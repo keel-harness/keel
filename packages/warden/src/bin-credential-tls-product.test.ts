@@ -135,10 +135,10 @@ describe("warden credential TLS product wiring", () => {
     vi.stubEnv("KEEL_WARDEN_SANDBOX", "srt");
     vi.stubEnv("KEEL_WARDEN_WORKSPACE_ROOT", "/workspace");
     vi.stubEnv("KEEL_MCP_DISCOVERY_REQUEST", request);
-    vi.spyOn(process.stdout, "write").mockImplementation(((_chunk: unknown, callback?: unknown) => {
-      if (typeof callback === "function") callback();
+    vi.spyOn(process.stdout, "write").mockImplementation((_chunk: unknown, callback?: unknown) => {
+      if (typeof callback === "function") Reflect.apply(callback, undefined, []);
       return true;
-    }) as typeof process.stdout.write);
+    });
 
     const { runMcpDiscoveryFromEnv } = await import("./bin.js");
     await runMcpDiscoveryFromEnv();

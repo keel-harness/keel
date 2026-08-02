@@ -8,7 +8,7 @@
  */
 import { createServer as createHttpServer } from "node:http";
 import { createServer as createHttpsServer } from "node:https";
-import type { AddressInfo, Server } from "node:net";
+import type { Server } from "node:net";
 import { readFileSync, realpathSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { createSecureContext } from "node:tls";
@@ -50,7 +50,7 @@ function listen(server: Server): Promise<number> {
         reject(new Error("expected a TCP fixture address"));
         return;
       }
-      resolveListen((address as AddressInfo).port);
+      resolveListen(address.port);
     });
   });
 }
