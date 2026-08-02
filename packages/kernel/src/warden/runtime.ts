@@ -408,8 +408,11 @@ export function resolveProductionWardenStart(
       args: ["--import", tsxLoader, "--conditions=@keel/source", sourceBin],
     };
   }
-  const distBin = resolve(here, "../../../warden/dist/bin-entry.js");
-  if (exists(distBin)) return { command: execPath, args: [distBin] };
+  // The packaged carrier is resolved FIRST and returns-or-throws, so no later probe is reachable
+  // from a published artifact. ADR-0082 requires a packaged `keel-kernel.mjs` to resolve only its
+  // exact `keel-warden.mjs` sibling, never a project-relative path — and from
+  // `<project>/node_modules/keel-harness/bin` the `distBin` probe below resolves to
+  // `<project>/warden/dist/bin-entry.js`, which is inside the model-writable workspace.
   if (basename(modulePath) === "keel-kernel.mjs") {
     const packagedWarden = resolve(here, "keel-warden.mjs");
     if (!exists(packagedWarden)) {
@@ -417,6 +420,12 @@ export function resolveProductionWardenStart(
     }
     return { command: execPath, args: [packagedWarden] };
   }
+  // Built in-repo output only. The layout guard mirrors `runningFromSource` above: without it this
+  // probe walks out of whatever tree the kernel happens to sit in and spawns the first
+  // `warden/dist/bin-entry.js` it finds as the process that decides policy.
+  const runningFromDist = here.endsWith(`${sep}dist${sep}warden`);
+  const distBin = resolve(here, "../../../warden/dist/bin-entry.js");
+  if (runningFromDist && exists(distBin)) return { command: execPath, args: [distBin] };
   const compiledBinary = options.compiledBinary ?? process.versions["bun"] !== undefined;
   if (!compiledBinary) {
     throw new Error("production warden entry is unavailable");

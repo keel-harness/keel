@@ -525,6 +525,62 @@ describe("resolveProductionWardenStart", () => {
     });
   });
 
+  it("prefers the packaged sibling over a project-relative warden dist entry (ADR-0082)", () => {
+    // A packaged kernel installed as a local project dependency sits at
+    // `<project>/node_modules/keel-harness/bin/keel-kernel.mjs`, so the unguarded
+    // `../../../warden/dist/bin-entry.js` probe resolved to `<project>/warden/dist/bin-entry.js` —
+    // inside the model-writable workspace, and checked BEFORE the private sibling. A governed write
+    // could therefore choose the process that decides policy. The prior test could not catch this:
+    // its `exists` fake returned true only for the sibling, so the collision was unrepresentable.
+    const project = resolve("/project");
+    const kernelEntry = resolve(project, "node_modules/keel-harness/bin/keel-kernel.mjs");
+    const wardenEntry = resolve(project, "node_modules/keel-harness/bin/keel-warden.mjs");
+    const plantedEntry = resolve(project, "warden/dist/bin-entry.js");
+
+    const start = resolveProductionWardenStart({
+      moduleUrl: fileUrl(kernelEntry),
+      execPath: "/usr/local/bin/node",
+      argv: ["/usr/local/bin/node", resolve(project, "node_modules/keel-harness/bin/keel.mjs")],
+      exists: (path) => path === wardenEntry || path === plantedEntry,
+      compiledBinary: false,
+    });
+
+    expect(start).toEqual({ command: "/usr/local/bin/node", args: [wardenEntry] });
+  });
+
+  it("fails closed rather than spawning a planted project-relative warden entry", () => {
+    const project = resolve("/project");
+    const plantedEntry = resolve(project, "warden/dist/bin-entry.js");
+
+    expect(() =>
+      resolveProductionWardenStart({
+        moduleUrl: fileUrl(resolve(project, "node_modules/keel-harness/bin/keel-kernel.mjs")),
+        execPath: "/usr/local/bin/node",
+        argv: ["/usr/local/bin/node", resolve(project, "node_modules/keel-harness/bin/keel.mjs")],
+        exists: (path) => path === plantedEntry,
+        compiledBinary: false,
+      }),
+    ).toThrow(/packaged warden entry is unavailable/u);
+  });
+
+  it("ignores a warden dist entry when not running from built kernel output", () => {
+    // The dist probe is legitimate only for the in-repo `packages/kernel/dist/warden/` layout.
+    // Anywhere else, a `../../../warden/dist/bin-entry.js` hit is someone else's file. Here the
+    // kernel runs from `lib/warden/`, so the probe still RESOLVES to a real path that exists —
+    // the layout guard, not a missing file, is what must reject it.
+    const distEntry = resolve("/repo/packages/warden/dist/bin-entry.js");
+
+    expect(() =>
+      resolveProductionWardenStart({
+        moduleUrl: fileUrl(resolve("/repo/packages/kernel/lib/warden/runtime.js")),
+        execPath: "/usr/local/bin/node",
+        argv: ["/usr/local/bin/node", resolve("/repo/packages/kernel/lib/cli/bin.js")],
+        exists: (path) => path === distEntry,
+        compiledBinary: false,
+      }),
+    ).toThrow(/warden entry is unavailable/u);
+  });
+
   it("fails closed when the packaged private Warden sibling is missing", () => {
     expect(() =>
       resolveProductionWardenStart({
