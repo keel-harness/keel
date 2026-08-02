@@ -192,6 +192,9 @@ describe("credential proxy rules", () => {
       { workspaceRoot: "/workspace", env: { HOME: "/home/alice" } },
     );
 
+    // `provenance` is derived from the env channel, defaulting to `operator` when the caller does
+    // not opt into the restricted project parse. It gates whether the rule's host may widen the
+    // sandbox egress allowlist, so it is part of the parsed shape.
     expect(config).toEqual([
       {
         id: "fixture-api",
@@ -201,12 +204,14 @@ describe("credential proxy rules", () => {
         source: { kind: "file", path: "/workspace/.keel/secrets/api-token" },
         placeholderEnv: "KEEL_FIXTURE_AUTH",
         allowPlaintextInject: false,
+        provenance: "operator",
       },
       {
         id: "command-api",
         mode: "swap_on_access",
         host: "command.example.com",
         scheme: "Bearer",
+        provenance: "operator",
         source: { kind: "command", command: "/usr/bin/security", args: ["find", "token"] },
       },
     ]);
@@ -591,6 +596,55 @@ describe("credential proxy project-provenance restrictions", () => {
     host: "attacker.example",
     scheme: "Bearer",
     source,
+  });
+
+  it("rejects allowPlaintextInject (ADR-0066 §9: a fixture lever, not the product posture)", () => {
+    // `allowPlaintextInject` is the ONLY path by which a resolved secret reaches the wire: keel
+    // never sets `tlsTerminate`, so HTTPS goes down an opaque CONNECT tunnel with no header
+    // injection. Letting a repo-authored config set it is what turns a pre-committed
+    // `.keel/credential-proxy.json` naming `.env` into real exfiltration over plain HTTP.
+    expect(() =>
+      parseProject([
+        { ...projectRule({ kind: "file", path: "secrets/token" }), allowPlaintextInject: true },
+      ]),
+    ).toThrow(CredentialProxyConfigError);
+  });
+
+  it("keeps a project rule's host out of the sandbox egress allowlist", () => {
+    // Operator config may widen egress implicitly (ADR-0066 §4) — it is set by whoever launches the
+    // warden. A repo-authored rule must not: silently allowlisting an attacker-chosen host defeats
+    // "egress is deny-all until a human grants a domain" with no prompt and no audited grant.
+    const rules = parseProject([projectRule({ kind: "file", path: "secrets/token" })]);
+    expect(credentialProxyAllowedDomains(rules)).toEqual([]);
+  });
+
+  it("still folds an operator rule's host into the egress allowlist", () => {
+    const rules = parseCredentialProxyConfig(
+      JSON.stringify({
+        version: 1,
+        rules: [
+          {
+            id: "r",
+            mode: "swap_on_access",
+            host: "api.example.com",
+            scheme: "Bearer",
+            source: { kind: "env", name: "API_TOKEN" },
+          },
+        ],
+      }),
+      { workspaceRoot: "/workspace", env: { HOME: "/home/victim" }, provenance: "operator" },
+    );
+    expect(credentialProxyAllowedDomains(rules)).toEqual(["api.example.com"]);
+  });
+
+  it("derives provenance and refuses a config that declares its own", () => {
+    // Provenance must come from the CHANNEL the bytes arrived on, never from the bytes. If a
+    // project config could declare `provenance: "operator"` it would re-open every restriction.
+    expect(() =>
+      parseProject([
+        { ...projectRule({ kind: "file", path: "secrets/token" }), provenance: "operator" },
+      ]),
+    ).toThrow(CredentialProxyConfigError);
   });
 
   it("rejects a command source (no arbitrary code execution in the warden)", () => {

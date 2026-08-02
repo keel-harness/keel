@@ -47,6 +47,13 @@ export interface CredentialProxyRule {
   readonly source: CredentialProxySource;
   readonly placeholderEnv?: string;
   readonly allowPlaintextInject?: boolean;
+  /**
+   * Where the rule came from, DERIVED from the env channel its bytes arrived on — never parsed from
+   * the config itself (`provenance` is not in `parseRule`'s accepted-key list, so a project config
+   * that declares `"operator"` is rejected as an unknown key). Defaults to `operator`, so callers
+   * that construct rules programmatically keep the historical behavior.
+   */
+  readonly provenance?: CredentialProxyProvenance;
 }
 
 export interface CredentialProxyPublicSummary {
@@ -362,12 +369,29 @@ export function credentialProxyPublicSummary(
   return rules.map(publicSummary);
 }
 
+/**
+ * Hosts folded into the sandbox egress allowlist so a governed request can reach a configured
+ * credential host without a separate grant (ADR-0066 §4).
+ *
+ * OPERATOR rules only. That convenience is right for config set by whoever launches the warden —
+ * the same authority that sets the sandbox profile — but a `project` rule is repo-authored and can
+ * arrive pre-committed in a workspace the human trusted for READING. Folding its host in silently
+ * granted egress to an attacker-chosen domain with no prompt, no audited grant, and nothing on any
+ * status surface, defeating "network egress is deny-all until a human grants a domain".
+ *
+ * A project rule still works; its host simply has to go through the ordinary egress review the
+ * first time it is requested, after which the persisted project grant (kept in `$KEEL_HOME`,
+ * principal-attributed and revocable) supplies it. Residual: a command carrying no literal URL
+ * (`gh api …`) fails closed rather than prompting — surfacing project-declared hosts at
+ * config-load time is the follow-up.
+ */
 export function credentialProxyAllowedDomains(
   rules: readonly CredentialProxyRule[] = [],
 ): string[] {
   const domains: string[] = [];
   const seen = new Set<string>();
   for (const rule of rules) {
+    if ((rule.provenance ?? "operator") !== "operator") continue;
     const host = normalizeEgressGrantDomain(rule.host);
     if (seen.has(host)) continue;
     seen.add(host);
@@ -611,12 +635,24 @@ function parseRule(value: unknown, options: CredentialProxyPathOptions): Credent
     throw new CredentialProxyConfigError("credential proxy rule mode is invalid");
   }
   const allowPlaintextInject = boolField(rule, "allowPlaintextInject");
+  const provenance: CredentialProxyProvenance = options.provenance ?? "operator";
+  if (provenance === "project" && allowPlaintextInject === true) {
+    // ADR-0066 §9 scopes this to the local fixture tests: "it is not the product posture". It is
+    // also the only way a resolved secret reaches the wire, because keel never enables
+    // `tlsTerminate`, so an HTTPS request tunnels through CONNECT with no header injection. A
+    // repo-authored config that could set it turns a pre-committed rule naming a workspace secret
+    // into real exfiltration over plain HTTP.
+    throw new CredentialProxyConfigError(
+      "project credential proxy config may not set allowPlaintextInject",
+    );
+  }
   const parsed: CredentialProxyRule = {
     id: stringField(rule, "id", "credential proxy rule"),
     mode,
     host: stringField(rule, "host", "credential proxy rule"),
     scheme: stringField(rule, "scheme", "credential proxy rule"),
     source: parseSource(rule["source"], options),
+    provenance,
     ...(rule["placeholderEnv"] === undefined
       ? {}
       : {
