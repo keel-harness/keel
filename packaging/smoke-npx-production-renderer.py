@@ -37,7 +37,7 @@ def installed_launcher(value: str) -> Path:
 def run_smoke(launcher: Path) -> dict[str, object]:
     observer = load_observer()
     with tempfile.TemporaryDirectory(prefix="keel-npx-production-renderer-") as directory:
-        root = Path(directory)
+        root = Path(directory).resolve()
         workspace = root / "workspace"
         home = root / "home"
         workspace.mkdir(mode=0o700)

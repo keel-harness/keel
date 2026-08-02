@@ -536,6 +536,14 @@ describe("CI packaging workflow", () => {
       join(repoRoot, "packaging", "smoke-release-carrier.sh"),
       "utf8",
     );
+    const productionRendererSmoke = readFileSync(
+      join(repoRoot, "packaging", "smoke-npx-production-renderer.py"),
+      "utf8",
+    );
+    const urgentSteeringSmoke = readFileSync(
+      join(repoRoot, "packaging", "smoke-urgent-steering.py"),
+      "utf8",
+    );
 
     const smokeRoot = 'SMOKE_ROOT="$(mktemp -d)"';
     const canonicalSmokeRoot = `${smokeRoot}\n          SMOKE_ROOT="$(realpath "$SMOKE_ROOT")"`;
@@ -547,6 +555,8 @@ describe("CI packaging workflow", () => {
     expect(occurrenceCount(workflow, workRoot)).toBe(3);
     expect(occurrenceCount(workflow, canonicalWorkRoot)).toBe(3);
     expect(releaseSmoke).toContain(`${workRoot}\nWORK=$(realpath "$WORK")`);
+    expect(productionRendererSmoke).toContain("root = Path(directory).resolve()");
+    expect(urgentSteeringSmoke).toContain("root = Path(directory).resolve()");
   });
 
   it("keeps Debian compiled-binary warden startup smoke from tripping pipefail after a successful match", () => {
