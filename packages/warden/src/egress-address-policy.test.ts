@@ -166,6 +166,20 @@ describe("egress address classifier", () => {
     });
   });
 
+  it.each([" 8.8.8.8", "8.8.8.8 ", "fe80::1%en0"])(
+    "rejects non-canonical address input %j",
+    (address) => {
+      expect(parseCanonicalAddress(address)).toBeUndefined();
+    },
+  );
+
+  it("rejects integers outside the selected address-family range", () => {
+    expect(() => addressFromPolicyInteger(4, -1n)).toThrow(RangeError);
+    expect(() => addressFromPolicyInteger(4, 1n << 32n)).toThrow(RangeError);
+    expect(() => addressFromPolicyInteger(6, -1n)).toThrow(RangeError);
+    expect(() => addressFromPolicyInteger(6, 1n << 128n)).toThrow(RangeError);
+  });
+
   it("denies metadata names exactly and beneath their normalized suffixes", () => {
     for (const hostname of [
       "metadata.google.internal",
@@ -212,6 +226,80 @@ describe("egress address classifier", () => {
       expect(selectLongestPolicyEntry(4, 3221225481n, entries)?.id).toBe("exact");
       expect(selectLongestPolicyEntry(4, 3221225480n, entries)?.id).toBe("broad");
     }
+  });
+
+  it("uses priority then stable identifier ordering to break equally specific ties", () => {
+    const base: AddressPolicyEntry = {
+      id: "z-low",
+      family: 4,
+      network: "167772160",
+      prefixLength: 8,
+      kind: "restricted",
+      reason: "base",
+      priority: 1,
+      source: "test",
+    };
+    const higherPriority: AddressPolicyEntry = {
+      ...base,
+      id: "z-high",
+      kind: "hard-deny",
+      reason: "higher-priority",
+      priority: 2,
+    };
+    const stableFirst: AddressPolicyEntry = {
+      ...higherPriority,
+      id: "a-high",
+      kind: "public",
+      reason: "stable-first",
+    };
+
+    expect(selectLongestPolicyEntry(4, 0x0a000001n, [base, higherPriority])?.id).toBe("z-high");
+    expect(selectLongestPolicyEntry(4, 0x0a000001n, [higherPriority, stableFirst])?.id).toBe(
+      "a-high",
+    );
+    expect(selectLongestPolicyEntry(4, 0x0a000001n, [stableFirst, higherPriority])?.id).toBe(
+      "a-high",
+    );
+    expect(selectLongestPolicyEntry(6, 0x0a000001n, [base])).toBeUndefined();
+    expect(selectLongestPolicyEntry(4, 0x0b000001n, [base])).toBeUndefined();
+  });
+
+  it("rejects invalid address and prefix bounds before policy matching", () => {
+    const ipv4: AddressPolicyEntry = {
+      id: "bounds-v4",
+      family: 4,
+      network: "0",
+      prefixLength: 0,
+      kind: "restricted",
+      reason: "bounds",
+      priority: 1,
+      source: "test",
+    };
+    const ipv6: AddressPolicyEntry = { ...ipv4, id: "bounds-v6", family: 6 };
+
+    expect(policyEntryContains(ipv4, -1n)).toBe(false);
+    expect(policyEntryContains(ipv4, 1n << 32n)).toBe(false);
+    expect(policyEntryContains({ ...ipv4, prefixLength: -1 }, 0n)).toBe(false);
+    expect(policyEntryContains({ ...ipv4, prefixLength: 33 }, 0n)).toBe(false);
+    expect(policyEntryContains(ipv6, 1n << 128n)).toBe(false);
+    expect(policyEntryContains({ ...ipv6, prefixLength: 129 }, 0n)).toBe(false);
+  });
+
+  it.each(["", " public.example", ".", `${"a".repeat(254)}`, "public..example", "public_example"])(
+    "fails closed for malformed hostname %j",
+    (hostname) => {
+      expect(classifyEgressHostname(hostname)).toEqual({
+        kind: "hard-deny",
+        reason: "malformed-hostname",
+      });
+    },
+  );
+
+  it("normalizes an ordinary root-qualified hostname", () => {
+    expect(classifyEgressHostname("PUBLIC.Example.")).toEqual({
+      kind: "not-hard-denied",
+      normalizedHostname: "public.example",
+    });
   });
 
   it("covers both sides of every generated prefix boundary", () => {

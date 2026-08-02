@@ -47,17 +47,9 @@ const MAX_IPV4 = (1n << 32n) - 1n;
 const MAX_IPV6 = (1n << 128n) - 1n;
 const HARD_DENIED_HOSTNAME_SUFFIXES = ["metadata.google.internal", "metadata.goog"];
 
-function parseIpv4(address: string): bigint | undefined {
-  const octets = address.split(".");
-  if (octets.length !== 4) return undefined;
-  let value = 0n;
-  for (const octet of octets) {
-    if (!/^(?:0|[1-9]\d{0,2})$/.test(octet)) return undefined;
-    const numeric = Number(octet);
-    if (numeric > 255) return undefined;
-    value = (value << 8n) | BigInt(numeric);
-  }
-  return value;
+function parseValidatedIpv4(address: string): bigint {
+  // The sole caller first requires Node's authoritative isIP(address) === 4 result.
+  return address.split(".").reduce((value, octet) => (value << 8n) | BigInt(Number(octet)), 0n);
 }
 
 function parseNormalizedIpv6(address: string): bigint | undefined {
@@ -93,8 +85,7 @@ export function parseCanonicalAddress(address: string): CanonicalAddress | undef
   }
   const family = isIP(address);
   if (family === 4) {
-    const value = parseIpv4(address);
-    if (value === undefined) return undefined;
+    const value = parseValidatedIpv4(address);
     return { family: 4, normalized: address, value };
   }
   if (family === 6) {
