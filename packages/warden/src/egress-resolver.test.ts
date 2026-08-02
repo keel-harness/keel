@@ -293,6 +293,47 @@ describe("bounded Warden egress resolver", () => {
     expect(JSON.stringify(records)).not.toContain("secret-token");
   });
 
+  it("converts hostile resolver answer access into a stable audited denial", async () => {
+    const hostileDiagnostic = "hostile answer getter exposed 10.20.30.40 secret-token";
+    const hostileAnswers = new Proxy([publicAnswer()], {
+      get(target, property, receiver) {
+        if (property === "length") throw new Error(hostileDiagnostic);
+        return Reflect.get(target, property, receiver);
+      },
+    });
+    const { resolver, records } = fixture({
+      lookup: (_hostname, _options, callback) => callback(null, hostileAnswers),
+    });
+
+    let caught: unknown;
+    try {
+      await resolver.resolveDestination(
+        "hostile.example",
+        443,
+        new AbortController().signal,
+      );
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(caught).toMatchObject({
+      name: "EgressAddressGuardError",
+      code: "malformed-answer",
+      message: "egress address guard denied the connection",
+    });
+    expect(String(caught)).not.toContain(hostileDiagnostic);
+    expect(records).toEqual([
+      expect.objectContaining({
+        kind: "denial",
+        host: "hostile.example",
+        reason: "malformed-answer",
+        addressClass: "unknown",
+      }),
+    ]);
+    expect(JSON.stringify(records)).not.toContain("10.20.30.40");
+    expect(JSON.stringify(records)).not.toContain("secret-token");
+  });
+
   it("quarantines once after the bounded denial burst and prevents retry audit growth", async () => {
     const { resolver, records, onQuarantine } = fixture();
     for (let index = 0; index < EGRESS_ADDRESS_GUARD_LIMITS.denialBurstLimit; index += 1) {
