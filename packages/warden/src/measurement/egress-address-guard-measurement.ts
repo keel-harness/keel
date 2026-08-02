@@ -434,7 +434,8 @@ export function renderEgressAddressGuardMeasurement(
     `- Generated: ${report.generatedAt}`,
     `- Command: \`${report.command}\``,
     `- Environment: ${report.environment.platform} ${report.environment.release} ${report.environment.arch}; Node ${report.environment.node}; ${report.environment.cpu}; ${String(report.environment.logicalCpus)} logical CPUs; ${mib(report.environment.totalMemoryBytes)} RAM`,
-    `- Budget workload: 500 MiB at ${(report.configuration.budgetOriginRateBytesPerSecond / (1024 * 1024)).toFixed(3)} MiB/s; ${String(report.budgetTransfers.pairs)} paired samples`,
+    `- Controlled workload: 500 MiB at ${(report.configuration.budgetOriginRateBytesPerSecond / (1024 * 1024)).toFixed(3)} MiB/s; ${String(report.budgetTransfers.pairs)} paired samples`,
+    "- Performance scope: the p95 <5% result is scoped to this controlled workload; unthrottled saturation remains diagnostic and does not close the generic MASTER_SPEC performance budget.",
     "",
     "| Metric | Result |",
     "| --- | ---: |",
@@ -448,7 +449,7 @@ export function renderEgressAddressGuardMeasurement(
     `| FD settled growth / limit | ${String(report.resources.settledFileDescriptorGrowth)} / ${String(report.configuration.maxSettledFileDescriptorGrowth)} |`,
     `| Audit growth | ${String(report.audit.growthBytes)} bytes; ${String(report.audit.denialRecords)} denials + ${String(report.audit.quarantineRecords)} quarantine + ${String(report.audit.retryRecords)} retry records |`,
     `| Teardown drained / hung (n=1 each) | ${String(rounded(report.teardown.drainedMs))} / ${String(rounded(report.teardown.hungMs))} ms |`,
-    `| Budget proxy throughput penalty p50 / p95 / p99 (n=${count(report.budgetTransfers.pairs)} pairs) | ${String(report.budgetTransfers.penaltyPercent.p50)}% / ${String(report.budgetTransfers.penaltyPercent.p95)}% / ${String(report.budgetTransfers.penaltyPercent.p99)}% (${report.budgetTransfers.status}) |`,
+    `| Controlled proxy throughput penalty p50 / p95 / p99 (n=${count(report.budgetTransfers.pairs)} pairs) | ${String(report.budgetTransfers.penaltyPercent.p50)}% / ${String(report.budgetTransfers.penaltyPercent.p95)}% / ${String(report.budgetTransfers.penaltyPercent.p99)}% (${report.budgetTransfers.status}) |`,
     `| Saturation proxy throughput penalty p50 / p95 / p99 (n=${count(report.saturationTransfers.pairs)} pair) | ${String(report.saturationTransfers.penaltyPercent.p50)}% / ${String(report.saturationTransfers.penaltyPercent.p95)}% / ${String(report.saturationTransfers.penaltyPercent.p99)}% (diagnostic only) |`,
     "",
   ];

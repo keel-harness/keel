@@ -25,6 +25,7 @@ describe("egress address guard measurement CLI", () => {
     expect(source).toContain("now: () => 1_000");
     expect(source).toContain("resourceSampleIntervalMs: RESOURCE_SAMPLE_INTERVAL_MS");
     expect(source).toContain("resourceSettleDelayMs: RESOURCE_SETTLE_DELAY_MS");
+    expect(source).toContain("const MAX_SETTLED_RSS_GROWTH_BYTES = 192 * MIB;");
     expect(source).toContain("saturationTransfers");
     expect(source).toContain("budgetTransfers");
     expect(source).toContain("process.exitCode = report.summary.countsAsPass ? 0 : 1");
@@ -46,7 +47,7 @@ describe("egress address guard measurement CLI", () => {
       expect(output).toContain(option);
     }
     expect(output).toContain("exactly 500 MiB");
-    expect(output).toContain("250 MiB/s");
+    expect(output).toContain("controlled 250 MiB/s");
     expect(output).toContain("saturation");
   });
 

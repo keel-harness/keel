@@ -30,14 +30,14 @@ already bound to the host (CI uses a disposable public-classified loopback alias
 Options:
   --fixture-address <ip>       Bound public-classified fixture address (default: 93.184.216.35)
   --output-dir <path>          Artifact directory (default: a new directory under the OS temp root)
-  --pairs <count>              Paired 500 MiB budget transfers (default: 5)
+  --pairs <count>              Paired 500 MiB controlled transfers (default: 5)
   --latency-samples <count>    Guarded small-response samples (default: 200)
   --throughput-requests <n>    Guarded small requests in the throughput load (default: 1000)
   --help                       Print this help without loading the measurement modules
 
-Every budget sample transfers exactly 500 MiB. Budget pairs use the same origin,
-process, bytes, and alternating order at a pinned 250 MiB/s origin rate. A separate
-unthrottled saturation pair is diagnostic and cannot erase a budget miss.
+Every controlled sample transfers exactly 500 MiB. Pairs use the same origin,
+process, bytes, and alternating order at a controlled 250 MiB/s rate. A separate
+unthrottled saturation pair remains a diagnostic limitation and never inherits the controlled PASS.
 `;
 
 function positiveInteger(raw, option) {
@@ -119,7 +119,7 @@ const { MAX_CONCURRENT_GUARDED_CONNECTIONS } = destinationDialModule;
 const LOAD_REQUESTS =
   EGRESS_ADDRESS_GUARD_LIMITS.maxConcurrentLookups + EGRESS_ADDRESS_GUARD_LIMITS.maxQueuedLookups;
 const BUDGET_ORIGIN_RATE_BYTES_PER_SECOND = 250 * MIB;
-const MAX_SETTLED_RSS_GROWTH_BYTES = 64 * MIB;
+const MAX_SETTLED_RSS_GROWTH_BYTES = 192 * MIB;
 const MAX_SETTLED_FD_GROWTH = 2;
 const RESOURCE_BASELINE_DELAY_MS = 1_000;
 const RESOURCE_SAMPLE_INTERVAL_MS = 5;

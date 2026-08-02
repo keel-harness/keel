@@ -432,6 +432,7 @@ describe("egress address guard measurement contract", () => {
     expect(markdown).toContain("linux 6.11.0 x64");
     expect(markdown).toContain("Node v24.7.0");
     expect(markdown).toContain("500 MiB");
+    expect(markdown).toContain("Controlled workload");
     expect(markdown).toContain("3 paired samples");
     expect(markdown).toContain("n=5");
     expect(markdown).toContain("1,000 requests");
@@ -445,6 +446,8 @@ describe("egress address guard measurement contract", () => {
     expect(markdown).toContain("1 / 2");
     expect(markdown).toContain("4.123 / 5050.568 ms");
     expect(markdown).toContain("p95");
+    expect(markdown).toContain("scoped to this controlled workload");
+    expect(markdown).toContain("does not close the generic MASTER_SPEC performance budget");
     expect(markdown).toContain("does not close Slice 8");
     expect(markdown).toContain("not comparable");
   });
@@ -455,6 +458,8 @@ describe("egress address guard measurement contract", () => {
     );
 
     expect(markdown).toContain("closes the measured Slice 8 contract");
+    expect(markdown).toContain("scoped to this controlled workload");
+    expect(markdown).toContain("does not close the generic MASTER_SPEC performance budget");
     expect(markdown).not.toContain("does not close Slice 8");
   });
 });
