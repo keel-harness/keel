@@ -24,6 +24,10 @@ export interface VendoredSrtRuntimeConfig {
     readonly allowedDomains: readonly string[];
     readonly deniedDomains: readonly string[];
     readonly strictAllowlist?: boolean;
+    readonly tlsTerminate?: {
+      readonly caCertPath?: string;
+      readonly caKeyPath?: string;
+    };
   };
   readonly filesystem: {
     readonly denyRead: readonly string[];
@@ -75,6 +79,8 @@ export interface VendoredSrtSandboxPortOptions {
   readonly hostDependencyErrors?: () => readonly string[];
   readonly runner?: SandboxProcessRunner;
   readonly binShell?: string;
+  /** Enables SRT's verified HTTPS termination before any credential-bearing launch is prepared. */
+  readonly credentialTlsTermination?: boolean;
 }
 
 export interface VendoredSrtSandboxComponents {
@@ -108,7 +114,22 @@ export interface VendoredSrtRuntimeImportOptions {
   ) => Promise<VendoredSrtModule>;
 }
 
-function completeVendoredRuntimeConfig(customConfig: unknown): VendoredSrtRuntimeConfig {
+function initialVendoredRuntimeConfig(credentialTlsTermination: boolean): VendoredSrtRuntimeConfig {
+  return {
+    network: {
+      allowedDomains: [...BASE_RUNTIME_CONFIG.network.allowedDomains],
+      deniedDomains: [...BASE_RUNTIME_CONFIG.network.deniedDomains],
+      strictAllowlist: true,
+      ...(credentialTlsTermination ? { tlsTerminate: {} } : {}),
+    },
+    filesystem: { denyRead: [], allowRead: [], allowWrite: [], denyWrite: [] },
+  };
+}
+
+function completeVendoredRuntimeConfig(
+  customConfig: unknown,
+  credentialTlsTermination: boolean,
+): VendoredSrtRuntimeConfig {
   const config = customConfig as {
     network?: {
       allowedDomains?: readonly string[];
@@ -142,6 +163,7 @@ function completeVendoredRuntimeConfig(customConfig: unknown): VendoredSrtRuntim
           allowedDomains: [...BASE_RUNTIME_CONFIG.network.allowedDomains],
           deniedDomains: [...BASE_RUNTIME_CONFIG.network.deniedDomains],
           strictAllowlist: true,
+          ...(credentialTlsTermination ? { tlsTerminate: {} } : {}),
         }
       : {
           allowedDomains: [...(config.network.allowedDomains ?? [])],
@@ -149,6 +171,7 @@ function completeVendoredRuntimeConfig(customConfig: unknown): VendoredSrtRuntim
           ...(config.network.strictAllowlist === undefined
             ? {}
             : { strictAllowlist: config.network.strictAllowlist }),
+          ...(credentialTlsTermination ? { tlsTerminate: {} } : {}),
         };
   const credentials =
     config.credentials === undefined
@@ -320,6 +343,7 @@ function sandboxFromLaunchPreparer(
 export async function createVendoredSrtSandboxComponents(
   options: VendoredSrtSandboxPortOptions = {},
 ): Promise<VendoredSrtSandboxComponents> {
+  const credentialTlsTermination = options.credentialTlsTermination === true;
   const importRuntime = options.importRuntime ?? importVendoredSrtRuntime;
   let runtimeModule: VendoredSrtModule;
   try {
@@ -352,7 +376,7 @@ export async function createVendoredSrtSandboxComponents(
   }
 
   try {
-    await manager.initialize(BASE_RUNTIME_CONFIG);
+    await manager.initialize(initialVendoredRuntimeConfig(credentialTlsTermination));
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     return unavailableComponents(
@@ -363,7 +387,7 @@ export async function createVendoredSrtSandboxComponents(
   const runtime: SrtRuntimeAdapter = {
     initialize: async () => {},
     updateConfig: (customConfig) =>
-      manager.updateConfig(completeVendoredRuntimeConfig(customConfig)),
+      manager.updateConfig(completeVendoredRuntimeConfig(customConfig, credentialTlsTermination)),
     wrapWithSandboxArgv: (command, binShell, customConfig, abortSignal) =>
       manager.wrapWithSandboxArgv(command, binShell, customConfig, abortSignal),
     cleanupAfterCommand: () => manager.cleanupAfterCommand?.(),
