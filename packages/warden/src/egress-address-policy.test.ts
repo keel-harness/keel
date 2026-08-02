@@ -102,6 +102,7 @@ describe("egress address classifier", () => {
     ["192.0.0.170", "reserved-by-protocol"],
     ["192.0.0.171", "reserved-by-protocol"],
     ["192.88.99.1", "transition-mechanism"],
+    ["192.88.99.2", "transition-mechanism"],
     ["::", "unspecified"],
     ["::1", "loopback"],
     ["::192.0.2.1", "transition-mechanism"],
