@@ -162,11 +162,11 @@ staging a package, or changing npm/GitHub settings. Those operations remain sepa
   inventory; Syft owns SPDX/CycloneDX serialization.
 - Standalone Bun binaries remain non-release-eligible under ADR-0040. This ADR does not sign,
   publish, or imply license completeness for them.
-- P1-007 remains a named failed strict RSS gate. On 2026-07-30 the owner accepted it as a residual
-  risk for the `0.1.0` pre-alpha candidate only. That decision does not transfer to `0.1.1`.
-  Release issue #49 must record either remediation or a new explicit owner acceptance before the
-  `v0.1.1` tag; the gate and threshold remain unchanged, and the release carries no
-  packaged-performance claim.
+- P1-007 remains a named failed strict RSS gate. The owner accepted it as a residual risk for the
+  `0.1.0` pre-alpha candidate on 2026-07-30 and separately for the `0.1.1` pre-alpha candidate on
+  2026-08-02. Each acceptance is version-scoped and does not transfer to another release. Release
+  issue #49 records the current decision; the gate and threshold remain unchanged, and the release
+  carries no packaged-performance claim.
 
 ## Rejected alternatives
 

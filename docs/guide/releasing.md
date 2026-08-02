@@ -27,9 +27,9 @@ Stop unless all of these are true:
   is a stop, not permission to rerun.
 - The prior `0.1.0` stage has been explicitly inspected and rejected with 2FA under owner direction;
   its draft/tag disposition is recorded. Public-registry absence alone does not satisfy this check.
-- P1-007 remains named and failed in release notes. The owner's 2026-07-30 acceptance was scoped to
-  `0.1.0` and does not transfer; issue #49 records either remediation or a new explicit owner
-  acceptance for `0.1.1`. No packaged-performance claim is made.
+- P1-007 remains named and failed in release notes. The owner's 2026-08-02 acceptance is scoped to
+  `0.1.1` pre-alpha only and is recorded in issue #49; it does not change the threshold or support a
+  packaged-performance claim.
 
 Record the exact public-main SHA and the successful public-main CI URL. Creating the annotated,
 protected `v0.1.1` tag is a separately approved operation. The tag's peeled commit must equal both
