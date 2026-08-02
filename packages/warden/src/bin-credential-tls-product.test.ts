@@ -34,6 +34,15 @@ describe("warden credential TLS product wiring", () => {
     };
 
     vi.doMock("./srt-runtime-loader.js", () => ({ createVendoredSrtSandboxComponents }));
+    vi.doMock("./egress-address-exceptions.js", () => ({
+      ensureEgressAddressExceptionAuthorityHome: () => "/tmp/keel-home",
+      loadEgressAddressExceptionSnapshot: () => ({
+        revision: "none",
+        workspaceRealpath: "/workspace",
+        exceptions: [],
+        allowsRestrictedAddress: () => false,
+      }),
+    }));
     vi.doMock("./sandbox-temp-root.js", () => ({
       createWardenSandboxTempRoot: () => ({
         path: "/private/tmp/keel-credential-tls-product-root",
@@ -117,6 +126,7 @@ describe("warden credential TLS product wiring", () => {
     });
     expect(mocked.createVendoredSrtSandboxComponents).toHaveBeenCalledWith({
       credentialTlsTermination: true,
+      resolveDestination: expect.any(Function),
     });
     expect(mocked.runStdioWardenServer).toHaveBeenCalledWith(
       expect.objectContaining({ credentialProxyRules: [secureRule] }),
@@ -160,6 +170,8 @@ describe("warden credential TLS product wiring", () => {
     await runWardenFromEnv();
 
     expect(mocked.order).toEqual(["credentials", "sandbox"]);
-    expect(mocked.createVendoredSrtSandboxComponents).toHaveBeenCalledWith();
+    expect(mocked.createVendoredSrtSandboxComponents).toHaveBeenCalledWith({
+      resolveDestination: expect.any(Function),
+    });
   });
 });

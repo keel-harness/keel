@@ -24,7 +24,7 @@ describe("warden address-guard product wiring", () => {
       execute: async () => ({ exitCode: 0, signal: null, stdout: "", stderr: "" }),
     };
     const exceptionSnapshot = {
-      revision: "none" as const,
+      revision: `sha256:${"a".repeat(64)}`,
       workspaceRealpath: "/workspace",
       exceptions: [],
       allowsRestrictedAddress: vi.fn(() => false),
@@ -32,6 +32,10 @@ describe("warden address-guard product wiring", () => {
     const loadEgressAddressExceptionSnapshot = vi.fn(() => {
       order.push("exceptions");
       return exceptionSnapshot;
+    });
+    const ensureEgressAddressExceptionAuthorityHome = vi.fn(() => {
+      order.push("home");
+      return "/tmp/keel-home";
     });
     const resolver = {
       resolveDestination: vi.fn(async () => []),
@@ -55,6 +59,7 @@ describe("warden address-guard product wiring", () => {
 
     vi.doMock("./srt-runtime-loader.js", () => ({ createVendoredSrtSandboxComponents }));
     vi.doMock("./egress-address-exceptions.js", () => ({
+      ensureEgressAddressExceptionAuthorityHome,
       loadEgressAddressExceptionSnapshot,
     }));
     vi.doMock("./egress-resolver.js", () => ({ createBoundedEgressAddressResolver }));
@@ -130,6 +135,7 @@ describe("warden address-guard product wiring", () => {
       createBoundedEgressAddressResolver,
       createVendoredSrtSandboxComponents,
       exceptionSnapshot,
+      ensureEgressAddressExceptionAuthorityHome,
       getResolverOptions: () => resolverOptions,
       loadEgressAddressExceptionSnapshot,
       order,
@@ -149,6 +155,7 @@ describe("warden address-guard product wiring", () => {
     await runWardenFromEnv();
 
     expect(mocked.order).toEqual([
+      "home",
       "checkpoint",
       "audit",
       "exceptions",
@@ -156,6 +163,7 @@ describe("warden address-guard product wiring", () => {
       "sandbox",
       "server",
     ]);
+    expect(mocked.ensureEgressAddressExceptionAuthorityHome).toHaveBeenCalledWith(process.env);
     expect(mocked.loadEgressAddressExceptionSnapshot).toHaveBeenCalledWith(
       "/workspace",
       process.env,
@@ -171,6 +179,10 @@ describe("warden address-guard product wiring", () => {
       audit: { append(record: EgressResolverAuditRecord): void };
       onQuarantine(reason: string): void;
     };
+    expect(options).toMatchObject({
+      allowsRestrictedAddress: mocked.exceptionSnapshot.allowsRestrictedAddress,
+      exceptionPolicyRevision: mocked.exceptionSnapshot.revision,
+    });
     options.audit.append({
       kind: "denial",
       host: "api.example.com",
@@ -198,6 +210,20 @@ describe("warden address-guard product wiring", () => {
     options.onQuarantine("denial-rate-quarantine");
     await Promise.resolve();
     expect(mocked.shutdownSandbox).toHaveBeenCalledOnce();
+  });
+
+  it("validates but does not activate exception authority for an untrusted workspace", async () => {
+    const mocked = mockProductModules();
+    vi.stubEnv("KEEL_WARDEN_SANDBOX", "srt");
+    vi.stubEnv("KEEL_WARDEN_WORKSPACE_ROOT", "/workspace");
+    vi.stubEnv("KEEL_WARDEN_WORKSPACE_TRUSTED", "0");
+
+    const { runWardenFromEnv } = await import("./bin.js");
+    await runWardenFromEnv();
+
+    expect(mocked.loadEgressAddressExceptionSnapshot).toHaveBeenCalledOnce();
+    expect(mocked.getResolverOptions()).toMatchObject({ exceptionPolicyRevision: "none" });
+    expect(mocked.getResolverOptions()).not.toHaveProperty("allowsRestrictedAddress");
   });
 
   it("fails before SRT or RPC startup when exception authority cannot load", async () => {

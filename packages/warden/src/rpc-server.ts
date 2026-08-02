@@ -30,6 +30,7 @@ import { sessionAuditLogPath } from "./audit/session-log.js";
 import { buildEvidenceBundle } from "./audit/bundle.js";
 import { isInside } from "./path-util.js";
 import {
+  EGRESS_ADDRESS_GUARD_CAPABILITY,
   missingSandboxPort,
   readSandboxStatus,
   type SandboxExecutionResult,
@@ -401,6 +402,15 @@ function helloCapabilities(
     sandbox.enforcementTier.startsWith("sandbox:")
   ) {
     capabilities.push(MUTATION_PRESENTATION_CAPABILITY_V1);
+  }
+  if (
+    context.auditWriter !== undefined &&
+    sandbox.available &&
+    sandbox.backend === "srt:vendored" &&
+    sandbox.enforcementTier === "sandbox:srt" &&
+    sandbox.features?.includes(EGRESS_ADDRESS_GUARD_CAPABILITY) === true
+  ) {
+    capabilities.push(EGRESS_ADDRESS_GUARD_CAPABILITY);
   }
   return capabilities;
 }
@@ -7068,6 +7078,8 @@ export interface StdioWardenServerOptions {
    *  `onShutdown` anyway (default {@link WARDEN_TEARDOWN_BUDGET_MS}). Bounds the sole exit path on a
    *  hard `kill -9` so a hung reap can never wedge teardown and orphan the warden. Injectable for tests. */
   shutdownReapBudgetMs?: number;
+  /** Process-owned sandbox/resolver teardown. Runs before the production embedder closes audit. */
+  shutdownRuntime?: () => Promise<void>;
 }
 
 export interface StdioWardenServer {
@@ -7146,6 +7158,7 @@ export function runStdioWardenServer(options: StdioWardenServerOptions = {}): St
   let queue = Promise.resolve();
   let presentationCleanup: Promise<void> | undefined;
   let consoleCleanup: Promise<void> | undefined;
+  let runtimeCleanup: Promise<void> | undefined;
 
   input.setEncoding("utf8");
 
@@ -7277,6 +7290,7 @@ export function runStdioWardenServer(options: StdioWardenServerOptions = {}): St
         if (options.mutationPresentation !== undefined) {
           await cleanupMutationPresentationOnce();
         }
+        await cleanupRuntimeOnce();
         options.onShutdown?.({ reaped: true });
       }
     }
@@ -7386,6 +7400,17 @@ export function runStdioWardenServer(options: StdioWardenServerOptions = {}): St
     return consoleCleanup;
   };
 
+  const cleanupRuntimeOnce = (): Promise<void> => {
+    runtimeCleanup ??= (async () => {
+      try {
+        await options.shutdownRuntime?.();
+      } catch {
+        // close() is a non-throwing boundary; runtime authority is already fail-closed on teardown.
+      }
+    })();
+    return runtimeCleanup;
+  };
+
   // Abort the in-flight execution, drain any cooperative presentation constructor, then clean live
   // console handles. Resolves only once teardown has settled so a caller (bin.ts SIGTERM handler)
   // can await a clean teardown and not exit before either presentation cleanup or srt's
@@ -7400,10 +7425,12 @@ export function runStdioWardenServer(options: StdioWardenServerOptions = {}): St
       async () => {
         await presentationCleanup;
         await cleanupConsoleHandlesOnce();
+        await cleanupRuntimeOnce();
       },
       async () => {
         await presentationCleanup;
         await cleanupConsoleHandlesOnce();
+        await cleanupRuntimeOnce();
       },
     );
   };

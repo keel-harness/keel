@@ -27,6 +27,15 @@ describe("warden bin mutation-presentation product wiring", () => {
     vi.doMock("./srt-runtime-loader.js", () => ({
       createVendoredSrtSandboxComponents: async () => (sandbox === undefined ? {} : { sandbox }),
     }));
+    vi.doMock("./egress-address-exceptions.js", () => ({
+      ensureEgressAddressExceptionAuthorityHome: () => "/tmp/keel-home",
+      loadEgressAddressExceptionSnapshot: () => ({
+        revision: "none",
+        workspaceRealpath: process.cwd(),
+        exceptions: [],
+        allowsRestrictedAddress: () => false,
+      }),
+    }));
     vi.doMock("./sandbox-temp-root.js", () => ({
       createWardenSandboxTempRoot: () => ({
         path: "/private/tmp/keel-presentation-product-root",

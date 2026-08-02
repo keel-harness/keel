@@ -856,6 +856,7 @@ export async function createProductionWardenRuntime(
     }
     const view = wardenStatusViewConfig(status, {
       autonomy,
+      wardenCapabilities: client.hello.capabilities,
       ...(planApprovalSummary === undefined ? {} : { planApprovalSummary }),
     });
     const executorAutonomy = canRouteAutopilotReviews(view, autonomy) ? autonomy : undefined;

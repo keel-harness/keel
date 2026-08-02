@@ -758,6 +758,7 @@ describe("vendored srt runtime loader", () => {
         argv: ["/usr/bin/env", "true"],
         env: { PATH: "/usr/bin" },
       }),
+      reset: async () => {},
     };
     const port = await createVendoredSrtSandboxPort({
       importRuntime: async () => ({ SandboxManager: manager }),
@@ -838,6 +839,87 @@ describe("vendored srt runtime loader", () => {
     await expect(components.sandbox.execute({ command: "true" }, {})).rejects.toThrow(
       "sandbox runtime is stopped",
     );
+  });
+
+  it("withholds guarded SRT when the runtime cannot tear down its proxy authority", async () => {
+    let initializeCalls = 0;
+    const components = await createVendoredSrtSandboxComponents({
+      importRuntime: async () => ({
+        SandboxManager: {
+          isSupportedPlatform: () => true,
+          checkDependencies: () => ({ errors: [], warnings: [] }),
+          initialize: async () => {
+            initializeCalls += 1;
+          },
+          updateConfig: () => {},
+          wrapWithSandboxArgv: async () => ({ argv: ["/usr/bin/env", "true"], env: {} }),
+        },
+      }),
+      hostDependencyErrors: () => [],
+      resolveDestination: async () => [{ address: "192.0.2.1", family: 4 }],
+    });
+
+    expect(initializeCalls).toBe(0);
+    expect(components.sandbox.status()).toMatchObject({
+      available: false,
+      backend: "srt:vendored",
+      enforcementTier: "none",
+      reason: "guarded sandbox shutdown is unavailable",
+    });
+    expect(components.sandbox.status()).not.toHaveProperty("features");
+  });
+
+  it("tears down guarded proxy state after a partial SRT initialization failure", async () => {
+    let resetCalls = 0;
+    const components = await createVendoredSrtSandboxComponents({
+      importRuntime: async () => ({
+        SandboxManager: {
+          isSupportedPlatform: () => true,
+          checkDependencies: () => ({ errors: [], warnings: [] }),
+          initialize: async () => {
+            throw new Error("listener startup failed");
+          },
+          updateConfig: () => {},
+          wrapWithSandboxArgv: async () => ({ argv: ["/usr/bin/env", "true"], env: {} }),
+          reset: async () => {
+            resetCalls += 1;
+          },
+        },
+      }),
+      hostDependencyErrors: () => [],
+      resolveDestination: async () => [{ address: "192.0.2.1", family: 4 }],
+    });
+
+    expect(resetCalls).toBe(1);
+    expect(components.sandbox.status()).toMatchObject({
+      available: false,
+      enforcementTier: "none",
+      reason: "sandbox initialization failed: listener startup failed",
+    });
+    expect(components.sandbox.status()).not.toHaveProperty("features");
+  });
+
+  it("fails startup when partial guarded SRT state cannot be torn down", async () => {
+    await expect(
+      createVendoredSrtSandboxComponents({
+        importRuntime: async () => ({
+          SandboxManager: {
+            isSupportedPlatform: () => true,
+            checkDependencies: () => ({ errors: [], warnings: [] }),
+            initialize: async () => {
+              throw new Error("listener startup failed");
+            },
+            updateConfig: () => {},
+            wrapWithSandboxArgv: async () => ({ argv: ["/usr/bin/env", "true"], env: {} }),
+            reset: async () => {
+              throw new Error("listener teardown failed");
+            },
+          },
+        }),
+        hostDependencyErrors: () => [],
+        resolveDestination: async () => [{ address: "192.0.2.1", family: 4 }],
+      }),
+    ).rejects.toThrow("guarded sandbox initialization cleanup failed");
   });
 
   it("can create an available default-runner port without optional fields", async () => {

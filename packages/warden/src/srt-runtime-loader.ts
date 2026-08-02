@@ -13,6 +13,7 @@ import type {
   SandboxProcessRunnerOptions,
   SandboxStatus,
 } from "./sandbox.js";
+import { EGRESS_ADDRESS_GUARD_CAPABILITY } from "./sandbox.js";
 
 interface VendoredSrtDependencyCheck {
   readonly errors: readonly string[];
@@ -76,6 +77,7 @@ export interface VendoredSrtManager {
     abortSignal: AbortSignal | undefined,
   ): Promise<{ argv: string[]; env: NodeJS.ProcessEnv }>;
   cleanupAfterCommand?: () => void;
+  reset?: () => Promise<void>;
 }
 
 export interface VendoredSrtModule {
@@ -101,6 +103,8 @@ export interface VendoredSrtSandboxPortOptions {
 export interface VendoredSrtSandboxComponents {
   readonly sandbox: SandboxPort;
   readonly launchPreparer?: SrtSandboxLaunchPreparer;
+  /** Stops accepting sandbox work and tears down the process-scoped SRT proxy infrastructure. */
+  readonly shutdown: () => Promise<void>;
 }
 
 const VENDORED_SRT_BACKEND = "srt:vendored";
@@ -245,7 +249,7 @@ function unavailablePort(status: UnavailableVendoredSrtStatus): SandboxPort {
 }
 
 function unavailableComponents(status: UnavailableVendoredSrtStatus): VendoredSrtSandboxComponents {
-  return { sandbox: unavailablePort(status) };
+  return { sandbox: unavailablePort(status), shutdown: async () => {} };
 }
 
 function unavailableStatus(reason: string, fixCommand: string): UnavailableVendoredSrtStatus {
@@ -402,11 +406,26 @@ export async function createVendoredSrtSandboxComponents(
     );
   }
 
+  if (resolveDestination !== undefined && manager.reset === undefined) {
+    return unavailableComponents(
+      unavailableStatus("guarded sandbox shutdown is unavailable", "pnpm install"),
+    );
+  }
+
   try {
     await manager.initialize(
       initialVendoredRuntimeConfig(credentialTlsTermination, resolveDestination),
     );
   } catch (error) {
+    if (resolveDestination !== undefined) {
+      try {
+        await manager.reset!();
+      } catch {
+        // Initialization may already have opened proxy listeners. If their authoritative reset
+        // fails, do not keep a Warden process alive beside potentially unmanaged partial state.
+        throw new Error("guarded sandbox initialization cleanup failed");
+      }
+    }
     const message = error instanceof Error ? error.message : String(error);
     return unavailableComponents(
       unavailableStatus(`sandbox initialization failed: ${message}`, "keel doctor"),
@@ -424,21 +443,44 @@ export async function createVendoredSrtSandboxComponents(
     cleanupAfterCommand: () => manager.cleanupAfterCommand?.(),
   };
 
+  const activeStatus: SandboxStatus = Object.freeze({
+    available: true,
+    backend: VENDORED_SRT_BACKEND,
+    enforcementTier: "sandbox:srt",
+    ...(resolveDestination === undefined
+      ? {}
+      : { features: Object.freeze([EGRESS_ADDRESS_GUARD_CAPABILITY]) }),
+  });
+  const stoppedStatus: UnavailableVendoredSrtStatus = Object.freeze(
+    unavailableStatus("sandbox runtime is stopped", "restart keel"),
+  );
+  let stopped = false;
+  let shutdownPromise: Promise<void> | undefined;
+  const status = (): SandboxStatus => (stopped ? stoppedStatus : activeStatus);
   const portOptions = {
     runtime,
-    status: {
-      available: true,
-      backend: VENDORED_SRT_BACKEND,
-      enforcementTier: "sandbox:srt",
-    },
+    status: activeStatus,
     ...(options.runner === undefined ? {} : { runner: options.runner }),
     ...(options.binShell === undefined ? {} : { binShell: options.binShell }),
   } satisfies SrtSandboxPortOptions;
 
-  const launchPreparer = createSrtSandboxLaunchPreparer(portOptions);
+  const underlyingLaunchPreparer = createSrtSandboxLaunchPreparer(portOptions);
+  const launchPreparer: SrtSandboxLaunchPreparer = {
+    status,
+    async prepareLaunch(invocation, profile, executeOptions) {
+      if (stopped) throw new Error(stoppedStatus.reason);
+      return underlyingLaunchPreparer.prepareLaunch(invocation, profile, executeOptions);
+    },
+  };
   const runner = options.runner ?? createNodeSandboxProcessRunner();
   return {
     sandbox: sandboxFromLaunchPreparer(launchPreparer, runner),
     launchPreparer,
+    shutdown: () => {
+      if (shutdownPromise !== undefined) return shutdownPromise;
+      stopped = true;
+      shutdownPromise = manager.reset?.() ?? Promise.resolve();
+      return shutdownPromise;
+    },
   };
 }

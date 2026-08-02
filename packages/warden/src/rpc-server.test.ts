@@ -1079,9 +1079,7 @@ describe("keel-warden stdio JSON-RPC server", () => {
     const dir = mkdtempSync(join(tmpdir(), "keel-rpc-address-guard-capability-"));
     try {
       const writer = auditWriter(join(dir, "audit.jsonl"));
-      const sandbox = (
-        status: ReturnType<SandboxPort["status"]>,
-      ): SandboxPort => ({
+      const sandbox = (status: ReturnType<SandboxPort["status"]>): SandboxPort => ({
         status: () => status,
         execute: async () => ({ exitCode: 0, signal: null, stdout: "", stderr: "" }),
       });
@@ -1136,14 +1134,22 @@ describe("keel-warden stdio JSON-RPC server", () => {
       ).resolves.not.toContain("egress-address-guard/v1");
 
       const status = JsonRpcSuccessResponse.parse(
-        await handleRpcLine(JSON.stringify(rpcFrame("warden.status", {}, "guard-status")), {
-          auditWriter: writer,
-          sandbox: sandbox(activeStatus),
-        }),
+        await handleRpcLine(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: "guard-status",
+            method: "warden.status",
+            params: {},
+          }),
+          {
+            auditWriter: writer,
+            sandbox: sandbox(activeStatus),
+          },
+        ),
       );
-      expect(Object.keys(WARDEN_METHODS["warden.status"].result.parse(status.result)).sort()).toEqual(
-        ["auditHead", "enforcementTier", "pendingReviews", "policyPack", "sandboxBackend"],
-      );
+      expect(
+        Object.keys(WARDEN_METHODS["warden.status"].result.parse(status.result)).sort(),
+      ).toEqual(["auditHead", "enforcementTier", "pendingReviews", "policyPack", "sandboxBackend"]);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -19123,6 +19129,32 @@ printf '%s\\n' '${match}'
     expect(state.settled).toBe(false);
     await closed;
     expect(state.settled).toBe(true);
+  });
+
+  it("awaits process-owned runtime teardown exactly once across repeated closes", async () => {
+    const input = new PassThrough();
+    const output = new PassThrough();
+    output.resume();
+    let releaseRuntime!: () => void;
+    const runtimeReleased = new Promise<void>((resolve) => {
+      releaseRuntime = resolve;
+    });
+    const shutdownRuntime = vi.fn(() => runtimeReleased);
+    const server = runStdioWardenServer({ input, output, shutdownRuntime });
+
+    let closed = false;
+    const firstClose = server.close().then(() => {
+      closed = true;
+    });
+    await vi.waitFor(() => expect(shutdownRuntime).toHaveBeenCalledOnce());
+    expect(closed).toBe(false);
+
+    releaseRuntime();
+    await firstClose;
+    await server.close();
+
+    expect(closed).toBe(true);
+    expect(shutdownRuntime).toHaveBeenCalledOnce();
   });
 
   it("threads lifecycle and credential proxy options through the stdio execute boundary", async () => {

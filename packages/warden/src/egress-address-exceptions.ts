@@ -459,6 +459,14 @@ export function egressAddressExceptionFilePath(env: NodeJS.ProcessEnv = process.
   return join(keelHome(env), "egress-address-exceptions.v1.json");
 }
 
+/** Establishes the owner-only authority root before audit and sandbox initialization. */
+export function ensureEgressAddressExceptionAuthorityHome(
+  env: NodeJS.ProcessEnv = process.env,
+  deps: EgressAddressExceptionStoreDeps = {},
+): string {
+  return createOrRequireOwnerOnlyHome(keelHome(env), effectiveUid(deps));
+}
+
 export function loadEgressAddressExceptionSnapshot(
   workspaceRoot: string,
   env: NodeJS.ProcessEnv = process.env,

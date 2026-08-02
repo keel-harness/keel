@@ -23,6 +23,7 @@ import {
 import { providerHostileSchemaPaths } from "../providers/schema-compat.js";
 
 const ACTIVE_HASH = `sha256:${"a".repeat(64)}`;
+const ADDRESS_GUARD_CAPABILITIES = ["egress-address-guard/v1"] as const;
 // Coverage runs can delay a fresh Node fixture well beyond 100 ms. This injected timeout remains
 // below the 15 s production default while giving the child time to publish its ready handshake.
 const MCP_DISCOVERY_FIXTURE_TIMEOUT_MS = 3_000;
@@ -220,7 +221,7 @@ function autonomyAuditWardenScript(capturePath: string): string {
           send(req.id, {
             wardenVersion: "test",
             protocolVersion: req.params.protocolVersion,
-            capabilities: [],
+            capabilities: ${JSON.stringify(ADDRESS_GUARD_CAPABILITIES)},
             enforcementTier: "sandbox:srt",
             policyPack: { name: "phase2a-starter-policy-pack", hash: activeHash }
           });
@@ -270,7 +271,7 @@ function autonomyAuditFailureWardenScript(shutdownPath: string): string {
           send(req.id, {
             wardenVersion: "test",
             protocolVersion: req.params.protocolVersion,
-            capabilities: [],
+            capabilities: ${JSON.stringify(ADDRESS_GUARD_CAPABILITIES)},
             enforcementTier: "sandbox:srt",
             policyPack: { name: "phase2a-starter-policy-pack", hash: activeHash }
           });
@@ -312,6 +313,7 @@ function autopilotCommandReviewWardenScript(
   const sandboxBackend = options.enforcement ? "srt:vendored" : "none";
   const auditSeq = options.auditVisible ? 4 : 0;
   const auditHash = options.auditVisible ? activeHash : zeroHash;
+  const capabilities = options.enforcement ? ADDRESS_GUARD_CAPABILITIES : [];
   return `
     const { writeFileSync } = require("node:fs");
     const capturePath = ${JSON.stringify(capturePath)};
@@ -320,6 +322,7 @@ function autopilotCommandReviewWardenScript(
     const sandboxBackend = ${JSON.stringify(sandboxBackend)};
     const auditSeq = ${JSON.stringify(auditSeq)};
     const auditHash = ${JSON.stringify(auditHash)};
+    const capabilities = ${JSON.stringify(capabilities)};
     const captured = [];
     let buffer = "";
     function send(id, result) {
@@ -338,7 +341,7 @@ function autopilotCommandReviewWardenScript(
           send(req.id, {
             wardenVersion: "test",
             protocolVersion: req.params.protocolVersion,
-            capabilities: [],
+            capabilities,
             enforcementTier,
             policyPack: { name: "phase2a-starter-policy-pack", hash: activeHash }
           });
