@@ -40,10 +40,7 @@ describe("bounded Warden egress resolver", () => {
     const lookup = vi.fn<EgressResolverLookup>((hostname, options, callback) => {
       expect(hostname).toBe("public.example");
       expect(options).toEqual({ all: true, verbatim: true });
-      callback(null, [
-        publicAnswer("8.8.8.8"),
-        publicAnswer("2001:4860:4860:0:0:0:0:8888"),
-      ]);
+      callback(null, [publicAnswer("8.8.8.8"), publicAnswer("2001:4860:4860:0:0:0:0:8888")]);
     });
     const { resolver, records } = fixture({ lookup });
 
@@ -100,11 +97,7 @@ describe("bounded Warden egress resolver", () => {
   });
 
   it.each([
-    [
-      [publicAnswer(), { address: "127.0.0.1", family: 4 as const }],
-      "hard-deny",
-      "hard-deny",
-    ],
+    [[publicAnswer(), { address: "127.0.0.1", family: 4 as const }], "hard-deny", "hard-deny"],
     [
       [{ address: "10.0.0.1", family: 4 as const }, publicAnswer()],
       "restricted-address-not-excepted",
@@ -115,23 +108,26 @@ describe("bounded Warden egress resolver", () => {
       "restricted-address-not-excepted",
       "restricted",
     ],
-  ])("denies the entire mixed answer set independent of order", async (answers, code, addressClass) => {
-    const { resolver, records } = fixture({ lookup: immediateLookup(answers) });
-    await expect(
-      resolver.resolveDestination("mixed.example", 443, new AbortController().signal),
-    ).rejects.toMatchObject({ code });
-    expect(records).toEqual([
-      expect.objectContaining({
-        kind: "denial",
-        host: "mixed.example",
-        port: 443,
-        reason: code,
-        addressClass,
-        answerCount: 2,
-        exceptionPolicyRevision: "none",
-      }),
-    ]);
-  });
+  ])(
+    "denies the entire mixed answer set independent of order",
+    async (answers, code, addressClass) => {
+      const { resolver, records } = fixture({ lookup: immediateLookup(answers) });
+      await expect(
+        resolver.resolveDestination("mixed.example", 443, new AbortController().signal),
+      ).rejects.toMatchObject({ code });
+      expect(records).toEqual([
+        expect.objectContaining({
+          kind: "denial",
+          host: "mixed.example",
+          port: 443,
+          reason: code,
+          addressClass,
+          answerCount: 2,
+          exceptionPolicyRevision: "none",
+        }),
+      ]);
+    },
+  );
 
   it("permits restricted answers only when every answer has narrow exception authority", async () => {
     const allowsRestrictedAddress = vi.fn(
@@ -220,9 +216,8 @@ describe("bounded Warden egress resolver", () => {
     const shutdown = resolver.shutdown();
     for (const callback of callbacks) callback(null, [publicAnswer()]);
     await expect(shutdown).resolves.toMatchObject({ drained: true, activeLookups: 0 });
-    await expect(Promise.allSettled(pending)).resolves.toSatisfy((results) =>
-      results.every((result) => result.status === "rejected"),
-    );
+    const settled = await Promise.allSettled(pending);
+    expect(settled.every((result) => result.status === "rejected")).toBe(true);
   });
 
   it("times out callers but retains the uncancellable lookup slot until its real callback", async () => {
@@ -239,12 +234,12 @@ describe("bounded Warden egress resolver", () => {
         443,
         new AbortController().signal,
       );
+      const rejection = expect(request).rejects.toMatchObject({ code: "resolver-timeout" });
       await vi.advanceTimersByTimeAsync(EGRESS_ADDRESS_GUARD_LIMITS.requestDeadlineMs);
-      await expect(request).rejects.toMatchObject({ code: "resolver-timeout" });
+      await rejection;
       expect(resolver.snapshot()).toMatchObject({ activeLookups: 1, queuedLookups: 0 });
 
       callback?.(null, [publicAnswer()]);
-      await vi.runAllTicks();
       expect(resolver.snapshot()).toMatchObject({ activeLookups: 0, queuedLookups: 0 });
     } finally {
       vi.useRealTimers();
@@ -256,8 +251,14 @@ describe("bounded Warden egress resolver", () => {
     const { resolver } = fixture({
       lookup: (_hostname, _options, callback) => callbacks.push(callback),
     });
-    const active = Array.from({ length: EGRESS_ADDRESS_GUARD_LIMITS.maxConcurrentLookups }, (_, i) =>
-      resolver.resolveDestination(`active-${String(i)}.example`, 443, new AbortController().signal),
+    const active = Array.from(
+      { length: EGRESS_ADDRESS_GUARD_LIMITS.maxConcurrentLookups },
+      (_, i) =>
+        resolver.resolveDestination(
+          `active-${String(i)}.example`,
+          443,
+          new AbortController().signal,
+        ),
     );
     const queuedAbort = new AbortController();
     const queued = resolver.resolveDestination("abort.example", 443, queuedAbort.signal);
@@ -284,7 +285,7 @@ describe("bounded Warden egress resolver", () => {
       caught = error;
     }
     expect(caught).toBeInstanceOf(EgressAddressGuardError);
-    expect(String(caught)).toHaveLengthLessThanOrEqual(
+    expect(String(caught).length).toBeLessThanOrEqual(
       EGRESS_ADDRESS_GUARD_LIMITS.maxDiagnosticLength,
     );
     expect(String(caught)).not.toContain("EAI_AGAIN");
@@ -358,8 +359,7 @@ describe("bounded Warden egress resolver", () => {
     expect(resolver.snapshot()).toMatchObject({ state: "shutdown", queuedLookups: 0 });
     for (const callback of callbacks) callback(null, [publicAnswer()]);
     await expect(shutdown).resolves.toEqual({ drained: true, activeLookups: 0 });
-    await expect(Promise.allSettled(requests)).resolves.toSatisfy((results) =>
-      results.every((result) => result.status === "rejected"),
-    );
+    const settled = await Promise.allSettled(requests);
+    expect(settled.every((result) => result.status === "rejected")).toBe(true);
   });
 });
