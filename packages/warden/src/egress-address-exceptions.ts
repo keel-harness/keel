@@ -4,6 +4,7 @@ import {
   constants as fsConstants,
   fstatSync,
   lstatSync,
+  mkdirSync,
   openSync,
   readFileSync,
   realpathSync,
@@ -22,6 +23,8 @@ import {
 import { GENERATED_EGRESS_ADDRESS_POLICY } from "./egress-address-policy.generated.js";
 import { normalizeEgressGrantDomain } from "./egress-review.js";
 import type { RestrictedAddressContext } from "./egress-resolver.js";
+import { atomicWriteFile, type AtomicWriteResult } from "./atomic-write.js";
+import { withFileLock } from "./file-lock.js";
 
 export const EGRESS_ADDRESS_EXCEPTION_LIMITS = Object.freeze({
   maxFileBytes: 256 * 1024,
@@ -60,6 +63,22 @@ export interface EgressAddressExceptionStoreDeps {
   /** Deterministic race seam used after bytes are read but before identity is revalidated. */
   readonly afterRead?: () => void;
 }
+
+export interface EgressAddressExceptionMutationDeps extends EgressAddressExceptionStoreDeps {
+  /** Deterministic seam for proving that the installed bytes are revalidated before success. */
+  readonly afterWriteBeforeValidation?: () => void;
+}
+
+export type EgressAddressExceptionMutationResult =
+  | {
+      readonly status: "added" | "removed";
+      readonly durability: AtomicWriteResult;
+      readonly revision: `sha256:${string}`;
+    }
+  | {
+      readonly status: "already-present" | "not-found";
+      readonly revision: "none" | `sha256:${string}`;
+    };
 
 interface CanonicalCidr {
   readonly family: 4 | 6;
@@ -103,6 +122,8 @@ const PersistedStore = z
   })
   .strict();
 
+type PersistedStoreT = z.infer<typeof PersistedStore>;
+
 const IPV4_MAPPED_BASE = 0xffffn << 32n;
 const IPV4_SPACE_SIZE = 1n << 32n;
 
@@ -144,10 +165,23 @@ function requireOwnerOnlyHome(home: string, uid: number): string {
   return physical;
 }
 
+function createOrRequireOwnerOnlyHome(home: string, uid: number): string {
+  const absolute = resolve(home);
+  try {
+    mkdirSync(absolute, { mode: 0o700, recursive: true });
+  } catch {
+    return fail("KEEL_HOME could not be created as an owner-only directory");
+  }
+  return requireOwnerOnlyHome(absolute, uid);
+}
+
 function requireWorkspaceRealpath(workspaceRoot: string): string {
   try {
-    return realpathSync(resolve(workspaceRoot));
-  } catch {
+    const physical = realpathSync(resolve(workspaceRoot));
+    if (!lstatSync(physical).isDirectory()) return fail("trusted workspace must be a directory");
+    return physical;
+  } catch (error) {
+    if (error instanceof EgressAddressExceptionStoreError) throw error;
     return fail("trusted workspace realpath is unavailable");
   }
 }
@@ -329,8 +363,10 @@ function compileStore(raw: unknown): {
     const entries = workspace.exceptions.map((entry) => {
       const host = canonicalHost(entry.host);
       const range = parseCanonicalRestrictedCidr(entry.cidr);
-      const ports = [...entry.ports];
-      if (new Set(ports).size !== ports.length) return fail("ports must be duplicate-free");
+      if (new Set(entry.ports).size !== entry.ports.length) {
+        return fail("ports must be duplicate-free");
+      }
+      const ports = [...entry.ports].sort((left, right) => left - right);
       const key = `${host}\0${range.normalized}\0${ports.join(",")}`;
       if (seen.has(key)) return fail("duplicate exception entry");
       seen.add(key);
@@ -339,6 +375,59 @@ function compileStore(raw: unknown): {
     compiled.set(workspaceRealpath, entries);
   }
   return { compiled };
+}
+
+function parseStoreText(text: string): ReadonlyMap<string, readonly CompiledException[]> {
+  let raw: unknown;
+  try {
+    raw = parseJsonRejectingDuplicateKeys(text);
+  } catch (error) {
+    return fail(
+      error instanceof Error && error.name === "DuplicateKeyError"
+        ? "duplicate object key"
+        : "invalid JSON",
+    );
+  }
+  return compileStore(raw).compiled;
+}
+
+function canonicalStore(
+  compiled: ReadonlyMap<string, readonly CompiledException[]>,
+): PersistedStoreT {
+  return {
+    version: 1,
+    workspaces: [...compiled.entries()]
+      .filter(([, exceptions]) => exceptions.length > 0)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([realpath, exceptions]) => ({
+        realpath,
+        exceptions: [...exceptions]
+          .sort((left, right) => {
+            const host = left.host.localeCompare(right.host);
+            if (host !== 0) return host;
+            const cidr = left.cidr.localeCompare(right.cidr);
+            return cidr !== 0 ? cidr : left.ports.join(",").localeCompare(right.ports.join(","));
+          })
+          .map((entry) => ({ host: entry.host, cidr: entry.cidr, ports: [...entry.ports] })),
+      })),
+  };
+}
+
+function entryKey(entry: EgressAddressException): string {
+  return `${entry.host}\0${entry.cidr}\0${entry.ports.join(",")}`;
+}
+
+function compileProposedEntry(
+  workspaceRealpath: string,
+  entry: EgressAddressException,
+): CompiledException {
+  const compiled = compileStore({
+    version: 1,
+    workspaces: [{ realpath: workspaceRealpath, exceptions: [entry] }],
+  }).compiled;
+  const proposed = compiled.get(workspaceRealpath)?.[0];
+  if (proposed === undefined) return fail("proposed exception could not be compiled");
+  return proposed;
 }
 
 function publicEntries(entries: readonly CompiledException[]): readonly EgressAddressException[] {
@@ -370,17 +459,7 @@ export function loadEgressAddressExceptionSnapshot(
   let revision: EgressAddressExceptionSnapshot["revision"] = "none";
   let selected: readonly CompiledException[] = [];
   if (text !== undefined) {
-    let raw: unknown;
-    try {
-      raw = parseJsonRejectingDuplicateKeys(text);
-    } catch (error) {
-      return fail(
-        error instanceof Error && error.name === "DuplicateKeyError"
-          ? "duplicate object key"
-          : "invalid JSON",
-      );
-    }
-    const compiled = compileStore(raw).compiled;
+    const compiled = parseStoreText(text);
     selected = compiled.get(workspaceRealpath) ?? [];
     revision = `sha256:${createHash("sha256").update(text, "utf8").digest("hex")}`;
   }
@@ -406,4 +485,86 @@ export function loadEgressAddressExceptionSnapshot(
     exceptions: exposed,
     allowsRestrictedAddress,
   });
+}
+
+export function listEgressAddressExceptions(
+  workspaceRoot: string,
+  env: NodeJS.ProcessEnv = process.env,
+): readonly EgressAddressException[] {
+  return loadEgressAddressExceptionSnapshot(workspaceRoot, env).exceptions;
+}
+
+function mutateEgressAddressException(
+  operation: "add" | "remove",
+  workspaceRoot: string,
+  entry: EgressAddressException,
+  env: NodeJS.ProcessEnv,
+  deps: EgressAddressExceptionMutationDeps,
+): EgressAddressExceptionMutationResult {
+  const uid = effectiveUid(deps);
+  const home = createOrRequireOwnerOnlyHome(keelHome(env), uid);
+  const workspaceRealpath = requireWorkspaceRealpath(workspaceRoot);
+  const path = join(home, "egress-address-exceptions.v1.json");
+  const proposed = compileProposedEntry(workspaceRealpath, entry);
+
+  return withFileLock(path, () => {
+    const currentText = readSecureStoreFile(path, uid, deps);
+    const current =
+      currentText === undefined
+        ? new Map<string, readonly CompiledException[]>()
+        : new Map(parseStoreText(currentText));
+    const selected = [...(current.get(workspaceRealpath) ?? [])];
+    const targetKey = entryKey(proposed);
+    const targetIndex = selected.findIndex((candidate) => entryKey(candidate) === targetKey);
+
+    if (operation === "add" && targetIndex >= 0) {
+      return {
+        status: "already-present",
+        revision: loadEgressAddressExceptionSnapshot(workspaceRealpath, env, deps).revision,
+      };
+    }
+    if (operation === "remove" && targetIndex < 0) {
+      return {
+        status: "not-found",
+        revision: loadEgressAddressExceptionSnapshot(workspaceRealpath, env, deps).revision,
+      };
+    }
+
+    if (operation === "add") selected.push(proposed);
+    else selected.splice(targetIndex, 1);
+    if (selected.length === 0) current.delete(workspaceRealpath);
+    else current.set(workspaceRealpath, selected);
+
+    const content = `${JSON.stringify(canonicalStore(current), null, 2)}\n`;
+    if (Buffer.byteLength(content, "utf8") > EGRESS_ADDRESS_EXCEPTION_LIMITS.maxFileBytes) {
+      return fail("exception file size limit exceeded");
+    }
+    const durability = atomicWriteFile(path, content, 0o600);
+    deps.afterWriteBeforeValidation?.();
+    const installed = loadEgressAddressExceptionSnapshot(workspaceRealpath, env, deps);
+    if (installed.revision === "none") return fail("post-write validation found no authority file");
+    return {
+      status: operation === "add" ? "added" : "removed",
+      durability,
+      revision: installed.revision,
+    };
+  });
+}
+
+export function addEgressAddressException(
+  workspaceRoot: string,
+  entry: EgressAddressException,
+  env: NodeJS.ProcessEnv = process.env,
+  deps: EgressAddressExceptionMutationDeps = {},
+): EgressAddressExceptionMutationResult {
+  return mutateEgressAddressException("add", workspaceRoot, entry, env, deps);
+}
+
+export function removeEgressAddressException(
+  workspaceRoot: string,
+  entry: EgressAddressException,
+  env: NodeJS.ProcessEnv = process.env,
+  deps: EgressAddressExceptionMutationDeps = {},
+): EgressAddressExceptionMutationResult {
+  return mutateEgressAddressException("remove", workspaceRoot, entry, env, deps);
 }
