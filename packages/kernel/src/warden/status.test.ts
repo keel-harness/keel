@@ -1,10 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { cockpitStatusLine, initialView } from "../tui/view-model.js";
-import {
-  EGRESS_ADDRESS_GUARD_CAPABILITY,
-  wardenStatusViewConfig,
-  type WardenStatusViewOptions,
-} from "./status.js";
+import { EGRESS_ADDRESS_GUARD_CAPABILITY, wardenStatusViewConfig } from "./status.js";
 
 const HASH = `sha256:${"a".repeat(64)}`;
 const ZERO_HASH = `sha256:${"0".repeat(64)}`;
@@ -21,10 +17,10 @@ describe("warden status view config", () => {
     };
     const guarded = wardenStatusViewConfig(status, {
       wardenCapabilities: ["egress-address-guard/v1"],
-    } as WardenStatusViewOptions);
+    });
     const nameOnly = wardenStatusViewConfig(status, {
       wardenCapabilities: [],
-    } as WardenStatusViewOptions);
+    });
 
     expect(guarded.posture).toMatchObject({ sandbox: true, egress: true });
     expect(nameOnly.posture).toMatchObject({ sandbox: true, egress: false });

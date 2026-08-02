@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdtempSync, realpathSync } from "node:fs";
+import { tmpdir as systemTmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ModelMessageT, ModelPort, ModelStreamChunkT, ModelTurnInput } from "@keel/shared";
@@ -26,7 +26,9 @@ const CORPUS = join(
 );
 const skillDirs = { projectDir: join(CORPUS, ".keel", "skills") };
 const sys = { cores: 4, memGB: 8 };
-const home = (): NodeJS.ProcessEnv => ({ KEEL_HOME: mkdtempSync(join(tmpdir(), "keel-sec012-")) });
+const home = (): NodeJS.ProcessEnv => ({
+  KEEL_HOME: mkdtempSync(join(realpathSync(systemTmpdir()), "keel-sec012-")),
+});
 
 /** Records every real fs path keel reads — the SEC-012 instrument at the chokepoint. */
 function recordingFs(): ProjectFs & { reads: string[] } {

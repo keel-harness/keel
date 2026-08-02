@@ -19159,6 +19159,32 @@ printf '%s\\n' '${match}'
     expect(shutdownRuntime).toHaveBeenCalledOnce();
   });
 
+  it("keeps clean RPC shutdown bounded when process-owned runtime teardown fails", async () => {
+    const input = new PassThrough();
+    const output = new PassThrough();
+    const order: string[] = [];
+    const shutdownRuntime = vi.fn(async () => {
+      order.push("runtime");
+      throw new Error("runtime teardown failed");
+    });
+    const server = runStdioWardenServer({
+      input,
+      output,
+      shutdownRuntime,
+      onShutdown: () => {
+        order.push("shutdown");
+      },
+    });
+
+    const shutdownLine = readStreamLine(output);
+    input.write(`${JSON.stringify(request("runtime-shutdown", "warden.shutdown"))}\n`);
+    expect(success(await shutdownLine).id).toBe("runtime-shutdown");
+    await vi.waitFor(() => expect(order).toEqual(["runtime", "shutdown"]));
+
+    await server.close();
+    expect(shutdownRuntime).toHaveBeenCalledOnce();
+  });
+
   it("threads lifecycle and credential proxy options through the stdio execute boundary", async () => {
     const input = new PassThrough();
     const output = new PassThrough();

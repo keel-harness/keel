@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { CredentialProxyRule } from "./credential-proxy.js";
+import type { BoundedEgressAddressResolver } from "./egress-resolver.js";
 import type { SandboxPort } from "./sandbox.js";
 
 describe("warden credential TLS product wiring", () => {
@@ -15,10 +16,15 @@ describe("warden credential TLS product wiring", () => {
       status: () => ({ available: true, backend: "srt:vendored", enforcementTier: "sandbox:srt" }),
       execute: async () => ({ exitCode: 0, signal: null, stdout: "", stderr: "" }),
     };
-    const createVendoredSrtSandboxComponents = vi.fn(async () => {
-      order.push("sandbox");
-      return { sandbox };
-    });
+    const createVendoredSrtSandboxComponents = vi.fn(
+      async (_options?: {
+        readonly credentialTlsTermination?: boolean;
+        readonly resolveDestination?: BoundedEgressAddressResolver["resolveDestination"];
+      }) => {
+        order.push("sandbox");
+        return { sandbox };
+      },
+    );
     const credentialProxyRulesFromEnvValues = vi.fn(() => {
       order.push("credentials");
       return rules;
@@ -124,10 +130,11 @@ describe("warden credential TLS product wiring", () => {
       workspaceRoot: "/workspace",
       env: process.env,
     });
-    expect(mocked.createVendoredSrtSandboxComponents).toHaveBeenCalledWith({
+    const sandboxOptions = mocked.createVendoredSrtSandboxComponents.mock.calls[0]?.[0];
+    expect(sandboxOptions).toMatchObject({
       credentialTlsTermination: true,
-      resolveDestination: expect.any(Function),
     });
+    expect(typeof sandboxOptions?.resolveDestination).toBe("function");
     expect(mocked.runStdioWardenServer).toHaveBeenCalledWith(
       expect.objectContaining({ credentialProxyRules: [secureRule] }),
     );
@@ -170,8 +177,8 @@ describe("warden credential TLS product wiring", () => {
     await runWardenFromEnv();
 
     expect(mocked.order).toEqual(["credentials", "sandbox"]);
-    expect(mocked.createVendoredSrtSandboxComponents).toHaveBeenCalledWith({
-      resolveDestination: expect.any(Function),
-    });
+    const sandboxOptions = mocked.createVendoredSrtSandboxComponents.mock.calls[0]?.[0];
+    expect(typeof sandboxOptions?.resolveDestination).toBe("function");
+    expect(sandboxOptions).not.toHaveProperty("credentialTlsTermination");
   });
 });

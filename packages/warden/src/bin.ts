@@ -365,9 +365,13 @@ export async function runWardenFromEnv(): Promise<void> {
     }
 
     credentialProxyRules = credentialProxyRulesFromEnv(workspaceRoot);
+    const activeEgressResolver = setupEgressResolver;
     sandboxComponents = await sandboxComponentsFromEnv(
       credentialProxyRules,
-      setupEgressResolver?.resolveDestination,
+      activeEgressResolver === undefined
+        ? undefined
+        : (hostname, port, signal) =>
+            activeEgressResolver.resolveDestination(hostname, port, signal),
     );
     if (quarantineRequested) await sandboxComponents.shutdown?.();
 

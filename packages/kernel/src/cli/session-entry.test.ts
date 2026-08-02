@@ -5,11 +5,12 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  realpathSync,
   statSync,
   writeFileSync,
 } from "node:fs";
 import { createRequire } from "node:module";
-import { tmpdir } from "node:os";
+import { tmpdir as systemTmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import type {
@@ -74,6 +75,7 @@ import {
 } from "./eval-executor-gate.js";
 import type { ProductionWardenStartOptions } from "../warden/runtime.js";
 
+const tmpdir = (): string => realpathSync(systemTmpdir());
 const env = (): NodeJS.ProcessEnv => ({ KEEL_HOME: mkdtempSync(join(tmpdir(), "keel-")) });
 const ROOT = process.cwd();
 const BUILD_GLOBAL = "__KEEL_EVAL_DIRECT_EXEC_BUILD__";
@@ -158,8 +160,9 @@ function fakeBashWarden(auditDir: string): ProductionWardenStartOptions {
           sandbox: {
             status: () => ({
               available: true,
-              backend: "fake-session-entry-sandbox",
-              enforcementTier: "sandbox:fake"
+              backend: "srt:vendored",
+              enforcementTier: "sandbox:srt",
+              features: ["egress-address-guard/v1"]
             }),
             execute: async (invocation) => {
               if (invocation.command === "printf 'by keel' > made.txt") {
@@ -322,7 +325,7 @@ function fakeAutopilotReviewWarden(review: {
               send(req.id, {
                 wardenVersion: "test",
                 protocolVersion: req.params.protocolVersion,
-                capabilities: [],
+                capabilities: ["egress-address-guard/v1"],
                 enforcementTier: "sandbox:srt",
                 policyPack: { name: "phase2a-starter-policy-pack", hash: activeHash }
               });

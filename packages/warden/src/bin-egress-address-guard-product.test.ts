@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { EgressResolverAuditRecord } from "./egress-resolver.js";
+import type { BoundedEgressAddressResolver, EgressResolverAuditRecord } from "./egress-resolver.js";
 import type { SandboxPort } from "./sandbox.js";
 
 describe("warden address-guard product wiring", () => {
@@ -48,14 +48,20 @@ describe("warden address-guard product wiring", () => {
       resolverOptions = options;
       return resolver;
     });
-    const createVendoredSrtSandboxComponents = vi.fn(async () => {
-      order.push("sandbox");
-      return { sandbox, shutdown: shutdownSandbox };
-    });
-    const runStdioWardenServer = vi.fn(() => {
-      order.push("server");
-      return { close: async () => {} };
-    });
+    const createVendoredSrtSandboxComponents = vi.fn(
+      async (_options?: {
+        readonly resolveDestination?: BoundedEgressAddressResolver["resolveDestination"];
+      }) => {
+        order.push("sandbox");
+        return { sandbox, shutdown: shutdownSandbox };
+      },
+    );
+    const runStdioWardenServer = vi.fn(
+      (_options: { readonly auditWriter?: unknown; readonly sandbox?: SandboxPort }) => {
+        order.push("server");
+        return { close: async () => {} };
+      },
+    );
 
     vi.doMock("./srt-runtime-loader.js", () => ({ createVendoredSrtSandboxComponents }));
     vi.doMock("./egress-address-exceptions.js", () => ({
@@ -141,6 +147,7 @@ describe("warden address-guard product wiring", () => {
       order,
       resolver,
       runStdioWardenServer,
+      sandbox,
       shutdownSandbox,
     };
   }
@@ -168,12 +175,13 @@ describe("warden address-guard product wiring", () => {
       "/workspace",
       process.env,
     );
-    expect(mocked.createVendoredSrtSandboxComponents).toHaveBeenCalledWith({
-      resolveDestination: mocked.resolver.resolveDestination,
-    });
-    expect(mocked.runStdioWardenServer).toHaveBeenCalledWith(
-      expect.objectContaining({ auditWriter: expect.anything(), sandbox: expect.anything() }),
-    );
+    const srtOptions = mocked.createVendoredSrtSandboxComponents.mock.calls[0]?.[0];
+    const signal = new AbortController().signal;
+    await srtOptions?.resolveDestination?.("api.example.com", 443, signal);
+    expect(mocked.resolver.resolveDestination).toHaveBeenCalledWith("api.example.com", 443, signal);
+    const serverOptions = mocked.runStdioWardenServer.mock.calls[0]?.[0];
+    expect(serverOptions?.auditWriter).toBeDefined();
+    expect(serverOptions?.sandbox).toBe(mocked.sandbox);
 
     const options = mocked.getResolverOptions() as {
       audit: { append(record: EgressResolverAuditRecord): void };
