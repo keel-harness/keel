@@ -22,6 +22,7 @@ import { defaultSecretStore } from "../secrets/secret-store.js";
 import { runAuthCli } from "./auth.js";
 import { runAutopilotGrantsCommandResult } from "./autopilot-grants.js";
 import { runAutopilotModeCommandResult } from "./autopilot-mode.js";
+import { runEgressExceptionCommandResult } from "./egress-exceptions.js";
 import {
   interpretPlanApprovalConfirmationAnswer,
   renderRunPlanApprovalConfirmation,
@@ -299,6 +300,11 @@ async function main(): Promise<void> {
       env: process.env,
       args: cmd.args,
     });
+    if (!result.ok) process.exitCode = 1;
+    return out(result.output);
+  }
+  if (cmd.kind === "egress-exception") {
+    const result = runEgressExceptionCommandResult({ env: process.env, args: cmd.args });
     if (!result.ok) process.exitCode = 1;
     return out(result.output);
   }

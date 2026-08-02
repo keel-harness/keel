@@ -71,13 +71,26 @@ export interface EgressAddressExceptionMutationDeps extends EgressAddressExcepti
 
 export type EgressAddressExceptionMutationResult =
   | {
-      readonly status: "added" | "removed";
+      readonly status: "added";
       readonly durability: AtomicWriteResult;
       readonly revision: `sha256:${string}`;
+      readonly workspaceRealpath: string;
     }
   | {
-      readonly status: "already-present" | "not-found";
+      readonly status: "removed";
+      readonly durability: AtomicWriteResult;
+      readonly revision: `sha256:${string}`;
+      readonly workspaceRealpath: string;
+    }
+  | {
+      readonly status: "already-present";
       readonly revision: "none" | `sha256:${string}`;
+      readonly workspaceRealpath: string;
+    }
+  | {
+      readonly status: "not-found";
+      readonly revision: "none" | `sha256:${string}`;
+      readonly workspaceRealpath: string;
     };
 
 interface CanonicalCidr {
@@ -521,12 +534,14 @@ function mutateEgressAddressException(
       return {
         status: "already-present",
         revision: loadEgressAddressExceptionSnapshot(workspaceRealpath, env, deps).revision,
+        workspaceRealpath,
       };
     }
     if (operation === "remove" && targetIndex < 0) {
       return {
         status: "not-found",
         revision: loadEgressAddressExceptionSnapshot(workspaceRealpath, env, deps).revision,
+        workspaceRealpath,
       };
     }
 
@@ -547,6 +562,7 @@ function mutateEgressAddressException(
       status: operation === "add" ? "added" : "removed",
       durability,
       revision: installed.revision,
+      workspaceRealpath,
     };
   });
 }
@@ -556,8 +572,12 @@ export function addEgressAddressException(
   entry: EgressAddressException,
   env: NodeJS.ProcessEnv = process.env,
   deps: EgressAddressExceptionMutationDeps = {},
-): EgressAddressExceptionMutationResult {
-  return mutateEgressAddressException("add", workspaceRoot, entry, env, deps);
+): Extract<EgressAddressExceptionMutationResult, { status: "added" | "already-present" }> {
+  const result = mutateEgressAddressException("add", workspaceRoot, entry, env, deps);
+  if (result.status !== "added" && result.status !== "already-present") {
+    return fail("internal add mutation status mismatch");
+  }
+  return result;
 }
 
 export function removeEgressAddressException(
@@ -565,6 +585,10 @@ export function removeEgressAddressException(
   entry: EgressAddressException,
   env: NodeJS.ProcessEnv = process.env,
   deps: EgressAddressExceptionMutationDeps = {},
-): EgressAddressExceptionMutationResult {
-  return mutateEgressAddressException("remove", workspaceRoot, entry, env, deps);
+): Extract<EgressAddressExceptionMutationResult, { status: "removed" | "not-found" }> {
+  const result = mutateEgressAddressException("remove", workspaceRoot, entry, env, deps);
+  if (result.status !== "removed" && result.status !== "not-found") {
+    return fail("internal remove mutation status mismatch");
+  }
+  return result;
 }

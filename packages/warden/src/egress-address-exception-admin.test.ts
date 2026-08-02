@@ -30,7 +30,7 @@ const ENTRY = {
   host: "registry.corp.example",
   cidr: "10.20.0.0/16",
   ports: [443],
-} as const;
+};
 
 afterEach(() => {
   for (const root of cleanupRoots.splice(0)) rmSync(root, { recursive: true, force: true });
@@ -60,16 +60,12 @@ describe("egress address exception admin process boundary", () => {
       { version: 1, operation: "list", workspace },
       env,
     );
-    expect(listed).toEqual({
-      version: 1,
-      ok: true,
-      result: {
-        operation: "list",
-        workspaceRealpath: workspace,
-        revision: expect.stringMatching(/^sha256:[a-f0-9]{64}$/u),
-        exceptions: [ENTRY],
-      },
-    });
+    expect(listed.version).toBe(1);
+    expect(listed.ok).toBe(true);
+    if (!listed.ok || listed.result.operation !== "list") throw new Error("expected list result");
+    expect(listed.result.workspaceRealpath).toBe(workspace);
+    expect(listed.result.revision).toMatch(/^sha256:[a-f0-9]{64}$/u);
+    expect(listed.result.exceptions).toEqual([ENTRY]);
     expect(JSON.stringify(listed)).not.toContain(otherWorkspace);
 
     expect(
@@ -98,7 +94,7 @@ describe("egress address exception admin process boundary", () => {
     }
   });
 
-  it("decodes one base64 request and emits exactly one strict JSON response line", () => {
+  it("decodes one base64 request and emits exactly one strict JSON response line", async () => {
     const { env, workspace } = fixture();
     const output: string[] = [];
     const request = Buffer.from(
@@ -106,13 +102,15 @@ describe("egress address exception admin process boundary", () => {
       "utf8",
     ).toString("base64");
 
-    runEgressAddressExceptionAdminFromEnv(
+    await runEgressAddressExceptionAdminFromEnv(
       {
         ...env,
         KEEL_INTERNAL_EGRESS_EXCEPTION_ADMIN: "1",
         KEEL_INTERNAL_EGRESS_EXCEPTION_ADMIN_REQUEST_B64: request,
       },
-      (line) => output.push(line),
+      (line) => {
+        output.push(line);
+      },
     );
     expect(output).toHaveLength(1);
     expect(output[0]?.endsWith("\n")).toBe(true);
@@ -123,7 +121,7 @@ describe("egress address exception admin process boundary", () => {
     });
   });
 
-  it("fails closed on missing mode, malformed base64, or unknown request fields", () => {
+  it("fails closed on missing mode, malformed base64, or unknown request fields", async () => {
     const outputs: string[] = [];
     for (const env of [
       {},
@@ -138,7 +136,9 @@ describe("egress address exception admin process boundary", () => {
         ).toString("base64"),
       },
     ]) {
-      runEgressAddressExceptionAdminFromEnv(env, (line) => outputs.push(line));
+      await runEgressAddressExceptionAdminFromEnv(env, (line) => {
+        outputs.push(line);
+      });
     }
     expect(outputs).toHaveLength(3);
     for (const output of outputs) {

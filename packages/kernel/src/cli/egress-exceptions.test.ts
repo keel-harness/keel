@@ -3,7 +3,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { listEgressAddressExceptions } from "@keel/warden";
 import { EGRESS_EXCEPTIONS_USAGE, runEgressExceptionCommandResult } from "./egress-exceptions.js";
 
 const cleanupRoots: string[] = [];
@@ -76,7 +75,9 @@ describe("keel egress exception", () => {
     });
     expect(removed).toMatchObject({ ok: true });
     expect(removed.output).toContain("removed egress address exception");
-    expect(listEgressAddressExceptions(workspace, env)).toEqual([]);
+    expect(
+      runEgressExceptionCommandResult({ env, args: ["list", "--workspace", workspace] }).output,
+    ).toContain("no exceptions");
   });
 
   it("requires an explicit workspace and exact add/remove flags", () => {
