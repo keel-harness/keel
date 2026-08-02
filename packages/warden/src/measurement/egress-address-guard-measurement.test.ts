@@ -122,6 +122,28 @@ describe("egress address guard measurement contract", () => {
       "positive numbers",
     ],
     [
+      "non-positive connection latency",
+      (input: EgressAddressGuardMeasurementInput) => {
+        input.measurements.connectionLatencyMs[0] = 0;
+      },
+      "positive numbers",
+    ],
+    [
+      "zero throughput duration",
+      (input: EgressAddressGuardMeasurementInput) => {
+        input.measurements.requestThroughput.durationMs = 0;
+      },
+      "throughput duration must be positive",
+    ],
+    [
+      "decreasing audit byte count",
+      (input: EgressAddressGuardMeasurementInput) => {
+        input.measurements.audit.bytesBefore = 1;
+        input.measurements.audit.bytesAfter = 0;
+      },
+      "audit byte count cannot decrease",
+    ],
+    [
       "unpaired transfer durations",
       (input: EgressAddressGuardMeasurementInput) => {
         input.measurements.budgetTransfers.proxyMs.pop();
@@ -222,13 +244,6 @@ describe("egress address guard measurement contract", () => {
       "request-throughput sample count",
     ],
     [
-      "zero throughput duration",
-      (input: EgressAddressGuardMeasurementInput) => {
-        input.measurements.requestThroughput.durationMs = 0;
-      },
-      "request-throughput sample count",
-    ],
-    [
       "transfer pair count",
       (input: EgressAddressGuardMeasurementInput) => {
         input.configuration.transferPairs += 1;
@@ -286,6 +301,13 @@ describe("egress address guard measurement contract", () => {
       "slow hung teardown",
       (input: EgressAddressGuardMeasurementInput) => {
         input.measurements.teardown.hungMs = 5_751;
+      },
+      "hung resolver teardown",
+    ],
+    [
+      "implausibly fast hung teardown",
+      (input: EgressAddressGuardMeasurementInput) => {
+        input.measurements.teardown.hungMs = 4_249;
       },
       "hung resolver teardown",
     ],

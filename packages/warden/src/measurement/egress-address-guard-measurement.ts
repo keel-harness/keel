@@ -228,6 +228,12 @@ function validateCounters(input: EgressAddressGuardMeasurementInput): void {
   if (!values.every(finiteNonNegative)) {
     throw new Error("measurement counters must be finite non-negative numbers");
   }
+  if (input.measurements.requestThroughput.durationMs <= 0) {
+    throw new Error("request throughput duration must be positive");
+  }
+  if (input.measurements.audit.bytesAfter < input.measurements.audit.bytesBefore) {
+    throw new Error("audit byte count cannot decrease");
+  }
   if (!/^[0-9a-f]{40}$/.test(input.sha)) throw new Error("measurement SHA must be 40 hex digits");
   if (input.command.trim() === "") throw new Error("measurement command is required");
   if (Number.isNaN(Date.parse(input.generatedAt)))
@@ -241,6 +247,7 @@ export function buildEgressAddressGuardMeasurement(
   const failures: string[] = [];
   const partials: string[] = [];
   const { configuration, measurements } = input;
+  assertPositiveSamples(measurements.connectionLatencyMs);
   const latency = sampleStats(measurements.connectionLatencyMs);
 
   if (latency.count !== configuration.latencySamples) {
@@ -314,6 +321,8 @@ export function buildEgressAddressGuardMeasurement(
     failures.push("drained teardown exceeded the recorded tolerance");
   }
   if (
+    teardown.hungMs <
+      EGRESS_ADDRESS_GUARD_LIMITS.shutdownTimeoutMs - configuration.teardownToleranceMs ||
     teardown.hungMs >
       EGRESS_ADDRESS_GUARD_LIMITS.shutdownTimeoutMs + configuration.teardownToleranceMs ||
     teardown.hungDrained
