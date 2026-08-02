@@ -540,7 +540,12 @@ export function createBoundedEgressAddressResolver(
         return deny("resolver-failure", context);
       }
     }
-    return assessAnswers(normalizedHost, port, rawAnswers, context);
+    try {
+      return assessAnswers(normalizedHost, port, rawAnswers, context);
+    } catch (error) {
+      if (error instanceof EgressAddressGuardError) throw error;
+      return deny("malformed-answer", context);
+    }
   };
 
   const shutdown = (): Promise<EgressResolverShutdownResult> => {

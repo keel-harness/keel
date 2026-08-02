@@ -296,9 +296,9 @@ describe("bounded Warden egress resolver", () => {
   it("converts hostile resolver answer access into a stable audited denial", async () => {
     const hostileDiagnostic = "hostile answer getter exposed 10.20.30.40 secret-token";
     const hostileAnswers = new Proxy([publicAnswer()], {
-      get(target, property, receiver) {
+      get(_target, property) {
         if (property === "length") throw new Error(hostileDiagnostic);
-        return Reflect.get(target, property, receiver);
+        return undefined;
       },
     });
     const { resolver, records } = fixture({
@@ -307,11 +307,7 @@ describe("bounded Warden egress resolver", () => {
 
     let caught: unknown;
     try {
-      await resolver.resolveDestination(
-        "hostile.example",
-        443,
-        new AbortController().signal,
-      );
+      await resolver.resolveDestination("hostile.example", 443, new AbortController().signal);
     } catch (error) {
       caught = error;
     }
