@@ -313,6 +313,9 @@ describe("CI packaging workflow", () => {
     const aggregateJob = workflowJob(workflow, "ci-required");
 
     expect(measurementJob).toContain("node-version: 24");
+    expect(measurementJob).toContain(
+      "ref: ${{ github.event.pull_request.head.sha || github.sha }}",
+    );
     expect(measurementJob).toContain("sudo ip address add 93.184.216.35/32 dev lo");
     expect(measurementJob).toContain("pnpm measure:egress-address-guard");
     expect(measurementJob).toContain("--pairs 5");
