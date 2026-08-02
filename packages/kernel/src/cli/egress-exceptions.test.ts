@@ -2,8 +2,16 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import type {
+  EgressAddressExceptionAdminRequestT,
+  EgressAddressExceptionAdminResponseT,
+} from "@keel/shared";
 
-import { EGRESS_EXCEPTIONS_USAGE, runEgressExceptionCommandResult } from "./egress-exceptions.js";
+import {
+  EGRESS_EXCEPTIONS_USAGE,
+  runEgressExceptionCommand,
+  runEgressExceptionCommandResult,
+} from "./egress-exceptions.js";
 
 const cleanupRoots: string[] = [];
 
@@ -85,6 +93,11 @@ describe("keel egress exception", () => {
     const invalid = [
       ["list"],
       ["list", "--workspace", workspace, "--host", "private.example"],
+      ["list", "--unknown", "value"],
+      ["list", "--workspace="],
+      ["list", "--workspace"],
+      ["list", "--workspace", "--host"],
+      ["list", `--workspace=${"x".repeat(4_097)}`],
       ["add", "--workspace", workspace, "--host", "private.example", "--cidr", "10.0.0.0/8"],
       [
         "add",
@@ -100,6 +113,32 @@ describe("keel egress exception", () => {
         "443",
       ],
       [
+        "add",
+        "--workspace",
+        workspace,
+        "--host",
+        "private.example",
+        "--host",
+        "other.example",
+        "--cidr",
+        "10.0.0.0/8",
+        "--port",
+        "443",
+      ],
+      [
+        "add",
+        "--workspace",
+        workspace,
+        "--host",
+        "private.example",
+        "--cidr",
+        "10.0.0.0/8",
+        "--cidr",
+        "10.1.0.0/16",
+        "--port",
+        "443",
+      ],
+      [
         "remove",
         "--workspace",
         workspace,
@@ -109,6 +148,30 @@ describe("keel egress exception", () => {
         "10.0.0.0/8",
         "--port",
         "0",
+      ],
+      [
+        "remove",
+        "--workspace",
+        workspace,
+        "--host",
+        "private.example",
+        "--cidr",
+        "10.0.0.0/8",
+        "--port",
+        "65536",
+      ],
+      [
+        "remove",
+        "--workspace",
+        workspace,
+        "--host",
+        "private.example",
+        "--cidr",
+        "10.0.0.0/8",
+        "--port",
+        "443",
+        "--port",
+        "443",
       ],
       ["frob", "--workspace", workspace],
     ];
@@ -208,5 +271,108 @@ describe("keel egress exception", () => {
     expect(result.output.split("\n")).toHaveLength(1);
     expect(result.output.length).toBeLessThanOrEqual(512);
     expect(result.output).not.toContain("Error:");
+  });
+
+  it("fails closed on failed or mismatched Warden admin responses", () => {
+    const { env, workspace } = fixture();
+    const listArgs = ["list", "--workspace", workspace];
+    const mutationArgs = [
+      "add",
+      "--workspace",
+      workspace,
+      "--host",
+      "private.example",
+      "--cidr",
+      "10.20.0.0/16",
+      "--port",
+      "443",
+    ];
+    const run = (args: readonly string[], response: EgressAddressExceptionAdminResponseT) =>
+      runEgressExceptionCommandResult({ env, args, runAdmin: () => response });
+
+    expect(run(listArgs, { version: 1, ok: false, error: "denied\nwith detail" })).toEqual({
+      ok: false,
+      output: "keel egress exception: denied with detail",
+    });
+    expect(
+      run(listArgs, {
+        version: 1,
+        ok: true,
+        result: {
+          operation: "add",
+          workspaceRealpath: workspace,
+          status: "already-present",
+          revision: "none",
+        },
+      }),
+    ).toMatchObject({ ok: false, output: "keel egress exception: invalid warden admin response" });
+    expect(run(mutationArgs, { version: 1, ok: false, error: "authority denied" })).toMatchObject({
+      ok: false,
+      output: "keel egress exception: authority denied",
+    });
+    expect(
+      run(mutationArgs, {
+        version: 1,
+        ok: true,
+        result: {
+          operation: "list",
+          workspaceRealpath: workspace,
+          revision: "none",
+          exceptions: [],
+        },
+      }),
+    ).toMatchObject({ ok: false, output: "keel egress exception: invalid warden admin response" });
+  });
+
+  it("reports unconfirmed mutation durability as a failure and preserves restart guidance", () => {
+    const { env, workspace } = fixture();
+    const result = runEgressExceptionCommandResult({
+      env,
+      args: [
+        "add",
+        "--workspace",
+        workspace,
+        "--host",
+        "private.example",
+        "--cidr",
+        "10.20.0.0/16",
+        "--port",
+        "443",
+      ],
+      runAdmin: () => ({
+        version: 1,
+        ok: true,
+        result: {
+          operation: "add",
+          workspaceRealpath: workspace,
+          status: "added",
+          revision: "none",
+          durability: "replaced",
+        },
+      }),
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.output).toContain("parent-directory fsync did not confirm crash durability");
+    expect(result.output).toContain("The running Warden still uses its prior immutable snapshot.");
+  });
+
+  it("bounds non-Error process failures and exposes the string-output wrapper", () => {
+    const { workspace } = fixture();
+    const args = ["list", "--workspace", workspace];
+    const runAdmin = (
+      _request: EgressAddressExceptionAdminRequestT,
+      _env: NodeJS.ProcessEnv,
+    ): EgressAddressExceptionAdminResponseT => {
+      // Deliberately exercise the unknown catch boundary: JavaScript callees can throw any value.
+      // eslint-disable-next-line @typescript-eslint/only-throw-error
+      throw "broken\ntransport";
+    };
+
+    expect(runEgressExceptionCommandResult({ args, runAdmin })).toEqual({
+      ok: false,
+      output: "keel egress exception: broken transport",
+    });
+    expect(runEgressExceptionCommand({ args: ["unknown"] })).toBe(EGRESS_EXCEPTIONS_USAGE);
   });
 });

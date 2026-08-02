@@ -9,6 +9,7 @@ function mockProcessExit() {
 describe("warden bin entrypoint", () => {
   afterEach(() => {
     vi.doUnmock("./bin.js");
+    vi.doUnmock("./egress-address-exception-admin.js");
     vi.unstubAllEnvs();
     vi.restoreAllMocks();
     vi.resetModules();
@@ -57,6 +58,34 @@ describe("warden bin entrypoint", () => {
     expect(runWardenFromEnv).not.toHaveBeenCalled();
     expect(error).not.toHaveBeenCalled();
     expect(exit).toHaveBeenCalledOnce();
+    expect(exit).toHaveBeenCalledWith(0);
+  });
+
+  it("runs and exits the hidden one-shot egress exception admin process", async () => {
+    const runWardenFromEnv = vi.fn().mockResolvedValue(undefined);
+    const runMcpDiscoveryFromEnv = vi.fn().mockResolvedValue(undefined);
+    const runEgressAddressExceptionAdminFromEnv = vi.fn().mockResolvedValue(undefined);
+    vi.doMock("./bin.js", () => ({
+      INTERNAL_MCP_DISCOVERY_ENV: "KEEL_INTERNAL_MCP_DISCOVER",
+      runMcpDiscoveryFromEnv,
+      runWardenFromEnv,
+    }));
+    vi.doMock("./egress-address-exception-admin.js", () => ({
+      runEgressAddressExceptionAdminFromEnv,
+    }));
+    vi.stubEnv("KEEL_INTERNAL_EGRESS_EXCEPTION_ADMIN", "1");
+    const exit = mockProcessExit();
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await import("./bin-entry.js");
+    await new Promise<void>((resolve) => {
+      setImmediate(resolve);
+    });
+
+    expect(runEgressAddressExceptionAdminFromEnv).toHaveBeenCalledOnce();
+    expect(runMcpDiscoveryFromEnv).not.toHaveBeenCalled();
+    expect(runWardenFromEnv).not.toHaveBeenCalled();
+    expect(error).not.toHaveBeenCalled();
     expect(exit).toHaveBeenCalledWith(0);
   });
 

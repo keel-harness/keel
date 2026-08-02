@@ -1,7 +1,7 @@
 import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   runEgressAddressExceptionAdminFromEnv,
@@ -94,6 +94,45 @@ describe("egress address exception admin process boundary", () => {
     }
   });
 
+  it("returns deterministic no-op results for duplicate adds and missing removes", () => {
+    const { env, workspace } = fixture();
+    expect(
+      runEgressAddressExceptionAdminRequest(
+        { version: 1, operation: "add", workspace, exception: ENTRY },
+        env,
+      ),
+    ).toMatchObject({ ok: true, result: { operation: "add", status: "added" } });
+    expect(
+      runEgressAddressExceptionAdminRequest(
+        { version: 1, operation: "add", workspace, exception: ENTRY },
+        env,
+      ),
+    ).toMatchObject({ ok: true, result: { operation: "add", status: "already-present" } });
+    expect(
+      runEgressAddressExceptionAdminRequest(
+        {
+          version: 1,
+          operation: "remove",
+          workspace,
+          exception: { ...ENTRY, host: "missing.example" },
+        },
+        env,
+      ),
+    ).toMatchObject({ ok: true, result: { operation: "remove", status: "not-found" } });
+  });
+
+  it("rejects invalid direct requests without crossing the authority boundary", () => {
+    const response = runEgressAddressExceptionAdminRequest(
+      null as unknown as Parameters<typeof runEgressAddressExceptionAdminRequest>[0],
+      {},
+    );
+    expect(response).toEqual({
+      version: 1,
+      ok: false,
+      error: "invalid egress exception admin request",
+    });
+  });
+
   it("decodes one base64 request and emits exactly one strict JSON response line", async () => {
     const { env, workspace } = fixture();
     const output: string[] = [];
@@ -121,10 +160,27 @@ describe("egress address exception admin process boundary", () => {
     });
   });
 
-  it("fails closed on missing mode, malformed base64, or unknown request fields", async () => {
+  it("fails closed on missing mode, request, malformed base64, or unknown fields", async () => {
     const outputs: string[] = [];
     for (const env of [
       {},
+      { KEEL_INTERNAL_EGRESS_EXCEPTION_ADMIN: "1" },
+      {
+        KEEL_INTERNAL_EGRESS_EXCEPTION_ADMIN: "1",
+        KEEL_INTERNAL_EGRESS_EXCEPTION_ADMIN_REQUEST_B64: "",
+      },
+      {
+        KEEL_INTERNAL_EGRESS_EXCEPTION_ADMIN: "1",
+        KEEL_INTERNAL_EGRESS_EXCEPTION_ADMIN_REQUEST_B64: "A".repeat(32 * 1024 + 4),
+      },
+      {
+        KEEL_INTERNAL_EGRESS_EXCEPTION_ADMIN: "1",
+        KEEL_INTERNAL_EGRESS_EXCEPTION_ADMIN_REQUEST_B64: "abc",
+      },
+      {
+        KEEL_INTERNAL_EGRESS_EXCEPTION_ADMIN: "1",
+        KEEL_INTERNAL_EGRESS_EXCEPTION_ADMIN_REQUEST_B64: "AB==",
+      },
       {
         KEEL_INTERNAL_EGRESS_EXCEPTION_ADMIN: "1",
         KEEL_INTERNAL_EGRESS_EXCEPTION_ADMIN_REQUEST_B64: "not base64!",
@@ -140,10 +196,25 @@ describe("egress address exception admin process boundary", () => {
         outputs.push(line);
       });
     }
-    expect(outputs).toHaveLength(3);
+    expect(outputs).toHaveLength(8);
     for (const output of outputs) {
       expect(JSON.parse(output)).toMatchObject({ version: 1, ok: false });
       expect(output.split("\n")).toHaveLength(2);
     }
+  });
+
+  it("writes the response through stdout when no writer is injected", async () => {
+    const write = vi.spyOn(process.stdout, "write").mockImplementation((...args: unknown[]) => {
+      const callback = args.find((argument) => typeof argument === "function") as
+        | (() => void)
+        | undefined;
+      callback?.();
+      return true;
+    });
+
+    await runEgressAddressExceptionAdminFromEnv({});
+
+    expect(write).toHaveBeenCalledOnce();
+    expect(write.mock.calls[0]?.[0]).toContain('"ok":false');
   });
 });
