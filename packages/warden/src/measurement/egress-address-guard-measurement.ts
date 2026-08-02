@@ -374,14 +374,18 @@ export function buildEgressAddressGuardMeasurement(
     resources.peakRssBytes < resources.settledRssBytes ||
     settledRssGrowthBytes > configuration.maxSettledRssGrowthBytes
   ) {
-    failures.push("settled RSS growth exceeded the recorded resource bound");
+    failures.push(
+      `settled RSS growth ${String(settledRssGrowthBytes)} bytes exceeded the recorded ${String(configuration.maxSettledRssGrowthBytes)}-byte resource bound`,
+    );
   }
   if (
     resources.peakFileDescriptors < resources.baselineFileDescriptors ||
     resources.peakFileDescriptors < resources.settledFileDescriptors ||
     settledFileDescriptorGrowth > configuration.maxSettledFileDescriptorGrowth
   ) {
-    failures.push("settled file descriptor growth exceeded the recorded resource bound");
+    failures.push(
+      `settled file descriptor growth ${String(settledFileDescriptorGrowth)} exceeded the recorded ${String(configuration.maxSettledFileDescriptorGrowth)}-descriptor resource bound`,
+    );
   }
 
   const reasons = [...failures, ...partials];
@@ -440,8 +444,10 @@ export function renderEgressAddressGuardMeasurement(
     `| Guarded connection storm (${count(report.configuration.connectionStormRequests)} held connections) | ${String(report.connectionStorm.peakHeldConnections)} peak; ${String(report.connectionStorm.overflowRejections)} overflow rejection(s); ${String(report.connectionStorm.overflowOriginHits)} overflow origin hit(s) |`,
     `| RSS baseline / peak / settled (${count(report.configuration.resourceBaselineDelayMs)} ms baseline delay; ${String(report.configuration.resourceSampleIntervalMs)} ms cadence; ${String(report.configuration.resourceSettleDelayMs)} ms settle delay) | ${mib(report.resources.baselineRssBytes)} / ${mib(report.resources.peakRssBytes)} / ${mib(report.resources.settledRssBytes)} |`,
     `| File descriptors baseline / peak / settled (${count(report.configuration.resourceBaselineDelayMs)} ms baseline delay; ${String(report.configuration.resourceSampleIntervalMs)} ms cadence; ${String(report.configuration.resourceSettleDelayMs)} ms settle delay) | ${String(report.resources.baselineFileDescriptors)} / ${String(report.resources.peakFileDescriptors)} / ${String(report.resources.settledFileDescriptors)} |`,
+    `| RSS settled growth / limit | ${mib(report.resources.settledRssGrowthBytes)} / ${mib(report.configuration.maxSettledRssGrowthBytes)} |`,
+    `| FD settled growth / limit | ${String(report.resources.settledFileDescriptorGrowth)} / ${String(report.configuration.maxSettledFileDescriptorGrowth)} |`,
     `| Audit growth | ${String(report.audit.growthBytes)} bytes; ${String(report.audit.denialRecords)} denials + ${String(report.audit.quarantineRecords)} quarantine + ${String(report.audit.retryRecords)} retry records |`,
-    `| Teardown drained / hung (n=1 each) | ${String(report.teardown.drainedMs)} / ${String(report.teardown.hungMs)} ms |`,
+    `| Teardown drained / hung (n=1 each) | ${String(rounded(report.teardown.drainedMs))} / ${String(rounded(report.teardown.hungMs))} ms |`,
     `| Budget proxy throughput penalty p50 / p95 / p99 (n=${count(report.budgetTransfers.pairs)} pairs) | ${String(report.budgetTransfers.penaltyPercent.p50)}% / ${String(report.budgetTransfers.penaltyPercent.p95)}% / ${String(report.budgetTransfers.penaltyPercent.p99)}% (${report.budgetTransfers.status}) |`,
     `| Saturation proxy throughput penalty p50 / p95 / p99 (n=${count(report.saturationTransfers.pairs)} pair) | ${String(report.saturationTransfers.penaltyPercent.p50)}% / ${String(report.saturationTransfers.penaltyPercent.p95)}% / ${String(report.saturationTransfers.penaltyPercent.p99)}% (diagnostic only) |`,
     "",

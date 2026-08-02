@@ -424,6 +424,8 @@ describe("egress address guard measurement contract", () => {
   it("renders the exact command, environment, sample sizes, p95 result, and non-pass reasons", () => {
     const input = passingInput();
     input.measurements.budgetTransfers.comparable = false;
+    input.measurements.teardown.drainedMs = 4.1234;
+    input.measurements.teardown.hungMs = 5_050.5678;
     const markdown = renderEgressAddressGuardMeasurement(buildEgressAddressGuardMeasurement(input));
 
     expect(markdown).toContain(input.command);
@@ -437,6 +439,11 @@ describe("egress address guard measurement contract", () => {
     expect(markdown).toContain("64 held connections");
     expect(markdown).toContain("1,000 ms baseline delay");
     expect(markdown).toContain("5 ms cadence; 100 ms settle delay");
+    expect(markdown).toContain("RSS settled growth / limit");
+    expect(markdown).toContain("4.000 MiB / 16.000 MiB");
+    expect(markdown).toContain("FD settled growth / limit");
+    expect(markdown).toContain("1 / 2");
+    expect(markdown).toContain("4.123 / 5050.568 ms");
     expect(markdown).toContain("p95");
     expect(markdown).toContain("does not close Slice 8");
     expect(markdown).toContain("not comparable");
