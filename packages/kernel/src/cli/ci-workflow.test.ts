@@ -22,6 +22,10 @@ function workflowJob(source: string, name: string): string {
   return next === null ? remainder : remainder.slice(0, next.index);
 }
 
+function occurrenceCount(source: string, needle: string): number {
+  return source.split(needle).length - 1;
+}
+
 describe("CI packaging workflow", () => {
   it("early-paints every supported interactive resume spelling in the release entry", () => {
     const entry = readFileSync(join(repoRoot, "packaging", "npx-cli-entry.js"), "utf8");
@@ -523,6 +527,25 @@ describe("CI packaging workflow", () => {
     expect(workflow).toContain('node "$BUNDLE/verify/verify-bundle.mjs" "$BUNDLE"');
     expect(workflow).toContain("verified audit bundle:");
     expect(workflow).toContain("OK sha256:");
+  });
+
+  it("canonicalizes temporary roots before release carriers use them as KEEL_HOME", () => {
+    const workflow = readFileSync(join(repoRoot, ".github", "workflows", "ci.yml"), "utf8");
+    const releaseSmoke = readFileSync(
+      join(repoRoot, "packaging", "smoke-release-carrier.sh"),
+      "utf8",
+    );
+
+    const smokeRoot = 'SMOKE_ROOT="$(mktemp -d)"';
+    const canonicalSmokeRoot = `${smokeRoot}\n          SMOKE_ROOT="$(realpath "$SMOKE_ROOT")"`;
+    expect(occurrenceCount(workflow, smokeRoot)).toBe(2);
+    expect(occurrenceCount(workflow, canonicalSmokeRoot)).toBe(2);
+
+    const workRoot = "WORK=$(mktemp -d)";
+    const canonicalWorkRoot = `${workRoot}\n          WORK=$(realpath "$WORK")`;
+    expect(occurrenceCount(workflow, workRoot)).toBe(3);
+    expect(occurrenceCount(workflow, canonicalWorkRoot)).toBe(3);
+    expect(releaseSmoke).toContain(`${workRoot}\nWORK=$(realpath "$WORK")`);
   });
 
   it("keeps Debian compiled-binary warden startup smoke from tripping pipefail after a successful match", () => {

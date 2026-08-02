@@ -440,6 +440,7 @@ jobs:
           set -euo pipefail
           if [ "$RUNNER_OS" = "Linux" ]; then BIN=./build/bin/keel-linux-x64; else BIN=./build/bin/keel-darwin-arm64; fi
           SMOKE_ROOT="$(mktemp -d)"
+          SMOKE_ROOT="$(realpath "$SMOKE_ROOT")"
           trap 'rm -rf -- "$SMOKE_ROOT"' EXIT
           export KEEL_HOME="$SMOKE_ROOT/keel-home"
           mkdir -m 700 -- "$KEEL_HOME"
@@ -526,6 +527,7 @@ jobs:
           set -euo pipefail
           if [ "$RUNNER_OS" = "Linux" ]; then BIN=./build/bin/keel-linux-x64; else BIN=./build/bin/keel-darwin-arm64; fi
           WORK=$(mktemp -d)
+          WORK=$(realpath "$WORK")
           export KEEL_HOME="$WORK/keel-home"
           OUT=$("$BIN" run -p "verify signed evidence" --replay packaging/smoke.recording.json 2>&1)
           if ! echo "$OUT" | grep -q replay-smoke-complete; then
@@ -586,6 +588,7 @@ jobs:
             cp -- "$TGZ" "$GITHUB_WORKSPACE/build/carrier/keel-harness.tgz"
           fi
           WORK=$(mktemp -d)
+          WORK=$(realpath "$WORK")
           cd "$WORK"
           npm init -y >/dev/null 2>&1
           npm_config_engine_strict=true npm install --ignore-scripts "$TGZ"
@@ -730,6 +733,7 @@ jobs:
         run: |
           set -euo pipefail
           WORK=$(mktemp -d)
+          WORK=$(realpath "$WORK")
           trap 'rm -rf -- "$WORK"' EXIT
           cd "$WORK"
           npm init -y >/dev/null 2>&1
@@ -854,6 +858,7 @@ jobs:
           set -euo pipefail
           BIN="${{ matrix.bin }}"
           SMOKE_ROOT="$(mktemp -d)"
+          SMOKE_ROOT="$(realpath "$SMOKE_ROOT")"
           trap 'rm -rf -- "$SMOKE_ROOT"' EXIT
           export KEEL_HOME="$SMOKE_ROOT/keel-home"
           mkdir -m 700 -- "$KEEL_HOME"

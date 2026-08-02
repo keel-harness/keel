@@ -15,6 +15,7 @@ test -f "$TARBALL"
 
 REPO_ROOT=$(cd "$(dirname "$0")/.." && pwd)
 WORK=$(mktemp -d)
+WORK=$(realpath "$WORK")
 trap 'rm -rf "$WORK"' EXIT
 export PNPM_HOME="$WORK/pnpm-home"
 export XDG_CACHE_HOME="$WORK/cache"
