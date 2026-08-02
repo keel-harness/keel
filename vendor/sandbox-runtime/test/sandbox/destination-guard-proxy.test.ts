@@ -271,6 +271,12 @@ describe('destination dial source contract', () => {
     expect(source('tls-terminate-proxy.ts')).toContain(
       'prepareDestinationDial(',
     )
+    expect(source('http-proxy.ts')).toMatch(
+      /trackPreparedDestinationRequest\(proxyReq, prepared, /,
+    )
+    expect(source('tls-terminate-proxy.ts')).toMatch(
+      /trackPreparedDestinationRequest\(upstream, prepared, true\)/,
+    )
     for (const name of [
       'http-proxy.ts',
       'socks-proxy.ts',

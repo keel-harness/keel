@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test, vi } from 'vitest'
+import { EventEmitter } from 'node:events'
 import {
   DestinationAddressPolicyError,
   MAX_CONCURRENT_GUARDED_CONNECTIONS,
@@ -6,6 +7,7 @@ import {
   TOTAL_GUARDED_DIAL_TIMEOUT_MS,
   prepareDestinationDial,
   resetDestinationGuardConnections,
+  trackPreparedDestinationRequest,
   type ResolveDestination,
 } from '../../src/sandbox/destination-dial.js'
 
@@ -54,9 +56,10 @@ describe('prepareDestinationDial', () => {
       abortSignal,
     )
 
-    expect(calls).toEqual([
-      { hostname: 'api.example.com', port: 443, signal: abortSignal },
-    ])
+    expect(calls).toHaveLength(1)
+    expect(calls[0]).toMatchObject({ hostname: 'api.example.com', port: 443 })
+    expect(calls[0]!.signal).not.toBe(abortSignal)
+    expect(calls[0]!.signal.aborted).toBe(false)
     expect(await lookupAll(prepared.lookup!)).toEqual([
       { address: '203.0.113.7', family: 4 },
       { address: '2001:db8::7', family: 6 },
@@ -183,14 +186,16 @@ describe('prepareDestinationDial', () => {
       async () =>
         await new Promise(resolve => {
           finish = resolve
-        }),
+      }),
       controller.signal,
     )
-    controller.abort()
-    finish([{ address: '192.0.2.1', family: 4 }])
-    await expect(pending).rejects.toBeInstanceOf(
+    const rejection = expect(pending).rejects.toBeInstanceOf(
       DestinationAddressPolicyError,
     )
+    await Promise.resolve()
+    controller.abort()
+    finish([{ address: '192.0.2.1', family: 4 }])
+    await rejection
   })
 
   test('converts a hostile answer getter into the stable policy denial', async () => {
@@ -313,5 +318,52 @@ describe('prepareDestinationDial', () => {
       signal(),
     )
     next.release()
+  })
+
+  test('request tracking holds a permit through connect and releases it on close', async () => {
+    const resolveDestination: ResolveDestination = async () => [
+      { address: '192.0.2.1', family: 4 },
+    ]
+    const prepared = await prepareDestinationDial(
+      'tracked.example',
+      443,
+      resolveDestination,
+      signal(),
+    )
+    const request = new EventEmitter()
+    const socket = Object.assign(new EventEmitter(), { connecting: true })
+    trackPreparedDestinationRequest(request as never, prepared, false)
+    request.emit('socket', socket)
+    socket.connecting = false
+    socket.emit('connect')
+
+    const rest = await Promise.all(
+      Array.from({ length: MAX_CONCURRENT_GUARDED_CONNECTIONS - 1 }, () =>
+        prepareDestinationDial(
+          'other.example',
+          443,
+          resolveDestination,
+          signal(),
+        ),
+      ),
+    )
+    await expect(
+      prepareDestinationDial(
+        'still-full.example',
+        443,
+        resolveDestination,
+        signal(),
+      ),
+    ).rejects.toBeInstanceOf(DestinationAddressPolicyError)
+
+    request.emit('close')
+    const replacement = await prepareDestinationDial(
+      'after-close.example',
+      443,
+      resolveDestination,
+      signal(),
+    )
+    replacement.release()
+    for (const item of rest) item.release()
   })
 })
