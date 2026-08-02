@@ -238,6 +238,37 @@ suite("real SRT sandbox enforcement (opt-in: KEEL_REQUIRE_REAL_SANDBOX=1)", () =
     expect(existsSync(forbidden)).toBe(false);
   });
 
+  it("DENIES governed creation or widening of egress exception authority", async () => {
+    const workspace = realpathSync(mkdtempSync(join(workRoot, "exception-workspace-")));
+    const home = join(workRoot, "exception-home");
+    const keelHome = join(workRoot, "exception-keel-home");
+    mkdirSync(home, { mode: 0o700 });
+    mkdirSync(join(keelHome, "audit"), { recursive: true, mode: 0o700 });
+    mkdirSync(join(keelHome, "policy"), { recursive: true, mode: 0o700 });
+    const authority = join(keelHome, "egress-address-exceptions.v1.json");
+    const original = '{"version":1,"workspaces":[]}\n';
+    writeFileSync(authority, original, { mode: 0o600 });
+    const profile = buildDefaultSandboxProfile({
+      workspaceRoot: workspace,
+      env: { ...process.env, HOME: home, KEEL_HOME: keelHome },
+    });
+
+    const widen = await sandbox.execute(
+      { command: "/bin/sh", argv: ["/bin/sh", "-c", `printf widened > ${authority}`] },
+      profile,
+    );
+    expect(widen.exitCode).not.toBe(0);
+    expect(readFileSync(authority, "utf8")).toBe(original);
+
+    rmSync(authority);
+    const create = await sandbox.execute(
+      { command: "/bin/sh", argv: ["/bin/sh", "-c", `printf created > ${authority}`] },
+      profile,
+    );
+    expect(create.exitCode).not.toBe(0);
+    expect(existsSync(authority)).toBe(false);
+  });
+
   it("DENIES Bash writes to execution metadata while allowing ordinary workspace writes", async () => {
     const workspace = realpathSync(mkdtempSync(join(workRoot, "metadata-workspace-")));
     const home = join(workRoot, "metadata-home");
