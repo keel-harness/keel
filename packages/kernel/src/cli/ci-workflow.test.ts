@@ -307,6 +307,26 @@ describe("CI packaging workflow", () => {
     expect(smoke).toContain("KEEL_INTERNAL_WARDEN_STDIO");
   });
 
+  it("gates the claim-grade 500 MiB egress measurement and preserves its exact report", () => {
+    const workflow = readFileSync(join(repoRoot, ".github", "workflows", "ci.yml"), "utf8");
+    const measurementJob = workflowJob(workflow, "egress-scale");
+    const aggregateJob = workflowJob(workflow, "ci-required");
+
+    expect(measurementJob).toContain("node-version: 24");
+    expect(measurementJob).toContain("sudo ip address add 93.184.216.35/32 dev lo");
+    expect(measurementJob).toContain("pnpm measure:egress-address-guard");
+    expect(measurementJob).toContain("--pairs 5");
+    expect(measurementJob).toContain("--latency-samples 200");
+    expect(measurementJob).toContain("--throughput-requests 1000");
+    expect(measurementJob).toContain("egress-address-guard-measurement.json");
+    expect(measurementJob).toContain(
+      "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+    );
+    expect(measurementJob).toContain("sudo ip address del 93.184.216.35/32 dev lo");
+    expect(aggregateJob).toContain("egress-scale");
+    expect(aggregateJob).toContain("EGRESS_SCALE_RESULT");
+  });
+
   it("requires the installed final-response carrier on both package platforms", () => {
     const workflow = readFileSync(join(repoRoot, ".github", "workflows", "ci.yml"), "utf8");
     const packageJob = workflowJob(workflow, "package");
@@ -587,7 +607,8 @@ describe("CI packaging workflow", () => {
   it("keeps standalone binaries test-only and never uploads them as workflow artifacts", () => {
     const workflow = readFileSync(join(repoRoot, ".github", "workflows", "ci.yml"), "utf8");
     const uploadSteps = workflow
-      .split("\n      - ")
+      .split(/^ {2}[a-zA-Z0-9_-]+:\n/mu)
+      .flatMap((job) => job.split("\n      - "))
       .filter((step) => step.includes("actions/upload-artifact"));
 
     expect(workflow).not.toContain("keel-linux-binaries");
@@ -631,7 +652,7 @@ describe("CI packaging workflow", () => {
     expect(workflow).toContain("pnpm test:security");
     expect(workflow).toContain("SECURITY_RESULT");
     expect(workflow).toContain(
-      "needs: [detect-changes, docs, build, node-next, package, egress-product-matrix, security, sandbox-real]",
+      "needs: [detect-changes, docs, build, node-next, package, egress-product-matrix, egress-scale, security, sandbox-real]",
     );
     expect(workflow).not.toMatch(
       /name: Security suite \(Phase 1\/2 — SEC catalog\)\s+if: false\s+run: exit 1/,
@@ -672,7 +693,7 @@ describe("CI packaging workflow", () => {
     // It is a required gate for code PRs: wired into ci-required's needs and its result check.
     expect(workflow).toContain("SANDBOX_REAL_RESULT");
     expect(workflow).toContain(
-      "needs: [detect-changes, docs, build, node-next, package, egress-product-matrix, security, sandbox-real]",
+      "needs: [detect-changes, docs, build, node-next, package, egress-product-matrix, egress-scale, security, sandbox-real]",
     );
   });
 

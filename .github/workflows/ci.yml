@@ -738,6 +738,54 @@ jobs:
           test -x "$KEEL_BIN"
           node "$GITHUB_WORKSPACE/packaging/smoke-egress-address-guard-carrier.mjs" "$KEEL_BIN"
 
+  egress-scale:
+    # ADR-0086 Slice 8: one claim-grade, paired, hermetic 500 MiB measurement on a disposable
+    # public-classified loopback alias. The runner records the exact environment and fails when the
+    # strict p95 <5% proxy budget or any bounded queue/resource/audit/teardown invariant misses.
+    if: github.event_name != 'schedule' && needs.detect-changes.outputs.code == 'true'
+    needs: detect-changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install (frozen lockfile, scripts ignored)
+        run: pnpm install --frozen-lockfile
+
+      - name: Configure hermetic public-classified measurement address
+        run: sudo ip address add 93.184.216.35/32 dev lo
+
+      - name: Measure address-guard load, resources, teardown, and proxy throughput
+        env:
+          KEEL_MEASUREMENT_COMMAND: >-
+            pnpm measure:egress-address-guard -- --fixture-address 93.184.216.35
+            --output-dir artifacts/egress-address-guard --pairs 5 --latency-samples 200
+            --throughput-requests 1000
+        run: >-
+          pnpm measure:egress-address-guard -- --fixture-address 93.184.216.35
+          --output-dir artifacts/egress-address-guard --pairs 5 --latency-samples 200
+          --throughput-requests 1000
+
+      - name: Remove hermetic measurement address
+        if: always()
+        run: sudo ip address del 93.184.216.35/32 dev lo
+
+      - name: Preserve exact measurement report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: egress-address-guard-measurement
+          path: |
+            artifacts/egress-address-guard/egress-address-guard-measurement.json
+            artifacts/egress-address-guard/egress-address-guard-measurement.md
+          if-no-files-found: warn
+          retention-days: 7
+
   cross-arch-runtime-smoke:
     # ER-028 closeout: run the formerly cross-only binaries on native hosted runners. Kept to
     # push-to-main to avoid multiplying PR cost while still proving the release-producing branch.
@@ -834,7 +882,7 @@ jobs:
     # Configure branch protection to require this stable aggregate status. The selected expensive
     # jobs may be intentionally skipped on PRs, but this job fails if any required selected gate fails.
     if: always() && github.event_name != 'schedule'
-    needs: [detect-changes, docs, build, node-next, package, egress-product-matrix, security, sandbox-real]
+    needs: [detect-changes, docs, build, node-next, package, egress-product-matrix, egress-scale, security, sandbox-real]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -847,6 +895,7 @@ jobs:
           NODE_NEXT_RESULT: ${{ needs.node-next.result }}
           PACKAGE_RESULT: ${{ needs.package.result }}
           EGRESS_PRODUCT_MATRIX_RESULT: ${{ needs.egress-product-matrix.result }}
+          EGRESS_SCALE_RESULT: ${{ needs.egress-scale.result }}
           SECURITY_RESULT: ${{ needs.security.result }}
           SANDBOX_REAL_RESULT: ${{ needs.sandbox-real.result }}
           DOCS_ONLY: ${{ needs.detect-changes.outputs.docs_only }}
@@ -861,6 +910,7 @@ jobs:
           echo "node-next: $NODE_NEXT_RESULT (code=$CODE_CHANGED)"
           echo "package: $PACKAGE_RESULT (package=$PACKAGE_CHANGED)"
           echo "egress-product-matrix: $EGRESS_PRODUCT_MATRIX_RESULT (package=$PACKAGE_CHANGED)"
+          echo "egress-scale: $EGRESS_SCALE_RESULT (code=$CODE_CHANGED)"
           echo "security: $SECURITY_RESULT (code=$CODE_CHANGED)"
           echo "sandbox-real: $SANDBOX_REAL_RESULT (code=$CODE_CHANGED)"
 
@@ -891,6 +941,11 @@ jobs:
 
           if [ "$CODE_CHANGED" = "true" ] && [ "$SANDBOX_REAL_RESULT" != "success" ]; then
             echo "::error::code PR did not pass the real OS-sandbox denial gate"
+            exit 1
+          fi
+
+          if [ "$CODE_CHANGED" = "true" ] && [ "$EGRESS_SCALE_RESULT" != "success" ]; then
+            echo "::error::code PR did not pass the egress scale and performance gate"
             exit 1
           fi
 

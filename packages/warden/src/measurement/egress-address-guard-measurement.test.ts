@@ -32,6 +32,8 @@ function passingInput(): EgressAddressGuardMeasurementInput {
       budgetOriginRateBytesPerSecond: 250 * 1024 * 1024,
       maxSettledRssGrowthBytes: 16 * 1024 * 1024,
       maxSettledFileDescriptorGrowth: 2,
+      resourceSampleIntervalMs: 5,
+      resourceSettleDelayMs: 100,
       teardownToleranceMs: 750,
     },
     measurements: {
@@ -82,6 +84,7 @@ function passingInput(): EgressAddressGuardMeasurementInput {
 describe("egress address guard measurement contract", () => {
   it("computes nearest-rank p50/p95/p99 statistics without rounding hidden failures away", () => {
     expect(() => sampleStats([])).toThrow("at least one sample");
+    expect(() => sampleStats([1, Number.NaN])).toThrow("finite numbers");
     expect(sampleStats([3, 1, 2, 10])).toEqual({
       count: 4,
       p50: 2,
@@ -108,6 +111,56 @@ describe("egress address guard measurement contract", () => {
     });
     expect(report.budgetTransfers.penaltyPercent.p95).toBeLessThan(5);
     expect(report.saturationTransfers.penaltyPercent.p95).toBeGreaterThan(50);
+  });
+
+  it.each([
+    [
+      "non-positive transfer duration",
+      (input: EgressAddressGuardMeasurementInput) => {
+        input.measurements.budgetTransfers.directMs[0] = 0;
+      },
+      "positive numbers",
+    ],
+    [
+      "unpaired transfer durations",
+      (input: EgressAddressGuardMeasurementInput) => {
+        input.measurements.budgetTransfers.proxyMs.pop();
+      },
+      "same paired sample count",
+    ],
+    [
+      "negative counter",
+      (input: EgressAddressGuardMeasurementInput) => {
+        input.measurements.resolver.completedLookups = -1;
+      },
+      "finite non-negative",
+    ],
+    [
+      "invalid SHA",
+      (input: EgressAddressGuardMeasurementInput) => {
+        input.sha = "not-a-sha";
+      },
+      "40 hex digits",
+    ],
+    [
+      "empty command",
+      (input: EgressAddressGuardMeasurementInput) => {
+        input.command = "   ";
+      },
+      "command is required",
+    ],
+    [
+      "invalid timestamp",
+      (input: EgressAddressGuardMeasurementInput) => {
+        input.generatedAt = "not-a-date";
+      },
+      "ISO date",
+    ],
+  ])("rejects %s before it can become evidence", (_label, mutate, message) => {
+    const input = passingInput();
+    mutate(input);
+
+    expect(() => buildEgressAddressGuardMeasurement(input)).toThrow(message);
   });
 
   it("marks a smaller or incomparable transfer as partial instead of laundering it into a pass", () => {
@@ -153,6 +206,157 @@ describe("egress address guard measurement contract", () => {
     );
   });
 
+  it.each([
+    [
+      "connection latency count",
+      (input: EgressAddressGuardMeasurementInput) => {
+        input.configuration.latencySamples += 1;
+      },
+      "connection-latency sample count",
+    ],
+    [
+      "throughput request count",
+      (input: EgressAddressGuardMeasurementInput) => {
+        input.measurements.requestThroughput.requests -= 1;
+      },
+      "request-throughput sample count",
+    ],
+    [
+      "zero throughput duration",
+      (input: EgressAddressGuardMeasurementInput) => {
+        input.measurements.requestThroughput.durationMs = 0;
+      },
+      "request-throughput sample count",
+    ],
+    [
+      "transfer pair count",
+      (input: EgressAddressGuardMeasurementInput) => {
+        input.configuration.transferPairs += 1;
+      },
+      "budget transfer pair count",
+    ],
+  ])("marks mismatched %s evidence partial", (_label, mutate, reason) => {
+    const input = passingInput();
+    mutate(input);
+
+    const report = buildEgressAddressGuardMeasurement(input);
+
+    expect(report.summary.status).toBe("PARTIAL");
+    expect(report.summary.countsAsPass).toBe(false);
+    expect(report.summary.reasons).toContainEqual(expect.stringContaining(reason));
+  });
+
+  it.each([
+    [
+      "missing queue overflow rejection",
+      (input: EgressAddressGuardMeasurementInput) => {
+        input.measurements.resolver.queueFullRejections = 0;
+      },
+      "resolver saturation",
+    ],
+    [
+      "incomplete resolver load",
+      (input: EgressAddressGuardMeasurementInput) => {
+        input.measurements.resolver.completedLookups -= 1;
+      },
+      "resolver saturation",
+    ],
+    [
+      "wrong denial count",
+      (input: EgressAddressGuardMeasurementInput) => {
+        input.measurements.audit.denialRecords -= 1;
+      },
+      "denial storm",
+    ],
+    [
+      "wrong quarantine count",
+      (input: EgressAddressGuardMeasurementInput) => {
+        input.measurements.audit.quarantineRecords = 0;
+      },
+      "denial storm",
+    ],
+    [
+      "slow drained teardown",
+      (input: EgressAddressGuardMeasurementInput) => {
+        input.measurements.teardown.drainedMs = input.configuration.teardownToleranceMs + 1;
+      },
+      "drained teardown",
+    ],
+    [
+      "slow hung teardown",
+      (input: EgressAddressGuardMeasurementInput) => {
+        input.measurements.teardown.hungMs = 5_751;
+      },
+      "hung resolver teardown",
+    ],
+    [
+      "falsely drained hung resolver",
+      (input: EgressAddressGuardMeasurementInput) => {
+        input.measurements.teardown.hungDrained = true;
+      },
+      "hung resolver teardown",
+    ],
+    [
+      "late active lookup",
+      (input: EgressAddressGuardMeasurementInput) => {
+        input.measurements.teardown.activeAfterLateCallback = 1;
+      },
+      "late resolver callback",
+    ],
+    [
+      "RSS peak below baseline",
+      (input: EgressAddressGuardMeasurementInput) => {
+        input.measurements.resources.peakRssBytes =
+          input.measurements.resources.baselineRssBytes - 1;
+      },
+      "RSS growth",
+    ],
+    [
+      "RSS peak below settled",
+      (input: EgressAddressGuardMeasurementInput) => {
+        input.measurements.resources.peakRssBytes =
+          input.measurements.resources.settledRssBytes - 1;
+      },
+      "RSS growth",
+    ],
+    [
+      "settled RSS over budget",
+      (input: EgressAddressGuardMeasurementInput) => {
+        input.measurements.resources.settledRssBytes =
+          input.measurements.resources.baselineRssBytes +
+          input.configuration.maxSettledRssGrowthBytes +
+          1;
+        input.measurements.resources.peakRssBytes = input.measurements.resources.settledRssBytes;
+      },
+      "RSS growth",
+    ],
+    [
+      "FD peak below baseline",
+      (input: EgressAddressGuardMeasurementInput) => {
+        input.measurements.resources.peakFileDescriptors =
+          input.measurements.resources.baselineFileDescriptors - 1;
+      },
+      "file descriptor growth",
+    ],
+    [
+      "FD peak below settled",
+      (input: EgressAddressGuardMeasurementInput) => {
+        input.measurements.resources.peakFileDescriptors =
+          input.measurements.resources.settledFileDescriptors - 1;
+      },
+      "file descriptor growth",
+    ],
+  ])("fails closed for %s", (_label, mutate, reason) => {
+    const input = passingInput();
+    mutate(input);
+
+    const report = buildEgressAddressGuardMeasurement(input);
+
+    expect(report.summary.status).toBe("FAIL");
+    expect(report.summary.countsAsPass).toBe(false);
+    expect(report.summary.reasons).toContainEqual(expect.stringContaining(reason));
+  });
+
   it("renders the exact command, environment, sample sizes, p95 result, and non-pass reasons", () => {
     const input = passingInput();
     input.measurements.budgetTransfers.comparable = false;
@@ -163,8 +367,21 @@ describe("egress address guard measurement contract", () => {
     expect(markdown).toContain("Node v24.7.0");
     expect(markdown).toContain("500 MiB");
     expect(markdown).toContain("3 paired samples");
+    expect(markdown).toContain("n=5");
+    expect(markdown).toContain("1,000 requests");
+    expect(markdown).toContain("40 lookups");
+    expect(markdown).toContain("5 ms cadence; 100 ms settle delay");
     expect(markdown).toContain("p95");
     expect(markdown).toContain("does not close Slice 8");
     expect(markdown).toContain("not comparable");
+  });
+
+  it("renders an explicit closeout only for a passing report", () => {
+    const markdown = renderEgressAddressGuardMeasurement(
+      buildEgressAddressGuardMeasurement(passingInput()),
+    );
+
+    expect(markdown).toContain("closes the measured Slice 8 contract");
+    expect(markdown).not.toContain("does not close Slice 8");
   });
 });

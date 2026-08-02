@@ -30,6 +30,8 @@ export interface EgressMeasurementConfiguration {
   budgetOriginRateBytesPerSecond: number;
   maxSettledRssGrowthBytes: number;
   maxSettledFileDescriptorGrowth: number;
+  resourceSampleIntervalMs: number;
+  resourceSettleDelayMs: number;
   teardownToleranceMs: number;
 }
 
@@ -198,6 +200,8 @@ function validateCounters(input: EgressAddressGuardMeasurementInput): void {
     input.configuration.budgetOriginRateBytesPerSecond,
     input.configuration.maxSettledRssGrowthBytes,
     input.configuration.maxSettledFileDescriptorGrowth,
+    input.configuration.resourceSampleIntervalMs,
+    input.configuration.resourceSettleDelayMs,
     input.configuration.teardownToleranceMs,
     input.measurements.requestThroughput.requests,
     input.measurements.requestThroughput.durationMs,
@@ -371,6 +375,10 @@ function mib(value: number): string {
   return `${(value / (1024 * 1024)).toFixed(3)} MiB`;
 }
 
+function count(value: number): string {
+  return value.toLocaleString("en-US");
+}
+
 export function renderEgressAddressGuardMeasurement(
   report: EgressAddressGuardMeasurementReport,
 ): string {
@@ -386,15 +394,15 @@ export function renderEgressAddressGuardMeasurement(
     "",
     "| Metric | Result |",
     "| --- | ---: |",
-    `| Connection latency p50 / p95 / p99 | ${String(report.connectionLatencyMs.p50)} / ${String(report.connectionLatencyMs.p95)} / ${String(report.connectionLatencyMs.p99)} ms |`,
-    `| Small-request throughput | ${String(report.requestThroughputPerSecond)} requests/s |`,
-    `| Resolver active / queued peak | ${String(report.resolver.peakActiveLookups)} / ${String(report.resolver.peakQueuedLookups)} |`,
-    `| RSS baseline / peak / settled | ${mib(report.resources.baselineRssBytes)} / ${mib(report.resources.peakRssBytes)} / ${mib(report.resources.settledRssBytes)} |`,
-    `| File descriptors baseline / peak / settled | ${String(report.resources.baselineFileDescriptors)} / ${String(report.resources.peakFileDescriptors)} / ${String(report.resources.settledFileDescriptors)} |`,
+    `| Connection latency p50 / p95 / p99 (n=${count(report.connectionLatencyMs.count)}) | ${String(report.connectionLatencyMs.p50)} / ${String(report.connectionLatencyMs.p95)} / ${String(report.connectionLatencyMs.p99)} ms |`,
+    `| Small-request throughput (${count(report.configuration.throughputRequests)} requests) | ${String(report.requestThroughputPerSecond)} requests/s |`,
+    `| Resolver active / queued peak (${count(report.configuration.loadRequests)} lookups) | ${String(report.resolver.peakActiveLookups)} / ${String(report.resolver.peakQueuedLookups)} |`,
+    `| RSS baseline / peak / settled (${String(report.configuration.resourceSampleIntervalMs)} ms cadence; ${String(report.configuration.resourceSettleDelayMs)} ms settle delay) | ${mib(report.resources.baselineRssBytes)} / ${mib(report.resources.peakRssBytes)} / ${mib(report.resources.settledRssBytes)} |`,
+    `| File descriptors baseline / peak / settled (${String(report.configuration.resourceSampleIntervalMs)} ms cadence; ${String(report.configuration.resourceSettleDelayMs)} ms settle delay) | ${String(report.resources.baselineFileDescriptors)} / ${String(report.resources.peakFileDescriptors)} / ${String(report.resources.settledFileDescriptors)} |`,
     `| Audit growth | ${String(report.audit.growthBytes)} bytes; ${String(report.audit.denialRecords)} denials + ${String(report.audit.quarantineRecords)} quarantine + ${String(report.audit.retryRecords)} retry records |`,
-    `| Teardown drained / hung | ${String(report.teardown.drainedMs)} / ${String(report.teardown.hungMs)} ms |`,
-    `| Budget proxy throughput penalty p50 / p95 / p99 | ${String(report.budgetTransfers.penaltyPercent.p50)}% / ${String(report.budgetTransfers.penaltyPercent.p95)}% / ${String(report.budgetTransfers.penaltyPercent.p99)}% (${report.budgetTransfers.status}) |`,
-    `| Saturation proxy throughput penalty p50 / p95 / p99 | ${String(report.saturationTransfers.penaltyPercent.p50)}% / ${String(report.saturationTransfers.penaltyPercent.p95)}% / ${String(report.saturationTransfers.penaltyPercent.p99)}% (diagnostic only) |`,
+    `| Teardown drained / hung (n=1 each) | ${String(report.teardown.drainedMs)} / ${String(report.teardown.hungMs)} ms |`,
+    `| Budget proxy throughput penalty p50 / p95 / p99 (n=${count(report.budgetTransfers.pairs)} pairs) | ${String(report.budgetTransfers.penaltyPercent.p50)}% / ${String(report.budgetTransfers.penaltyPercent.p95)}% / ${String(report.budgetTransfers.penaltyPercent.p99)}% (${report.budgetTransfers.status}) |`,
+    `| Saturation proxy throughput penalty p50 / p95 / p99 (n=${count(report.saturationTransfers.pairs)} pair) | ${String(report.saturationTransfers.penaltyPercent.p50)}% / ${String(report.saturationTransfers.penaltyPercent.p95)}% / ${String(report.saturationTransfers.penaltyPercent.p99)}% (diagnostic only) |`,
     "",
   ];
   if (report.summary.countsAsPass) {

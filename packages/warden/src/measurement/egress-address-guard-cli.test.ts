@@ -1,4 +1,4 @@
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -12,7 +12,7 @@ const toolPath = resolve(root, "tools/measure-egress-address-guard.mjs");
 describe("egress address guard measurement CLI", () => {
   it("is a named repository command with an exact claim-grade workload", () => {
     expect(packageJson.scripts?.["measure:egress-address-guard"]).toBe(
-      "node tools/measure-egress-address-guard.mjs",
+      "node --conditions=@keel/source tools/measure-egress-address-guard.mjs",
     );
     const source = readFileSync(toolPath, "utf8");
     expect(source).toContain("CLAIM_TRANSFER_BYTES");
@@ -20,6 +20,9 @@ describe("egress address guard measurement CLI", () => {
     expect(source).toContain("createHttpProxyServer");
     expect(source).toContain("AuditChainWriter");
     expect(source).toContain("budgetOriginRateBytesPerSecond: 250 * MIB");
+    expect(source).toContain("now: () => 1_000");
+    expect(source).toContain("resourceSampleIntervalMs: RESOURCE_SAMPLE_INTERVAL_MS");
+    expect(source).toContain("resourceSettleDelayMs: RESOURCE_SETTLE_DELAY_MS");
     expect(source).toContain("saturationTransfers");
     expect(source).toContain("budgetTransfers");
     expect(source).toContain("process.exitCode = report.summary.countsAsPass ? 0 : 1");
@@ -43,5 +46,21 @@ describe("egress address guard measurement CLI", () => {
     expect(output).toContain("exactly 500 MiB");
     expect(output).toContain("250 MiB/s");
     expect(output).toContain("saturation");
+  });
+
+  it("accepts pnpm's one leading argument separator without relaxing unknown options", () => {
+    const output = execFileSync(
+      "corepack",
+      ["pnpm", "measure:egress-address-guard", "--", "--help"],
+      { cwd: root, encoding: "utf8" },
+    );
+
+    expect(output).toContain("Usage: pnpm measure:egress-address-guard");
+    const rejected = spawnSync(process.execPath, [toolPath, "--", "--unknown"], {
+      cwd: root,
+      encoding: "utf8",
+    });
+    expect(rejected.status).toBe(1);
+    expect(rejected.stderr).toContain("unknown measurement option");
   });
 });
