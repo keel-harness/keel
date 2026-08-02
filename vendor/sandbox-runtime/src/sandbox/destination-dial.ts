@@ -319,12 +319,19 @@ export async function dialDestination(
     signal,
   )
   return await new Promise((resolve, reject) => {
-    const socket = netConnect({
-      host: prepared.hostname,
-      port: prepared.port,
-      ...(prepared.lookup === undefined ? {} : { lookup: prepared.lookup }),
-      signal: prepared.signal,
-    })
+    let socket: Socket
+    try {
+      socket = netConnect({
+        host: prepared.hostname,
+        port: prepared.port,
+        ...(prepared.lookup === undefined ? {} : { lookup: prepared.lookup }),
+        signal: prepared.signal,
+      })
+    } catch (error) {
+      prepared.release()
+      reject(error)
+      return
+    }
     let settled = false
     const fail = (error: Error) => {
       if (settled) return

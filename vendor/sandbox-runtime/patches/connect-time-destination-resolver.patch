@@ -11,10 +11,10 @@ index 275cb17..14eee2d 100644
 +
 diff --git a/src/sandbox/destination-dial.ts b/src/sandbox/destination-dial.ts
 new file mode 100644
-index 0000000..7940cd6
+index 0000000..fffddc4
 --- /dev/null
 +++ b/src/sandbox/destination-dial.ts
-@@ -0,0 +1,353 @@
+@@ -0,0 +1,360 @@
 +import type { LookupAddress } from 'node:dns'
 +import type { ClientRequest } from 'node:http'
 +import { connect as netConnect, isIP, type LookupFunction, type Socket } from 'node:net'
@@ -336,12 +336,19 @@ index 0000000..7940cd6
 +    signal,
 +  )
 +  return await new Promise((resolve, reject) => {
-+    const socket = netConnect({
-+      host: prepared.hostname,
-+      port: prepared.port,
-+      ...(prepared.lookup === undefined ? {} : { lookup: prepared.lookup }),
-+      signal: prepared.signal,
-+    })
++    let socket: Socket
++    try {
++      socket = netConnect({
++        host: prepared.hostname,
++        port: prepared.port,
++        ...(prepared.lookup === undefined ? {} : { lookup: prepared.lookup }),
++        signal: prepared.signal,
++      })
++    } catch (error) {
++      prepared.release()
++      reject(error)
++      return
++    }
 +    let settled = false
 +    const fail = (error: Error) => {
 +      if (settled) return
