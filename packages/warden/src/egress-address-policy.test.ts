@@ -284,9 +284,7 @@ describe("egress address classifier", () => {
             priority: 1,
             source: "test",
           };
-          expect(selectLongestPolicyEntry(4, address, [broad, exact])?.id).toBe(
-            "property-exact",
-          );
+          expect(selectLongestPolicyEntry(4, address, [broad, exact])?.id).toBe("property-exact");
         },
       ),
       { numRuns: 500 },
