@@ -10404,9 +10404,20 @@ printf '%s\\n' '${match}'
     }
   });
 
-  it("secretless egress: rejects loopback credential authority before real srt execution", async () => {
+  it("secretless egress: rejects loopback credential authority before sandbox execution", async () => {
     const secret = "keel-real-token-sec027-live";
-    const sandboxPort = await createVendoredSrtSandboxPort();
+    let executed = false;
+    const sandboxPort: SandboxPort = {
+      status: () => ({
+        available: true,
+        backend: "fake-sandbox",
+        enforcementTier: "sandbox:fake",
+      }),
+      execute: async () => {
+        executed = true;
+        return { exitCode: 0, signal: null, stdout: "must-not-run", stderr: "" };
+      },
+    };
     const raw = JsonRpcErrorResponse.parse(
       await handleRpcLine(
         JSON.stringify(
@@ -10436,6 +10447,7 @@ printf '%s\\n' '${match}'
     expect(raw.error.data?.code).toBe("INVALID_EGRESS_CONFIG");
     expect(raw.error.message).toMatch(/localhost/u);
     expect(JSON.stringify(raw)).not.toContain(secret);
+    expect(executed).toBe(false);
   });
   it("SEC-002: vendored proxy rechecks redirected requests against the allowlist", async () => {
     const fixture = await listenEgressFixture();
