@@ -65,3 +65,11 @@ same decision, mutation, audit sequence, and safety limits produce bounded contr
 factoring exact common edges before the middle comparison. Genuinely divergent middles still settle
 `capture-budget`; policy, grantability, enforcement, sandboxing, audit, redaction, frozen carriers,
 and resume persistence are unchanged.
+
+## R0 validation outcome
+
+R0 introduced no Warden action, review interrupt, automatic denial, provider call, or policy
+classification, so the historical totals remain 6 total / 2 necessary / 4 excessive or avoidable.
+Its comparator accepts only already-decided controller lifecycle facts paired with rendered states
+and emits deterministic presentation mismatch codes. It cannot receive a command, grant scope, or
+emit allow/review/deny. Policy, grantability, enforcement, audit, and frozen schemas are unchanged.

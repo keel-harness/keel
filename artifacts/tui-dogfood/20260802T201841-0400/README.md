@@ -35,15 +35,21 @@ credentials nor user-home paths.
 ## Current gate
 
 All six requested workflow classes have live evidence. Evidence PR #53 and implementation PRs #55,
-#57, and #59 were owner-approved, squash-merged, and cleaned up. Exact post-R3 `main` CI run
-`30784690703` passed at `990f9904e791f74b80874100544930ace34c0e1a` before R4 began.
+#57, #59, and #61 were owner-approved, squash-merged, and cleaned up. Exact post-R4 `main` CI run
+`30786694570` passed at `01de241ecd3ea275e7b075a5ebd8099524c68a92` before R0 began.
 
 R3's safe first slice is tracked by [issue #58](https://github.com/keel-harness/keel/issues/58):
 exact edit/write retries reconcile without hiding history, live and resumed receipts show
 `recovered`, and malformed or ambiguous histories fail safe. Generic equivalent-bash recovery and
 compaction timing remain unavailable from the existing controller facts and were not manufactured.
 
-The fourth slice is tracked by [issue #60](https://github.com/keel-harness/keel/issues/60). Candidate
-`cd26923` keeps a 1,634-line mostly unchanged mutation within ADR-0078's existing construction
-budget by factoring exact common edges before bounded middle comparison. E2/E3/E4 and full local
-gates are green; publication, independent review, merge, and exact post-merge CI remain pending.
+R4 is merged through [PR #61](https://github.com/keel-harness/keel/pull/61). Its reviewed head and
+squash-merge commit have the same tree; exact PR-head CI run `30786255628` and post-merge `main` CI
+run `30786694570` passed. The merged branch and worktree were removed.
+
+R0 is tracked by [issue #62](https://github.com/keel-harness/keel/issues/62). The private eval
+harness now parses `scenario-manifest.json` for exactly six workflows and compares normalized
+controller facts with rendered claims without making policy decisions. Its credential-unset 100x30
+PTY replay reproduced all eleven score axes, nineteen safe screenshot checkpoint names, and one
+intentional bash contradiction with zero provider calls. This is repeatability infrastructure; it
+does not raise the current UX score.

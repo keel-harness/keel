@@ -249,3 +249,53 @@
   surface changed. Durable/resumed mutation evidence remains explicitly deferred by ADR-0078.
 - Provider usage: **0 input / 0 output**. The displayed 136 replay tokens are synthetic. Cumulative
   Anthropic cost remains **USD 2.7109**; the USD 2.00 reserve remains intact.
+
+## 2026-08-03 — R4 publication closeout
+
+- Reviewed head `6c2637eb30591834816397254f18949051af48a9` passed exact-head CI run
+  `30786255628` and was owner-authorized for the separate admin merge only after recorded five-lens
+  QC was green.
+- PR [#61](https://github.com/keel-harness/keel/pull/61) squash-merged as
+  `01de241ecd3ea275e7b075a5ebd8099524c68a92`. Reviewed-head and merge trees are identical at
+  `20c6a75cc8f98d39de9abad35fb141c9b0c37e23`.
+- Exact post-merge `main` CI run `30786694570` passed. The primary checkout was fast-forwarded and
+  the merged local branch/worktree and deleted remote tracking ref were removed.
+
+## 2026-08-03 — R0 repeatable dogfood scenarios
+
+- Verified clean synchronized `main` at `01de241ecd3ea275e7b075a5ebd8099524c68a92` with exact
+  post-R4 CI green. Opened scoped issue
+  [#62](https://github.com/keel-harness/keel/issues/62) and isolated branch
+  `test/eval-freeze-dogfood-scenarios` from that exact baseline.
+- Worktree setup attempts were not counted as red behavior evidence: the empty worktree first lacked
+  `vitest`; an offline frozen install stopped on the repository's patched-dependency lock mismatch;
+  an offline lockfile-disabled install stopped on missing package metadata. Neither modified tracked
+  files. Diagnosis found ambient pnpm 9.9 while the repository pins pnpm 10.16. Corepack 10.16 then
+  installed the exact frozen lockfile with lifecycle scripts disabled; no dependency or lockfile
+  changed.
+- First real red: the focused suite failed to load missing module `dogfood-evidence.js`; no tests
+  collected. This is the expected pre-implementation failure.
+- Implemented one private eval schema/comparator and one committed sanitized manifest. The manifest
+  fixes exact Click starting commits, sanitized prompts with explicit source-ledger/canonicalized
+  provenance, terminal/mode, expected policy posture, authoritative facts/outcomes, screenshot
+  checkpoints, cost ceilings, and all eleven score axes for exactly six workflows.
+- Comparator output is deterministic across bash, review lifecycle, mutation capability,
+  verification, and interrupt states. Strict schemas reject unknown fields, inconsistent lifecycle
+  facts, unsafe screenshot paths, malformed baselines/costs, and duplicate workflows; a committed-
+  artifact guard rejects credential or user-home markers. The comparator emits no policy decision.
+- Final honesty review found that two replay prompts were canonical syntheses, not verbatim sanitized
+  ledger inputs. Red evidence was **1 failed / 20 passed** with all six provenance fields absent;
+  the manifest/schema now labels four `source-ledger` and two `canonicalized` prompts explicitly.
+- Final focused manifest/comparator plus barrel run: **22 passed**. The new comparator file measured
+  100% statements / branches / functions / lines. Full eval regression passed **293 tests**;
+  `@keel/eval` typecheck/build passed. Repository-wide typecheck, lint, format, and
+  `git diff --check` passed.
+- The first restricted full run was **partial/invalid**: six loopback proxy cases failed at the outer
+  harness boundary with `listen EPERM`; no application assertion failed. Exact-candidate unrestricted
+  full coverage then passed **6,451 tests with 20 existing opt-in skips**. Coverage passed at 98.02%
+  statements / 93.73% branches / 99.58% functions / 98.02% lines.
+- Credential-unset real PTY replay at 100x30 produced 6 workflows, 11 axes, 19 existing safe
+  checkpoint names, one intentional `bash-render-mismatch`, and 0 provider calls. A new E4 capture
+  was **NOT_RUN** because R0 changes no runtime/visual behavior; E5 was **NOT_RUN** with zero spend.
+- Provider usage: **0 input / 0 output**. Cumulative Anthropic cost remains **USD 2.7109**; remaining
+  budget is **USD 17.2891**, including the intact USD 2.00 final-regression reserve.

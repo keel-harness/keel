@@ -121,6 +121,10 @@ This is enabling work, not a substitute for fixing the P0. Keep it small and tim
 
 ### R0. Freeze the dogfood scenarios and score mechanics
 
+Candidate status: tracked by [issue #62](https://github.com/keel-harness/keel/issues/62). The
+private eval/docs candidate freezes all six workflows and provides an offline controller/render
+contradiction comparator; it does not score UX or make policy decisions.
+
 - **Evidence:** score and screenshots exist, but several reproductions still depend on remembered
   prompt wording and manual ledger comparison.
 - **Deliverable:** a sanitized scenario manifest containing external baseline commit, prompt,
@@ -270,9 +274,10 @@ All workflow trust and final-result confidence; debugging/refactor recovery.
 
 Findings: **DF-009**.
 
-Candidate status: issue [#60](https://github.com/keel-harness/keel/issues/60) locally validates the
-first live-evidence slice at `cd26923`: exact common edges are factored before bounded middle LCS,
-with every accepted ADR-0078 limit and the explicit no-resume-persistence boundary unchanged.
+Candidate status: merged through [PR #61](https://github.com/keel-harness/keel/pull/61) as
+`01de241`; exact common edges are factored before bounded middle LCS, with every accepted ADR-0078
+limit and the explicit no-resume-persistence boundary unchanged. Exact post-merge `main` CI run
+`30786694570` passed.
 
 #### User outcome
 
