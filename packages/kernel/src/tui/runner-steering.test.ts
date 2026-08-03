@@ -39,6 +39,8 @@ import { PURPOSEFUL_LIVENESS } from "./purposeful-liveness.js";
 import { WardenExecutor, type WardenExecuteClient } from "../warden/executor.js";
 import { WardenClientError } from "../warden/client.js";
 import { createAgentLoopControlState } from "../loop.js";
+import { recoverableTerminalReviewResult } from "../warden/terminal-review.js";
+import { buildTurnSummary, initialView } from "./view-model.js";
 
 const env = (): NodeJS.ProcessEnv => ({ KEEL_HOME: mkdtempSync(join(tmpdir(), "keel-")) });
 
@@ -1407,6 +1409,85 @@ describe("runner — loop-safety opts are forwarded to runAgentLoop (INT-1)", ()
     expect(seen[0]?.params).toEqual({ reasoningEffort: "low" });
     expect(seen[0]?.signal).toBeInstanceOf(AbortSignal);
     expect(seen[1]?.messages.at(-1)).toMatchObject({ role: "user", content: "verify the answer" });
+  });
+});
+
+describe("runner — bounded terminal-review correction presentation", () => {
+  it("finishes cleanly and preserves the recovered receipt live, headless, and after resume", async () => {
+    const e = env();
+    const store = SessionStore.create({ cwd: "/w" }, e);
+    const ui = new QueueUI();
+    const original = "cd . && python3 -m pytest --version 2>&1";
+    const correction = "python3 -m pytest --version";
+    const finalAnswer = "The atomic check passed; the reviewed composite command was not executed.";
+    const executed: string[] = [];
+    const outcome = await runSession({
+      model: new ScriptedModel({
+        turns: [
+          { toolCalls: [{ name: "bash", args: { command: original } }] },
+          { toolCalls: [{ name: "bash", args: { command: correction } }] },
+          { text: finalAnswer },
+        ],
+      }),
+      executor: {
+        execute(call): Promise<ToolResultT> {
+          const command = call.args["command"];
+          if (typeof command !== "string") throw new Error("expected command string");
+          executed.push(command);
+          return Promise.resolve(
+            command === original
+              ? recoverableTerminalReviewResult(
+                  "warden review required (not executed): POL-003 review: use a simpler command; no live review was opened by this kernel; no approval can be resolved from this result; simplify the request, then rerun",
+                )
+              : {
+                  ok: true,
+                  output: JSON.stringify({
+                    exitCode: 0,
+                    signal: null,
+                    stdout: "pytest 9.1.1\n",
+                    stderr: "",
+                  }),
+                },
+          );
+        },
+      },
+      ui,
+      store,
+      seed: [{ role: "user", content: "verify pytest" }],
+      env: e,
+      tools: [{ name: "bash", description: "run a governed command" }],
+    });
+
+    expect(executed).toEqual([original, correction]);
+    expect(outcome).toMatchObject({ lastStop: "model-stop" });
+    expect(outcome.lastStopCode).toBeUndefined();
+    expect(outcome.finalView.turnSummary).toMatchObject({ title: "done", attention: [] });
+    expect(outcome.finalView.turnSummary?.receipt).toContain(
+      "recovered · bash completed one bounded correction; original reviewed action was not executed",
+    );
+    const liveFrame = renderFrame(outcome.finalView);
+    expect(liveFrame).toContain("recovered");
+    expect(liveFrame).toContain("original reviewed action was not executed");
+    expect(liveFrame).not.toContain("needs attention");
+
+    const rebuilt = rebuild(readSession(store.id, e));
+    const resumedBase = initialView(
+      rebuilt.messages,
+      {},
+      {
+        failedToolCallIds: rebuilt.failedToolCallIds,
+        failedToolMessageIndexes: rebuilt.failedToolMessageIndexes,
+      },
+    );
+    const resumedSummary = buildTurnSummary(resumedBase);
+    if (resumedSummary === undefined) throw new Error("expected resumed recovery summary");
+    const resumedFrame = renderFrame({ ...resumedBase, turnSummary: resumedSummary });
+    expect(rebuilt).toMatchObject({ finished: true, lastStop: "model-stop" });
+    expect(resumedSummary).toMatchObject({ title: "done", attention: [] });
+    expect(resumedFrame).toContain("recovered");
+    expect(resumedFrame).not.toContain("needs attention");
+    expect(resumedFrame).not.toContain(String.fromCharCode(27));
+    store.close();
   });
 });
 

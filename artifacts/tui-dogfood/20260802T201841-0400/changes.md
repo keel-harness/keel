@@ -380,6 +380,42 @@ worktree were removed.
 - Green evidence: focused `2 passed, 244 deselected`; full termui `223 passed, 23 skipped`.
 - Static checks: ruff/mypy/pyright **NOT_RUN** because unavailable.
 
+## Keel — R11 bounded terminal-command recovery
+
+- An exact process-local marker is created only by `WardenExecutor` when a review result is
+  blocked, explicitly not executed, and has no live review handle. It is non-enumerable and absent
+  from shared, RPC, audit, session, event, tool, and CLI contracts.
+- The loop offers one model-driven recovery pass, accepts at most the first fresh model-authored
+  call, sends it through the ordinary Warden path, skips siblings, and performs one tool-disabled
+  closeout. Keel does not parse, split, normalize, modify, or replay the original call.
+- Only a successful correction removes the original blocked count. Failure, nonzero/no-test output,
+  another review or denial, indeterminate state, no call, truncation, budget, deadline, and max-turn
+  paths remain needs attention and receive no second recovery.
+- Live and resumed output require the exact authoritative same-turn sequence before making the
+  correction dominant. The receipt says the original reviewed action was not executed; verbose
+  history and the ledger retain the original block. Skipped siblings and unsuccessful corrections
+  cannot manufacture recovery.
+- Red-first execution coverage found and repaired a truncated-response retry loop. The live replay
+  later exposed a false `needs attention` card after clean correction; a second red-first
+  presentation slice repaired it without changing Warden or execution state.
+- Final adversarial review then found that transport success could clear the blocked state for a
+  production-shaped Warden JSON envelope reporting nonzero exit, signal, or indeterminate exit.
+  Three initial red cases failed as expected; warning-decorated, untrusted-forgery, and malformed
+  cases were added before the fail-closed fix. A real zero-exit Warden envelope remains the positive
+  control.
+- Exact local gates pass: focused **825/825**, artifact evidence **21/21**, unrestricted full tests
+  **6,528 / 20 existing opt-in skips**, unrestricted enforced coverage **6,528 / 20** at 98.00%
+  statements and 93.73% branches overall, typecheck, lint, format, build, and `git diff --check`.
+- E3 uses production source, a spawned Warden, external Click, a non-secret loopback provider, and
+  fixed 80x24/100x30 PTYs. Baseline executes no command, ends `BLOCKED`, and exits 1. Candidate
+  executes only `python3 -m pytest --version` after the original non-execution, records
+  `pytest 9.1.1`, ends clean `model-stop`, and exits 0 at both sizes. Click stays clean.
+- E4 adds visually inspected sanitized screenshots 33–35. E5 is **NOT_RUN**; cumulative Anthropic
+  spend remains USD 2.74434625. The same 80x24/100x30 PTY oracle was repeated after the final
+  fail-closed correction and retained SHA-256 `97e78a47…`, eight local requests, zero paid requests,
+  and clean Click state. Candidate score is **3.82/5** (237/62). Exact-head CI, merge, post-main CI,
+  issue closeout, and branch/worktree cleanup remain required.
+
 ## External workload — validated local-only bug fix
 
 - Commit `21a08e3 fix(termui): flush buffered progress on exit`.

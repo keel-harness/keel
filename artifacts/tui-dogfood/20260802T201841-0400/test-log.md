@@ -688,3 +688,67 @@
   Its focused artifact/claim checks passed **175/175** across four files, repository formatting and
   `git diff --check` passed, and behavior tests were therefore not repeated locally. Exact PR CI
   remains the full repository gate for the closeout commit.
+
+## 2026-08-03 — R11 bounded terminal-command recovery
+
+- Started from clean synchronized `main` at `2df87299e2a53f0ca8bbdab2d2850221a1121b6b`. Published
+  [issue #82](https://github.com/keel-harness/keel/issues/82) and created isolated branch
+  `fix/kernel-bounded-command-recovery`.
+- Valid initial red failed **4 tests / 245 passed** only on the absent process-local marker and
+  bounded recovery behavior. The implementation then exposed an adversarial loop: a truncated
+  recovery response could re-enter model work until the turn cap. A new red regression reproduced
+  it before the recovery-truncation path was made terminal.
+- The final execution design keeps the original action unexecuted, accepts at most one fresh
+  model-authored call, skips siblings, reuses the ordinary Warden path, and disables tools for the
+  one closeout. Generic reviews, live/pending handles, denials, partial or indeterminate results,
+  dead Warden, timeout, budget, deadline, and max-turn behavior remain fail-closed.
+- Initial focused execution green passed **253/253**. The first unrestricted coverage run passed
+  **6,518 / 20 existing opt-in skips** across 361 passing and 4 skipped files; all repository
+  thresholds passed at 98.00% statements and 93.74% branches overall. Kernel measured 97.52%
+  statements and 94.62% branches; the marker file measured 100%.
+- The 80x24 candidate replay then exposed a must-fix: the ledger ended clean `model-stop`, but the
+  compact TUI retained the original block and said `needs attention`. Red-first reconciliation now
+  requires the exact no-live result, exactly one later successful tool, and a final answer. Failed
+  corrections and skipped siblings remain consequential. The initial post-presentation focused
+  behavior run passed **742/742**.
+- A second five-lens pass found another must-fix: `result.ok` plus absent textual failure evidence
+  could clear the original block even when the real Warden JSON body reported nonzero exit, signal,
+  or indeterminate exit. The three production-shaped regressions failed red. Warning-decorated
+  nonzero, untrusted apparent-success, and malformed-envelope cases were added before the smallest
+  fail-closed parser fix; the real zero-exit envelope and legacy textual-nonzero fallback remain
+  covered. The exact targeted matrix then passed **8/8** and the eight-file focused matrix passed
+  **825/825**.
+- E3/E4 used the production-source CLI, spawned Warden, external clean Click checkout, isolated
+  non-secret fixture, `KEEL_NO_SNAPSHOT=1`, and fixed 80x24/100x30 PTYs. Baseline at each size made
+  one request, recorded only the original result, ended `error/BLOCKED`, and exited 1. Candidate
+  made exactly original/correction/final requests, recorded only the original and atomic results,
+  ended clean `model-stop` with no code, and exited 0.
+- The first PTY attempt stalled because the harness polled its request log without draining Ink
+  output; it was infrastructure-invalid. A later oracle incorrectly required baseline exit 0 and
+  was corrected. Transient command/final-text visibility was separated from durable ledger proof.
+  These invalid harness assumptions are not counted as product failures.
+- Screenshots 33–35 are sanitized exact 100x30 frame transcriptions rendered at 1400x840 and
+  visually inspected. SHA-256 values are
+  `01b7a91005b220ef033263956992e051986780d69b4f4d1485852eae422c681a`,
+  `2a4ee331eb33c43532f4648d329bd3cb46bc9d2618724aa6858e7d67e350fa97`, and
+  `358a79c1eb71b11a529259ad3d47a0948293c3c237e266ebb43fc29995f949f1`.
+- E5 is **NOT_RUN**. Eight deterministic loopback requests exercise the production provider
+  boundary; R11 makes zero Anthropic calls. Cumulative spend remains USD 2.74434625, USD
+  17.25565375 remains, and the final USD 2 reserve is intact.
+- The exact PTY oracle was repeated after the final outcome fix: all four baseline/candidate runs at
+  80x24 and 100x30 passed, the result retained SHA-256 `97e78a47c85ac139dd831499e69c46bfe35e389964446b58348da3da10b4e738`,
+  Click remained clean, and the request/cost counts stayed eight local / zero paid.
+- Final exact local gates: artifact evidence **21/21**; unrestricted `pnpm test` **6,528 passed / 20
+  existing opt-in skips** across 361 passing and 4 skipped files; unrestricted `pnpm test:cov`
+  **6,528 / 20**, overall 98.00% statements and 93.73% branches with all thresholds satisfied;
+  repository typecheck, lint, format, build, and `git diff --check` all exit 0.
+- Five-lens QC now has no unresolved code must-fix. Spec: issue #82 scope and no frozen/shared
+  change. Security: non-wire eligibility, no rewrite/replay, one-call bound, ordinary Warden
+  authority, recursive-review/sibling denied paths, and untrusted-result rejection. Reliability:
+  response truncation, no-call, real envelope zero/nonzero/signal/indeterminate/malformed cases,
+  timeout/budget/deadline/max-turn, live/resume, and 80x24/100x30. DX: the same scenario removes the
+  operator redirect and ends with a truthful recovery receipt. Simplicity: one non-wire marker, one
+  explicit loop state, one bounded outcome parser, and one linear presentation reconciliation; no
+  dependency or new authority.
+- Candidate aggregate is **3.82/5** (237/62), pending reviewed-head CI, merge, exact post-main CI,
+  and cleanup.

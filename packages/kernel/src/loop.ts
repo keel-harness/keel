@@ -80,7 +80,11 @@ import {
   type AcceptanceContract,
   type ArtifactReader,
 } from "./completion/acceptance-contract.js";
-import { isTerminalReviewResult, terminalReviewResult } from "./warden/terminal-review.js";
+import {
+  isTerminalReviewRecoveryAvailable,
+  isTerminalReviewResult,
+  terminalReviewResult,
+} from "./warden/terminal-review.js";
 import {
   markToolDeadlineSignal,
   takeToolDeadlineReviewResult,
@@ -300,7 +304,63 @@ export const LOOP_WARDEN_UNAVAILABLE_MESSAGE =
 
 const LOOP_REVIEW_REQUIRED_SKIP_MESSAGE =
   "not executed: an earlier tool in this turn requires review; change the task and rerun";
+const LOOP_BOUNDED_RECOVERY_SKIP_MESSAGE =
+  "bounded recovery permits one tool call (model-authored); this additional call was not executed";
+const NONZERO_EXIT_RESULT_RE = /\[exit code:\s*[1-9]\d*\]/m;
+const UNTRUSTED_TOOL_RESULT_STEM = "[keel:untrusted-tool-result:";
+const WARDEN_DECORATED_BASH_RESULT_RE = /^warden (?:containment|warning|modified tool args):/u;
 const DUPLICATE_TOOL_CALL_ID_CODE = "duplicate-tool-call-id";
+
+function governedBashCorrectionSucceeded(output: string): boolean | undefined {
+  const trimmed = output.trim();
+  if (trimmed.includes(UNTRUSTED_TOOL_RESULT_STEM)) return false;
+
+  const separator = trimmed.lastIndexOf("\n\n");
+  const suffix = separator < 0 ? undefined : trimmed.slice(separator + 2).trim();
+  const candidate = trimmed.startsWith("{")
+    ? trimmed
+    : suffix?.startsWith("{") === true
+      ? suffix
+      : undefined;
+  if (candidate === undefined) {
+    return WARDEN_DECORATED_BASH_RESULT_RE.test(trimmed) ? false : undefined;
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(candidate);
+  } catch {
+    return false;
+  }
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) return false;
+
+  const envelope = parsed as Record<string, unknown>;
+  if (
+    !["exitCode", "signal", "stdout", "stderr"].some((key) => key in envelope) ||
+    !Number.isSafeInteger(envelope["exitCode"]) ||
+    !(
+      envelope["signal"] === null ||
+      (typeof envelope["signal"] === "string" && envelope["signal"].length > 0)
+    ) ||
+    typeof envelope["stdout"] !== "string" ||
+    typeof envelope["stderr"] !== "string"
+  ) {
+    return false;
+  }
+  return envelope["exitCode"] === 0 && envelope["signal"] === null;
+}
+
+function boundedCorrectionSucceeded(
+  call: ToolInvocationT,
+  result: Pick<ToolResultT, "ok" | "output">,
+  failureEvidence: string | undefined,
+): boolean {
+  if (!result.ok || failureEvidence !== undefined) return false;
+  if (call.name !== "bash") return true;
+
+  const governedOutcome = governedBashCorrectionSucceeded(result.output);
+  return governedOutcome ?? !NONZERO_EXIT_RESULT_RE.test(result.output);
+}
 
 function terminalReviewStopMessage(outcome: ToolPresentationOutcome | undefined): string {
   switch (outcome) {
@@ -798,7 +858,10 @@ export async function* runAgentLoopWithControlState(
   let terminalReviewSynthesisAttempted = false;
   let terminalReviewOutcome: ToolPresentationOutcome | undefined;
   let terminalReviewTimedOut = false;
-  let blockedActionSeen = false;
+  let terminalReviewRecoveryActive = false;
+  let terminalReviewRecoveryAttempted = false;
+  let terminalReviewRecoveryFinalizationActive = false;
+  let unrecoveredBlockedActions = 0;
   const blockedStopEvent = (): StopEvent => ({
     type: "stop",
     reason: "model-stop",
@@ -806,7 +869,7 @@ export async function* runAgentLoopWithControlState(
     message: BLOCKED_AFTER_SYNTHESIS_MESSAGE,
   });
   const modelStopEvent = (): StopEvent =>
-    blockedActionSeen ? blockedStopEvent() : { type: "stop", reason: "model-stop" };
+    unrecoveredBlockedActions > 0 ? blockedStopEvent() : { type: "stop", reason: "model-stop" };
   const controllerOwnedUserMessages = new WeakSet<ModelMessageT>();
   const pushControllerPrompt = (content: string): void => {
     const message: ModelMessageT = { role: "user", content };
@@ -1239,8 +1302,10 @@ export async function* runAgentLoopWithControlState(
     // BEFORE this turn — a long drive nearing the gross cap shrinks instead of dying uncompacted. The
     // hook decides (cache-aware) whether to act and records its own audit event(s); a no-op returns
     // the same array (no copy).
-    const toolsForTurn = terminalReviewSynthesisActive ? undefined : input.tools;
-    if (input.compactor !== undefined && !terminalReviewSynthesisActive) {
+    const toolDisabledFinalActive =
+      terminalReviewSynthesisActive || terminalReviewRecoveryFinalizationActive;
+    const toolsForTurn = toolDisabledFinalActive ? undefined : input.tools;
+    if (input.compactor !== undefined && !toolDisabledFinalActive) {
       const pressure = computeContextPressure({
         messages,
         ...(toolsForTurn !== undefined ? { tools: toolsForTurn } : {}),
@@ -1320,7 +1385,7 @@ export async function* runAgentLoopWithControlState(
         // The terminal-review synthesis turn is buffered until its terminal is known. A provider
         // that emits an unadvertised tool call cannot smuggle accompanying prose into the UI before
         // the kernel rejects that call as not executed.
-        if (!terminalReviewSynthesisActive) yield { type: "text-delta", text: chunk.text };
+        if (!toolDisabledFinalActive) yield { type: "text-delta", text: chunk.text };
       } else if (chunk.type === "tool-call") {
         const call: ToolInvocationT = { id: chunk.id, name: chunk.name, args: chunk.args };
         calls.push(call);
@@ -1382,7 +1447,7 @@ export async function* runAgentLoopWithControlState(
     // A truncated turn is not safe to persist or execute. Discard any partial assistant text/calls and
     // ask the model to continue from the last complete state in a fresh response.
     if (finishReason === "length") {
-      if (terminalReviewSynthesisActive) {
+      if (toolDisabledFinalActive) {
         const terminalBlocked = terminalReviewOutcome === "blocked";
         yield {
           type: "stop",
@@ -1391,6 +1456,17 @@ export async function* runAgentLoopWithControlState(
           message: terminalBlocked
             ? "blocked action was not executed; change the task and rerun"
             : "requested action was not executed; change the task and rerun",
+        };
+        break;
+      }
+      if (terminalReviewRecoveryActive) {
+        terminalReviewRecoveryActive = false;
+        yield {
+          type: "stop",
+          reason: "error",
+          code: "BLOCKED",
+          message:
+            "bounded recovery response was truncated; no correction was executed and no second attempt is available",
         };
         break;
       }
@@ -1472,6 +1548,8 @@ export async function* runAgentLoopWithControlState(
       assistantText.trim().length === 0 &&
       calls.length === 0 &&
       !terminalReviewSynthesisActive &&
+      !terminalReviewRecoveryActive &&
+      !terminalReviewRecoveryFinalizationActive &&
       !hasConfiguredCompletionGate() &&
       !hasVisibleVerifiedCompletion() &&
       (!hasAssistantOrToolEvidenceSinceLastUser(messages) ||
@@ -1492,14 +1570,14 @@ export async function* runAgentLoopWithControlState(
     }
     if (assistantText.trim().length > 0 || calls.length > 0) emptyAssistantStopRetried = false;
 
-    if (terminalReviewSynthesisActive && calls.length === 0 && assistantText.length > 0) {
+    if (toolDisabledFinalActive && calls.length === 0 && assistantText.length > 0) {
       yield { type: "text-delta", text: assistantText };
     }
 
     if (assistantText.length > 0 || calls.length > 0) {
       messages.push({
         role: "assistant",
-        content: terminalReviewSynthesisActive && calls.length > 0 ? "" : assistantText,
+        content: toolDisabledFinalActive && calls.length > 0 ? "" : assistantText,
         ...(calls.length > 0 ? { toolCalls: calls } : {}),
       });
     }
@@ -1533,7 +1611,7 @@ export async function* runAgentLoopWithControlState(
         });
       }
       if (calls.length === 0 && assistantText.trim().length > 0) {
-        yield blockedActionSeen
+        yield unrecoveredBlockedActions > 0
           ? blockedStopEvent()
           : {
               type: "stop",
@@ -1555,6 +1633,36 @@ export async function* runAgentLoopWithControlState(
       break;
     }
 
+    // The bounded correction always ends with one tool-disabled closeout. Unadvertised calls are
+    // recorded as not executed and cannot become a second attempt.
+    if (terminalReviewRecoveryFinalizationActive) {
+      terminalReviewRecoveryFinalizationActive = false;
+      for (const call of calls) {
+        yield presentationToolResultEvent(
+          call.id,
+          { ok: false, output: LOOP_BOUNDED_RECOVERY_SKIP_MESSAGE },
+          "skipped",
+        );
+        messages.push({
+          role: "tool",
+          content: LOOP_BOUNDED_RECOVERY_SKIP_MESSAGE,
+          toolCallId: call.id,
+          name: call.name,
+        });
+      }
+      if (calls.length === 0 && assistantText.trim().length > 0) {
+        yield modelStopEvent();
+        break;
+      }
+      yield {
+        type: "stop",
+        reason: "error",
+        code: "BLOCKED",
+        message: "bounded recovery ended without a tool-disabled final answer",
+      };
+      break;
+    }
+
     const duplicateIds = duplicateToolCallIds(calls);
     if (duplicateIds.length > 0) {
       const output = `not executed: ${duplicateToolCallIdMessage(duplicateIds)}`;
@@ -1572,6 +1680,11 @@ export async function* runAgentLoopWithControlState(
     }
 
     if (calls.length === 0) {
+      if (terminalReviewRecoveryActive) {
+        terminalReviewRecoveryActive = false;
+        yield modelStopEvent();
+        break;
+      }
       const knownRed = findKnownRedCompletionEvidence(messages);
       if (knownRed !== undefined) {
         const retryKey = knownRedCompletionEvidenceKey(knownRed);
@@ -1650,6 +1763,10 @@ export async function* runAgentLoopWithControlState(
     let abortedMidTurn = false;
     let wardenHalted = false;
     let terminalReviewHalted = false;
+    let terminalReviewRecoveryAvailable = false;
+    let terminalReviewCorrectionCompleted = false;
+    const boundedRecoveryTurn = terminalReviewRecoveryActive;
+    terminalReviewRecoveryActive = false;
     const toolMs = input.infraTimeout?.toolMs;
     const perCallStepTokens =
       calls.length > 0 ? (turnUsage.inputTokens + turnUsage.outputTokens) / calls.length : 0;
@@ -1748,7 +1865,7 @@ export async function* runAgentLoopWithControlState(
         );
       }
       const presentationOutcome = toolPresentationOutcome(result);
-      if (presentationOutcome === "blocked") blockedActionSeen = true;
+      if (presentationOutcome === "blocked") unrecoveredBlockedActions += 1;
       yield presentationToolResultEvent(call.id, result, presentationOutcome);
       messages.push({ role: "tool", content: result.output, toolCallId: call.id, name: call.name });
       if (result.ok && (call.name === "read" || call.name === "search")) {
@@ -1835,27 +1952,30 @@ export async function* runAgentLoopWithControlState(
         break;
       }
 
-      // A review result with no live approval surface is terminal for this run. Re-driving the model
-      // invites retries and invented approval paths even though the authoritative result explicitly
-      // says neither is possible. Do not assume sibling calls are independent: synthesize non-executed
-      // results so provider/session history stays well formed, then close without another model turn.
+      // Terminal review closes ordinary execution for this run. The sole exception is an exact
+      // process-local no-handle marker, which may offer one fresh model-authored atomic call below;
+      // every other result remains terminal. Sibling calls are never assumed independent.
       if (isTerminalReviewResult(result)) {
         for (let j = ci + 1; j < calls.length; j++) {
           const skipped = calls[j]!;
+          const skippedMessage = boundedRecoveryTurn
+            ? LOOP_BOUNDED_RECOVERY_SKIP_MESSAGE
+            : LOOP_REVIEW_REQUIRED_SKIP_MESSAGE;
           yield presentationToolResultEvent(
             skipped.id,
-            { ok: false, output: LOOP_REVIEW_REQUIRED_SKIP_MESSAGE },
+            { ok: false, output: skippedMessage },
             "skipped",
           );
           messages.push({
             role: "tool",
-            content: LOOP_REVIEW_REQUIRED_SKIP_MESSAGE,
+            content: skippedMessage,
             toolCallId: skipped.id,
             name: skipped.name,
           });
         }
         terminalReviewOutcome = presentationOutcome;
         terminalReviewTimedOut = infraTimedOut;
+        terminalReviewRecoveryAvailable = isTerminalReviewRecoveryAvailable(result);
         terminalReviewHalted = true;
         break;
       }
@@ -1868,6 +1988,27 @@ export async function* runAgentLoopWithControlState(
       if (failureEvidence !== undefined) {
         latestFailureEvidence = failureEvidence;
         resetTailSuccess();
+      }
+      if (boundedRecoveryTurn) {
+        if (boundedCorrectionSucceeded(call, result, failureEvidence)) {
+          unrecoveredBlockedActions = Math.max(0, unrecoveredBlockedActions - 1);
+        }
+        for (let j = ci + 1; j < calls.length; j++) {
+          const skipped = calls[j]!;
+          yield presentationToolResultEvent(
+            skipped.id,
+            { ok: false, output: LOOP_BOUNDED_RECOVERY_SKIP_MESSAGE },
+            "skipped",
+          );
+          messages.push({
+            role: "tool",
+            content: LOOP_BOUNDED_RECOVERY_SKIP_MESSAGE,
+            toolCallId: skipped.id,
+            name: skipped.name,
+          });
+        }
+        terminalReviewCorrectionCompleted = true;
+        break;
       }
       const successEvidence = extractStrongSuccessEvidence(call, result);
       latestStrongSuccessEvidence = successEvidence;
@@ -1923,7 +2064,26 @@ export async function* runAgentLoopWithControlState(
     // outer loop without emitting any further stop so exactly one stop is produced.
     if (wardenHalted) break;
 
+    if (
+      terminalReviewCorrectionCompleted ||
+      (terminalReviewHalted && boundedRecoveryTurn && !terminalReviewTimedOut)
+    ) {
+      terminalReviewRecoveryFinalizationActive = true;
+      pushControllerPrompt(KERNEL_STRINGS.terminalReviewRecoveryFinalization);
+      continue;
+    }
+
     if (terminalReviewHalted) {
+      if (
+        !terminalReviewTimedOut &&
+        terminalReviewRecoveryAvailable &&
+        !terminalReviewRecoveryAttempted
+      ) {
+        terminalReviewRecoveryAttempted = true;
+        terminalReviewRecoveryActive = true;
+        pushControllerPrompt(KERNEL_STRINGS.terminalReviewRecovery);
+        continue;
+      }
       if (
         !terminalReviewTimedOut &&
         hasSuccessfulTypedReadEvidence &&
