@@ -21,3 +21,6 @@ raises that aggregate to **3.31/5**. R4 repeated the observed large-file mutatio
 multi-file refactor workflow; unaffected axes retain their prior scores. This remains below the 3.8
 release gate: responsiveness, progress visibility, durable/resumed mutation review, long-task
 runway, input-history resume, and command-detail ranking remain unresolved.
+
+R0 does not change a workflow score. It freezes these eleven axes and the six scenario inputs so
+later score changes must compare like with like; the evidence-weighted aggregate remains **3.31/5**.

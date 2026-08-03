@@ -81,11 +81,11 @@
 ### DF-009 — mutation review disappears when observation exceeds presentation limits
 
 - Severity: P1 trust/review.
-- Status: R4 implementation candidate validated under
-  [issue #60](https://github.com/keel-harness/keel/issues/60) at `cd26923`. A 68,669-byte,
-  1,634-line mostly unchanged edit now retains bounded live evidence under unchanged ADR-0078
-  limits. Resume still truthfully says that live observations were not persisted; durable review is
-  a separate frozen-contract decision, not part of this fix.
+- Status: the R4 slice merged through [PR #61](https://github.com/keel-harness/keel/pull/61) as
+  `01de241`. A 68,669-byte, 1,634-line mostly unchanged edit now retains bounded live evidence under
+  unchanged ADR-0078 limits. Exact post-merge `main` CI run `30786694570` passed. Resume still
+  truthfully says that live observations were not persisted; durable review is a separate
+  frozen-contract decision, not part of this fix.
 - Direct evidence: every edit card showed `review unavailable — observation exceeded presentation
   limits`; after resume, it changed to `live mutation observations were not persisted`.
 - Impact: files can change successfully while the operator sees neither a bounded diff nor durable

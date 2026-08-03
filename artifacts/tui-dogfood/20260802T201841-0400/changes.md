@@ -60,8 +60,9 @@
 ## Keel — validated R4 bounded mutation review construction
 
 - Signed-off implementation commit
-  `cd26923 fix(warden): preserve bounded mutation review evidence`; review issue
-  [#60](https://github.com/keel-harness/keel/issues/60).
+  `6c2637e fix(warden): preserve bounded mutation review evidence`; review issue
+  [#60](https://github.com/keel-harness/keel/issues/60), merged through
+  [PR #61](https://github.com/keel-harness/keel/pull/61) as `01de241`.
 - The Warden constructor now factors exact common prefix/suffix line pairs before running bounded
   Hirschberg LCS on the disjoint middle. Every edge and middle comparison still passes through the
   existing cooperative scalar accountant.
@@ -82,6 +83,29 @@
   `screenshots/21-r4-mutation-review-after.png`. Anthropic usage: zero.
 - ADR-0078's process-local/no-resume-persistence rule, every quantitative limit, RPC/audit/session/
   event schema, redaction, policy, enforcement, and security claims remain unchanged.
+- Exact reviewed-head CI run `30786255628` and exact post-merge `main` CI run `30786694570` passed;
+  the reviewed and merge trees are identical and the merged branch/worktree were removed.
+
+## Keel — R0 repeatable dogfood evidence foundation
+
+- Public child issue [#62](https://github.com/keel-harness/keel/issues/62) scopes the work to a
+  private eval/docs slice with no runtime, frozen-contract, Warden, policy, or security-claim change.
+- `scenario-manifest.json` freezes sanitized prompts with explicit source-ledger/canonicalized
+  provenance, external Click starting commits,
+  100x30 terminal, Guided posture, controller facts, intended outcomes, existing screenshot
+  checkpoints, eleven score axes, and a USD 11 aggregate replay ceiling across all six workflows.
+- `@keel/eval` parses the manifest and reports deterministic mismatches between already-decided
+  controller facts and bash, review, mutation, verification, or interrupt rendering. It accepts no
+  action arguments and emits no allow/review/deny decision.
+- First real red: the focused suite failed because `dogfood-evidence.js` did not exist. A final
+  honesty review added a second red proving prompt provenance was missing before distinguishing
+  source-ledger text from canonical replay syntheses. Final focused green is 22 tests; the new
+  comparator file reaches 100% statements/branches/functions/lines; full coverage passes at 98.02%
+  statements / 93.73% branches repository-wide. Exact publication proof is recorded in
+  `test-log.md` as it completes.
+- A credential-unset real PTY replay at 100x30 reproduced 6 workflows, 11 score axes, 19 safe
+  checkpoint basenames, the expected `bash-render-mismatch`, and 0 provider calls. No new visual
+  capture was needed because R0 changes the test harness rather than the TUI.
 
 ## External workload — validated local-only feature
 

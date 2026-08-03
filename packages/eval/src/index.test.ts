@@ -20,6 +20,9 @@ describe("@keel/eval barrel", () => {
       "ResultMismatchError",
       "TaskResult",
       "parseTerminalBenchResults",
+      "DogfoodScenarioManifest",
+      "DogfoodEvidenceObservation",
+      "compareDogfoodEvidence",
     ]) {
       expect(name in evalPkg).toBe(true);
     }

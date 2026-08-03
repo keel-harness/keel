@@ -159,3 +159,16 @@ export type {
   MatrixRunResult,
   MatrixVariantPlan,
 } from "./matrix-runner.js";
+export {
+  DOGFOOD_SCORE_AXES,
+  DOGFOOD_WORKFLOW_IDS,
+  DogfoodEvidenceIssue,
+  DogfoodEvidenceObservation,
+  DogfoodScenarioManifest,
+  compareDogfoodEvidence,
+} from "./dogfood-evidence.js";
+export type {
+  DogfoodEvidenceIssueT,
+  DogfoodEvidenceObservationT,
+  DogfoodScenarioManifestT,
+} from "./dogfood-evidence.js";
