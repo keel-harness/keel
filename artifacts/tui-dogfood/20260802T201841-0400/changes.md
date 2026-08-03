@@ -18,6 +18,21 @@
 - Product evidence: offline deterministic Warden replay against Click plus a sanitized 100×30 Kitty
   capture. Anthropic usage: zero.
 
+## Keel — validated R2 bash command-outcome truth
+
+- Signed-off commit `884a27a fix(tui): derive bash cards from command outcomes`; stacked review
+  candidate [PR #57](https://github.com/keel-harness/keel/pull/57).
+- A complete governed-bash envelope with nonzero exit or termination signal now renders failed live
+  and after resume, while exit zero remains done.
+- Typed control-plane outcomes retain precedence; non-bash and incomplete JSON cannot manufacture
+  command status.
+- Durable transport metadata, model-visible output, loop/completion behavior, Warden, policy, audit,
+  and frozen interfaces are unchanged.
+- Red evidence: 3 failures / 300 passes. Green evidence: focused 303; broader 709; full current-head
+  6,417 passes with 20 existing opt-in skips; all static gates passed.
+- Product evidence: Warden-allowed pytest command exited 5 and rendered failed in a sanitized 100×30
+  Kitty capture. Anthropic usage: zero.
+
 ## External workload — validated local-only feature
 
 - Commit `941ab66 feat(termui): accept PathLike filenames in edit`.

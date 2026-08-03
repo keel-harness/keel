@@ -35,8 +35,10 @@ credentials nor user-home paths.
 ## Current gate
 
 All six requested workflow classes have live evidence. The evidence bundle is published for review
-in [PR #53](https://github.com/keel-harness/keel/pull/53); its exact head is green and awaits the
-required independent review. The corrected first implementation slice is tracked by
+in [PR #53](https://github.com/keel-harness/keel/pull/53); merge requires both exact-head green CI
+and independent review. The corrected first implementation slice is tracked by
 [issue #54](https://github.com/keel-harness/keel/issues/54) and implemented in
 [PR #55](https://github.com/keel-harness/keel/pull/55). R1 local E2/E3/E4 gates are green; merge and
-post-merge claims remain pending exact-head CI and independent review.
+post-merge claims remain pending exact-head CI and independent review. The next presentation-truth
+slice is tracked by [issue #56](https://github.com/keel-harness/keel/issues/56) and stacked
+[PR #57](https://github.com/keel-harness/keel/pull/57); it must not merge before R1.

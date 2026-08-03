@@ -152,3 +152,29 @@
   Published as [PR #55](https://github.com/keel-harness/keel/pull/55).
 - Provider usage: **0 input / 0 output** for this implementation replay. Cumulative Anthropic cost
   remains **USD 2.7109**; the USD 2.00 final live-regression reserve remains intact.
+
+## 2026-08-02 — R2 bash command-outcome truth
+
+- Opened scoped issue [#56](https://github.com/keel-harness/keel/issues/56) and created isolated
+  stacked branch `fix/tui-bash-command-outcomes` from R1 commit `26bf47b`. The stacked review must be
+  retargeted to main only after R1 merges.
+- Red-first result: 3 failures and 300 passes. Live nonzero and signaled bash commands retained
+  `status:ok`; resumed/headless history rendered `tool ✓ bash done`.
+- Implemented one presentation-only derivation from the complete outer bash result envelope. Nonzero
+  exit or signal becomes a kernel-local failed presentation; exit zero remains done. Existing typed
+  outcomes win, and non-bash or incomplete JSON remains ordinary data.
+- Focused green: `303 passed`. Broader view-model/headless/conversation/tool-card/Ink/CLI set:
+  `709 passed`.
+- Final full current-head run outside the outer sandbox: `6,417 passed`, `20 skipped` by existing
+  opt-in real-sandbox/Ollama gates. Full typecheck, lint, repository format, and diff check passed.
+- Offline product replay used a legitimate Warden-allowed atomic pytest selector. The command exited
+  5 after selecting no tests; Keel continued the replay and rendered `failed: bash: exit 5` rather
+  than a success checkmark. Model-visible output, transport truth, loop behavior, Warden, audit, and
+  completion eligibility were unchanged.
+- Sanitized E4 capture: `screenshots/17-r2-bash-command-failure-after.png`, Kitty 100×30.
+- Signed-off implementation commit:
+  `884a27ad66893858f2942cffbcd914a643c0d999 fix(tui): derive bash cards from command outcomes`.
+  Published as stacked [PR #57](https://github.com/keel-harness/keel/pull/57).
+- Follow-up observed, not fixed in this slice: a benign pytest terminal warning can outrank the more
+  useful stdout tail in compact failure detail.
+- Provider usage: **0 input / 0 output**. Cumulative Anthropic cost remains **USD 2.7109**.

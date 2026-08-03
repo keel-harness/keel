@@ -198,6 +198,10 @@ Findings: **DF-010**. This is the existing first slice in issue #52 and should f
 after the P0 lifecycle clarification—or land first only if needed as a one-commit truth guard while
 R1's public security boundary is being reviewed.
 
+Candidate status: implemented and locally validated in stacked
+[PR #57](https://github.com/keel-harness/keel/pull/57) at `884a27a`; it must not merge before R1 and
+must be retargeted to main after #55 lands.
+
 #### User outcome
 
 A structured bash envelope with nonzero `exitCode`, termination signal, timeout, or equivalent

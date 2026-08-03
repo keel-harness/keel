@@ -89,6 +89,8 @@
 ### DF-010 — bash cards show a success checkmark for nonzero command exits
 
 - Severity: P1 error comprehension.
+- Status: candidate fixed in stacked [PR #57](https://github.com/keel-harness/keel/pull/57);
+  E2/E3/E4 and full local gates passed. Merge must follow R1 and independent review.
 - Direct evidence: targeted pytest (`exitCode:1`) and `pip install` (`exitCode:1`) rendered as
   `tool ✓ bash done`; failure was discoverable only in truncated stdout/stderr or later prose.
 - Impact: transport success is visually conflated with command success, weakening trust during the
