@@ -71,8 +71,8 @@
 - Repeated-line source numbering and randomized LCS cardinality remain exact. A genuinely divergent
   middle still fails closed at the unchanged 2,000,000-operation ceiling.
 - Red evidence: `1 failed / 11 passed` with `ConstructionBudgetExceededError` at scalar accounting.
-  Green evidence: constructor `14 passed`; all mutation-presentation Warden tests `120 passed`;
-  kernel product/TUI regression `75 passed`; unrestricted full suite `6,429 passed` with 20 existing
+  Green evidence: constructor `15 passed`; all mutation-presentation Warden tests `121 passed`;
+  kernel product/TUI regression `75 passed`; unrestricted full suite `6,430 passed` with 20 existing
   opt-in skips; enforced coverage passed at Warden 97.61% statements / 91.66% branches and touched
   constructor 97.81% / 91.46%.
 - Full typecheck, lint, repository format, and diff check passed. External Click remained green at

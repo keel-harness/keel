@@ -231,9 +231,9 @@
   use the same scalar accountant. Repeated-line insertion keeps exact source numbers, randomized
   small comparisons retain reference-LCS cardinality, and a divergent 1,415 × 1,415 middle remains
   fail-closed.
-- Focused green: constructor `14 passed`; all nine Warden mutation-presentation files `120 passed`;
+- Focused green: constructor `15 passed`; all nine Warden mutation-presentation files `121 passed`;
   kernel product-path/TUI mutation regression `75 passed`.
-- Full unrestricted unit/property suite: 358 files passed, 4 existing opt-in files skipped; 6,429
+- Full unrestricted unit/property suite: 358 files passed, 4 existing opt-in files skipped; 6,430
   tests passed and 20 skipped. Enforced coverage passed: Warden 97.61% statements / 91.66% branches;
   touched constructor 97.81% / 91.46%.
 - Full repository `typecheck`, `lint`, `format`, and `git diff --check` passed. External Click:

@@ -581,6 +581,27 @@ describe("Epic 3.10 COVER/P1 production mutation-presentation constructor", () =
     ).rejects.toBeInstanceOf(ConstructionBudgetExceededError);
   });
 
+  it("propagates control-plane invalidation during a long common-edge scan", async () => {
+    const lines = Array.from({ length: 2_500 }, (_, index) => `stable-${String(index)}`);
+    const invalidated = new Error("mutation presentation generation invalidated");
+    let scalarOperations = 0;
+    const invalidatingControl: MutationPresentationConstructionControl = {
+      checkpoint: async () => undefined,
+      account: async (work) => {
+        scalarOperations += work.scalarOperations ?? 0;
+        if (scalarOperations >= 2_048) throw invalidated;
+      },
+    };
+
+    await expect(
+      constructMutationPresentationArtifact(
+        editCandidate(`${lines.join("\n")}\n`, `${lines.join("\n")}\n`),
+        invalidatingControl,
+      ),
+    ).rejects.toBe(invalidated);
+    expect(scalarOperations).toBe(2_048);
+  });
+
   it("fails closed when real constructor line accounting exceeds its registered ceiling", async () => {
     let now = 0;
     const bounded = createMutationPresentationConstructionControl({
