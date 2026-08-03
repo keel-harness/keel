@@ -141,9 +141,8 @@ instruction to combine findings into large commits.
 
 Findings: **DF-008**.
 
-Candidate status: implemented and locally validated in
-[PR #55](https://github.com/keel-harness/keel/pull/55) at `26bf47b`; exact executor bytes and all
-enforcement surfaces remain unchanged. Merge/post-merge status is pending CI and independent review.
+Candidate status: merged in [PR #55](https://github.com/keel-harness/keel/pull/55); exact executor
+bytes and all enforcement surfaces remain unchanged.
 
 #### Corrected diagnosis
 
@@ -198,9 +197,7 @@ Findings: **DF-010**. This is the existing first slice in issue #52 and should f
 after the P0 lifecycle clarification—or land first only if needed as a one-commit truth guard while
 R1's public security boundary is being reviewed.
 
-Candidate status: implemented and locally validated in stacked
-[PR #57](https://github.com/keel-harness/keel/pull/57) at `884a27a`; it must not merge before R1 and
-must be retargeted to main after #55 lands.
+Candidate status: merged in [PR #57](https://github.com/keel-harness/keel/pull/57) after R1.
 
 #### User outcome
 
@@ -227,6 +224,10 @@ Feature/debugging clarity, error recovery, trust, and final confidence.
 ### R3 · P1 — make final state a reconciled controller receipt
 
 Findings: **DF-006, DF-015, DF-019**.
+
+Candidate status: the safe exact edit/write recovery slice merged in
+[PR #59](https://github.com/keel-harness/keel/pull/59). Generic equivalent-bash recovery and
+compaction ordering remain unavailable from existing TUI facts and were not manufactured.
 
 #### User outcome
 
@@ -268,6 +269,10 @@ All workflow trust and final-result confidence; debugging/refactor recovery.
 ### R4 · P1 — keep mutation evidence reviewable within bounded limits
 
 Findings: **DF-009**.
+
+Candidate status: issue [#60](https://github.com/keel-harness/keel/issues/60) locally validates the
+first live-evidence slice at `cd26923`: exact common edges are factored before bounded middle LCS,
+with every accepted ADR-0078 limit and the explicit no-resume-persistence boundary unchanged.
 
 #### User outcome
 

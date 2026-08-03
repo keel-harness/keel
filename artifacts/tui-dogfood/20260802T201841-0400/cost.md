@@ -43,8 +43,9 @@ applicable input rate.
 | R1 offline product replay | 0 | 0 | 0 | 0 | 0.0000 | 2.7109 | 17.2891 |
 | R2 offline product replay | 0 | 0 | 0 | 0 | 0.0000 | 2.7109 | 17.2891 |
 | R3 offline product replay | 0 | 0 | 0 | 0 | 0.0000 | 2.7109 | 17.2891 |
+| R4 offline product replay | 0 | 0 | 0 | 0 | 0.0000 | 2.7109 | 17.2891 |
 
 Provider calls: 23 successful, 2 rejected at zero reported usage. The USD 2.00 final-regression
-reserve remains intact. The R1, R2, and R3 replays were deterministic and offline; they made no
-Anthropic request. R3's displayed 175 replay tokens are synthetic recording usage, not provider
-usage or spend.
+reserve remains intact. The R1 through R4 replays were deterministic and offline; they made no
+Anthropic request. R3's displayed 175 and R4's displayed 136 replay tokens are synthetic recording
+usage, not provider usage or spend.

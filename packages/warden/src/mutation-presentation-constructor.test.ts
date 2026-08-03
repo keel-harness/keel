@@ -4,6 +4,7 @@ import type { MutationPresentationSegmentV1T } from "@keel/shared";
 import {
   MUTATION_PRESENTATION_MAX_HUNKS,
   MUTATION_PRESENTATION_MAX_ARTIFACT_BYTES,
+  MUTATION_PRESENTATION_MAX_DIFF_SCALAR_OPERATIONS,
   MUTATION_PRESENTATION_MAX_LINE_BYTES,
   MUTATION_PRESENTATION_MAX_PRESENTED_LINES,
   ConstructionBudgetExceededError,
@@ -29,6 +30,29 @@ function control(): MutationPresentationConstructionControl {
     checkpoint: async () => undefined,
     account: async () => undefined,
   };
+}
+
+function referenceLcsLength(left: readonly string[], right: readonly string[]): number {
+  let previous = new Array<number>(right.length + 1).fill(0);
+  let current = new Array<number>(right.length + 1).fill(0);
+  for (const leftLine of left) {
+    current[0] = 0;
+    for (let index = 0; index < right.length; index += 1) {
+      current[index + 1] =
+        leftLine === right[index]
+          ? previous[index]! + 1
+          : Math.max(previous[index + 1]!, current[index]!);
+    }
+    [previous, current] = [current, previous];
+  }
+  return previous[right.length]!;
+}
+
+function logicalTextLines(content: string): string[] {
+  if (content.length === 0) return [];
+  const lines = content.split("\n");
+  if (content.endsWith("\n")) lines.pop();
+  return lines;
 }
 
 function editCandidate(
@@ -427,6 +451,157 @@ describe("Epic 3.10 COVER/P1 production mutation-presentation constructor", () =
     expect(checkpoints).toBeGreaterThanOrEqual(5);
   });
 
+  it("keeps a bounded mostly unchanged Click-sized edit reviewable", async () => {
+    const beforeLines = Array.from({ length: 1_634 }, (_, index) =>
+      index === 0 ? "## Version 8.5.0" : `stable changelog line ${String(index + 1)}`,
+    );
+    const afterLines = [...beforeLines];
+    afterLines[0] = "## Version 8.5.0 (R4 replay)";
+    let now = 0;
+    const bounded = createMutationPresentationConstructionControl({
+      startedAt: now,
+      now: () => now,
+      cooperativeYield: async () => {
+        now += 0.001;
+      },
+      assertCurrent: () => undefined,
+    });
+
+    const artifact = await constructMutationPresentationArtifact(
+      editCandidate(`${beforeLines.join("\n")}\n`, `${afterLines.join("\n")}\n`),
+      bounded.control,
+    );
+
+    expect(artifact.comparison).toMatchObject({
+      coverage: "complete",
+      totals: {
+        observedBeforeLines: 1_634,
+        installedAfterLines: 1_634,
+        shownLines: 5,
+        hiddenLines: 1_630,
+      },
+    });
+    expect(artifact.comparison.hunks).toHaveLength(1);
+    expect(artifact.comparison.hunks[0]).toMatchObject({
+      observedBeforeStart: 1,
+      observedBeforeLines: 4,
+      installedAfterStart: 1,
+      installedAfterLines: 4,
+    });
+    expect(
+      artifact.comparison.hunks[0]?.lines
+        .filter((line) => line.kind !== "context")
+        .map((line) => ({
+          kind: line.kind,
+          text: text(line.segments),
+          line: line.kind === "observed-before" ? line.observedBeforeLine : line.installedAfterLine,
+        })),
+    ).toEqual([
+      { kind: "observed-before", text: "## Version 8.5.0", line: 1 },
+      { kind: "installed-after", text: "## Version 8.5.0 (R4 replay)", line: 1 },
+    ]);
+  });
+
+  it("preserves exact repeated-line numbering across factored common edges", async () => {
+    const artifact = await constructMutationPresentationArtifact(
+      editCandidate(
+        "shared head\nrepeat\nrepeat\nold\nrepeat\nshared tail\n",
+        "shared head\nrepeat\nrepeat\nnew-a\nnew-b\nrepeat\nshared tail\n",
+      ),
+      control(),
+    );
+
+    expect(
+      artifact.comparison.hunks
+        .flatMap((hunk) => hunk.lines)
+        .filter((line) => line.kind !== "context")
+        .map((line) => ({
+          kind: line.kind,
+          text: text(line.segments),
+          line: line.kind === "observed-before" ? line.observedBeforeLine : line.installedAfterLine,
+        })),
+    ).toEqual([
+      { kind: "observed-before", text: "old", line: 4 },
+      { kind: "installed-after", text: "new-a", line: 4 },
+      { kind: "installed-after", text: "new-b", line: 5 },
+    ]);
+    expect(artifact.comparison).toMatchObject({
+      coverage: "complete",
+      totals: {
+        observedBeforeLines: 6,
+        installedAfterLines: 7,
+        shownLines: 8,
+        hiddenLines: 0,
+      },
+    });
+  });
+
+  it("accounts common-edge comparisons and keeps divergent middles fail-closed", async () => {
+    const mostlyStable = Array.from({ length: 1_634 }, (_, index) => `stable-${String(index)}`);
+    const changed = [...mostlyStable];
+    changed[0] = "changed-first-line";
+    let scalarOperations = 0;
+    const accountingControl: MutationPresentationConstructionControl = {
+      checkpoint: async () => undefined,
+      account: async (work) => {
+        scalarOperations += work.scalarOperations ?? 0;
+      },
+    };
+
+    await constructMutationPresentationArtifact(
+      editCandidate(`${mostlyStable.join("\n")}\n`, `${changed.join("\n")}\n`),
+      accountingControl,
+    );
+
+    expect(scalarOperations).toBeGreaterThanOrEqual(mostlyStable.length);
+    expect(scalarOperations).toBeLessThan(10_000);
+
+    const divergentLineCount =
+      Math.floor(Math.sqrt(MUTATION_PRESENTATION_MAX_DIFF_SCALAR_OPERATIONS)) + 1;
+    const before = Array.from(
+      { length: divergentLineCount },
+      (_, index) => `observed-${String(index)}`,
+    );
+    const after = Array.from(
+      { length: divergentLineCount },
+      (_, index) => `installed-${String(index)}`,
+    );
+    const bounded = createMutationPresentationConstructionControl({
+      startedAt: 0,
+      now: () => 0,
+      cooperativeYield: async () => undefined,
+      assertCurrent: () => undefined,
+    });
+
+    await expect(
+      constructMutationPresentationArtifact(
+        editCandidate(`${before.join("\n")}\n`, `${after.join("\n")}\n`),
+        bounded.control,
+      ),
+    ).rejects.toBeInstanceOf(ConstructionBudgetExceededError);
+  });
+
+  it("propagates control-plane invalidation during a long common-edge scan", async () => {
+    const lines = Array.from({ length: 2_500 }, (_, index) => `stable-${String(index)}`);
+    const invalidated = new Error("mutation presentation generation invalidated");
+    let scalarOperations = 0;
+    const invalidatingControl: MutationPresentationConstructionControl = {
+      checkpoint: async () => undefined,
+      account: async (work) => {
+        scalarOperations += work.scalarOperations ?? 0;
+        if (scalarOperations >= 2_048) throw invalidated;
+      },
+    };
+
+    await expect(
+      constructMutationPresentationArtifact(
+        editCandidate(`${lines.join("\n")}\n`, `${lines.join("\n")}\n`),
+        invalidatingControl,
+      ),
+    ).rejects.toBe(invalidated);
+    expect(scalarOperations).toBe(2_048);
+  });
+
   it("fails closed when real constructor line accounting exceeds its registered ceiling", async () => {
     let now = 0;
     const bounded = createMutationPresentationConstructionControl({
@@ -468,18 +643,30 @@ describe("Epic 3.10 COVER/P1 production mutation-presentation constructor", () =
         fc.array(line, { maxLength: 8 }),
         fc.array(line, { maxLength: 8 }),
         async (before, after) => {
+          const beforeContent = before.join("\n");
+          const afterContent = after.join("\n");
+          const observedLines = logicalTextLines(beforeContent);
+          const installedLines = logicalTextLines(afterContent);
           const artifact = await constructMutationPresentationArtifact(
-            editCandidate(before.join("\n"), after.join("\n")),
+            editCandidate(beforeContent, afterContent),
             control(),
+          );
+          const shownLines = artifact.comparison.totals.shownLines;
+          const hiddenLines = artifact.comparison.totals.hiddenLines;
+          if (typeof shownLines !== "number" || typeof hiddenLines !== "number") {
+            throw new Error("expected exact small-comparison totals");
+          }
+          expect(observedLines.length + installedLines.length - shownLines - hiddenLines).toBe(
+            referenceLcsLength(observedLines, installedLines),
           );
           for (const row of artifact.comparison.hunks.flatMap((hunk) => hunk.lines)) {
             if (row.kind === "context") {
-              expect(text(row.segments)).toBe(before[row.observedBeforeLine - 1]);
-              expect(text(row.segments)).toBe(after[row.installedAfterLine - 1]);
+              expect(text(row.segments)).toBe(observedLines[row.observedBeforeLine - 1]);
+              expect(text(row.segments)).toBe(installedLines[row.installedAfterLine - 1]);
             } else if (row.kind === "observed-before") {
-              expect(text(row.segments)).toBe(before[row.observedBeforeLine - 1]);
+              expect(text(row.segments)).toBe(observedLines[row.observedBeforeLine - 1]);
             } else {
-              expect(text(row.segments)).toBe(after[row.installedAfterLine - 1]);
+              expect(text(row.segments)).toBe(installedLines[row.installedAfterLine - 1]);
             }
           }
         },
