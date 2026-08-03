@@ -198,3 +198,9 @@ executed; ledger and verbose history remain intact. Warden verdicts, grantabilit
 sandbox/egress profiles, audit authority and format, RPC, shared schemas, model-visible tool
 results, and approval batching are unchanged. R11 reduces operator burden after a terminal
 decision; it does not reduce review frequency or create approval authority.
+
+R11 candidate `d371b53` passed exact-head CI and merged through PR #83. Its post-main PTY observer
+failure did not change a Warden verdict or interrupt count: Keel had rendered the correct governed
+posture, but the packaging observer lost the row across a same-read redraw. The observer-only repair
+merged through PR #85 and exact post-main CI `30856149564` passed, so this audit outcome is closed
+without weakening review, sandbox, egress, policy, or approval behavior.

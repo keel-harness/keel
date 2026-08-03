@@ -146,12 +146,14 @@
 ### DF-013 — model stops after recoverable review instead of applying shown guidance
 
 - Severity: P2 agent/workflow reliability.
-- Status: R11 candidate validated under
+- Status: fixed by R11 under
   [issue #82](https://github.com/keel-harness/keel/issues/82). Only an exact trusted
   blocked/not-executed no-handle result can offer one tools-enabled model pass; at most one fresh
   call executes through the ordinary Warden, followed by one tools-disabled closeout. The original
   action is never controller-replayed, split, normalized, or rewritten. E2 and production-path
-  80x24/100x30 E3/E4 plus final full tests/coverage pass; merge and exact CI remain pending.
+  80x24/100x30 E3/E4 plus final full tests/coverage pass. PR #83 merged as `cb15763`; the release-
+  gate observer repair in PR #85 passed exact post-main CI `30856149564`, making the 3.82 aggregate
+  official.
 - Direct evidence: after the first reviewed composite command, the agent reported the entire feature
   blocked instead of retrying `python3 -m pytest --version`; an operator redirect immediately worked.
 - Impact: good Warden guidance does not preserve momentum when the agent fails to act on it.
@@ -247,12 +249,13 @@
 ### DF-020 — command-shape recovery remains model-dependent and brittle
 
 - Severity: P2 workflow burden.
-- Status: R11 candidate removes the immediate dead end without granting a retry loop. A successful
+- Status: fixed by R11 without granting a retry loop. A successful
   one-call correction can finish cleanly with a controller-derived `recovered` receipt; a failed,
   nonzero, no-test, reviewed/denied, indeterminate, missing, truncated, or multi-call correction
   remains needs attention and receives no second attempt. Real Warden JSON nonzero, signal,
   indeterminate, warning-decorated, untrusted, and malformed outcomes now fail closed under red-first
-  tests. Exact-head CI and merge are pending.
+  tests. PR #83 merged as `cb15763`; exact post-main CI `30856149564` passed after PR #85 repaired
+  the PTY readiness observer.
 - Direct evidence: Keel proposed a composite command with `cd`, two node IDs, `-v`, and stderr
   redirection; after review it proposed a quoted selector plus pipe/tail. Both were non-actionable.
   The operator-provided atomic selector first matched zero tests, and Keel stopped again.
@@ -274,9 +277,10 @@
 ### DF-022 — installed-renderer readiness smoke depends on PTY read chunking
 
 - Severity: P0 flaky release gate.
-- Status: deterministic fix candidate under
-  [issue #84](https://github.com/keel-harness/keel/issues/84). Exact-head and post-main CI remain
-  pending.
+- Status: fixed under [issue #84](https://github.com/keel-harness/keel/issues/84). Candidate
+  `80e5ee1` passed exact-head CI `30855665108`, merged through PR #85 as `939b8c4` with byte-identical
+  tree `16336f3`, and passed exact post-main CI `30856149564`. The formerly failing macOS package
+  job `91827544534` and `ci-required` job `91829961337` are green.
 - Direct evidence: exact R11 post-main run `30853723890`, macOS package job `91819749594`, failed
   after 20s with raw SHA-256 `2ec55c36050786f510e75d7badcf592bed429217a57dbe7fbc4e6a8e262287ab`.
   A secret-safe full projection proves Keel rendered
@@ -285,6 +289,6 @@
   readiness in 794ms.
 - Impact: byte-equivalent correct TUI output can pass or fail the package gate solely because the OS
   split the same PTY bytes differently. Rerunning can hide the defect and falsely bless main.
-- Candidate repair: monotonic launch milestones inspect bounded sanitized history and choose the
+- Repair: monotonic launch milestones inspect bounded sanitized history and choose the
   latest protection row. A later unavailable/off row remains negative. Six consecutive exact-carrier
   macOS samples pass after the change with clean teardown and no reduced-enforcement acceptance.

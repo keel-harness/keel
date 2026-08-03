@@ -36,9 +36,11 @@ credentials nor user-home paths.
 
 All six requested workflow classes have live evidence. Evidence PR #53; implementation PRs #55,
 #57, #59, #61, #65, #66, #68, #71, #73, and #75; repeatability PR #63; R6 evidence correction PR
-#69; and dependency-remediation PR #78 were owner-approved, squash-merged, and cleaned up. Each UX
+#69; R10 PR #80 and closeout PR #81; R11 PR #83; PTY observer repair PR #85; and dependency-
+remediation PR #78 were owner-approved, squash-merged, and cleaned up. Each UX
 slice passed reviewed-head CI. R9's first post-merge run exposed a high `brace-expansion` advisory;
-PR #78 repaired it, and exact current-main CI run `30839183270` passes at `ba292e6`.
+PR #78 repaired it. Exact current-main CI run `30856149564` passes at `939b8c4` after the later
+validated slices and PTY observer repair.
 
 R3's safe first slice is tracked by [issue #58](https://github.com/keel-harness/keel/issues/58):
 exact edit/write retries reconcile without hiding history, live and resumed receipts show
@@ -107,7 +109,7 @@ evidence-bound official score is now **3.73/5**.
 The manifest now tracks thirty unique safe screenshot checkpoints after adding the four R10
 pending/applied/budget/resume frames.
 
-R11 is the active candidate under [issue #82](https://github.com/keel-harness/keel/issues/82). An
+R11 is closed under [issue #82](https://github.com/keel-harness/keel/issues/82). An
 exact process-local WardenExecutor marker now offers one model-driven recovery pass only after a
 blocked, not-executed terminal review with no live handle. The controller neither parses nor
 rewrites the reviewed command: it accepts at most one fresh model-authored call, sends that call
@@ -126,10 +128,9 @@ verbose history. Click stayed clean and no Anthropic call was made.
 Three visually inspected sanitized 1400x840 transcriptions add before, active, and after evidence:
 `screenshots/33-r11-command-recovery-before.png`,
 `34-r11-command-recovery-active.png`, and `35-r11-command-recovery-after.png`. The manifest now
-tracks thirty-three unique safe checkpoints. The evidence-bound candidate score is **3.82/5**
-(237/62 applicable cells); it is not official until reviewed-head CI, merge, and exact post-main CI
-pass. The stricter release gate remains open on per-workflow trust/control/final-confidence
-requirements even if this aggregate candidate merges.
+tracks thirty-three unique safe checkpoints. The evidence-bound official score is **3.82/5**
+(237/62 applicable cells). The stricter release gate remains open on per-workflow
+trust/control/final-confidence requirements and the final six-workflow exact-candidate replay.
 
 Final adversarial review found one additional must-fix before publication: transport success could
 clear the blocked state even when the real Warden JSON envelope reported a nonzero exit, signal, or
@@ -144,7 +145,7 @@ eight local-fixture requests, zero paid requests, and clean Click state.
 R11 implementation commit `d371b53` passed exact reviewed-head CI run `30853223179`, then
 squash-merged through [PR #83](https://github.com/keel-harness/keel/pull/83) as `cb15763` with
 byte-identical tree `f763182`. The feature worktree and local/remote branch were removed. Exact
-post-main run `30853723890` nevertheless failed, so R11 is not yet recorded as closed green: the
+post-main run `30853723890` nevertheless failed: the
 macOS installed-carrier PTY observer discarded a rendered governed status row when a later cursor
 redraw arrived in the same OS read. The product rendered `sbx:on` and `net:on`; success depended on
 PTY chunk timing.
@@ -157,5 +158,8 @@ macOS 80x24 samples with governed sandbox/egress truth and clean process-group t
 changes no product behavior or score and uses no Anthropic call. Python **2/2**, focused **23/23**,
 full tests and coverage **6,529 passed / 20 existing opt-in skips**, all enforced thresholds at
 98.00% lines/statements and 93.73% branches overall, typecheck, lint, format, build, and
-`git diff --check` pass locally. Exact-head and post-main CI remain required before the R11 score
-becomes official.
+`git diff --check` pass locally. Repair candidate `80e5ee1` passed exact-head CI run `30855665108`
+and squash-merged through [PR #85](https://github.com/keel-harness/keel/pull/85) as `939b8c4` with
+byte-identical tree `16336f3`. Exact post-main run `30856149564` passed, including the formerly
+failing macOS installed-carrier package job `91827544534` and `ci-required` job `91829961337`.
+Issue #84 closed, the branch/worktree were removed, and R11's **3.82/5** aggregate is official.

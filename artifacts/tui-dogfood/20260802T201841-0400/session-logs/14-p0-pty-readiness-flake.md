@@ -43,10 +43,20 @@ proving output correctness was unchanged while read chunking differed.
 - Unrestricted full tests and coverage: 6,529 passed / 20 existing opt-in skips; all enforced
   thresholds pass at 98.00% lines/statements, 93.73% branches, and 99.59% functions overall.
 - Typecheck, lint, format, build, and `git diff --check`: pass.
-- Exact reviewed-head and post-main CI: pending.
+- repair candidate / merge: `80e5ee148f43c285c48b7d157d4bac401ceb6ae1` /
+  `939b8c4a6fb6b15cf2c07ae7be1fc4b5de37b7e1`
+- candidate and merge tree: `16336f345e05b3ef4e9d1a09ff5c519910251b51`
+- reviewed-head CI: `30855665108` green
+- exact post-main CI: `30856149564` green
+- formerly failing macOS package / final gate: `91827544534` / `91829961337`, both green
+- PR #85 merged, issue #84 closed, and feature branch/worktree cleanup passed.
 
 ## Boundaries
 
 No TUI product behavior, Warden behavior, sandbox policy, timeout, retry, public CLI, frozen schema,
 audit format, dependency, or security claim changed. Interactive waits still use current-frame
 semantics; only monotonic launch milestones read the full bounded, secret-sanitized render history.
+
+R11 is now closed at an evidence-bound official **3.82/5** aggregate. This does not close the
+stricter release gate, which still requires the final six-workflow exact-candidate replay and every
+per-workflow trust, control, recovery, and final-confidence floor.
