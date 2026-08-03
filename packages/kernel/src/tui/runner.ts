@@ -64,6 +64,7 @@ import {
   livenessDurationBucket,
   supportsPurposefulLiveness,
 } from "./purposeful-liveness.js";
+import { GROSS_RUNWAY_PREFLIGHT_CODE } from "../events.js";
 
 export interface RunSessionOpts {
   readonly model: ModelPort;
@@ -434,6 +435,7 @@ async function runSessionImpl(
   let lastStopCode: string | undefined;
   let lastStopMessage: string | undefined;
   let lastGoalFailure: GoalFailureReason | undefined;
+  let urgentDeferred = false;
   const pending: AppliedSteering[] = [];
 
   interface ActivePresentationOccurrence {
@@ -455,6 +457,10 @@ async function runSessionImpl(
 
   const hasUrgent = (): boolean => pending.some((s) => s.class === "urgent");
   const hasQueued = (): boolean => pending.some((s) => s.class === "queued");
+  const urgentMustWaitForResume = (): boolean =>
+    hasUrgent() &&
+    (lastStop === "budget" ||
+      (lastStop === "error" && lastStopCode === GROSS_RUNWAY_PREFLIGHT_CODE));
   const disconnectReviewDecisions = opts.reviewDecisions?.connect({
     presentation: (event) => {
       switch (event.kind) {
@@ -775,6 +781,7 @@ async function runSessionImpl(
         const goalValidationPending = ev.type === "run-finished" && opts.goal !== undefined;
         const turnWillContinue =
           ev.type === "run-finished" &&
+          !urgentMustWaitForResume() &&
           (interrupted || pending.length > 0 || goalValidationPending);
         if (ev.type === "run-finished") {
           const receipt = autoResolutionReceiptForStore(opts.store, env, receiptStartIndex);
@@ -848,13 +855,22 @@ async function runSessionImpl(
         }
       }
 
+      if (!interrupted && urgentMustWaitForResume()) {
+        urgentDeferred = true;
+        view = reduce(view, { type: "urgent-input-deferred" });
+        view = reduce(view, {
+          type: "system-notice",
+          content: `urgent correction still pending — this turn's token budget ended before it could be applied; resume with: keel --resume ${opts.store.id}`,
+        });
+        render();
+        break;
+      }
+
       if (interrupted) {
-        if (pending.length === 0) break;
-        // The user's queued correction survives cancellation and becomes the next turn immediately.
-        // Requiring another prompt (or merely re-applying it on resume) strands visible intent.
-        interrupted = false;
-        applyPendingAtBoundary();
-        continue;
+        // Immediate interrupt means no new model/tool action starts. Pending steering stays durable
+        // in the ledger; the REPL applies it before the user's next explicit turn, or a fresh process
+        // applies it on resume. Never auto-redrive merely because input was queued before Esc.
+        break;
       }
       if (pending.length === 0 && opts.goal !== undefined) {
         // Validation is still part of the active turn: the input consumer remains connected and a
@@ -905,7 +921,8 @@ async function runSessionImpl(
       // skip the tier (honest `not_run`) rather than launch the full suite the user just cancelled,
       // and thread the turn's signal so a Ctrl-C arriving mid-tier aborts the in-flight action.
       const validation =
-        (!interrupted ? completedGoalValidation : undefined) ?? (await validateGoal(interrupted));
+        (!interrupted && !urgentDeferred ? completedGoalValidation : undefined) ??
+        (await validateGoal(interrupted || urgentDeferred));
       const audit = appendGoalAudit({
         append: (event) => opts.store.append(event),
         sessionId: opts.store.id,

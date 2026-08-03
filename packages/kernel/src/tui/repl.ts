@@ -17,7 +17,8 @@ import {
 import { runSession } from "./runner.js";
 import type { GoalFailureReason, RunOutcome, RunSessionOpts } from "./runner.js";
 import type { TurnOutcome } from "./runner.js";
-import { closeOpenToolCalls } from "../session/resume.js";
+import { applyPendingSteeringOnResume, closeOpenToolCalls, rebuild } from "../session/resume.js";
+import { readSession } from "../session/store.js";
 import { firstRunView, initialView, leadingSystemEnd, modelPanel, reduce } from "./view-model.js";
 import type { ViewConfig } from "./view-model.js";
 import { goalPrompt } from "../run/goal-session.js";
@@ -42,6 +43,18 @@ export interface InteractivePlanApprovalController {
   readonly preview: (args: string) => InteractivePlanApprovalResult;
   readonly approve: (args: string) => InteractivePlanApprovalResult;
   readonly clear: () => void;
+}
+
+function resumedSteeringLabel(total: number, urgent: number): string {
+  const boundedTotal = Math.max(0, Math.floor(total));
+  const boundedUrgent = Math.min(boundedTotal, Math.max(0, Math.floor(urgent)));
+  if (boundedUrgent === 0) {
+    return `${boundedTotal} pending comment${boundedTotal === 1 ? "" : "s"}`;
+  }
+  if (boundedUrgent === boundedTotal) {
+    return `${boundedUrgent} urgent correction${boundedUrgent === 1 ? "" : "s"}`;
+  }
+  return `${boundedTotal} pending inputs (${boundedUrgent} urgent)`;
 }
 
 /**
@@ -70,6 +83,9 @@ export interface RunReplOpts extends Omit<RunSessionOpts, "seed" | "recordSeed" 
    *  silently folded into the message count (ADR-0034 "visibly acknowledge · no silent absorption").
    *  The applied inputs already ride `resumed` as `user` messages; this is the honest cue. */
   readonly resumedSteeringApplied?: number;
+  /** Subset of `resumedSteeringApplied` whose ledger class is urgent. Presentation-only, allowing
+   *  resume copy to preserve the `/now` timing distinction without changing model context. */
+  readonly resumedUrgentSteeringApplied?: number;
   /** Verified Warden-audit evidence for prior human once-only authority. Presentation-only: it is
    *  neither model context nor a session event, and explicitly states that resume restored no grant. */
   readonly historicOnceApprovalReceipt?: string;
@@ -191,6 +207,7 @@ export async function runRepl(opts: RunReplOpts): Promise<RunOutcome> {
     resumedFailedToolCallIds,
     resumedFailedToolMessageIndexes,
     resumedSteeringApplied = 0,
+    resumedUrgentSteeringApplied = 0,
     historicOnceApprovalReceipt,
     ...base
   } = opts;
@@ -219,10 +236,12 @@ export async function runRepl(opts: RunReplOpts): Promise<RunOutcome> {
     });
     // Acknowledge any re-applied pending steering explicitly (ADR-0034 · P1-3) so a carried-over
     // mid-run comment is not silently folded into the message count.
+    const steeringLabel = resumedSteeringLabel(
+      resumedSteeringApplied,
+      resumedUrgentSteeringApplied,
+    );
     const steeringNote =
-      resumedSteeringApplied > 0
-        ? ` · ${resumedSteeringApplied} pending comment${resumedSteeringApplied === 1 ? "" : "s"} re-applied · continuing now`
-        : "";
+      resumedSteeringApplied > 0 ? ` · ${steeringLabel} re-applied · continuing now` : "";
     const header: ViewItem = {
       kind: "message",
       role: "system",
@@ -277,6 +296,22 @@ export async function runRepl(opts: RunReplOpts): Promise<RunOutcome> {
       readonly loop?: LoopConfigT;
     } = {},
   ): Promise<void> => {
+    const pendingState = rebuild(readSession(base.store.id, base.env ?? process.env));
+    const pendingBeforeTurn = pendingState.pendingSteering;
+    const carriedUrgent = [...pendingBeforeTurn]
+      .reverse()
+      .find((steering) => steering.class === "urgent");
+    if (pendingBeforeTurn.length > 0) {
+      messages = applyPendingSteeringOnResume(base.store, pendingState);
+      for (const steering of pendingBeforeTurn) {
+        idleView = reduce(idleView, {
+          type: "input-applied",
+          class: steering.class,
+          content: steering.content,
+        });
+      }
+      opts.ui.render(idleView);
+    }
     const seed = turnUser === undefined ? messages : [...messages, turnUser];
     const planView = nextTurnPlanView;
     // Record the head only on a FRESH session's first turn. A resumed session already has head +
@@ -297,6 +332,14 @@ export async function runRepl(opts: RunReplOpts): Promise<RunOutcome> {
       ...(base.modelRouting !== undefined ? { modelRoute: base.modelRouting.status() } : {}),
       ...(idleView.density !== undefined ? { density: idleView.density } : {}),
       ...(idleView.diffMode !== undefined ? { diffMode: idleView.diffMode } : {}),
+      ...(carriedUrgent !== undefined
+        ? {
+            urgentSteering: {
+              state: "applied" as const,
+              content: carriedUrgent.content,
+            },
+          }
+        : {}),
     };
     let outcome: TurnOutcome;
     try {
@@ -353,7 +396,10 @@ export async function runRepl(opts: RunReplOpts): Promise<RunOutcome> {
     if (resumedSteeringApplied > 0) {
       await driveTurn(undefined);
       renderNotice(
-        `↻ ${resumedSteeringApplied} pending comment${resumedSteeringApplied === 1 ? "" : "s"} re-applied and dispatched`,
+        `↻ ${resumedSteeringLabel(
+          resumedSteeringApplied,
+          resumedUrgentSteeringApplied,
+        )} re-applied and dispatched`,
       );
     }
     for (;;) {

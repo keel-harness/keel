@@ -176,7 +176,11 @@
       "expectedUserOutcome": "Prompt acknowledgement, visible queued/applied state, accurate partial-state reporting, controlled interruption, and correct resume without stale instructions.",
       "screenshotCheckpoints": [
         "13-refactor-requirement-queued.png",
-        "14-refactor-interrupted.png"
+        "14-refactor-interrupted.png",
+        "29-r10-urgent-pending.png",
+        "30-r10-urgent-applied.png",
+        "31-r10-budget-pending.png",
+        "32-r10-resume-applied.png"
       ],
       "costCeilingUsd": 1.5
     },

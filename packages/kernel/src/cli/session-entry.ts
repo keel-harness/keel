@@ -1110,6 +1110,8 @@ export interface KeelSessionOpts {
   readonly resumedFailedToolMessageIndexes?: ReadonlySet<number>;
   /** Number of pending steering comments applied during resume, surfaced in the resume notice. */
   readonly resumedSteeringApplied?: number;
+  /** Subset of resumed steering whose durable class is urgent; presentation-only. */
+  readonly resumedUrgentSteeringApplied?: number;
   /** Verified Warden-audit receipt for prior human once-only authority. Presentation-only and never
    *  included in provider context or appended to the session ledger. */
   readonly historicOnceApprovalReceipt?: string;
@@ -1206,6 +1208,9 @@ export async function runKeelSession(opts: KeelSessionOpts): Promise<RunOutcome>
       : {}),
     ...(opts.resumedSteeringApplied !== undefined
       ? { resumedSteeringApplied: opts.resumedSteeringApplied }
+      : {}),
+    ...(opts.resumedUrgentSteeringApplied !== undefined
+      ? { resumedUrgentSteeringApplied: opts.resumedUrgentSteeringApplied }
       : {}),
     ...(opts.historicOnceApprovalReceipt !== undefined
       ? { historicOnceApprovalReceipt: opts.historicOnceApprovalReceipt }
@@ -1414,6 +1419,8 @@ export async function runKeelCommand(
           .catch(() => undefined)
       : Promise.resolve(undefined);
     const resumedSteeringApplied = resumeState?.pendingSteering.length ?? 0;
+    const resumedUrgentSteeringApplied =
+      resumeState?.pendingSteering.filter((steering) => steering.class === "urgent").length ?? 0;
     const historicOnceApprovalReceipt =
       resumeId === undefined
         ? undefined
@@ -1637,6 +1644,7 @@ export async function runKeelCommand(
             }
           : {}),
         ...(resumedSteeringApplied > 0 ? { resumedSteeringApplied } : {}),
+        ...(resumedUrgentSteeringApplied > 0 ? { resumedUrgentSteeringApplied } : {}),
         ...(historicOnceApprovalReceipt === undefined ? {} : { historicOnceApprovalReceipt }),
         ...(modelRouting !== undefined ? { modelRouting } : {}),
         ...(reviewDecisions !== undefined ? { reviewDecisions } : {}),

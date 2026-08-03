@@ -24,7 +24,7 @@ import { ScriptedModel } from "@keel/simulator";
 import { SessionStore, readSession } from "../session/store.js";
 import { rebuild } from "../session/resume.js";
 import { renderFrame } from "./headless.js";
-import { classifyInput, runSession } from "./runner.js";
+import { classifyInput, runSession, runSessionWithControlState } from "./runner.js";
 import { staticModelRouteRuntime } from "../model-routing/controller.js";
 import { appendWardenAutoResolvedEvent } from "../warden/receipt.js";
 import { associateMutationPresentationResolver } from "../warden/mutation-presentation-resolver.js";
@@ -38,6 +38,7 @@ import { OVERLAY_DISMISS, OverlayDismissRegistry } from "./overlay-dismiss.js";
 import { PURPOSEFUL_LIVENESS } from "./purposeful-liveness.js";
 import { WardenExecutor, type WardenExecuteClient } from "../warden/executor.js";
 import { WardenClientError } from "../warden/client.js";
+import { createAgentLoopControlState } from "../loop.js";
 
 const env = (): NodeJS.ProcessEnv => ({ KEEL_HOME: mkdtempSync(join(tmpdir(), "keel-")) });
 
@@ -2850,44 +2851,68 @@ describe("runner — mid-run steering (§4.10 e2e, simulator-driven)", () => {
     }
   });
 
-  it("dispatches a queued correction immediately after interrupt reaches a safe boundary", async () => {
-    const e = env();
-    const store = SessionStore.create({ cwd: "/w" }, e);
-    const ui = new QueueUI();
-    const slowStarted = deferred();
-    const executor: ExecutorPort = {
-      execute(_call, opts): Promise<ToolResultT> {
-        slowStarted.resolve();
-        return new Promise((resolve) => {
-          const finish = (): void => resolve({ ok: false, output: "stopped for correction" });
-          if (opts?.signal?.aborted === true) finish();
-          else opts?.signal?.addEventListener("abort", finish, { once: true });
-        });
-      },
-    };
-    const done = runSession({
-      model: new ScriptedModel({
-        turns: [{ toolCalls: [{ name: "slow", args: {} }] }, { text: "queued correction handled" }],
-      }),
-      executor,
-      ui,
-      store,
-      seed,
-      env: e,
-    });
-    await slowStarted.promise;
-    ui.push({ kind: "line", text: "use the safer approach" });
-    await ui.awaitRender((view) => (view.pendingInputs ?? 0) === 1);
-    ui.push({ kind: "interrupt" });
-    await done;
-    store.close();
+  it.each([
+    {
+      name: "queued comment",
+      input: { kind: "line", text: "use the safer approach" } as const,
+      content: "use the safer approach",
+      steeringClass: "queued",
+    },
+    {
+      name: "urgent correction",
+      input: { kind: "command", name: "/now", args: "do not edit auth.ts" } as const,
+      content: "do not edit auth.ts",
+      steeringClass: "urgent",
+    },
+  ])(
+    "interrupts without dispatching a pending $name",
+    async ({ input, content, steeringClass }) => {
+      const e = env();
+      const store = SessionStore.create({ cwd: "/w" }, e);
+      const ui = new QueueUI();
+      const slowStarted = deferred();
+      const executor: ExecutorPort = {
+        execute(_call, opts): Promise<ToolResultT> {
+          slowStarted.resolve();
+          return new Promise((resolve) => {
+            const finish = (): void => resolve({ ok: false, output: "stopped for correction" });
+            if (opts?.signal?.aborted === true) finish();
+            else opts?.signal?.addEventListener("abort", finish, { once: true });
+          });
+        },
+      };
+      const done = runSession({
+        model: new ScriptedModel({
+          turns: [
+            { toolCalls: [{ name: "slow", args: {} }] },
+            { text: "queued correction handled" },
+          ],
+        }),
+        executor,
+        ui,
+        store,
+        seed,
+        env: e,
+      });
+      await slowStarted.promise;
+      ui.push(input);
+      await ui.awaitRender((view) => (view.pendingInputs ?? 0) === 1);
+      ui.push({ kind: "interrupt" });
+      const outcome = await done;
+      store.close();
 
-    expect(renderFrame(ui.view())).toContain("queued correction handled");
-    const rebuilt = rebuild(readSession(store.id, e));
-    expect(rebuilt.pendingSteering).toEqual([]);
-    expect(rebuilt.messages).toContainEqual({ role: "user", content: "use the safer approach" });
-    expect(rebuilt.lastStop).toBe("model-stop");
-  });
+      expect(outcome.lastStop).toBe("aborted");
+      expect(renderFrame(ui.view())).toContain("interrupted");
+      expect(renderFrame(ui.view())).not.toContain("Esc interrupts now");
+      expect(renderFrame(ui.view())).not.toContain("queued correction handled");
+      const rebuilt = rebuild(readSession(store.id, e));
+      expect(rebuilt.pendingSteering).toMatchObject([
+        { class: steeringClass, content, insertedAt: null },
+      ]);
+      expect(rebuilt.messages).not.toContainEqual({ role: "user", content });
+      expect(rebuilt.lastStop).toBe("aborted");
+    },
+  );
 
   it("urgent: /now is applied before the next mutating action (the edit never executes)", async () => {
     const e = env();
@@ -2944,5 +2969,70 @@ describe("runner — mid-run steering (§4.10 e2e, simulator-driven)", () => {
     const r = rebuild(readSession(store.id, e));
     expect(r.finished).toBe(true);
     expect(r.pendingSteering).toEqual([]);
+  });
+
+  it("keeps urgent steering pending when the controller budget cannot dispatch another turn", async () => {
+    const e = env();
+    const store = SessionStore.create({ cwd: "/w" }, e);
+    const ui = new QueueUI();
+    const readStarted = deferred();
+    const releaseRead = deferred();
+    let modelCalls = 0;
+    const model: ModelPort = {
+      async *stream() {
+        modelCalls += 1;
+        yield { type: "tool-call" as const, id: "read-1", name: "read", args: {} };
+        yield {
+          type: "finish" as const,
+          reason: "tool-calls" as const,
+          usage: { inputTokens: 9, outputTokens: 1 },
+        };
+      },
+    };
+    const executed: string[] = [];
+    const done = runSessionWithControlState(
+      {
+        model,
+        executor: {
+          execute(call): Promise<ToolResultT> {
+            executed.push(call.name);
+            readStarted.resolve();
+            return releaseRead.promise.then(() => ({ ok: true, output: "read complete" }));
+          },
+        },
+        ui,
+        store,
+        seed,
+        env: e,
+        stop: { budget: { maxGrossTokens: 10 } },
+        goal: validationGoal,
+        lifecycleManifest: validationManifest,
+      },
+      createAgentLoopControlState(),
+    );
+
+    await readStarted.promise;
+    ui.push({ kind: "command", name: "/now", args: "do not edit auth.ts" });
+    await ui.awaitRender((view) => (view.pendingInputs ?? 0) === 1);
+    releaseRead.resolve();
+    const outcome = await done;
+    store.close();
+
+    expect(modelCalls).toBe(1);
+    expect(executed).toEqual(["read"]);
+    expect(outcome.lastStop).toBe("budget");
+    expect(outcome.finalView).toMatchObject({
+      pendingInputs: 1,
+      urgentSteering: { state: "pending", content: "do not edit auth.ts" },
+    });
+    expect(renderFrame(outcome.finalView)).toContain("urgent correction still pending");
+    expect(renderFrame(outcome.finalView)).toContain(`keel --resume ${store.id}`);
+    expect(renderFrame(outcome.finalView)).not.toContain("Esc interrupts now");
+
+    const rebuilt = rebuild(readSession(store.id, e));
+    expect(rebuilt.pendingSteering).toMatchObject([
+      { class: "urgent", content: "do not edit auth.ts", insertedAt: null },
+    ]);
+    expect(rebuilt.messages).not.toContainEqual({ role: "user", content: "do not edit auth.ts" });
   });
 });

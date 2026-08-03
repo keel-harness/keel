@@ -24,13 +24,13 @@
 ### DF-003 — resumed transcript does not seed interactive input history
 
 - Severity: P1 usability.
-- Status: fixed by the local R9 candidate under
-  [issue #74](https://github.com/keel-harness/keel/issues/74). Resume reconstruction selects only
+- Status: fixed by R9, merged through [PR #75](https://github.com/keel-harness/keel/pull/75) as
+  `baf7db4`. Resume reconstruction selects only
   ordinary turn-opening prompts, excludes structurally marked steering and in-run controller
   messages, and seeds the existing composer through a kernel-internal optional sidecar. The shared
   live/resume initializer removes terminal controls, redacts known secret shapes, removes blanks,
-  preserves stable duplicates, and keeps the newest 100 entries. E2/E3/E4 pass; exact-head CI and
-  merge proof remain.
+  preserves stable duplicates, and keeps the newest 100 entries. E2/E3/E4 and reviewed-head CI
+  pass; exact current-main CI `30839183270` is green after separate dependency remediation.
 - Direct evidence: after clean exit and `keel --continue`, the transcript displayed both prior
   prompts, but pressing `↑` left the composer empty. Re-pasting the task was required.
 - Impact: recovery after restart is visually successful but operationally lossy; an advanced user
@@ -201,6 +201,13 @@
 ### DF-017 — queued `/now` correction does not preempt the active model turn
 
 - Severity: P1 user control.
+- Status: fixed by the local R10 candidate under
+  [issue #79](https://github.com/keel-harness/keel/issues/79). `/now` now promises the existing
+  pre-mutation boundary rather than implied cancellation, shows controller-owned pending/applied
+  state, and leaves Esc as the explicit immediate control. Esc no longer auto-dispatches pending
+  steering. A correction stranded by terminal budget remains durable and is re-applied exactly
+  once after fresh-process resume. E2/E3/E4 and all exact local repository gates pass; reviewed-head
+  CI, merge, post-main CI, and cleanup remain.
 - Direct evidence: `/now Stop repeating the diagnosis...` was entered while the task was active,
   but it executed only after the current run exhausted its token budget.
 - Impact: the name and interaction suggest immediacy, but the old line of work continues to spend
@@ -242,6 +249,9 @@
 ### DF-021 — successful interrupt controls are undermined by ambiguous tool-state evidence
 
 - Severity: P2 trust; control itself worked.
+- Status: still open for R14. R10's production-path pending frame independently reproduced the
+  existing `execution status is unknown` evidence while proving that urgent steering and Esc work;
+  R10 intentionally does not infer or redefine mutation lifecycle state.
 - Direct evidence: `/before-next-edit` visibly queued and was applied at the requested boundary;
   `Esc` promptly produced a durable saved-session interrupt note. However, the boundary event also
   rendered `edit ... execution status is unknown`, and later mutation reviews were unavailable.

@@ -20,6 +20,7 @@ import type {
   UiToolActivity,
   UiTurnFileEvidence,
   UiTurnSummary,
+  UiUrgentSteering,
   UiUsageDigest,
   ViewItem,
   ViewModel,
@@ -108,9 +109,13 @@ export function queuedInputLines(
 ): readonly string[] {
   const next = inputs[0];
   if (next === undefined) return [];
-  const classLabel = next.class === "urgent" ? " · urgent" : "";
   const later = inputs.length > 1 ? ` · +${inputs.length - 1} later` : "";
-  const prefix = `queued next${classLabel} · `;
+  const prefix =
+    next.class === "urgent"
+      ? next.interruptAvailable === false
+        ? "queued urgently — before the next change · "
+        : "queued urgently — before the next change · Esc interrupts now · "
+      : "queued next · ";
   const content = stripControlLine(next.content);
   const width = Math.max(1, Math.floor(maxWidth));
   const rows = Math.max(1, Math.floor(maxRows));
@@ -123,6 +128,21 @@ export function queuedInputLines(
   return wrapDisplayLine(line, width).map((row) => row.text);
 }
 
+/** One bounded no-color lifecycle badge after an urgent instruction has crossed its safe boundary. */
+export function urgentSteeringLine(
+  steering: UiUrgentSteering | undefined,
+  maxWidth = 80,
+): string | undefined {
+  if (steering === undefined) return undefined;
+  const line =
+    steering.state === "applied"
+      ? "urgent · applied — correction is in the active turn"
+      : `urgent · pending — before the next change${
+          steering.interruptAvailable === false ? "" : " · Esc interrupts now"
+        }`;
+  return truncateDisplayLine(line, maxWidth);
+}
+
 /**
  * UI-originated events the reducer folds alongside the loop's `KernelEvent`s (§4.10). The runner
  * emits these as mid-run input is observed/applied — keeping the view a pure function of one event
@@ -132,6 +152,7 @@ export function queuedInputLines(
 export type UiInputEventT =
   | { readonly type: "input-queued"; readonly class: "queued" | "urgent"; readonly content: string }
   | { readonly type: "input-applied"; readonly content: string; readonly class: SteeringClassT }
+  | { readonly type: "urgent-input-deferred" }
   | { readonly type: "turn-not-final" }
   | { readonly type: "turn-finalized"; readonly summary: UiTurnSummary }
   | { readonly type: "goal-validation-started"; readonly action: string }
@@ -1084,6 +1105,9 @@ export interface ViewConfig {
   /** Diff disclosure level to seed the view with — threaded the same way so `/diff` persists across a
    *  turn. Absent = automatic presentation: compact in normal/quiet and full in verbose/debug. */
   readonly diffMode?: "compact" | "full";
+  /** Controller-owned urgent lifecycle carried into a new physical runner turn after an explicit
+   *  interrupt. Presentation only; durable steering remains in the session ledger. */
+  readonly urgentSteering?: UiUrgentSteering;
 }
 
 const firstLine = (s: string): string => {
@@ -1398,8 +1422,11 @@ function lastRunningTool(view: ViewModel): Extract<ViewItem, { kind: "tool" }> |
 
 function currentNext(view: ViewModel, fallback: string): string {
   const count = view.queuedInputs?.length ?? 0;
+  const urgent = view.queuedInputs?.some((input) => input.class === "urgent") === true;
   return count > 0
-    ? `apply queued input${count === 1 ? "" : "s"} at the next safe point`
+    ? urgent
+      ? "apply urgent input before the next change"
+      : `apply queued input${count === 1 ? "" : "s"} at the next safe point`
     : fallback;
 }
 
@@ -2170,6 +2197,14 @@ export function initialView(
     // the default each turn. Only set when present — absent stays the honest automatic diff default.
     ...(config.density !== undefined ? { density: config.density } : {}),
     ...(config.diffMode !== undefined ? { diffMode: config.diffMode } : {}),
+    ...(config.urgentSteering !== undefined
+      ? {
+          urgentSteering: {
+            state: config.urgentSteering.state,
+            content: queueSummary(config.urgentSteering.content),
+          },
+        }
+      : {}),
   });
 }
 
@@ -2388,6 +2423,15 @@ export function reduce(view: ViewModel, ev: KernelEventT | UiInputEventT): ViewM
           ...(view.queuedInputs ?? []),
           { class: ev.class, content: queueSummary(ev.content) },
         ],
+        ...(ev.class === "urgent"
+          ? {
+              urgentSteering: {
+                state: "pending" as const,
+                content: queueSummary(ev.content),
+                interruptAvailable: true,
+              },
+            }
+          : {}),
       });
     case "input-applied": {
       // the queued steering is now part of the conversation — drop one from the indicator and
@@ -2396,17 +2440,46 @@ export function reduce(view: ViewModel, ev: KernelEventT | UiInputEventT): ViewM
       // derive its eventual receipt.
       const { turnSummary: _turnSummary, ...withoutPriorSummary } = view;
       void _turnSummary;
+      const remainingInputs = (view.queuedInputs ?? []).slice(1);
+      const pendingUrgent = [...remainingInputs]
+        .reverse()
+        .find((input) => input.class === "urgent");
       return withDerived({
         ...withoutPriorSummary,
         awaitingInput: false,
         pendingInputs: Math.max(0, (view.pendingInputs ?? 0) - 1),
-        queuedInputs: (view.queuedInputs ?? []).slice(1),
+        queuedInputs: remainingInputs,
+        ...(pendingUrgent !== undefined
+          ? { urgentSteering: { state: "pending" as const, content: pendingUrgent.content } }
+          : ev.class === "urgent"
+            ? {
+                urgentSteering: {
+                  state: "applied" as const,
+                  content: queueSummary(ev.content),
+                },
+              }
+            : {}),
         items: [
           ...view.items,
           { kind: "message", role: "user", content: stripControl(ev.content) },
         ],
       });
     }
+    case "urgent-input-deferred":
+      return withDerived({
+        ...view,
+        queuedInputs: (view.queuedInputs ?? []).map((input) =>
+          input.class === "urgent" ? { ...input, interruptAvailable: false as const } : input,
+        ),
+        ...(view.urgentSteering?.state === "pending"
+          ? {
+              urgentSteering: {
+                ...view.urgentSteering,
+                interruptAvailable: false,
+              },
+            }
+          : {}),
+      });
     case "turn-not-final": {
       // A loop pass ended only because queued steering or an interrupt reached its safe boundary.
       // Keep the settled content and usage, but never expose a final receipt that Ink could commit
@@ -2432,6 +2505,17 @@ export function reduce(view: ViewModel, ev: KernelEventT | UiInputEventT): ViewM
       return withDerived({
         ...continuing,
         streaming: false,
+        queuedInputs: (view.queuedInputs ?? []).map((input) =>
+          input.class === "urgent" ? { ...input, interruptAvailable: false as const } : input,
+        ),
+        ...(view.urgentSteering?.state === "pending"
+          ? {
+              urgentSteering: {
+                ...view.urgentSteering,
+                interruptAvailable: false,
+              },
+            }
+          : {}),
         items: [...view.items, { kind: "message", role: "system", content: INTERRUPTED_NOTE }],
       });
     }

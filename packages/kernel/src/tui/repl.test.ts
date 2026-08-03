@@ -16,7 +16,7 @@ import { ScriptedModel } from "@keel/simulator";
 import { InputQueue } from "../cli/input-queue.js";
 import { SessionStore, readSession } from "../session/store.js";
 import { rebuild } from "../session/resume.js";
-import { runRepl, statusAfterPlanTurn } from "./repl.js";
+import { runRepl, statusAfterPlanTurn, type RunReplOpts } from "./repl.js";
 import { COMMANDS } from "./commands.js";
 import { staticModelRouteRuntime } from "../model-routing/controller.js";
 import { renderFrame } from "./headless.js";
@@ -1839,6 +1839,89 @@ describe("runRepl — multi-turn integrity (Epic 1.23 slice-0 QC)", () => {
     store.close();
   });
 
+  it("interrupts immediately, then applies pending urgent steering only when the user starts the next turn", async () => {
+    const e = env();
+    const store = SessionStore.create({ cwd: "/w" }, e);
+    const ui = new ReplUI();
+    let modelCalls = 0;
+    const contexts: (readonly ModelMessageT[])[] = [];
+    const model: ModelPort = {
+      async *stream(input) {
+        modelCalls += 1;
+        contexts.push(input.messages);
+        if (modelCalls === 1) {
+          yield { type: "tool-call", id: "slow-1", name: "slow", args: {} };
+          yield {
+            type: "finish",
+            reason: "tool-calls",
+            usage: { inputTokens: 1, outputTokens: 1 },
+          };
+          return;
+        }
+        yield { type: "text-delta", text: "continued with urgent correction" };
+        yield { type: "finish", reason: "stop", usage: { inputTokens: 1, outputTokens: 1 } };
+      },
+    };
+    let toolStartedResolve!: () => void;
+    const toolStarted = new Promise<void>((resolve) => {
+      toolStartedResolve = resolve;
+    });
+
+    ui.push({ kind: "line", text: "first task" });
+    const done = runRepl({
+      model,
+      executor: {
+        execute(_call, options) {
+          toolStartedResolve();
+          return new Promise((resolve) => {
+            const finish = (): void => resolve({ ok: false, output: "interrupted" });
+            if (options?.signal?.aborted === true) finish();
+            else options?.signal?.addEventListener("abort", finish, { once: true });
+          });
+        },
+      },
+      ui,
+      store,
+      env: e,
+    });
+
+    await toolStarted;
+    ui.push({ kind: "command", name: "/now", args: "do not edit auth.ts" });
+    await ui.awaitRender((view) => (view.pendingInputs ?? 0) === 1);
+    ui.push({ kind: "interrupt" });
+    await ui.awaitRender((view) => view.awaitingInput === true);
+
+    expect(modelCalls).toBe(1);
+    expect(rebuild(readSession(store.id, e)).pendingSteering).toMatchObject([
+      { class: "urgent", content: "do not edit auth.ts", insertedAt: null },
+    ]);
+
+    ui.push({ kind: "line", text: "continue safely" });
+    await ui.awaitRender(
+      (view) =>
+        view.awaitingInput === true && hasAssistant(view, "continued with urgent correction"),
+    );
+
+    expect(modelCalls).toBe(2);
+    expect(
+      contexts[1]?.filter((message) => message.role === "user").map((message) => message.content),
+    ).toEqual(expect.arrayContaining(["do not edit auth.ts", "continue safely"]));
+    const nextUsers =
+      contexts[1]?.filter((message) => message.role === "user").map((message) => message.content) ??
+      [];
+    expect(nextUsers.slice(-2)).toEqual(["do not edit auth.ts", "continue safely"]);
+    expect(rebuild(readSession(store.id, e)).pendingSteering).toEqual([]);
+    expect(
+      readSession(store.id, e).events.filter(
+        (event) => event.type === "steering" && event.content === "do not edit auth.ts",
+      ),
+    ).toHaveLength(2);
+
+    ui.endInput();
+    await done;
+    store.close();
+  });
+
   it("carries the prior turn's assistant output into the next turn's MODEL CONTEXT (not just the ledger)", async () => {
     const e = env();
     const store = SessionStore.create({ cwd: "/w" }, e);
@@ -2108,6 +2191,43 @@ describe("runRepl — resume seeding (Epic 1.23 slice 2)", () => {
             /1 pending comment re-applied and dispatched/i.test(it.content),
         ),
     );
+    ui.endInput();
+    await done;
+    store.close();
+  });
+
+  it("distinguishes a re-applied urgent correction from an ordinary pending comment", async () => {
+    const e = env();
+    const store = SessionStore.create({ cwd: "/w" }, e);
+    const ui = new ReplUI();
+    const resumed: ModelMessageT[] = [
+      { role: "user", content: "earlier question" },
+      { role: "user", content: "do not edit auth.ts" },
+    ];
+    const opts = {
+      model: new ScriptedModel({ turns: [{ text: "urgent correction honored" }] }),
+      executor: { execute: () => Promise.resolve({ ok: true, output: "ok" }) },
+      ui,
+      store,
+      env: e,
+      resumed,
+      resumedSteeringApplied: 1,
+      resumedUrgentSteeringApplied: 1,
+    } satisfies RunReplOpts;
+
+    const done = runRepl(opts);
+    await ui.awaitRender(
+      (v) =>
+        v.awaitingInput === true &&
+        hasAssistant(v, "urgent correction honored") &&
+        v.items.some(
+          (it) =>
+            it.kind === "message" &&
+            /1 urgent correction re-applied and dispatched/i.test(it.content),
+        ),
+    );
+    expect(renderFrame(ui.latest!)).toContain("urgent correction re-applied");
+    expect(renderFrame(ui.latest!)).not.toContain("pending comment re-applied");
     ui.endInput();
     await done;
     store.close();

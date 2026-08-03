@@ -63,14 +63,18 @@ _SENSITIVE_ASSIGNMENT = re.compile(
     r"(?!\[redacted:)[^\s]{8,}"
 )
 _GOVERNED_STATUS = re.compile(
-    r"(?m)^protection:[^\r\n]*\bsandbox on\b[^\r\n]*\bpolicy "
+    r"^protection:[^\r\n]*\bsandbox on\b[^\r\n]*\bpolicy "
     r"(?!starting\b|unavailable\b|none\b|off\b)[^\r\n]+",
-    re.IGNORECASE,
+    re.IGNORECASE | re.MULTILINE,
 )
 _COMPACT_GOVERNED_STATUS = re.compile(
     r"^protection:[ \t]*governed\b[^\r\n]*\bsbx:on\b[^\r\n]*\bpolicy:"
     r"(?!starting\b|unavailable\b|none\b|off\b)[^·\r\n]+",
-    re.IGNORECASE,
+    re.IGNORECASE | re.MULTILINE,
+)
+_INTERACTIVE_GOVERNED_STATUS = re.compile(
+    rf"(?:{_GOVERNED_STATUS.pattern})|(?:{_COMPACT_GOVERNED_STATUS.pattern})",
+    re.IGNORECASE | re.MULTILINE,
 )
 _FIRST_PAINT_MARKER = "keel · starting"
 _INPUT_PROBE = "/keel-latency-probe"
@@ -859,7 +863,7 @@ class FixtureServer:
 
 
 def wait_for_idle(session: DirectSession, timeout: float = 30.0) -> str:
-    return session.read_until((_GOVERNED_STATUS, *IDLE_COMPOSER_PATTERNS), timeout)
+    return session.read_until((_INTERACTIVE_GOVERNED_STATUS, *IDLE_COMPOSER_PATTERNS), timeout)
 
 
 def _composer_echo_pattern(text: str) -> re.Pattern[str]:
