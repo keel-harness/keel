@@ -120,3 +120,35 @@
   unchanged.
 - Keel source implementation: **NOT_STARTED**, awaiting explicit human review required by the repo
   charter for a public TUI behavior change.
+
+## 2026-08-02 — R1 terminal-review truth implementation
+
+- Published this evidence set in [PR #53](https://github.com/keel-harness/keel/pull/53). Exact-head
+  CI run `30778464017` passed all required jobs; the PR remains open for independent review.
+- Reconciled issue #52 with the authoritative controller facts: the observed `POL-003` results were
+  terminal (`grantable:false`, `pending:false`), while Keel already has a live controller for real
+  pending grantable reviews. Opened scoped implementation issue
+  [#54](https://github.com/keel-harness/keel/issues/54).
+- Created isolated worktree branch `fix/tui-terminal-review-outcomes` from exact main
+  `a14133831f3a249a8e941c38c302f9effd61ce82`.
+- First red run: 4 failures and 451 passes. The executor, resume path, headless renderer, and
+  conversation evidence all reproduced the false `review needed` / human-decision presentation.
+- Implemented a presentation-only fix. A terminal review without a live handle retains the exact
+  model-visible result but carries a process-local `blocked` outcome; resume recognizes the existing
+  exact no-live markers; shared copy states that no live decision exists.
+- First E3/E4 replay found a residual contradiction: starter-policy guidance still displayed
+  `ask for approval`. A second red run failed 2 tests with 296 passes before the terminal-only
+  presentation filter removed that stale clause. Genuine live-review guidance is unchanged.
+- Final targeted regression: `455 passed`. Approval/controller/Ink/CLI regression set: `442 passed`.
+- Final full current-head run outside the outer sandbox: `6,412 passed`, `20 skipped` by existing
+  opt-in real-sandbox/Ollama gates. `typecheck`, `lint`, repository-wide `format`, and
+  `git diff --check` passed.
+- Offline deterministic product replay against the same disposable Click checkout reproduced
+  `POL-003`, exited nonzero, and used no provider or network spend. The 100×30 Kitty capture
+  `screenshots/16-r1-terminal-review-after.png` shows `blocked`, `no live decision available`, and
+  the atomic rerun guidance, with no approval affordance or contradictory `ask for approval` text.
+- Signed-off implementation commit:
+  `26bf47bf41f43ba3afb0c46cc813e63f80f788f4 fix(tui): distinguish terminal review outcomes`.
+  Published as [PR #55](https://github.com/keel-harness/keel/pull/55).
+- Provider usage: **0 input / 0 output** for this implementation replay. Cumulative Anthropic cost
+  remains **USD 2.7109**; the USD 2.00 final live-regression reserve remains intact.

@@ -6,8 +6,9 @@
 
 - Severity: gate/blocker for implementation, not for observational testing.
 - Status: planning prerequisite resolved by public issue
-  [#52](https://github.com/keel-harness/keel/issues/52); the explicit human-review gate for the first
-  public TUI behavior slice remains.
+  [#52](https://github.com/keel-harness/keel/issues/52). The corrected R1 slice has scoped issue
+  [#54](https://github.com/keel-harness/keel/issues/54) and review candidate
+  [PR #55](https://github.com/keel-harness/keel/pull/55); independent review remains required.
 - Evidence: the only open public issues at orientation were release issue `#49` and compiled-proxy bug `#42`.
 - Impact: repo charter forbids implementation of this cross-surface dogfood epic directly from the master spec.
 - Safest action: prepare a public issue plan and obtain authorization before posting it; continue read-only dogfooding meanwhile.
@@ -68,6 +69,8 @@
 ### DF-008 — review-required bash actions have no live approval path
 
 - Severity: P0 workflow/control; enforcement remained fail-closed.
+- Status: R1 presentation candidate implemented in PR #55. Terminal reviews are now truthfully
+  blocked with no live-decision claim; policy precision and safe command-shape recovery remain open.
 - Direct evidence: four `POL-003` review verdicts all carried `grantable:false, pending:false`; TUI
   copy said `no live approval` and `/reviews` was read-only.
 - Impact: legitimate work dead-ends. The operator cannot inspect the exact command, approve once,

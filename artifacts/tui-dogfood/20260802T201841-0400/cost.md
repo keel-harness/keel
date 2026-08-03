@@ -40,6 +40,7 @@ applicable input rate.
 | Refactor implementation/tests | 10 | 4,565 | 297,763 | 1,205 | 0.1246 | 2.6147 | 17.3853 |
 | Compacted final summary | 3 | 373 | 4,972 | 674 | 0.0130 | 2.6277 | 17.3723 |
 | Refactor test consolidation | 13 | 5,390 | 91,016 | 2,372 | 0.0831 | 2.7109 | 17.2891 |
+| R1 offline product replay | 0 | 0 | 0 | 0 | 0.0000 | 2.7109 | 17.2891 |
 
 Provider calls: 23 successful, 2 rejected at zero reported usage. The USD 2.00 final-regression
-reserve remains intact.
+reserve remains intact. The R1 replay was deterministic and offline; it made no Anthropic request.

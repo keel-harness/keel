@@ -24,3 +24,18 @@ sandbox constrained writes to workspace/temp and denied all network; it failed u
 | ID | Workflow | Action | Verdict | Precision | Presentation |
 | --- | --- | --- | --- | --- | --- |
 | D-001 | Debugging | edit `CHANGES.md` before a current-session read | denied, then recovered | justified and narrowly scoped | poor: audit guidance named the exact prerequisite, but TUI hid it and later omitted the successful retry |
+
+## R1 validation outcome
+
+The six historical interrupt counts above are unchanged: the R1 replay exercised the same terminal
+review class but offered no operator decision, so it is validation evidence rather than a seventh
+human interrupt.
+
+Before R1, the terminal result was labeled `review needed` and its evidence claimed a human decision
+was required despite `grantable:false`, `pending:false`. After R1, the same Warden verdict and exact
+executor bytes render as `blocked`, explicitly state that no live decision exists, and provide the
+supported atomic rerun path. The stale terminal-only `ask for approval` clause is suppressed.
+
+This improves timing, explanation, cognitive load, and recovery honesty. It does **not** reduce
+review frequency, change policy precision, add approval scope, or weaken enforcement. Those remain
+separate security-sensitive follow-ups.

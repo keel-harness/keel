@@ -141,6 +141,10 @@ instruction to combine findings into large commits.
 
 Findings: **DF-008**.
 
+Candidate status: implemented and locally validated in
+[PR #55](https://github.com/keel-harness/keel/pull/55) at `26bf47b`; exact executor bytes and all
+enforcement surfaces remain unchanged. Merge/post-merge status is pending CI and independent review.
+
 #### Corrected diagnosis
 
 Keel already has a live, controller-owned approval flow for genuinely pending, grantable reviews.

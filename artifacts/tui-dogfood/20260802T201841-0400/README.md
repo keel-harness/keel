@@ -26,13 +26,17 @@ credentials nor user-home paths.
 
 ## Boundaries
 
-- No upstream pushes, PR merges, package publication, deployment, or production changes.
+- Remote work is limited to reviewable branches and pull requests; no PR merge, package publication,
+  deployment, or production change is performed without the repository's independent review gates.
 - External workload changes stay in a disposable local checkout.
 - Keel behavior changes require red-first tests and the repo's public epic-plan gate.
 - At least USD 2.00 remains reserved for final live regression testing.
 
 ## Current gate
 
-All six requested workflow classes have live evidence. The first Keel implementation slice is
-defined in issue #52, but source implementation is paused for the repository charter's explicit
-human review of the public TUI behavior change.
+All six requested workflow classes have live evidence. The evidence bundle is published for review
+in [PR #53](https://github.com/keel-harness/keel/pull/53); its exact head is green and awaits the
+required independent review. The corrected first implementation slice is tracked by
+[issue #54](https://github.com/keel-harness/keel/issues/54) and implemented in
+[PR #55](https://github.com/keel-harness/keel/pull/55). R1 local E2/E3/E4 gates are green; merge and
+post-merge claims remain pending exact-head CI and independent review.

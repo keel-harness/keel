@@ -1,7 +1,22 @@
 # Changes implemented
 
-No Keel behavior changes yet. Implementation is gated on observed evidence, a failing
-test, and the public epic-plan requirement.
+## Keel — validated R1 terminal-review presentation truth
+
+- Signed-off commit `26bf47b fix(tui): distinguish terminal review outcomes`; review candidate
+  [PR #55](https://github.com/keel-harness/keel/pull/55).
+- Terminal Warden reviews without a live review handle now render as blocked rather than a pending
+  human decision, live and after resume.
+- Exact executor output, Warden verdict, policy, grantability, audit, RPC/schema contracts, and real
+  pending approval behavior remain unchanged.
+- One shared truth-copy catalog drives tool cards and conversation evidence. Terminal-only
+  presentation removes the contradictory `ask for approval` clause and offers the supported atomic
+  rerun path.
+- Red evidence: initial 4 failures / 451 passes; E4-discovered copy regression 2 failures / 296
+  passes.
+- Green evidence: targeted 455 passes; full current-head 6,412 passes with 20 existing opt-in skips;
+  typecheck, lint, repository format, and diff check passed.
+- Product evidence: offline deterministic Warden replay against Click plus a sanitized 100×30 Kitty
+  capture. Anthropic usage: zero.
 
 ## External workload — validated local-only feature
 

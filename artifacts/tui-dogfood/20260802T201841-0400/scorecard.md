@@ -10,3 +10,9 @@ Scores use 1 (unusable) through 5 (excellent). `TBD` means the workflow has not 
 | Refactor | before | 3 | 3 | 4 | 3 | 3 | 3 | 2 | 3 | 2 | 2 | 4 |
 | Interrupt | before | 4 | 4 | 4 | 5 | 4 | 4 | 3 | 4 | N/A | N/A | 4 |
 | Warden-heavy | before | 2 | 2 | 2 | 1 | 2 | 2 | 2 | 2 | 2 | 1 | 3 |
+| Warden-heavy | after R1 | 4 | 2 | 2 | 2 | 4 | 3 | 3 | 4 | 3 | 2 | 4 |
+
+The evidence-weighted baseline across applicable cells was **2.77/5**. Applying only the validated
+R1 Warden-heavy change raises that aggregate to **2.97/5**. This is a meaningful truth/recovery gain,
+not the 3.8 release gate: responsiveness, progress visibility, command-outcome truth, mutation
+review, long-task runway, and resume/history work remain unresolved.
