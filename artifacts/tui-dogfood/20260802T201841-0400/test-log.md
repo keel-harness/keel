@@ -466,3 +466,53 @@
 - This is an evidence-only correction: no runtime, test, policy, schema, audit, security claim, or
   provider use changed. The manifest existence regression and repository format/diff checks pass;
   exact-head CI remains required before the correction merges.
+
+## 2026-08-03 — R7 gross-token runway preflight
+
+- Started from clean synchronized `main` at `dc662531476c4b08752d0c0b037715ad46b6c5ab`, after R6's
+  corrected exact post-main CI passed. Published the required plan as
+  [issue #70](https://github.com/keel-harness/keel/issues/70) and created isolated branch
+  `fix/tui-gross-runway-preflight`.
+- Diagnosis corrected the original compaction narrative: the existing hook already ran before the
+  next provider request. It could shrink the active view but not reclaim cumulative gross spend.
+  R7 therefore owns distinct gross warning identity plus a post-compaction input-fit preflight; it
+  does not enable compaction or reinterpret a cap.
+- The first red-test patch accidentally landed in the primary checkout while tests ran in the
+  worktree, yielding a false **517/517 control green**. This was not accepted as red evidence. The
+  exact patch was moved to the worktree and reversed from primary; primary `main` was verified clean.
+  A syntax typo in the new loop test was also fixed before accepting behavioral evidence.
+- The corrected red suite failed for the intended absent behaviors across loop/event/string/
+  recorder/context/TUI/wiring. Valid loop red contained three intended failures: warning metric,
+  gross warning, and second-call prevention. No production behavior was changed before that red.
+- Focused green passed **524/524**. Added shared-state warning and invalid-threshold cases brought the
+  full loop suite to **170/170**. A new end-to-end runner/recorder/reducer/headless/ledger walking
+  skeleton passed **4/4** and proves successful tool evidence survives the stopped terminal.
+- The restricted full run was **partial/invalid**: **6,473 passed / 20 existing skips**, while six
+  proxy tests hit the outer sandbox's `listen EPERM`. The authorized unrestricted rerun passed
+  **6,479 / 20**, with 359 passing files and 4 skipped files. After the final adversarial correction
+  and two added regressions, the exact candidate unrestricted suite passed **6,481 / 20**.
+- Full coverage executed those same tests but exited nonzero on pre-existing unrelated macOS
+  per-file thresholds. Changed production coverage: loop 94.07% lines / 94.54% branches;
+  view-model 97.48% / 93.43%; session-entry 94.67% / 91.40%; pressure 100% / 98.59%; recorder 100%
+  / 94.23%; events and strings 100%. The aggregate command is not called green.
+- E3: the production source CLI, spawned Warden, external Click checkout, non-secret local fixture,
+  and real 100x30 PTY completed one governed read, showed a distinct 48k/50k warning, and stopped
+  before a forecast 5,538-token second request with 2,000 remaining. Fixture count was exactly one.
+  `keel --continue` restored prompt/read/warning evidence and completed a new instruction; final
+  fixture count was exactly two. No external file changed and no human Warden interrupt occurred.
+- E4: `screenshots/25-r7-gross-runway-after.png` is a visually inspected 1400x840 sanitized
+  terminal-frame transcription at the exact worktree path, not a live-window capture. SHA-256
+  `96e15ce2009e68791b786eb81ca23441922e911ac554b70319dbf2ae112fb703`.
+- E5: **BLOCKED**. The configured Anthropic credential existed in Keel's secret store but the first
+  bounded measurement request returned `API key is invalid` with zero usage. The key was never
+  printed, copied, logged, or included in evidence; no retry was attempted. Cumulative spend remains
+  **USD 2.7109**, remaining budget **USD 17.2891**, with the USD 2 reserve intact.
+- Five-lens review found one must-fix before commit: controller-notice recognition matched arbitrary
+  user prose beginning `Budget notice:`. The new adversarial test failed **1 / 16 passed**, then
+  passed **17/17** after recognition was narrowed to exact legacy/new controller prefixes.
+- Final focused behavior and artifact-manifest regression passed **551/551**. Repository typecheck,
+  lint, format, build, and `git diff --check` passed on the reconciled candidate.
+- Local five-lens QC found no code must-fix: scope matches issue #70; provider prevention and metric
+  identity are adversarially covered; exact boundaries, compaction, persistence, and resume are
+  tested; the UI says stopped and preserves evidence; the change adds no dependency or authority.
+  Publication remains blocked on valid-credential E5 and then exact-head CI.

@@ -111,3 +111,16 @@ Warn results preserve their policy warning separately. Nonzero commands remain f
 exit/stderr. The audit retains the original decision with no added guidance, its chain verifies, and
 the sandbox profile is unchanged. R5b improves justification and trust without reducing review,
 grant, policy, sandbox, or audit enforcement.
+
+## R7 validation outcome
+
+R7 introduced no human review interrupt or automatic denial, so historical totals remain 6 total /
+2 necessary / 4 excessive or avoidable. Its production-path replay used the trusted typed `read`
+tool through the spawned Warden; the bounded in-workspace read remained routine and completed
+without asking for authority.
+
+The new gross warning and pre-provider fit stop are kernel budget controls, not Warden decisions.
+They cannot allow, deny, grant, batch, remember, or reinterpret an action. The second provider call
+was prevented before any new tool request existed, while the existing successful read receipt stayed
+visible. Policy, grantability, sandboxing, egress enforcement, audit format, and Warden RPC are
+unchanged.

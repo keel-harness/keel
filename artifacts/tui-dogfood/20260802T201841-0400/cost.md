@@ -48,10 +48,15 @@ applicable input rate.
 | R5a denial-guidance replay | 0 | 0 | 0 | 0 | 0.0000 | 2.7109 | 17.2891 |
 | R5b containment replay | 0 | 0 | 0 | 0 | 0.0000 | 2.7109 | 17.2891 |
 | R6 concurrent-resume preflight | 0 | 0 | 0 | 0 | 0.0000 | 2.7109 | 17.2891 |
+| R7 local-provider runway replay | 0 | 0 | 0 | 0 | 0.0000 | 2.7109 | 17.2891 |
+| R7 Anthropic credential rejection | 0 | 0 | 0 | 0 | 0.0000 | 2.7109 | 17.2891 |
 
-Provider calls: 23 successful, 2 rejected at zero reported usage. The USD 2.00 final-regression
+Anthropic provider calls: 23 successful, 3 rejected at zero reported usage. R7's two local-fixture
+requests are not Anthropic calls and carry no Anthropic cost. The USD 2.00 final-regression
 reserve remains intact. The R1 through R6 and R0 replays were deterministic and offline; they made
 no Anthropic request. R3's displayed 175 and R4's displayed 136 replay tokens are synthetic
 recording usage, not provider usage or spend. R5b's displayed 59 tokens are likewise synthetic.
+R7's displayed 48k and 5.6k are controlled local-fixture usage, not Anthropic usage. Its required E5
+replay remains blocked until the invalid configured credential is replaced; no retry was attempted.
 The R0 manifest caps a future six-workflow replay at
 USD 11.00, below the currently spendable USD 15.2891 after preserving the final USD 2.00 reserve.
