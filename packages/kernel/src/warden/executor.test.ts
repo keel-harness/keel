@@ -471,6 +471,22 @@ describe("WardenExecutor", () => {
     });
     expect(toolPresentationOutcome(denied)).toBe("blocked");
 
+    const secret = "sk-ant-api03-abcDEF123456789_ghijklmnop-qrstuvwxyz0123456789AA";
+    const secretDeny = new WardenExecutor({
+      client: clientReturning({
+        verdict: "deny",
+        guidance: `read CHANGES.md before editing; credential ${secret}`,
+        auditSeq: 4,
+      }),
+      sessionId: SESSION_ID,
+    });
+    const redactedDenial = await secretDeny.execute(
+      call("edit", { path: "CHANGES.md", oldString: "before", newString: "after" }),
+    );
+    expect(redactedDenial.output).toContain("read CHANGES.md before editing");
+    expect(redactedDenial.output).toContain("[redacted:anthropic-key]");
+    expect(redactedDenial.output).not.toContain(secret);
+
     const denyFallback = new WardenExecutor({
       client: clientReturning({
         verdict: "deny",

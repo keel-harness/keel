@@ -35,8 +35,9 @@ credentials nor user-home paths.
 ## Current gate
 
 All six requested workflow classes have live evidence. Evidence PR #53 and implementation PRs #55,
-#57, #59, and #61 were owner-approved, squash-merged, and cleaned up. Exact post-R4 `main` CI run
-`30786694570` passed at `01de241ecd3ea275e7b075a5ebd8099524c68a92` before R0 began.
+#57, #59, and #61, plus repeatability PR #63, were owner-approved, squash-merged, and cleaned up.
+R0 reviewed-head CI run `30788707053` and exact post-merge `main` CI run `30789072222` passed;
+the reviewed and merge trees are identical.
 
 R3's safe first slice is tracked by [issue #58](https://github.com/keel-harness/keel/issues/58):
 exact edit/write retries reconcile without hiding history, live and resumed receipts show
@@ -47,9 +48,17 @@ R4 is merged through [PR #61](https://github.com/keel-harness/keel/pull/61). Its
 squash-merge commit have the same tree; exact PR-head CI run `30786255628` and post-merge `main` CI
 run `30786694570` passed. The merged branch and worktree were removed.
 
-R0 is tracked by [issue #62](https://github.com/keel-harness/keel/issues/62). The private eval
-harness now parses `scenario-manifest.json` for exactly six workflows and compares normalized
+R0 is merged through [PR #63](https://github.com/keel-harness/keel/pull/63) as `05452ec`. The private
+eval harness parses `scenario-manifest.json` for exactly six workflows and compares normalized
 controller facts with rendered claims without making policy decisions. Its credential-unset 100x30
-PTY replay reproduced all eleven score axes, nineteen safe screenshot checkpoint names, and one
-intentional bash contradiction with zero provider calls. This is repeatability infrastructure; it
-does not raise the current UX score.
+PTY replay reproduced all eleven score axes, nineteen then-current safe screenshot checkpoint names,
+and one intentional bash contradiction with zero provider calls. This is repeatability
+infrastructure; it does not raise the current UX score.
+
+R5 is tracked by [issue #64](https://github.com/keel-harness/keel/issues/64) and intentionally split
+at the authority boundary. R5a is a kernel-only candidate for DF-014: an authenticated terminal
+Warden denial now exposes its exact safe recovery guidance, or explicitly says guidance is
+unavailable, without changing the verdict, model-visible envelope, policy, audit, or frozen
+contracts. R5b will separately address allowed-action containment rationale using only verified
+Warden facts. The current manifest tracks twenty safe screenshot checkpoints after adding the R5a
+after frame.

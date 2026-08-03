@@ -73,3 +73,19 @@ classification, so the historical totals remain 6 total / 2 necessary / 4 excess
 Its comparator accepts only already-decided controller lifecycle facts paired with rendered states
 and emits deterministic presentation mismatch codes. It cannot receive a command, grant scope, or
 emit allow/review/deny. Policy, grantability, enforcement, audit, and frozen schemas are unchanged.
+
+## R5a validation outcome
+
+R5a introduced no human review interrupt, so the historical totals remain 6 total / 2 necessary /
+4 excessive or avoidable. Its deterministic replay exercised automatic denial D-001: a typed edit
+was denied before execution because the target had not been read in the current session.
+
+Before R5a, the TUI reduced the precise Warden guidance to generic retry copy. After R5a, the same
+tagged terminal denial and exact kernel-authored envelope render the safe prerequisite as `next`.
+Empty or generic guidance reports that recovery guidance is unavailable; untagged failures and
+model prose cannot create the authoritative recovery line. Guidance is control-stripped, redacted,
+and display-bounded.
+
+The verdict, classification, grantability, timing, model-visible denial envelope, policy, sandbox,
+audit, and frozen carriers are unchanged. R5a improves an automatic denial's recovery precision; it
+does not reduce interrupt frequency or address DF-012 containment rationale, which remains R5b.

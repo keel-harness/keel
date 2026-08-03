@@ -1236,19 +1236,19 @@ function toolResultSummary(
     const reviewSettlementOutcome = kernelReviewSettlementOutcome(cleanedOutput);
     if (reviewSettlementOutcome !== undefined && reviewSettlementOutcome === outcome)
       return kernelReviewSettlementSummary(reviewSettlementOutcome);
-  }
-  if (name === "edit") return priorSummary;
-  if (cleanedOutput !== undefined) {
     // Structured warden denials may carry a machine-readable findings body after the human guidance.
     // The findings stay in the transcript/audit; the compact tool card must lead with the actionable
     // first line instead of leaking the final JSON line into the ordinary evidence surface.
     const denialFirstLine = stripControlLine(firstLine(output)).trim();
-    if (denialFirstLine.startsWith("blocked by warden (not executed):")) {
+    if (outcome === "blocked" && denialFirstLine.startsWith("blocked by warden (not executed):")) {
       if (denialFirstLine.includes("no review remains pending")) {
         return "blocked by warden (not executed): review closed as denied · no review remains pending";
       }
       return truncateLine(denialFirstLine, MAX_LIVE_OUTPUT_LEN);
     }
+  }
+  if (name === "edit") return priorSummary;
+  if (cleanedOutput !== undefined) {
     const terminal = outcome === "blocked" && isTerminalReviewWithoutLiveDecision(cleanedOutput);
     const review = reviewDetail(cleanedOutput, terminal);
     if (review !== undefined) {

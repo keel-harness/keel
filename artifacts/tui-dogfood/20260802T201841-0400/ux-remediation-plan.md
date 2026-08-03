@@ -121,9 +121,10 @@ This is enabling work, not a substitute for fixing the P0. Keep it small and tim
 
 ### R0. Freeze the dogfood scenarios and score mechanics
 
-Candidate status: tracked by [issue #62](https://github.com/keel-harness/keel/issues/62). The
-private eval/docs candidate freezes all six workflows and provides an offline controller/render
-contradiction comparator; it does not score UX or make policy decisions.
+Status: merged through [PR #63](https://github.com/keel-harness/keel/pull/63) as `05452ec`; exact
+reviewed-head and post-merge `main` CI passed and the trees are identical. The private eval/docs
+slice freezes all six workflows and provides an offline controller/render contradiction comparator;
+it does not score UX or make policy decisions.
 
 - **Evidence:** score and screenshots exist, but several reproductions still depend on remembered
   prompt wording and manual ledger comparison.
@@ -315,6 +316,12 @@ Feature/refactor/interrupt trust, hierarchy, recovery, and final confidence.
 ### R5 · P1 — expose the Warden's useful reason and containment
 
 Findings: **DF-012, DF-014**.
+
+Candidate status: public parent [issue #64](https://github.com/keel-harness/keel/issues/64) splits
+the work at the authority boundary. R5a is the kernel-only DF-014 candidate: tagged terminal denials
+surface exact safe guidance with redaction, bounded rendering, live/resume parity, and a forged-text
+negative path. R5b remains pending for DF-012 and may use only verified containment facts returned
+by the Warden; no presentation inference is permitted.
 
 #### User outcome
 
