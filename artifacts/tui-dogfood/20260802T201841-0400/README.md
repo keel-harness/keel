@@ -37,10 +37,11 @@ credentials nor user-home paths.
 All six requested workflow classes have live evidence. Evidence PR #53; implementation PRs #55,
 #57, #59, #61, #65, #66, #68, #71, #73, and #75; repeatability PR #63; R6 evidence correction PR
 #69; R10 PR #80 and closeout PR #81; R11 PR #83; PTY observer repair PR #85; and dependency-
-remediation PR #78 were owner-approved, squash-merged, and cleaned up. Each UX
+remediation PR #78; and R14 PR #88 were owner-approved, squash-merged, and cleaned up. Each UX
 slice passed reviewed-head CI. R9's first post-merge run exposed a high `brace-expansion` advisory;
 PR #78 repaired it. Exact current-main CI run `30856149564` passes at `939b8c4` after the later
-validated slices and PTY observer repair.
+validated slices and PTY observer repair. R14 then passed exact current-main CI run `30859848006`
+at `198f56f`.
 
 R3's safe first slice is tracked by [issue #58](https://github.com/keel-harness/keel/issues/58):
 exact edit/write retries reconcile without hiding history, live and resumed receipts show
@@ -164,7 +165,7 @@ byte-identical tree `16336f3`. Exact post-main run `30856149564` passed, includi
 failing macOS installed-carrier package job `91827544534` and `ci-required` job `91829961337`.
 Issue #84 closed, the branch/worktree were removed, and R11's **3.82/5** aggregate is official.
 
-R14 is tracked by [issue #87](https://github.com/keel-harness/keel/issues/87). The local candidate
+R14 closed [issue #87](https://github.com/keel-harness/keel/issues/87). The merged implementation
 replaces the blanket missing-result `execution status is unknown` card with occurrence-indexed,
 process-local controller facts: `not started`, `in flight`, or `completed without a recorded
 result`. A direct reducer boundary remains conservatively `indeterminate` when the runner has no
@@ -183,6 +184,9 @@ were loopback-only and Anthropic spend stayed USD 2.74434625.
 The visually inspected sanitized 1400x840 transcription
 `screenshots/36-r14-interrupted-mutation-after.png` is the thirty-fourth manifest checkpoint and
 compares directly with R10 screenshot 29. It raises interruption visual hierarchy and final-result
-confidence by two observed points, yielding a **3.85/5 candidate** (239/62). This score is not
-official until reviewed-head and post-main CI pass; the stricter final six-workflow release gate
-remains open.
+confidence by two observed points. Candidate `03a6ad2` passed exact reviewed-head CI run
+`30859417733` and squash-merged through [PR #88](https://github.com/keel-harness/keel/pull/88) as
+`198f56f`; both commits have tree `5d77488`. Exact post-main CI run `30859848006` passed, including
+`ci-required` job `91840336493`. Issue #87 closed, the branch/worktree were removed, and the
+evidence-bound official score is now **3.85/5** (239/62). The stricter final six-workflow release
+gate remains open.

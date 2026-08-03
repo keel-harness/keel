@@ -22,7 +22,7 @@ Scores use 1 (unusable) through 5 (excellent). `TBD` means the workflow has not 
 | Refactor | R7 candidate (E2-E5) | 4 | 3 | 4 | 4 | 4 | 4 | 4 | 4 | 3 | 2 | 4 |
 | Interrupt | before | 4 | 4 | 4 | 5 | 4 | 4 | 3 | 4 | N/A | N/A | 4 |
 | Interrupt | R10 candidate (E2-E4) | 5 | 4 | 5 | 5 | 5 | 4 | 4 | 5 | N/A | N/A | 4 |
-| Interrupt | R14 candidate (E2-E4) | 5 | 4 | 5 | 5 | 5 | 5 | 4 | 5 | N/A | N/A | 5 |
+| Interrupt | after R14 (E2-E4) | 5 | 4 | 5 | 5 | 5 | 5 | 4 | 5 | N/A | N/A | 5 |
 | Warden-heavy | before | 2 | 2 | 2 | 1 | 2 | 2 | 2 | 2 | 2 | 1 | 3 |
 | Warden-heavy | after R1 | 4 | 2 | 2 | 2 | 4 | 3 | 3 | 4 | 3 | 2 | 4 |
 | Warden-heavy | after R1+R5 | 4 | 2 | 2 | 2 | 4 | 4 | 4 | 4 | 4 | 2 | 4 |
@@ -98,6 +98,8 @@ same read completes, the edit stays without a durable result, and the file remai
 new receipt says `not started` and `this tool did not execute` instead of making the user interpret
 generic unknown state. Synthetic reducer cases prove in-flight/completed-but-unrecorded outcomes
 remain indeterminate about effects and direct factless settlement stays conservative. This raises
-the directly observed interruption visual-hierarchy and final-confidence cells by two points. The
-evidence-bound aggregate is a **3.85/5 candidate** (239/62), pending reviewed-head and post-main CI;
-the strict final six-workflow gate remains open.
+the directly observed interruption visual-hierarchy and final-confidence cells by two points.
+Candidate `03a6ad2` passed exact-head CI `30859417733`, merged through PR #88 as `198f56f` with
+identical tree `5d77488`, and passed exact post-main CI `30859848006`. Cleanup passed, so the
+evidence-bound aggregate is officially **3.85/5** (239/62). The strict final six-workflow gate
+remains open.

@@ -69,4 +69,7 @@ E5 is **NOT_RUN** because execution occurrence state is provider-independent and
 boundary was exercised by the local fixture. Twenty fixture requests made no Anthropic call.
 Cumulative spend remains USD 2.74434625 with USD 17.25565375 remaining and the final USD 2 reserve
 intact. Five-lens review found no unresolved must-fix locally. The candidate aggregate is **3.85/5**
-(239/62); it is not official until reviewed-head and post-main CI pass.
+(239/62). Candidate `03a6ad2` passed exact reviewed-head CI `30859417733` and merged through PR #88
+as `198f56f` with identical tree `5d77488`. Exact post-main CI `30859848006` passed, issue #87
+closed, and branch/worktree cleanup passed. The evidence-bound aggregate is therefore officially
+**3.85/5**; the strict final six-workflow gate remains open.
