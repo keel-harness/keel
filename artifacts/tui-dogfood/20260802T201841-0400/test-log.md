@@ -750,8 +750,8 @@
   operator redirect and ends with a truthful recovery receipt. Simplicity: one non-wire marker, one
   explicit loop state, one bounded outcome parser, and one linear presentation reconciliation; no
   dependency or new authority.
-- Candidate aggregate is **3.82/5** (237/62), pending reviewed-head CI, merge, exact post-main CI,
-  and cleanup.
+- Candidate `d371b53` passed reviewed-head CI `30853223179`, merged through PR #83 as `cb15763`, and
+  was cleaned up. The exact post-main failure and subsequent observer repair are recorded below.
 
 ## 2026-08-03 — R11 publication and P0 PTY observer repair
 
@@ -784,4 +784,14 @@
 - Final local gates pass: Python **2/2**, focused Vitest/product **23/23**, unrestricted full tests
   and coverage **6,529 passed / 20 existing opt-in skips**, all enforced thresholds at 98.00%
   lines/statements, 93.73% branches, and 99.59% functions overall, typecheck, lint, format, build,
-  and `git diff --check`. Reviewed-head CI, merge, and exact post-main CI remain pending.
+  and `git diff --check`.
+- Repair candidate `80e5ee148f43c285c48b7d157d4bac401ceb6ae1` passed exact-head CI run
+  `30855665108`, including DCO, build/coverage, security, sandbox-real, package, Node-next, and
+  egress gates. PR #85 squash-merged it as `939b8c4a6fb6b15cf2c07ae7be1fc4b5de37b7e1`;
+  candidate and merge trees are both `16336f345e05b3ef4e9d1a09ff5c519910251b51`.
+- Exact post-main run `30856149564` passed. The formerly failing installed-carrier macOS package job
+  `91827544534`, macOS/Ubuntu builds and package jobs, security, audit, real-sandbox, cross-arch,
+  Node-next, egress scale/product matrices, and `ci-required` job `91829961337` are green.
+- Issue #84 auto-closed. Canonical `main` was fast-forwarded cleanly; only the canonical worktree and
+  local `main` branch remain, and the remote feature branch was absent/pruned. R11's evidence-bound
+  aggregate is officially **3.82/5**; the stricter final release gate remains open.

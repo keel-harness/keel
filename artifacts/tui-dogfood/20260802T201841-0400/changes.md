@@ -413,8 +413,9 @@ worktree were removed.
 - E4 adds visually inspected sanitized screenshots 33–35. E5 is **NOT_RUN**; cumulative Anthropic
   spend remains USD 2.74434625. The same 80x24/100x30 PTY oracle was repeated after the final
   fail-closed correction and retained SHA-256 `97e78a47…`, eight local requests, zero paid requests,
-  and clean Click state. Candidate score is **3.82/5** (237/62). Exact-head CI, merge, post-main CI,
-  issue closeout, and branch/worktree cleanup remain required.
+  and clean Click state. Candidate `d371b53` passed exact-head CI `30853223179` and merged through
+  PR #83 as `cb15763` with byte-identical tree `f763182`. After the PTY observer repair below passed
+  exact post-main CI, the score became officially **3.82/5** (237/62).
 
 ## Keel — P0 PTY readiness observer repair
 
@@ -435,7 +436,12 @@ worktree were removed.
   assertion, test, or product behavior was weakened. Python **2/2**, focused **23/23**, unrestricted
   full tests and coverage **6,529 passed / 20 existing opt-in skips**, all enforced thresholds at
   98.00% lines/statements and 93.73% branches overall, typecheck, lint, format, build, and
-  `git diff --check` pass. Exact reviewed-head and post-main CI remain pending.
+  `git diff --check` pass.
+- Repair candidate `80e5ee1` passed exact-head CI `30855665108` and merged through PR #85 as
+  `939b8c4`; candidate and merge trees are both `16336f3`. Exact post-main CI `30856149564` passed,
+  including macOS package job `91827544534`, `ci-required` job `91829961337`, both platform builds,
+  security, audit, real-sandbox, cross-arch, Node-next, and egress matrices. Issue #84 closed and the
+  local/remote feature branch and worktree were removed.
 
 ## External workload — validated local-only bug fix
 

@@ -529,6 +529,10 @@ already knows it, allow one bounded retry, and stop with exact remaining work if
 Test composite-command review, quoted selectors, no-test matches, retry loops, and truly blocked
 commands. Do not normalize away shell semantics or auto-run a materially different command.
 
+Status: closed through PR #83 and the PR #85 release-observer repair. Exact post-main CI run
+`30856149564` passed at `939b8c4`; the evidence-bound aggregate is officially **3.82/5**. The strict
+release gate remains open until the final same-commit six-workflow replay satisfies every floor.
+
 ### R12 · P2 — calm evidence density and progressive disclosure
 
 Finding: **DF-005**. Collapse repeated trusted reads and equivalent routine allows into semantic
