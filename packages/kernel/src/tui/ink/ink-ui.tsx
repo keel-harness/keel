@@ -20,6 +20,7 @@ import {
 } from "../diff-viewer-control.js";
 import { collectDiffViewerFiles, type DiffViewerState } from "../diff-viewer.js";
 import { PURPOSEFUL_LIVENESS } from "../purposeful-liveness.js";
+import { INPUT_HISTORY_SEED } from "../input-history.js";
 
 /** Keel owns Ctrl-C so the first idle press can warn and the second can exit. */
 export const KEEL_INK_RENDER_OPTIONS = {
@@ -37,6 +38,7 @@ export class InkUI implements UIPort {
   #instance: ReturnType<typeof render> | undefined;
   #latestView: ViewModel | undefined;
   #composerState: InputState | undefined;
+  #initialInputHistory: readonly string[] = [];
   #approvalState: InputState | undefined;
   #diffViewerState: DiffViewerState | undefined;
   #suspended = false;
@@ -80,6 +82,13 @@ export class InkUI implements UIPort {
     resume: (): void => this.#resume(),
   };
   readonly [DIFF_VIEWER_CONTROL] = (): DiffViewerOpenResult => this.#diffViewerControl.open();
+  readonly [INPUT_HISTORY_SEED] = (history: readonly string[]): void => {
+    // Resume wiring runs before the first render. Never let a late seed overwrite a live or dormant
+    // draft if a forker calls the optional sidecar out of order.
+    if (this.#latestView === undefined && this.#composerState === undefined) {
+      this.#initialInputHistory = [...history];
+    }
+  };
 
   constructor(
     queue: InputQueue,
@@ -130,6 +139,7 @@ export class InkUI implements UIPort {
         onApprovalState={this.#rememberApprovalState}
         connectDiffViewer={this.#connectDiffViewer}
         onDiffViewerState={this.#rememberDiffViewerState}
+        initialInputHistory={this.#initialInputHistory}
         {...(this.#composerState === undefined
           ? {}
           : { initialComposerState: this.#composerState })}

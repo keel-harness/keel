@@ -1102,6 +1102,8 @@ export interface KeelSessionOpts {
    *  fresh `head` (system prompt + env + skills + AGENTS.md) — the resumed ledger already holds the
    *  original context — and seeds the REPL from these messages without re-recording them. */
   readonly resumed?: readonly ModelMessageT[];
+  /** Ledger-derived ordinary prompts for process-local interactive recall; never model-visible. */
+  readonly resumedInputHistory?: readonly string[];
   /** Internal ledger-derived tool outcomes for honest resumed presentation; never model-visible. */
   readonly resumedFailedToolCallIds?: ReadonlySet<string>;
   /** Occurrence-precise ledger-derived tool outcomes for honest resumed presentation. */
@@ -1193,6 +1195,9 @@ export async function runKeelSession(opts: KeelSessionOpts): Promise<RunOutcome>
     ...runnerBase,
     head,
     ...(opts.resumed !== undefined ? { resumed: opts.resumed } : {}),
+    ...(opts.resumedInputHistory !== undefined
+      ? { resumedInputHistory: opts.resumedInputHistory }
+      : {}),
     ...(opts.resumedFailedToolCallIds !== undefined
       ? { resumedFailedToolCallIds: opts.resumedFailedToolCallIds }
       : {}),
@@ -1626,6 +1631,7 @@ export async function runKeelCommand(
         ...(resumed !== undefined ? { resumed } : {}),
         ...(resumeState !== undefined
           ? {
+              resumedInputHistory: resumeState.inputHistory,
               resumedFailedToolCallIds: resumeState.failedToolCallIds,
               resumedFailedToolMessageIndexes: resumeState.failedToolMessageIndexes,
             }

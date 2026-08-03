@@ -136,3 +136,16 @@ R8 changes presentation only. It repeats the already-visible initiating user pro
 sanitized active-task row and does not change a Warden verdict, grant, batching rule, policy input,
 sandbox profile, egress rule, RPC, audit record, or model-visible tool result. Focused approvals and
 foreground panels retain viewport ownership.
+
+## R9 validation outcome
+
+R9 introduced no human review interrupt or automatic denial, so historical totals remain 6 total /
+2 necessary / 4 excessive or avoidable. Its before/after product replay used ordinary no-tool
+prompts through the spawned Warden startup path and a loopback provider; no action requested new
+filesystem, network, package, Git, or shell authority.
+
+Prompt history is presentation-only. The new kernel-internal sidecar cannot issue a tool request,
+grant or remember approval, change policy input, alter a sandbox/egress profile, write an audit
+record, or add a model message. Structured steering remains excluded from recall by exact durable
+index and content. Warden verdicts, review burden, grantability, model/tool contracts, frozen UiPort,
+session/audit schemas, and public CLI syntax are unchanged.

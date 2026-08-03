@@ -22,6 +22,9 @@ export const INTERRUPTED_TOOL_RESULT =
  */
 export interface ResumeState {
   readonly messages: ModelMessageT[];
+  /** Ordinary human turn-opening prompts in durable order. This is presentation input only: the Ink
+   * composer applies its own control/redaction/bound normalization before enabling recall. */
+  readonly inputHistory: readonly string[];
   /** Tool-result identities whose durable ledger event recorded `isError:true`. Kept parallel to
    *  provider messages because `ModelMessage` is a frozen provider contract with no presentation
    *  status field; the TUI uses this internal metadata to avoid repainting denials as successes. */
@@ -95,6 +98,7 @@ export function closeOpenToolCalls(messages: readonly ModelMessageT[]): ModelMes
  */
 export function rebuild(file: SessionFile): ResumeState {
   const messages: ModelMessageT[] = [];
+  const inputHistory: string[] = [];
   const failedToolCallIds = new Set<string>();
   const failedToolMessageIndexes = new Set<number>();
   // §4.10: a steering input may be recorded PENDING then later superseded by an APPLIED marker
@@ -102,6 +106,7 @@ export function rebuild(file: SessionFile): ResumeState {
   // overrides its pending event; the injected message itself rides a separate `user` event (the
   // applied marker is metadata only, never a conversation message). Insertion order preserved.
   const steeringById = new Map<string, SteeringEventT>();
+  const steeringMessagesByIndex = new Map<number, Set<string>>();
   const failedLoopIterationById = new Map<string, number>();
   let expectedLegacyLoopController: string | undefined;
   let lastStop: StopReasonT | undefined;
@@ -109,6 +114,10 @@ export function rebuild(file: SessionFile): ResumeState {
   let lastStopMessage: string | undefined;
   let lastGoalFailure: "incomplete" | "unverified" | "aborted" | "error" | undefined;
   let usage: ModelUsageT | undefined;
+  // A real typed prompt opens each durable run. User-role messages later in that run are controller
+  // continuations, verification nudges, budget notices, loop guidance, or structured steering—not
+  // composer history. `run_status` is the durable boundary that makes the next user event eligible.
+  let awaitingHumanPrompt = true;
 
   // The current assistant's tool calls not yet matched by a tool_result.
   let open: { id: string; name: string }[] = [];
@@ -131,6 +140,18 @@ export function rebuild(file: SessionFile): ResumeState {
       case "user":
         expectedLegacyLoopController = undefined;
         closeOpen();
+        {
+          const index = messages.length;
+          // An applied marker identifies its injected message by both durable message index and
+          // exact content. Index-only matching lets a torn marker suppress an unrelated prompt if a
+          // later run legitimately reuses the promised index.
+          const structuredSteering = steeringMessagesByIndex.get(index)?.has(ev.content) === true;
+          const ordinaryPrompt = awaitingHumanPrompt && !structuredSteering;
+          if (ordinaryPrompt && ev.content.trim() !== "") inputHistory.push(ev.content);
+          // Even an excluded steering/blank at the boundary owns this run; later controller user-role
+          // messages must not be promoted merely because the first one was not recallable.
+          if (awaitingHumanPrompt) awaitingHumanPrompt = false;
+        }
         messages.push({ role: "user", content: ev.content });
         break;
       case "assistant":
@@ -185,6 +206,7 @@ export function rebuild(file: SessionFile): ResumeState {
         lastStopMessage = ev.message;
         lastGoalFailure = undefined;
         usage = ev.usage;
+        awaitingHumanPrompt = true;
         break;
       case "loop_iteration":
         if (ev.status === "exit-check-failed") {
@@ -199,6 +221,7 @@ export function rebuild(file: SessionFile): ResumeState {
           closeOpen();
           const continuation = loopContinuationMessage(ev.iteration);
           messages.push(continuation);
+          awaitingHumanPrompt = false;
           expectedLegacyLoopController = continuation.content;
         }
         // A failed-check marker authorizes at most the immediately following running iteration.
@@ -234,6 +257,11 @@ export function rebuild(file: SessionFile): ResumeState {
       case "steering":
         // Last-wins per inputId: an applied marker (insertedAt set) supersedes its pending event.
         steeringById.set(ev.inputId, ev);
+        if (ev.insertedAt !== null) {
+          const contents = steeringMessagesByIndex.get(ev.insertedAt) ?? new Set<string>();
+          contents.add(ev.content);
+          steeringMessagesByIndex.set(ev.insertedAt, contents);
+        }
         break;
       default:
         break; // session_meta is not a conversation message
@@ -252,6 +280,7 @@ export function rebuild(file: SessionFile): ResumeState {
 
   return {
     messages,
+    inputHistory,
     failedToolCallIds,
     failedToolMessageIndexes,
     pendingSteering,

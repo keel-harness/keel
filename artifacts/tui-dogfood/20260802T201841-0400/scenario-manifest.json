@@ -46,7 +46,9 @@
         "02-onboarding-ready.png",
         "04-onboarding-tool-execution.png",
         "05-onboarding-long-running.png",
-        "26-r8-active-objective-after.png"
+        "26-r8-active-objective-after.png",
+        "27-r9-resume-history-before.png",
+        "28-r9-resume-history-after.png"
       ],
       "costCeilingUsd": 1
     },

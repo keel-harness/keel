@@ -114,6 +114,91 @@ describe("resume.rebuild (text-only ledger → messages)", () => {
     expect(r.pendingSteering).toEqual([]);
   });
 
+  it("derives only ordinary turn-opening prompts for resumed composer history", () => {
+    const e = env();
+    const store = SessionStore.create({ cwd: "/w" }, e);
+    const ts = "2026-08-03T00:00:00.000Z";
+    const usage = { inputTokens: 1, outputTokens: 1 };
+
+    store.append({ type: "system", v: 1, ts, content: "system context" });
+    store.append({ type: "user", v: 1, ts, content: "inspect the repository" });
+    store.append({ type: "assistant", v: 1, ts, content: "working" });
+    // Controller-authored user-role messages inside a turn are provider context, not typed prompts.
+    store.append({ type: "user", v: 1, ts, content: "controller verification nudge" });
+    store.append({ type: "assistant", v: 1, ts, content: "done" });
+    store.append({ type: "run_status", v: 1, ts, reason: "model-stop", usage });
+
+    // Exact duplicates remain source-faithful and stable.
+    store.append({ type: "user", v: 1, ts, content: "inspect the repository" });
+    store.append({ type: "assistant", v: 1, ts, content: "working again" });
+    // Production ordering is applied marker first, then its injected user-role message.
+    store.append({
+      type: "steering",
+      v: 1,
+      ts,
+      inputId: "inp_applied",
+      class: "urgent",
+      content: "do not edit generated files",
+      insertedAt: 7,
+      changedTaskState: false,
+      invalidatedPlan: false,
+    });
+    store.append({ type: "user", v: 1, ts, content: "do not edit generated files" });
+    store.append({ type: "assistant", v: 1, ts, content: "done again" });
+    store.append({ type: "run_status", v: 1, ts, reason: "model-stop", usage });
+
+    // Blank turn input is invalid in the live reducer; a hostile/legacy ledger must not recall it.
+    store.append({ type: "user", v: 1, ts, content: "   " });
+    store.append({ type: "assistant", v: 1, ts, content: "ignored" });
+    store.append({ type: "run_status", v: 1, ts, reason: "model-stop", usage });
+
+    const secret = "sk-ant-api03-supersecretvalue1234567890ABCDEF";
+    store.append({ type: "user", v: 1, ts, content: `use ${secret}` });
+    store.close();
+
+    const resumed = rebuild(readSession(store.id, e));
+
+    expect(resumed.inputHistory.slice(0, 2)).toEqual([
+      "inspect the repository",
+      "inspect the repository",
+    ]);
+    expect(resumed.inputHistory).not.toContain("controller verification nudge");
+    expect(resumed.inputHistory).not.toContain("do not edit generated files");
+    expect(resumed.inputHistory).not.toContain("   ");
+    expect(resumed.inputHistory).toHaveLength(3);
+    expect(resumed.inputHistory[2]).toContain("[redacted:");
+    expect(resumed.inputHistory.join("\n")).not.toContain(secret);
+  });
+
+  it("does not let a torn applied-steering marker hide a later ordinary prompt at the same index", () => {
+    const e = env();
+    const store = SessionStore.create({ cwd: "/w" }, e);
+    const ts = "2026-08-03T00:00:00.000Z";
+    const usage = { inputTokens: 1, outputTokens: 1 };
+
+    store.append({ type: "user", v: 1, ts, content: "first task" });
+    store.append({ type: "assistant", v: 1, ts, content: "done" });
+    store.append({
+      type: "steering",
+      v: 1,
+      ts,
+      inputId: "inp_torn",
+      class: "urgent",
+      content: "steering content never injected",
+      insertedAt: 2,
+      changedTaskState: false,
+      invalidatedPlan: false,
+    });
+    store.append({ type: "run_status", v: 1, ts, reason: "model-stop", usage });
+    // The marker's promised user event was torn away. A future run legitimately reuses index 2.
+    store.append({ type: "user", v: 1, ts, content: "second task" });
+    store.append({ type: "assistant", v: 1, ts, content: "done again" });
+    store.append({ type: "run_status", v: 1, ts, reason: "model-stop", usage });
+    store.close();
+
+    expect(rebuild(readSession(store.id, e)).inputHistory).toEqual(["first task", "second task"]);
+  });
+
   it("skips a compaction event — it is auditable metadata, never a conversation message (§4.7.4/slice 6)", async () => {
     const e = env();
     const store = SessionStore.create({ cwd: "/w" }, e);

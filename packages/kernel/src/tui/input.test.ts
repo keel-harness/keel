@@ -12,6 +12,28 @@ function type(text: string, start = emptyInput()) {
 }
 
 describe("input state machine", () => {
+  it("bounds and sanitizes seeded history while preserving stable duplicates", () => {
+    const secret = "sk-ant-api03-supersecretvalue1234567890ABCDEF";
+    const history = [
+      "",
+      "   ",
+      ...Array.from({ length: 101 }, (_, index) => `task-${index}`),
+      `unsafe${String.fromCharCode(27)}[2J`,
+      `use ${secret}`,
+      "duplicate",
+      "duplicate",
+    ];
+
+    const state = emptyInput(history);
+
+    expect(state.history).toHaveLength(100);
+    expect(state.history[0]).toBe("task-5");
+    expect(state.history).toContain("unsafe[2J");
+    expect(state.history.some((entry) => entry.includes("[redacted:"))).toBe(true);
+    expect(state.history.join("\n")).not.toContain(secret);
+    expect(state.history.slice(-2)).toEqual(["duplicate", "duplicate"]);
+  });
+
   it("types characters into the buffer", () => {
     expect(type("hello").buffer).toBe("hello");
   });
@@ -49,6 +71,28 @@ describe("input state machine", () => {
     expect(r.action).toEqual({ kind: "line", text: "fix the bug" });
     expect(r.state.buffer).toBe("");
     expect(r.state.history).toEqual(["fix the bug"]);
+  });
+
+  it("submits exact text but retains only a redacted history copy", () => {
+    const secret = "sk-ant-api03-supersecretvalue1234567890ABCDEF";
+    const prompt = `use ${secret}`;
+    const r = inputReduce(type(prompt), { kind: "enter" });
+
+    expect(r.action).toEqual({ kind: "line", text: prompt });
+    expect(r.state.history).toHaveLength(1);
+    expect(r.state.history[0]).toContain("[redacted:");
+    expect(r.state.history[0]).not.toContain(secret);
+  });
+
+  it("keeps live prompt history bounded after many submissions", () => {
+    let state = emptyInput();
+    for (let index = 0; index < 125; index++) {
+      state = inputReduce(type(`task-${index}`, state), { kind: "enter" }).state;
+    }
+
+    expect(state.history).toHaveLength(100);
+    expect(state.history[0]).toBe("task-25");
+    expect(state.history.at(-1)).toBe("task-124");
   });
 
   it("enter while the palette is open runs the top filtered command", () => {

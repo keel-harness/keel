@@ -14,6 +14,7 @@ import type { DiffViewerState } from "../diff-viewer.js";
 import { KEEL_INK_RENDER_OPTIONS } from "./ink-ui.js";
 import { InkUI } from "./ink-ui.js";
 import { supportsPurposefulLiveness } from "../purposeful-liveness.js";
+import { seedInputHistory } from "../input-history.js";
 
 const ink = vi.hoisted(() => ({
   render: vi.fn(() => ({
@@ -43,6 +44,36 @@ describe("InkUI render ownership", () => {
 
   it("opts the production interactive port into controller-driven purposeful liveness", () => {
     expect(supportsPurposefulLiveness(new InkUI(new InputQueue()))).toBe(true);
+  });
+
+  it("threads a resume-only history seed to the first composer without emitting input", () => {
+    const queue = new InputQueue();
+    const ui = new InkUI(queue);
+    seedInputHistory(ui, ["earlier task", "latest task"]);
+
+    ui.render(firstRunView());
+
+    const element = (ink.render.mock.calls as unknown[][])[0]?.[0] as
+      | { readonly props?: { readonly initialInputHistory?: readonly string[] } }
+      | undefined;
+    expect(element?.props?.initialInputHistory).toEqual(["earlier task", "latest task"]);
+  });
+
+  it("ignores a late history seed instead of overwriting an active composer's recall state", () => {
+    const ui = new InkUI(new InputQueue());
+    seedInputHistory(ui, ["durable task"]);
+    ui.render(firstRunView());
+
+    seedInputHistory(ui, ["late replacement"]);
+    ui.render({ ...firstRunView(), awaitingInput: true });
+
+    const instance = ink.render.mock.results[0]?.value as
+      | { readonly rerender: ReturnType<typeof vi.fn> }
+      | undefined;
+    const element = instance?.rerender.mock.calls.at(-1)?.[0] as
+      | { readonly props?: { readonly initialInputHistory?: readonly string[] } }
+      | undefined;
+    expect(element?.props?.initialInputHistory).toEqual(["durable task"]);
   });
 
   it("routes overlay dismissal to the newest controller owner and restores the prior owner", () => {

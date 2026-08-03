@@ -24,6 +24,7 @@ import { REVIEW_REQUIRED_AFTER_SYNTHESIS_CODE } from "../events.js";
 import { terminalReviewResult } from "../warden/terminal-review.js";
 import { LOCAL_INPUT_ACTIVITY, LocalInputActivityRegistry } from "./input-activity.js";
 import { DIFF_VIEWER_CONTROL, type DiffViewerOpenResult } from "./diff-viewer-control.js";
+import { INPUT_HISTORY_SEED } from "./input-history.js";
 
 const env = (): NodeJS.ProcessEnv => ({ KEEL_HOME: mkdtempSync(join(tmpdir(), "keel-")) });
 
@@ -73,6 +74,10 @@ class ReplUI implements UIPort {
   readonly queue = new InputQueue();
   #latest: ViewModel | undefined;
   closes = 0;
+  seededInputHistory: readonly string[] = [];
+  readonly [INPUT_HISTORY_SEED] = (history: readonly string[]): void => {
+    this.seededInputHistory = history;
+  };
   readonly #localInputActivity = new LocalInputActivityRegistry();
   readonly [LOCAL_INPUT_ACTIVITY] = (handler: () => void): (() => void) =>
     this.#localInputActivity.connect(handler);
@@ -1866,6 +1871,43 @@ describe("runRepl — multi-turn integrity (Epic 1.23 slice-0 QC)", () => {
 });
 
 describe("runRepl — resume seeding (Epic 1.23 slice 2)", () => {
+  it("seeds the interactive composer from resume history and leaves a fresh session empty", async () => {
+    const e = env();
+    const resumedStore = SessionStore.create({ cwd: "/w" }, e);
+    const resumedUi = new ReplUI();
+    const resumedRun = runRepl({
+      model: new ScriptedModel({ turns: [] }),
+      executor: { execute: () => Promise.resolve({ ok: true, output: "ok" }) },
+      ui: resumedUi,
+      store: resumedStore,
+      env: e,
+      resumed: [{ role: "user", content: "latest task" }],
+      resumedInputHistory: ["earlier task", "latest task"],
+    });
+    await resumedUi.awaitRender((view) => view.awaitingInput === true);
+    resumedUi.endInput();
+    await resumedRun;
+
+    expect(resumedUi.seededInputHistory).toEqual(["earlier task", "latest task"]);
+
+    const freshStore = SessionStore.create({ cwd: "/w" }, e);
+    const freshUi = new ReplUI();
+    const freshRun = runRepl({
+      model: new ScriptedModel({ turns: [] }),
+      executor: { execute: () => Promise.resolve({ ok: true, output: "ok" }) },
+      ui: freshUi,
+      store: freshStore,
+      env: e,
+    });
+    await freshUi.awaitRender((view) => view.awaitingInput === true);
+    freshUi.endInput();
+    await freshRun;
+
+    expect(freshUi.seededInputHistory).toEqual([]);
+    resumedStore.close();
+    freshStore.close();
+  });
+
   it("seeds model context from `resumed` WITHOUT re-recording it; the ledger gets only the new turn", async () => {
     const e = env();
     const store = SessionStore.create({ cwd: "/w" }, e);

@@ -567,3 +567,45 @@
 - Post-evidence behavior/artifact regression passed **469/469**. The exact candidate then passed
   repository typecheck, lint, format, build, and `git diff --check`. Exact-head CI, merge, post-main
   CI, and cleanup remain required.
+
+## 2026-08-03 — R9 resumed prompt history
+
+- Started from clean synchronized `main` at `fff28637e84b051953b7431f00303648558edd27` after R8's
+  post-main CI passed. Published [issue #74](https://github.com/keel-harness/keel/issues/74) and
+  created isolated branch `fix/tui-resume-input-history`.
+- Red-first tests covered ordinary-versus-controller prompt provenance, structured steering,
+  duplicates, blanks, secret redaction, control stripping, the 100-entry bound, exact live submit,
+  optional sidecar wiring, fresh/resumed REPL separation, and CLI continuation. Three intended
+  behavior failures remained after the initial missing-module failures were separated from product
+  behavior; no production behavior existed before the valid red.
+- Adversarial review added a red torn-ledger case: an applied steering marker promised index 2 but
+  its injected user event was absent; a later legitimate prompt reused index 2. Index-only matching
+  hid the prompt. The fix requires exact index plus exact content and the regression now passes.
+- Focused green: **337/337** across six files. Repository typecheck, lint, format, build, and
+  `git diff --check` passed. The unrestricted full suite passed **6,502 / 20 existing opt-in skips**
+  across 360 passing files and 4 skipped files.
+- The first bounded coverage command was **non-green** despite **337/337** tests passing: aggregate
+  was 94.34% statements/lines, 92.22% branches, and 92.70% functions, but `session-entry.ts` had
+  only 86% functions under the narrow selection. No threshold was weakened. The expanded complete
+  entrypoint corpus passed **377/377** and every changed non-Ink file cleared the per-file gate;
+  aggregate was 96.40% statements/lines, 92.59% branches, and 98.95% functions.
+- E3: current `main` and the R9 candidate each ran through the production source CLI, spawned
+  Warden, external Click, a non-secret local OpenAI-compatible fixture, and real 80x24/100x30 PTYs.
+  Before, Up after restart left `preserve this draft` unchanged. After, Up recalled the prior Click
+  prompt, Down restored the exact draft, a second Up recalled again, and the edited recall
+  submitted. All four resume runs exited 0; six fixture requests completed; Click stayed clean.
+- E4: `screenshots/27-r9-resume-history-before.png` and
+  `screenshots/28-r9-resume-history-after.png` are visually inspected 1400x840 sanitized
+  exact-frame transcriptions of the 100x30 comparison, not live-window captures. SHA-256:
+  `b8d6d1079e99cfe20cf7bb405438509aadede052a57702197e931fc286444c46` and
+  `3184a825c5c085d01ecf2010259fe4dc268a85411e694a24c3b0431000462dd9`.
+- E5: **NOT_RUN**. The slice does not change provider behavior and six deterministic loopback calls
+  exercised the production path without reading the live credential. Anthropic spend remains USD
+  2.74434625; USD 17.25565375 remains and the final USD 2 reserve is intact.
+- Five-lens QC found no must-fix. Spec: exact issue #74 scope and no frozen/shared change. Security:
+  history is bounded and sanitized, structured steering is excluded without policy heuristics, and
+  exact live submission is separated from retained recall. Reliability: fresh/resume, unsupported
+  ports, late seeds, duplicates, bounds, drafts, 80x24/100x30, and torn ordering are covered. DX:
+  the main/candidate replay materially removes restart retyping. Simplicity: one small optional
+  sidecar and shared initializer, no dependency or new authority. Exact-head CI, merge, post-main
+  CI, and cleanup remain required.
