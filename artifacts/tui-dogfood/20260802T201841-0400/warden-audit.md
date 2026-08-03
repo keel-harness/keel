@@ -39,3 +39,16 @@ supported atomic rerun path. The stale terminal-only `ask for approval` clause i
 This improves timing, explanation, cognitive load, and recovery honesty. It does **not** reduce
 review frequency, change policy precision, add approval scope, or weaken enforcement. Those remain
 separate security-sensitive follow-ups.
+
+## R3 validation outcome
+
+R3 introduced no new human review interrupt, so the historical totals remain 6 total / 2 necessary
+/ 4 excessive or avoidable. Its deterministic replay exercised automatic denial D-001 through the
+real Warden path: the first edit was blocked before execution by read-before-edit, the corrective
+read succeeded, and the exact retry completed.
+
+Before R3, the final presentation could retain or silently suppress the obsolete block without
+stating that the sequence recovered. After R3, normal/headless output shows the successful edit and
+one controller-owned `recovered` fact; verbose/debug keeps the original blocked attempt. Warden
+verdicts, policy, audit records, model-visible tool results, grantability, and enforcement are
+unchanged.

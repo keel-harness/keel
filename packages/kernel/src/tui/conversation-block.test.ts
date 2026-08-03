@@ -9,7 +9,7 @@ import {
   turnSummaryPresentation,
   visibleTurnItemsWithIndexes,
 } from "./conversation-block.js";
-import { ALL_OFF_POSTURE, buildTurnSummary } from "./view-model.js";
+import { ALL_OFF_POSTURE, buildTurnSummary, initialView, reduce } from "./view-model.js";
 import { terminalDisplayWidth } from "./display-cells.js";
 import {
   markToolPresentationOutcome,
@@ -563,6 +563,125 @@ describe("conversationPlan", () => {
     ]);
 
     expect(buildTurnSummary(base)?.title).toBe("needs attention");
+  });
+
+  it("makes an exact recovered edit dominant while verbose history retains the blocked attempt", () => {
+    let base = initialView([{ role: "user", content: "update src/app.ts" }]);
+    base = reduce(base, {
+      type: "tool-call",
+      id: "edit-blocked",
+      name: "edit",
+      args: { path: "src/app.ts", oldString: "before", newString: "after" },
+    });
+    base = reduce(
+      base,
+      markToolPresentationOutcome(
+        {
+          type: "tool-result",
+          id: "edit-blocked",
+          ok: false,
+          output: "blocked by warden (not executed): read the file before editing",
+        },
+        "blocked",
+      ),
+    );
+    base = reduce(base, {
+      type: "tool-call",
+      id: "edit-retry",
+      name: "edit",
+      args: { path: "src/app.ts", oldString: "before", newString: "after" },
+    });
+    base = reduce(base, {
+      type: "tool-result",
+      id: "edit-retry",
+      ok: true,
+      output: "edited",
+    });
+    base = reduce(base, { type: "text-delta", text: "The exact retry completed." });
+    const summary = buildTurnSummary(base);
+    const plan = conversationPlan({
+      ...base,
+      streaming: false,
+      awaitingInput: true,
+      ...(summary === undefined ? {} : { turnSummary: summary }),
+    });
+    const block = plan.blocks.find((candidate) => candidate.kind === "turn");
+
+    expect(block?.kind).toBe("turn");
+    if (block?.kind !== "turn") return;
+    expect(block.receipt).toMatch(/^done/u);
+    expect(block.summary?.receipt).toEqual([
+      "recovered · edit src/app.ts completed after earlier blocked attempt",
+    ]);
+    expect(JSON.stringify(block.evidence)).not.toContain("read the file before editing");
+    expect(
+      visibleTurnItemsWithIndexes(block.items, undefined).map(({ item }) =>
+        item.kind === "tool" ? item.id : item.content,
+      ),
+    ).not.toContain("edit-blocked");
+    expect(
+      visibleTurnItemsWithIndexes(block.items, "verbose").map(({ item }) =>
+        item.kind === "tool" ? item.id : item.content,
+      ),
+    ).toContain("edit-blocked");
+  });
+
+  it("derives an explicit recovered receipt from resumed history without a stored turn summary", () => {
+    const resumed = initialView(
+      [
+        { role: "user", content: "update src/app.ts" },
+        {
+          role: "assistant",
+          content: "",
+          toolCalls: [
+            {
+              id: "edit-blocked",
+              name: "edit",
+              args: { path: "src/app.ts", oldString: "before", newString: "after" },
+            },
+          ],
+        },
+        {
+          role: "tool",
+          toolCallId: "edit-blocked",
+          name: "edit",
+          content: "blocked by warden (not executed): read the file before editing",
+        },
+        {
+          role: "assistant",
+          content: "",
+          toolCalls: [
+            {
+              id: "edit-retry",
+              name: "edit",
+              args: { path: "src/app.ts", oldString: "before", newString: "after" },
+            },
+          ],
+        },
+        { role: "tool", toolCallId: "edit-retry", name: "edit", content: "edited" },
+        { role: "assistant", content: "The exact retry completed." },
+      ],
+      {},
+      { failedToolMessageIndexes: new Set([2]) },
+    );
+    const block = conversationPlan({ ...resumed, awaitingInput: true }).blocks.find(
+      (candidate) => candidate.kind === "turn",
+    );
+
+    expect(block?.kind).toBe("turn");
+    if (block?.kind !== "turn") return;
+    expect(block.receipt).toContain("recovered 1");
+    expect(block.receipt).toMatch(/^done/u);
+    expect(block.evidence?.lines).toContainEqual({
+      kind: "recovered",
+      text: "edit src/app.ts completed after earlier blocked attempt",
+    });
+    expect(JSON.stringify(block.evidence)).not.toContain("read the file before editing");
+    expect(
+      visibleTurnItemsWithIndexes(block.items, "verbose").map(({ item }) =>
+        item.kind === "tool" ? item.id : item.content,
+      ),
+    ).toContain("edit-blocked");
   });
 
   it("recovers a non-mutating read failure only after a later exploratory success and answer", () => {

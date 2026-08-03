@@ -69,8 +69,8 @@
 ### DF-008 — review-required bash actions have no live approval path
 
 - Severity: P0 workflow/control; enforcement remained fail-closed.
-- Status: R1 presentation candidate implemented in PR #55. Terminal reviews are now truthfully
-  blocked with no live-decision claim; policy precision and safe command-shape recovery remain open.
+- Status: R1 presentation fix merged in PR #55. Terminal reviews are now truthfully blocked with no
+  live-decision claim; policy precision and safe command-shape recovery remain open.
 - Direct evidence: four `POL-003` review verdicts all carried `grantable:false, pending:false`; TUI
   copy said `no live approval` and `/reviews` was read-only.
 - Impact: legitimate work dead-ends. The operator cannot inspect the exact command, approve once,
@@ -89,8 +89,8 @@
 ### DF-010 — bash cards show a success checkmark for nonzero command exits
 
 - Severity: P1 error comprehension.
-- Status: candidate fixed in stacked [PR #57](https://github.com/keel-harness/keel/pull/57);
-  E2/E3/E4 and full local gates passed. Merge must follow R1 and independent review.
+- Status: fixed and merged in [PR #57](https://github.com/keel-harness/keel/pull/57); E2/E3/E4,
+  exact-head CI, and exact post-merge `main` CI passed.
 - Direct evidence: targeted pytest (`exitCode:1`) and `pip install` (`exitCode:1`) rendered as
   `tool ✓ bash done`; failure was discoverable only in truncated stdout/stderr or later prose.
 - Impact: transport success is visually conflated with command success, weakening trust during the
@@ -133,6 +133,10 @@
 ### DF-015 — evidence rail preserves an obsolete denial and omits the successful retry
 
 - Severity: P1 trust/audit comprehension.
+- Status: R3 implementation candidate validated under
+  [issue #58](https://github.com/keel-harness/keel/issues/58). Normal/headless output now makes the
+  exact successful retry dominant and emits a controller-owned `recovered` receipt; verbose/debug
+  history retains the prior block. Publication and review remain pending.
 - Direct evidence: audit seq 115 denied the edit, seq 116 read the file, and seq 117/118 allowed and
   completed the edit. The final evidence rail listed only the denial and read, then labeled the run
   `needs attention` / `verification not run` even though the edit and full test file succeeded.

@@ -19,7 +19,8 @@ import {
 } from "./view-model.js";
 import {
   isRecoverableExploratoryFailure,
-  recoveredExploratoryFailureIndexes,
+  reconciledToolAttempts,
+  recoveredToolFailureIndexes,
 } from "./recovered-tool.js";
 import {
   reviewSettlementPresentation,
@@ -85,6 +86,7 @@ export interface ReviewNeededDetail {
 export type TurnEvidenceKind =
   | "file-evidence"
   | "file-evidence-unavailable"
+  | "recovered"
   | "changed"
   | "checked"
   | "ran"
@@ -351,7 +353,10 @@ function lastAssistantLine(items: readonly ViewItem[]): string | undefined {
   return undefined;
 }
 
-function toolCounts(items: readonly ViewItem[]): {
+function toolCounts(
+  items: readonly ViewItem[],
+  recoveredFailures: ReadonlySet<number> = recoveredToolFailureIndexes(items),
+): {
   readonly fileEvidence: number;
   readonly checked: number;
   readonly ran: number;
@@ -361,7 +366,6 @@ function toolCounts(items: readonly ViewItem[]): {
   readonly partial: number;
   readonly observationsUnavailable: number;
 } {
-  const recoveredFailures = recoveredExploratoryFailureIndexes(items);
   let fileEvidence = 0;
   const checked = 0;
   let ran = 0;
@@ -420,7 +424,7 @@ function hasAttention(items: readonly ViewItem[], summary: UiTurnSummary | undef
     summary?.attention.some((line) => summaryLine(line).length > 0) === true
   )
     return true;
-  const recoveredFailures = recoveredExploratoryFailureIndexes(items);
+  const recoveredFailures = recoveredToolFailureIndexes(items);
   return items.some(
     (item, index) =>
       (!recoveredFailures.has(index) &&
@@ -456,7 +460,7 @@ function attentionTitle(
 function toolSummaryTitle(
   items: readonly ViewItem[],
 ): TurnSummaryPresentation["title"] | undefined {
-  const recoveredFailures = recoveredExploratoryFailureIndexes(items);
+  const recoveredFailures = recoveredToolFailureIndexes(items);
   const outcomes = items.flatMap((item, index) =>
     item.kind === "tool" && !recoveredFailures.has(index) ? [toolOutcome(item)] : [],
   );
@@ -482,7 +486,7 @@ function isProblemToolOutcome(outcome: ReturnType<typeof toolOutcome>): boolean 
 }
 
 function lastProblemToolIndex(items: readonly ViewItem[]): number {
-  const recoveredFailures = recoveredExploratoryFailureIndexes(items);
+  const recoveredFailures = recoveredToolFailureIndexes(items);
   for (let index = items.length - 1; index >= 0; index -= 1) {
     if (recoveredFailures.has(index)) continue;
     const item = items[index];
@@ -504,8 +508,9 @@ function hasAnswerAfterProblem(items: readonly ViewItem[]): boolean {
 }
 
 function receiptFor(items: readonly ViewItem[], summary: UiTurnSummary | undefined): string {
-  const counts = toolCounts(items);
-  const recoveredFailures = recoveredExploratoryFailureIndexes(items);
+  const reconciliation = reconciledToolAttempts(items);
+  const recoveredFailures = reconciliation.failureIndexes;
+  const counts = toolCounts(items, recoveredFailures);
   const attention = hasAttention(items, summary);
   const summaryAttention = cleanSummaryLines(summary?.attention);
   const attentionLines =
@@ -552,6 +557,9 @@ function receiptFor(items: readonly ViewItem[], summary: UiTurnSummary | undefin
     checked > 0 ? `checked ${checked}` : undefined,
     ran > 0 ? `ran ${ran}` : undefined,
     automatic > 0 ? `automatic ${automatic}` : undefined,
+    reconciliation.recoveredCount > 0
+      ? `recovered ${String(reconciliation.recoveredCount)}`
+      : undefined,
     failed > 0 ? `failed ${failed}` : undefined,
     counts.limited > 0 ? `limited ${counts.limited}` : undefined,
     counts.partial > 0 ? `partial ${counts.partial}` : undefined,
@@ -940,7 +948,8 @@ function turnEvidencePresentation(
   density: UiDensity,
   options: { readonly deferExploratoryFailures?: boolean } = {},
 ): TurnEvidencePresentation | undefined {
-  const recoveredFailures = recoveredExploratoryFailureIndexes(items);
+  const reconciliation = reconciledToolAttempts(items);
+  const recoveredFailures = reconciliation.failureIndexes;
   const lines: TurnEvidenceLine[] = [];
   const seen = new Set<string>();
   const add = (line: TurnEvidenceLine): void => addEvidenceLine(lines, seen, line);
@@ -999,6 +1008,12 @@ function turnEvidencePresentation(
     if (matched !== undefined) add(matched.line);
   }
   for (const checked of checkedSet) add({ kind: "checked", text: checked });
+  for (const receipt of reconciliation.receiptLines) {
+    const prefix = "recovered · ";
+    if (receipt.startsWith(prefix)) {
+      add({ kind: "recovered", text: receipt.slice(prefix.length) });
+    }
+  }
   const unmatchedAttention: string[] = [];
   for (const raw of summary?.attention ?? []) {
     const receipt = summaryLine(raw).toLowerCase();
@@ -1048,6 +1063,7 @@ function turnEvidencePresentation(
             line.kind === "skipped" ||
             line.kind === "failed" ||
             line.kind === "stopped" ||
+            line.kind === "recovered" ||
             (line.kind === "more" && line.omitted?.group === "failed"),
         )
       : visibleLines;
@@ -1125,12 +1141,13 @@ function boundedEvidenceLines(lines: readonly TurnEvidenceLine[]): readonly Turn
 function evidenceKindRank(kind: TurnEvidenceKind): number {
   if (kind === "file-evidence") return 0;
   if (kind === "file-evidence-unavailable") return 1;
-  if (kind === "changed") return 2;
-  if (kind === "checked") return 3;
-  if (kind === "ran") return 4;
-  if (kind === "tool") return 5;
-  if (kind === "limited") return 6;
-  return 7;
+  if (kind === "recovered") return 2;
+  if (kind === "changed") return 3;
+  if (kind === "checked") return 4;
+  if (kind === "ran") return 5;
+  if (kind === "tool") return 6;
+  if (kind === "limited") return 7;
+  return 8;
 }
 
 function consequentialEvidence(
@@ -1751,7 +1768,7 @@ export function visibleTurnItemsWithIndexes(
   const pendingIndexes = new Map<string, number>();
   const visible: VisibleTurnItem[] = [];
   let pendingAssistantIndexes: number[] = [];
-  const recoveredFailures = recoveredExploratoryFailureIndexes(items);
+  const recoveredFailures = recoveredToolFailureIndexes(items);
   const hasLaterMeaningfulItem =
     answerFirstDensity && options.retainSuccessfulTools !== true
       ? new Array<boolean>(items.length)

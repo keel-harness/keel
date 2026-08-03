@@ -178,3 +178,39 @@
 - Follow-up observed, not fixed in this slice: a benign pytest terminal warning can outrank the more
   useful stdout tail in compact failure detail.
 - Provider usage: **0 input / 0 output**. Cumulative Anthropic cost remains **USD 2.7109**.
+
+## 2026-08-03 — R3 recovered mutation receipts
+
+- Verified clean synchronized `main` at `86a6c6e542dc420ae35c932803debc24f4215dad`; exact-head CI
+  run `30782086893` was green. Opened scoped issue
+  [#58](https://github.com/keel-harness/keel/issues/58) and isolated branch
+  `fix/tui-reconcile-recovered-receipts` from that exact baseline.
+- The first attempted test command was **NOT_RUN** because the fresh worktree lacked `vitest`.
+  `pnpm install --frozen-lockfile --ignore-scripts` restored the exact lockfile graph without running
+  package scripts. The first real red reproduced DF-015: 2 failures / 171 passes; live and resumed
+  exact retries still ended `needs attention`.
+- The first broad regression exposed four unchanged scaling tests: a second transcript pass made
+  indexed reads super-linear. The implementation was reduced to one reverse reconciliation pass;
+  the performance tests then passed without relaxation.
+- Two product/review gaps were also captured red-first: one-shot output omitted the recovery receipt
+  (1 failure / 134 skipped), and malformed overlapping resume IDs could manufacture a correlation
+  (1 failure / 173 skipped). Both now fail safe and share the same visible recovery evidence.
+- Final focused reducer/conversation/headless/Ink/row-budget regression: `590 passed`. Final full
+  unrestricted suite: `6,426 passed`, `20 skipped` by existing opt-in real-sandbox/Ollama gates.
+  The restricted full attempt was **invalid/partial** because six loopback proxy tests hit the outer
+  harness's `listen EPERM`; the exact unrestricted rerun passed.
+- Full repository `typecheck`, `lint`, `format`, and `git diff --check` passed. Five-lens review found
+  and resolved the resume/ambiguity defects above. It also rejected a draft `verification not
+  recorded` copy change because accepted ADR-0079 requires `verification not run`; R3 does not
+  reinterpret that contract.
+- Offline product replay drove the real kernel → Warden → policy → audit path against a disposable
+  Click fixture: blocked edit → corrective read → exact successful edit → harmless governed shell
+  marker → final answer. Before the one-shot fix the obsolete block was hidden without a recovery
+  receipt; after it rendered `what: recovered: edit r3-recovery-fixture.txt completed after earlier
+  blocked attempt` beside verified file evidence.
+- External Click check: `227 passed, 23 skipped`. The sanitized matching E4 pair is
+  `screenshots/18-r3-recovered-receipt-before.png` and
+  `screenshots/19-r3-recovered-receipt-after.png`, both Kitty 100×30. Neither contains a
+  credential, username, or private path.
+- Provider usage: **0 input / 0 output**. The displayed 175 replay tokens came from the deterministic
+  recording. Cumulative Anthropic cost remains **USD 2.7109**; the USD 2.00 reserve remains intact.

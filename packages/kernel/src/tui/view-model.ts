@@ -52,7 +52,12 @@ import {
   truncateDisplayCells,
   wrapDisplayLine,
 } from "./display-cells.js";
-import { recoveredExploratoryFailureIndexes } from "./recovered-tool.js";
+import {
+  associateToolRecoveryIdentity,
+  reconciledToolAttempts,
+  toolRecoveryIdentityForCall,
+  transferToolRecoveryIdentity,
+} from "./recovered-tool.js";
 import { appendAssistantStream, beginAssistantStream } from "./stream-projection.js";
 import {
   TUI_RUNTIME_TRUTH,
@@ -1479,7 +1484,9 @@ export function applyMutationPresentationResolution(
   const items = view.items.map((item) => {
     if (item !== target || item.kind !== "tool") return item;
     changed = true;
-    return resolveMutationPresentationActivity(item, resolution);
+    const resolved = resolveMutationPresentationActivity(item, resolution);
+    transferToolRecoveryIdentity(item, resolved);
+    return resolved;
   });
   return changed ? withDerived({ ...view, items }) : view;
 }
@@ -1804,7 +1811,9 @@ function mergeAutoResolutionReceipt(
  *  It never infers operation effects, verification, security, policy, or enforcement posture. */
 export function buildTurnSummary(view: ViewModel): UiTurnSummary | undefined {
   const items = latestTurnItems(view.items);
-  const recoveredFailures = recoveredExploratoryFailureIndexes(items);
+  const reconciliation = reconciledToolAttempts(items);
+  const recoveredFailures = reconciliation.failureIndexes;
+  const recoveryReceipt = reconciliation.receiptLines;
   const answer = lastAssistantLine(items);
   const fileEvidence = items
     .filter(
@@ -1841,6 +1850,7 @@ export function buildTurnSummary(view: ViewModel): UiTurnSummary | undefined {
     answer === undefined &&
     fileEvidence.length === 0 &&
     ran.length === 0 &&
+    recoveryReceipt.length === 0 &&
     attention.length === 0
   ) {
     return undefined;
@@ -1852,6 +1862,7 @@ export function buildTurnSummary(view: ViewModel): UiTurnSummary | undefined {
     checked: [],
     ...(fileEvidence.length > 0 ? { fileEvidence } : {}),
     ...(ran.length > 0 ? { ran } : {}),
+    ...(recoveryReceipt.length > 0 ? { receipt: recoveryReceipt } : {}),
     attention,
   };
 }
@@ -2025,24 +2036,44 @@ export function initialView(
   config: ViewConfig = {},
   presentation: SeedPresentation = {},
 ): ViewModel {
-  const pendingSubjects = new Map<string, (string | undefined)[]>();
+  type PendingCall = { readonly subject?: string; readonly recoveryIdentity?: string };
+  const pendingCalls = new Map<string, { readonly calls: PendingCall[]; ambiguous: boolean }>();
   const items = seed.flatMap((message, messageIndex) => {
     for (const call of message.role === "assistant" ? (message.toolCalls ?? []) : []) {
       const key = `${call.id}\u0000${call.name}`;
-      pendingSubjects.set(key, [
-        ...(pendingSubjects.get(key) ?? []),
-        toolInvocationSubject(call.name, call.args),
-      ]);
+      const subject = toolInvocationSubject(call.name, call.args);
+      const recoveryIdentity = toolRecoveryIdentityForCall(call.name, call.args);
+      const pending = pendingCalls.get(key);
+      const current: PendingCall = {
+        ...(subject !== undefined ? { subject } : {}),
+        ...(recoveryIdentity !== undefined ? { recoveryIdentity } : {}),
+      };
+      // A second unresolved call with the same provider id/name makes occurrence correlation
+      // ambiguous. Keep FIFO subjects for display compatibility, but drop every recovery identity
+      // in that overlap so malformed history cannot manufacture an exact retry relationship.
+      if (pending === undefined) {
+        pendingCalls.set(key, { calls: [current], ambiguous: false });
+      } else {
+        if (!pending.ambiguous) {
+          for (let index = 0; index < pending.calls.length; index += 1) {
+            const entry = pending.calls[index]!;
+            pending.calls[index] = entry.subject === undefined ? {} : { subject: entry.subject };
+          }
+          pending.ambiguous = true;
+        }
+        pending.calls.push(subject === undefined ? {} : { subject });
+      }
     }
     const key =
       message.role === "tool"
         ? `${message.toolCallId ?? ""}\u0000${message.name ?? ""}`
         : undefined;
-    const subjects = key === undefined ? undefined : pendingSubjects.get(key);
-    const subject = subjects?.shift();
-    if (key !== undefined && subjects !== undefined && subjects.length === 0)
-      pendingSubjects.delete(key);
-    const item = seedItem(message, presentation, messageIndex, subject);
+    const pending = key === undefined ? undefined : pendingCalls.get(key);
+    const call = pending?.calls.shift();
+    if (key !== undefined && pending !== undefined && pending.calls.length === 0)
+      pendingCalls.delete(key);
+    const item = seedItem(message, presentation, messageIndex, call?.subject);
+    if (item?.kind === "tool") associateToolRecoveryIdentity(item, call?.recoveryIdentity);
     return item === undefined ? [] : [item];
   });
   return withDerived({
@@ -2239,7 +2270,9 @@ function settleRunningToolsAtRunEnd(items: readonly ViewItem[]): readonly ViewIt
       ...(item.diff !== undefined ? { diff: item.diff } : {}),
       ...(mutationPresentation !== undefined ? { mutationPresentation } : {}),
     };
-    return markToolPresentationOutcome(activity, "stopped");
+    const stopped = markToolPresentationOutcome(activity, "stopped");
+    transferToolRecoveryIdentity(item, stopped);
+    return stopped;
   });
   return changed ? settled : items;
 }
@@ -2578,20 +2611,19 @@ export function reduce(view: ViewModel, ev: KernelEventT | UiInputEventT): ViewM
       const path = ev.args["path"];
       const summary = isEdit && typeof path === "string" ? stripControl(path) : "";
       const subject = toolInvocationSubject(ev.name, ev.args);
+      const activity: UiToolActivity = {
+        kind: "tool",
+        id: ev.id,
+        name: stripControl(ev.name), // the model picks the tool name — strip it (ER-020 / §4.9.1)
+        status: "running",
+        summary,
+        ...(subject !== undefined ? { subject } : {}),
+      };
+      associateToolRecoveryIdentity(activity, toolRecoveryIdentityForCall(ev.name, ev.args));
       return withDerived({
         ...view,
         streaming: false,
-        items: [
-          ...view.items,
-          {
-            kind: "tool",
-            id: ev.id,
-            name: stripControl(ev.name), // the model picks the tool name — strip it (ER-020 / §4.9.1)
-            status: "running",
-            summary,
-            ...(subject !== undefined ? { subject } : {}),
-          },
-        ],
+        items: [...view.items, activity],
       });
     }
     case "tool-output-delta": {
@@ -2616,7 +2648,9 @@ export function reduce(view: ViewModel, ev: KernelEventT | UiInputEventT): ViewM
       const items = view.items.map((it, index) => {
         if (index === targetIndex && it.kind === "tool" && it.liveOutput !== line) {
           changed = true;
-          return { ...it, liveOutput: line };
+          const withLiveOutput = { ...it, liveOutput: line };
+          transferToolRecoveryIdentity(it, withLiveOutput);
+          return withLiveOutput;
         }
         return it;
       });
@@ -2632,6 +2666,7 @@ export function reduce(view: ViewModel, ev: KernelEventT | UiInputEventT): ViewM
         if (target.liveness === undefined) return view;
         const { liveness: _liveness, ...withoutLiveness } = target;
         void _liveness;
+        transferToolRecoveryIdentity(target, withoutLiveness);
         return withDerived({
           ...view,
           items: view.items.map((item, index) => (index === ev.itemIndex ? withoutLiveness : item)),
@@ -2662,9 +2697,12 @@ export function reduce(view: ViewModel, ev: KernelEventT | UiInputEventT): ViewM
       }
       return withDerived({
         ...view,
-        items: view.items.map((item, index) =>
-          index === ev.itemIndex && item.kind === "tool" ? { ...item, liveness } : item,
-        ),
+        items: view.items.map((item, index) => {
+          if (index !== ev.itemIndex || item.kind !== "tool") return item;
+          const withLiveness = { ...item, liveness };
+          transferToolRecoveryIdentity(item, withLiveness);
+          return withLiveness;
+        }),
       });
     }
     case "tool-result": {
@@ -2736,6 +2774,7 @@ export function reduce(view: ViewModel, ev: KernelEventT | UiInputEventT): ViewM
               reviewSettlementOutcome,
             );
           }
+          transferToolRecoveryIdentity(it, settledActivity);
           return settledActivity;
         }),
       });
