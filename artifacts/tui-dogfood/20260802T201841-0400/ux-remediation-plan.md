@@ -318,10 +318,11 @@ Feature/refactor/interrupt trust, hierarchy, recovery, and final confidence.
 Findings: **DF-012, DF-014**.
 
 Candidate status: public parent [issue #64](https://github.com/keel-harness/keel/issues/64) splits
-the work at the authority boundary. R5a is the kernel-only DF-014 candidate: tagged terminal denials
-surface exact safe guidance with redaction, bounded rendering, live/resume parity, and a forged-text
-negative path. R5b remains pending for DF-012 and may use only verified containment facts returned
-by the Warden; no presentation inference is permitted.
+the work at the authority boundary. R5a merged through PR #65: tagged terminal denials surface exact
+safe guidance with redaction, bounded rendering, live/resume parity, and a forged-text negative path.
+R5b is locally validated for DF-012: only an exact Warden response derived from verified sandbox
+facts can produce the two-fact containment line; no command, stdout, or presentation inference is
+permitted.
 
 #### User outcome
 

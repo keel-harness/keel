@@ -241,6 +241,51 @@ describe("Ink App (frame snapshots via ink-testing-library)", () => {
     expect(frame).not.toMatch(/seatbelt|review|guided|autopilot/i);
   });
 
+  it.each([
+    ["NO_COLOR", { TERM: "xterm-256color", NO_COLOR: "1" }],
+    ["TERM=dumb", { TERM: "dumb", NO_COLOR: "1" }],
+  ] as const)(
+    "keeps verified command containment legible without color in %s mode",
+    (_label, env) => {
+      const restoreEnv = setTerminalEnv(env);
+      try {
+        const guidance =
+          "warden containment: writes limited to workspace/temp; network egress deny-all";
+        let view = initialView(
+          [{ role: "user", content: "inspect the Python environment" }],
+          status,
+        );
+        view = reduce(view, {
+          type: "tool-call",
+          id: "contained-bash",
+          name: "bash",
+          args: { command: "python3 -m pip --version" },
+        });
+        view = reduce(view, {
+          type: "tool-result",
+          id: "contained-bash",
+          ok: true,
+          output: `${guidance}\n\n${JSON.stringify({
+            exitCode: 0,
+            signal: null,
+            stdout: "pip 26.0\n",
+            stderr: "",
+          })}`,
+        });
+        const frame =
+          render(<App view={{ ...view, density: "verbose", awaitingInput: true }} />).lastFrame() ??
+          "";
+        const normalized = frame.replace(/[│╭╮╰╯─]/gu, " ").replace(/\s+/gu, " ");
+
+        expect(normalized).toContain("tool ✓ bash done");
+        expect(normalized).toContain("contained: writes workspace/temp · network deny-all");
+        expect(normalized).toContain("stdout: pip 26.0");
+      } finally {
+        restoreEnv();
+      }
+    },
+  );
+
   it("separates the user group from the Keel response by one restrained blank row", () => {
     const frame =
       render(

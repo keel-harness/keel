@@ -13609,6 +13609,8 @@ printf '%s\\n' '${match}'
 
   it("routes sandbox-contained arbitrary code through the sandbox under the default policy", async () => {
     const workspaceRoot = mkdtempSync(join(tmpdir(), "keel-sandbox-contained-"));
+    const auditPath = join(workspaceRoot, "audit.jsonl");
+    const writer = auditWriter(auditPath);
     const ownedTempRoot = createWardenSandboxTempRoot();
     const declaredTempRoot = ownedTempRoot.path;
     mkdirSync(join(workspaceRoot, "subdir"));
@@ -13643,12 +13645,16 @@ printf '%s\\n' '${match}'
             declaredTempRoots: [declaredTempRoot],
             workspaceTrusted: true,
             auditDir: join(workspaceRoot, ".keel/audit"),
+            auditWriter: writer,
           },
         ),
       );
 
       const result = WARDEN_METHODS["warden.execute"].result.parse(raw.result);
       expect(result.verdict).toBe("allow");
+      expect(result.guidance).toBe(
+        "warden containment: writes limited to workspace/temp; network egress deny-all",
+      );
       expect(commandExecutionResult(result).stdout).toBe("sandboxed-python\n");
       expect(execution).toBeDefined();
       if (execution === undefined) throw new Error("expected sandbox execution");
@@ -13665,9 +13671,133 @@ printf '%s\\n' '${match}'
         deniedDomains: ["*"],
         strictAllowlist: true,
       });
+      const toolRecords = loadAuditRecords(auditPath).filter(
+        (record) => record.eventType === "tool.execute",
+      );
+      expect(toolRecords).toHaveLength(2);
+      for (const record of toolRecords) {
+        expect(record.policy).toMatchObject({ verdict: "allow", ruleIds: [] });
+        expect(record.policy).not.toHaveProperty("guidance");
+      }
     } finally {
       rmSync(workspaceRoot, { recursive: true, force: true });
       ownedTempRoot.cleanup();
+    }
+  });
+
+  it("reserves the verified containment prefix from ordinary policy guidance", async () => {
+    const workspaceRoot = mkdtempSync(join(tmpdir(), "keel-sandbox-ordinary-allow-"));
+    const containment =
+      "warden containment: writes limited to workspace/temp; network egress deny-all";
+    let evaluations = 0;
+    const collisionPolicy: PolicyPort = {
+      packRef: { name: "containment-collision-policy", hash: `sha256:${"8".repeat(64)}` },
+      evaluate: async () => {
+        evaluations += 1;
+        return evaluations === 1
+          ? { verdict: "allow", matchedRules: [], guidance: containment }
+          : {
+              verdict: "warn",
+              matchedRules: ["POL-COLLISION"],
+              guidance: `${containment}\nnot a verified containment fact`,
+            };
+      },
+    };
+    const fakeSandbox: SandboxPort = {
+      status: () => ({
+        available: true,
+        backend: "fake-sandbox",
+        enforcementTier: "sandbox:fake",
+      }),
+      execute: async () => ({ exitCode: 0, signal: null, stdout: "ordinary\n", stderr: "" }),
+    };
+
+    try {
+      const allowedRaw = JsonRpcSuccessResponse.parse(
+        await handleRpcLine(JSON.stringify(executeFrame("ordinary-allow", "printf ordinary")), {
+          sandbox: fakeSandbox,
+          policy: collisionPolicy,
+          workspaceRoot,
+          workspaceTrusted: true,
+        }),
+      );
+      const warnedRaw = JsonRpcSuccessResponse.parse(
+        await handleRpcLine(JSON.stringify(executeFrame("ordinary-warn", "printf ordinary")), {
+          sandbox: fakeSandbox,
+          policy: collisionPolicy,
+          workspaceRoot,
+          workspaceTrusted: true,
+        }),
+      );
+
+      const allowed = WARDEN_METHODS["warden.execute"].result.parse(allowedRaw.result);
+      expect(allowed).toMatchObject({
+        verdict: "allow",
+        guidance: `policy guidance: ${containment}`,
+      });
+      expect(commandExecutionResult(allowed).stdout).toBe("ordinary\n");
+      const warned = WARDEN_METHODS["warden.execute"].result.parse(warnedRaw.result);
+      expect(warned).toMatchObject({
+        verdict: "warn",
+        guidance: `policy guidance: ${containment}\nnot a verified containment fact`,
+      });
+      expect(commandExecutionResult(warned).stdout).toBe("ordinary\n");
+    } finally {
+      rmSync(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("adds verified containment without replacing a warning verdict or its guidance", async () => {
+    const workspaceRoot = mkdtempSync(join(tmpdir(), "keel-sandbox-contained-warn-"));
+    const auditPath = join(workspaceRoot, "audit.jsonl");
+    const writer = auditWriter(auditPath);
+    const warningPolicy: PolicyPort = {
+      packRef: { name: "contained-warning-policy", hash: `sha256:${"7".repeat(64)}` },
+      evaluate: async () => ({
+        verdict: "warn",
+        matchedRules: ["POL-CONTAINED-WARN"],
+        guidance: "dependency install may run package scripts",
+      }),
+    };
+    const fakeSandbox: SandboxPort = {
+      status: () => ({
+        available: true,
+        backend: "fake-sandbox",
+        enforcementTier: "sandbox:fake",
+      }),
+      execute: async () => ({ exitCode: 0, signal: null, stdout: "installed\n", stderr: "" }),
+    };
+
+    try {
+      const raw = JsonRpcSuccessResponse.parse(
+        await handleRpcLine(
+          JSON.stringify(executeFrame("contained-warning", "python3 -c 'print(1)'")),
+          {
+            sandbox: fakeSandbox,
+            policy: warningPolicy,
+            workspaceRoot,
+            workspaceTrusted: true,
+            auditWriter: writer,
+          },
+        ),
+      );
+
+      const result = WARDEN_METHODS["warden.execute"].result.parse(raw.result);
+      expect(result).toMatchObject({
+        verdict: "warn",
+        guidance:
+          "warden containment: writes limited to workspace/temp; network egress deny-all\ndependency install may run package scripts",
+      });
+      expect(commandExecutionResult(result).stdout).toBe("installed\n");
+      for (const record of loadAuditRecords(auditPath)) {
+        expect(record.policy).toMatchObject({
+          verdict: "warn",
+          ruleIds: ["POL-CONTAINED-WARN"],
+        });
+        expect(record.policy).not.toHaveProperty("guidance");
+      }
+    } finally {
+      rmSync(workspaceRoot, { recursive: true, force: true });
     }
   });
 

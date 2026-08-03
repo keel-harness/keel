@@ -89,3 +89,25 @@ and display-bounded.
 The verdict, classification, grantability, timing, model-visible denial envelope, policy, sandbox,
 audit, and frozen carriers are unchanged. R5a improves an automatic denial's recovery precision; it
 does not reduce interrupt frequency or address DF-012 containment rationale, which remains R5b.
+
+## R5b validation outcome
+
+R5b introduced no human review interrupt, so the historical totals remain 6 total / 2 necessary /
+4 excessive or avoidable. Its real product replay exercised an allowed package-management-shaped
+command under the production Warden and vendored SRT. The existing policy classified the command as
+contained arbitrary code; the verified sandbox limited writes to workspace/temp and enforced strict
+deny-all network egress.
+
+Before R5b, the TUI showed a successful bash card without explaining why the action was safe. After
+R5b, the Warden returns one response-only closed rationale and the TUI renders the calm two-fact
+summary `contained: writes workspace/temp · network deny-all`. The Warden checks the existing
+sandbox proof before emitting it. Kernel and presentation accept only the exact Warden string for
+governed bash; near matches, arbitrary guidance, command output, control suffixes, and high-entropy
+suffixes do not create controller evidence. Ordinary custom policy guidance that begins with the
+reserved sentence is response-namespaced as policy guidance; the authoritative audit decision stays
+unchanged and the copy cannot collide with verified containment.
+
+Warn results preserve their policy warning separately. Nonzero commands remain failed and lead with
+exit/stderr. The audit retains the original decision with no added guidance, its chain verifies, and
+the sandbox profile is unchanged. R5b improves justification and trust without reducing review,
+grant, policy, sandbox, or audit enforcement.

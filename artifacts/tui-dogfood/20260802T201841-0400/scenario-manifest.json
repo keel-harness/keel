@@ -205,7 +205,8 @@
         "07-warden-no-live-approval.png",
         "08-warden-reviews-panel.png",
         "09-file-edit-review-unavailable.png",
-        "16-r1-terminal-review-after.png"
+        "16-r1-terminal-review-after.png",
+        "23-r5b-containment-after.png"
       ],
       "costCeilingUsd": 1.5
     }

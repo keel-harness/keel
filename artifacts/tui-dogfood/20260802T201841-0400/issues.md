@@ -113,6 +113,12 @@
 ### DF-012 — containment rationale is invisible for allowed package-install commands
 
 - Severity: P1 Warden usefulness/trust.
+- Status: R5b implementation candidate under
+  [issue #64](https://github.com/keel-harness/keel/issues/64). The Warden emits one exact response-only
+  rationale only after verifying the existing sandbox proof: writes are limited to workspace/temp
+  and network egress is deny-all. Kernel/TUI presentation recognizes only that closed string for
+  governed bash; near matches, command output, ordinary guidance, and malformed profiles cannot
+  manufacture containment evidence. Publication and exact-head CI are pending.
 - Direct evidence: audit allowed `python3 -m pip install --user -e …` because sandbox writes were
   workspace/temp-only and network was deny-all, but the TUI merely showed a checkmarked bash card.
 - Impact: users cannot tell whether Keel allowed a risky global/network operation or safely contained
@@ -130,11 +136,11 @@
 ### DF-014 — policy denial guidance is omitted from the visible TUI
 
 - Severity: P1 recovery/Warden usefulness.
-- Status: R5a implementation candidate under
-  [issue #64](https://github.com/keel-harness/keel/issues/64). Exact Warden guidance now appears as
+- Status: fixed by R5a, merged through
+  [PR #65](https://github.com/keel-harness/keel/pull/65) as `79f4b70`. Exact Warden guidance now appears as
   the controller-owned `next` action only for a tagged terminal denial in the kernel-authored
   envelope; absent/generic guidance remains explicitly unavailable and forged prose is not promoted.
-  Publication and exact-head CI are pending.
+  Exact reviewed-head CI run `30791324344` and post-merge `main` CI run `30791689948` passed.
 - Direct evidence: read-before-edit denied a CHANGES edit. Audit seq 115 contained the exact action
   `read '.../CHANGES.md' before editing it`; the TUI exposed only `fix the request or command, then retry`.
 - Impact: the security control was precise and recoverable, but the human-facing surface hid the

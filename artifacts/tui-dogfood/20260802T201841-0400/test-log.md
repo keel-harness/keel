@@ -342,3 +342,69 @@
 - The first final static pass found one Prettier-only failure in the corrected live-denial condition;
   the formatter was applied to that file. Exact-candidate repository typecheck, lint, format, build,
   and `git diff --check` then passed. No test or gate was weakened.
+
+## 2026-08-03 — R5b verified Warden containment rationale
+
+- Started from clean synchronized `main` at `79f4b706e659d0ef559178aeac5d0295c7039950`, after R5a's
+  exact post-merge CI passed. Isolated branch: `fix/tui-warden-containment-rationale`. External Click
+  stayed on clean local-only commit `edda51f`.
+- First real red: **4 failed / 568 passed**. The Warden emitted no containment rationale, the kernel
+  did not carry one, and live/resume reducers ignored it and falsely treated a prefixed nonzero bash
+  envelope as successful.
+- After the first implementation reached **572 passed**, issue #64 was re-read and the output was
+  narrowed to exactly two user-facing facts. Warn-path, near-match, command-output-forgery, and
+  nonzero precedence cases were added first. Second real red: **7 failed / 568 passed**.
+- Final focused Warden/executor/view-model/product-path/Ink run passed **755/755**. The product-path
+  regression spawns a real Warden, uses an enforcing fake sandbox at that boundary, writes a durable
+  session, and verifies the audit chain and unchanged original decision.
+- E3: a credential-unset real PTY at exactly 100x30 ran the production source CLI, spawned Warden,
+  and vendored SRT against the external Click checkout. `python3 -m pip --version` completed with
+  `contained: writes workspace/temp · network deny-all` and real pip stdout. The audit contained two
+  allowed `tool.execute` records with no response-only rationale in the policy decision. Credential
+  pattern scanning found no matches. External Click verification passed **227 tests / 23 skips** and
+  the worktree remained clean.
+- E4: `screenshots/23-r5b-containment-after.png` is a visually inspected 1400x840 sanitized
+  terminal-frame transcription of the exact PTY output at the representative 100x30 geometry. It is
+  not claimed as a live Kitty/window capture. No credential, username, user-home path, or private
+  temporary path is visible.
+- E5: **NOT_RUN**. All provider credential variables were explicitly unset; provider calls, input
+  tokens, output tokens, and Anthropic spend were zero. Cumulative spend remains **USD 2.7109** and
+  the USD 2.00 final-regression reserve remains intact.
+- The first restricted full repository test was **partial/invalid**: 6,461 tests passed with 20
+  expected skips, but six loopback proxy tests failed to bind with `listen EPERM` under the outer
+  sandbox. The exact-code unrestricted coverage rerun passed **6,467 tests / 20 existing opt-in
+  skips** across 359 passing test files and 4 skipped files.
+- Enforced coverage passed at **98.02% statements / 93.73% branches / 99.58% functions / 98.02%
+  lines** repository-wide. Warden measured 97.61% statements / 91.72% branches; kernel measured
+  97.85% / 94.65%.
+- The first `test:sandbox:real` invocation was a transparent configuration failure: 13 tests passed
+  but the credential-TLS suite required its checked-in fixture CA through `NODE_EXTRA_CA_CERTS`
+  before Node startup. The corrected command passed all **18/18** real SRT denial/credential/address
+  guard probes.
+- Repository typecheck, lint, format, build, and `git diff --check` passed. No test, policy, security
+  gate, coverage threshold, or frozen contract was weakened.
+- Final adversarial QC found that a custom policy could reuse the reserved containment sentence as
+  ordinary response guidance. The regression failed **1 test / 320 skipped** because the collision
+  crossed unchanged. The Warden now namespaces only that reserved response prefix as policy guidance
+  while preserving the original audit decision; the focused regression then passed.
+- The first post-collision typecheck and build failed on `exactOptionalPropertyTypes`: the response
+  clone's inferred type could contain `guidance: undefined`. The branch was made explicit so no
+  clone is constructed when response guidance is absent; exact-candidate typecheck and build then
+  passed. Lint, format, and diff check also passed.
+- Five-lens local QC found no unresolved must-fix after that correction: the slice uses existing optional response
+  guidance and no schema change; containment is exact and Warden-proven; allow/warn/nonzero/live/
+  resume/no-color paths are covered; copy is two calm facts; and implementation adds no dependency,
+  retained state, or duplicated policy authority.
+- First exact-head CI run `30794975878` was **not green**: the Ubuntu package job failed in
+  `smoke-installed-final-response.mjs` after all earlier carrier steps passed. The installed product
+  correctly persisted the new closed containment prefix, but the oracle still attempted to parse the
+  entire durable Bash output as raw JSON and reported an undefined silent-exit result.
+- The packaging oracle's valid self-test fixture was updated first to match the new real carrier
+  output. It failed locally with the same `did not settle silent exit-zero: undefined` error. The
+  parser was then narrowed to require and remove only the exact closed Warden prefix; missing and
+  near-match mutations are rejected, and the existing nonzero mutation remains rejected.
+- Corrected oracle self-test passed all valid evidence and rejected 18 adversarial mutations. A
+  fresh local `bun packaging/build.ts npx` carrier was packed, installed into an isolated temporary
+  prefix with scripts disabled, and passed the strengthened real installed final-response smoke. The initial
+  offline install attempt was **NOT_RUN to completion** because the clean task cache lacked registry
+  dependencies; the permitted isolated install fetched them and reported zero vulnerabilities.

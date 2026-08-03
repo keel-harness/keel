@@ -110,7 +110,7 @@
   as `05452ec`. Candidate and merge trees are identical, exact post-merge `main` CI run
   `30789072222` passed, and the branch/worktree were removed.
 
-## Keel — R5a actionable Warden denial guidance candidate
+## Keel — validated R5a actionable Warden denial guidance
 
 - Public parent issue [#64](https://github.com/keel-harness/keel/issues/64) splits denial recovery
   from allowed-action containment so each slice uses only existing authoritative facts.
@@ -132,6 +132,53 @@
   / 93.73% branches. Repository typecheck, lint, format, build, and diff check passed.
 - Provider usage is zero. Policy verdicts, grantability, Warden enforcement, model-visible result
   bytes except secret redaction, audit/session/event/RPC schemas, and CLI behavior are unchanged.
+- Signed-off reviewed head `ce11311` passed exact-head CI run `30791324344`; PR #65 squash-merged
+  as `79f4b70`. Candidate and merge trees are identical, exact post-merge `main` CI run
+  `30791689948` passed, and the branch/worktree were removed.
+
+## Keel — R5b verified containment rationale candidate
+
+- The Warden now attaches one exact response-only containment rationale to an allowed or warned
+  governed-bash result only when its existing proof verifies sandbox enforcement, nonempty bounded
+  filesystem roots, strict deny-all egress, and the contained-arbitrary-code policy classification.
+- The exact public copy contains only two facts: `writes limited to workspace/temp` and `network
+  egress deny-all`. It does not expose policy-pack internals, path roots, or profile structure.
+- Kernel promotion is bash-only and exact-match. Near matches, arbitrary allow guidance, command
+  stdout that copies the line, control-byte suffixes, and high-entropy suffixes cannot manufacture
+  containment evidence.
+- Final adversarial QC found and fixed a reserved-prefix collision: ordinary custom policy guidance
+  that begins with the closed containment sentence is now response-namespaced as policy guidance
+  before it crosses the Warden boundary. Its authoritative audit value is unchanged, and it cannot
+  masquerade as a verified containment fact.
+- Live and resumed TUI paths parse the existing governed-bash envelope after removing only the exact
+  closed rationale. Nonzero commands remain failed; warning guidance, stderr, stdout, and output
+  limits retain their existing precedence and bounds.
+- The Warden audits the original policy decision before constructing the response-only view. A
+  spawned-Warden product test proves the durable session receives the exact rationale while the
+  signed audit decision remains unchanged and the chain verifies.
+- Red-first evidence: initial focused red **4 failed / 568 passed**; after tightening the public copy
+  and adding allow/warn adversarial cases, second red **7 failed / 568 passed**. Final QC added a
+  third red for the reserved-prefix collision (**1 failed / 320 skipped**) before its focused green.
+  Final focused green across Warden, executor, reducer, product-path, and Ink was **755 passed**.
+- Full unrestricted coverage passed **6,467 tests / 20 existing opt-in skips** at 98.02% statements,
+  93.73% branches, 99.58% functions, and 98.02% lines. Real SRT probes passed **18/18** after the
+  checked-in test CA was configured before Node startup. Typecheck, lint, format, build, and diff
+  check passed.
+- Product evidence: a credential-unset 100x30 real PTY run through the production source CLI,
+  spawned Warden, and vendored SRT executed `python3 -m pip --version` in the external Click
+  workspace. The TUI showed the two verified facts plus real stdout; the Click test file remained
+  green at **227 passed / 23 skipped** and its worktree stayed clean.
+- Exact-head CI's first package job exposed a stale carrier oracle that parsed durable Bash output
+  as raw JSON. Its self-test was changed first and failed on the real closed containment prefix; the
+  parser now requires and removes only that exact prefix, rejects missing and near-match forms, and
+  preserves its nonzero oracle. A freshly built, packed, installed local npm carrier then passed the
+  strengthened exact final-response smoke.
+- `screenshots/23-r5b-containment-after.png` is a visually inspected 1400x840 sanitized
+  terminal-frame transcription of the exact PTY text, not a live window capture; SHA-256
+  `9e3a99f8f56223e42466d7d44a1fbc8845a92310b707f025b818014b58b63d0e`.
+- Provider usage is zero and the historical Warden interrupt count is unchanged. Policy verdicts,
+  grantability, enforcement, sandbox profiles, model/tool contracts, audit/session/event schemas,
+  and public CLI contracts are unchanged.
 
 ## External workload — validated local-only feature
 
