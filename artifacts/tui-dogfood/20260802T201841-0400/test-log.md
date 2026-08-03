@@ -395,3 +395,16 @@
   guidance and no schema change; containment is exact and Warden-proven; allow/warn/nonzero/live/
   resume/no-color paths are covered; copy is two calm facts; and implementation adds no dependency,
   retained state, or duplicated policy authority.
+- First exact-head CI run `30794975878` was **not green**: the Ubuntu package job failed in
+  `smoke-installed-final-response.mjs` after all earlier carrier steps passed. The installed product
+  correctly persisted the new closed containment prefix, but the oracle still attempted to parse the
+  entire durable Bash output as raw JSON and reported an undefined silent-exit result.
+- The packaging oracle's valid self-test fixture was updated first to match the new real carrier
+  output. It failed locally with the same `did not settle silent exit-zero: undefined` error. The
+  parser was then narrowed to require and remove only the exact closed Warden prefix; missing and
+  near-match mutations are rejected, and the existing nonzero mutation remains rejected.
+- Corrected oracle self-test passed all valid evidence and rejected 18 adversarial mutations. A
+  fresh local `bun packaging/build.ts npx` carrier was packed, installed into an isolated temporary
+  prefix with scripts disabled, and passed the strengthened real installed final-response smoke. The initial
+  offline install attempt was **NOT_RUN to completion** because the clean task cache lacked registry
+  dependencies; the permitted isolated install fetched them and reported zero vulnerabilities.

@@ -25,6 +25,8 @@ const FINAL_TEXT =
 const PENDING = "KFINAL_GOAL_PENDING\n";
 const DONE = "KFINAL_GOAL_DONE\n";
 const DIAGNOSTIC_TEXT_LIMIT = 2_000;
+const VERIFIED_SANDBOX_CONTAINMENT_GUIDANCE =
+  "warden containment: writes limited to workspace/temp; network egress deny-all";
 const EXPECTED_CALLS = [
   ["installed-final-response-read", "read", { path: "goal.txt" }],
   [
@@ -114,13 +116,22 @@ function exactToolResultShape(records) {
   );
 }
 
-function parsedBashResult(records) {
+function bashResultOutput(records) {
   const record = records.find(
     (candidate) =>
       candidate.type === "tool_result" && candidate.toolCallId === "installed-final-response-check",
   );
+  return String(record?.output ?? "");
+}
+
+function parsedBashResult(records) {
+  const output = bashResultOutput(records);
+  const containmentPrefix = `${VERIFIED_SANDBOX_CONTAINMENT_GUIDANCE}\n\n`;
+  const body = output.startsWith(containmentPrefix)
+    ? output.slice(containmentPrefix.length)
+    : output;
   try {
-    return JSON.parse(String(record?.output ?? ""));
+    return JSON.parse(body);
   } catch {
     return undefined;
   }
@@ -189,6 +200,10 @@ export function assertInstalledFinalResponseEvidence({
   const finals = assistants.filter((record) => record.content === FINAL_TEXT);
   if (finals.length !== 1 || assistants.at(-1)?.content !== FINAL_TEXT) {
     throw evidenceError("installed carrier ledger final bytes drifted", assistants);
+  }
+  const bashOutput = bashResultOutput(sessionRecords);
+  if (!bashOutput.startsWith(`${VERIFIED_SANDBOX_CONTAINMENT_GUIDANCE}\n\n`)) {
+    throw evidenceError("installed carrier Bash check omitted verified containment", bashOutput);
   }
   const bashResult = parsedBashResult(sessionRecords);
   if (
@@ -310,7 +325,12 @@ function validSelfTestEvidence() {
       type: "tool_result",
       toolCallId: "installed-final-response-check",
       name: "bash",
-      output: JSON.stringify({ exitCode: 0, signal: null, stdout: "", stderr: "" }),
+      output: `${VERIFIED_SANDBOX_CONTAINMENT_GUIDANCE}\n\n${JSON.stringify({
+        exitCode: 0,
+        signal: null,
+        stdout: "",
+        stderr: "",
+      })}`,
     },
     { type: "assistant", content: FINAL_TEXT },
   ];
@@ -408,12 +428,14 @@ function runSelfTest() {
     [
       "failed-check",
       (copy) => {
-        copy.sessionRecords[5].output = JSON.stringify({
-          exitCode: 1,
-          signal: null,
-          stdout: "",
-          stderr: "not done",
-        });
+        copy.sessionRecords[5].output =
+          `${VERIFIED_SANDBOX_CONTAINMENT_GUIDANCE}\n\n` +
+          JSON.stringify({
+            exitCode: 1,
+            signal: null,
+            stdout: "",
+            stderr: "not done",
+          });
       },
     ],
     ["wrong-postimage", (copy) => (copy.goalContent = PENDING)],
@@ -430,6 +452,23 @@ function runSelfTest() {
     ],
     ["wrong-exit", (copy) => (copy.exit = { code: 1, signal: null })],
     ["process-survivor", (copy) => (copy.processGroupState = "owned")],
+    [
+      "missing-containment",
+      (copy) => {
+        copy.sessionRecords[5].output = copy.sessionRecords[5].output.slice(
+          `${VERIFIED_SANDBOX_CONTAINMENT_GUIDANCE}\n\n`.length,
+        );
+      },
+    ],
+    [
+      "near-match-containment",
+      (copy) => {
+        copy.sessionRecords[5].output = copy.sessionRecords[5].output.replace(
+          VERIFIED_SANDBOX_CONTAINMENT_GUIDANCE,
+          `${VERIFIED_SANDBOX_CONTAINMENT_GUIDANCE} maybe`,
+        );
+      },
+    ],
     ["diagnostic-residue", (copy) => (copy.stderr = "fatal diagnostic residue\n")],
     ["diagnostic-overflow", (copy) => (copy.outputOverflow = true)],
   ];

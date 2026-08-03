@@ -33,6 +33,10 @@ session/event/RPC schemas, model-visible tool JSON, and public CLI contracts are
    namespaced the reserved copy without changing the authoritative audit decision.
 7. The first post-collision typecheck/build caught an exact-optional-property type error in the
    response clone. The absence branch was made explicit; both gates then passed.
+8. First exact-head CI failed its package job because the installed-carrier oracle parsed durable
+   Bash output as raw JSON. Updating the valid self-test fixture reproduced the same red locally.
+   The oracle now requires/removes only the exact Warden prefix and rejects missing/near-match forms;
+   a freshly built, packed, isolated-installed npm carrier passed the real final-response smoke.
 
 No failing test was weakened, skipped, or removed.
 
@@ -73,6 +77,8 @@ passed 227 tests with 23 skips, and its worktree remained clean.
   93.73% branches, 99.58% functions, 98.02% lines.
 - Real SRT gate with checked-in fixture CA configured before Node startup: 18 passed.
 - Typecheck, lint, format, build, and `git diff --check`: passed.
+- Installed npm carrier final-response oracle: valid self-test plus 18 rejected mutations passed;
+  fresh locally packed/installed carrier smoke passed.
 - Restricted full test: **partial/invalid**, 6,461 passed and 20 skipped before six localhost proxy
   binds were denied by the outer sandbox. The unrestricted result above is authoritative.
 

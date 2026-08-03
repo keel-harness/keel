@@ -168,6 +168,11 @@
   spawned Warden, and vendored SRT executed `python3 -m pip --version` in the external Click
   workspace. The TUI showed the two verified facts plus real stdout; the Click test file remained
   green at **227 passed / 23 skipped** and its worktree stayed clean.
+- Exact-head CI's first package job exposed a stale carrier oracle that parsed durable Bash output
+  as raw JSON. Its self-test was changed first and failed on the real closed containment prefix; the
+  parser now requires and removes only that exact prefix, rejects missing and near-match forms, and
+  preserves its nonzero oracle. A freshly built, packed, installed local npm carrier then passed the
+  strengthened exact final-response smoke.
 - `screenshots/23-r5b-containment-after.png` is a visually inspected 1400x840 sanitized
   terminal-frame transcription of the exact PTY text, not a live window capture; SHA-256
   `9e3a99f8f56223e42466d7d44a1fbc8845a92310b707f025b818014b58b63d0e`.
