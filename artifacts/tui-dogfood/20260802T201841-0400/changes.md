@@ -265,6 +265,47 @@
 - Reconciled behavior/artifact tests pass **469/469**; the exact candidate passes repository
   typecheck, lint, format, build, and `git diff --check`.
 
+R8 subsequently merged through [PR #73](https://github.com/keel-harness/keel/pull/73) as
+`fff2863`; reviewed-head CI `30833015213` and post-merge `main` CI `30833570464` passed. Its branch
+and worktree were removed.
+
+## Keel — R9 resumed prompt history candidate
+
+- `--continue` and `--resume` now seed the existing interactive composer with durable ordinary
+  turn-opening prompts. Fresh sessions and one-shot output are unchanged; recalled text is
+  presentation state only and is never an extra model message.
+- Resume reconstruction excludes in-run controller-authored user-role messages and exact
+  index/content-matched steering. A red-first torn-ledger regression prevents a stale applied
+  steering index from hiding an unrelated later prompt.
+- One shared live/resume normalizer strips terminal controls, redacts known secret shapes, removes
+  blank entries, preserves stable duplicates, and retains only the newest 100 prompts. Live submit
+  still sends the exact typed prompt while retaining only its safe recall copy.
+- A kernel-internal optional symbol sidecar seeds capable interactive renderers before first paint;
+  unsupported/headless UiPorts remain no-ops and a late seed cannot overwrite a live or dormant
+  draft. No frozen UiPort, session event, policy, audit, Warden RPC, or public CLI syntax changed.
+- Valid red evidence comprised three intended behavior failures after missing-module wiring was
+  separated from product behavior. The focused implementation suite now passes **337/337**.
+  Repository typecheck, lint, format, build, `git diff --check`, and the unrestricted full suite
+  **6,502 passed / 20 existing opt-in skips** all pass.
+- The first bounded coverage selection was honestly non-green: all 337 tests passed and aggregate
+  coverage was 94.34%, but the pre-existing large `session-entry.ts` orchestrator reached only 86%
+  function coverage under that narrow corpus. Expanding to every test that imports the orchestrator
+  passed **377/377** and the enforced per-file gate: 96.40% statements/lines, 92.59% branches, and
+  98.95% functions across all changed non-Ink files. Ink remains policy-excluded and is covered by
+  real-render tests and PTY evidence.
+- Product comparison: current `main` versus R9 through production source, spawned Warden, external
+  Click, a non-secret local fixture, and real 80x24/100x30 PTYs. Before, Up after restart left the
+  draft unchanged. After, Up recalled the prior prompt, Down restored the exact draft, a second Up
+  recalled again, and an edited prompt submitted. All four resumes exited 0, six fixture requests
+  completed, and Click stayed clean.
+- Sanitized visual evidence: `screenshots/27-r9-resume-history-before.png` and
+  `screenshots/28-r9-resume-history-after.png`, visually inspected at 1400x840. SHA-256:
+  `b8d6d1079e99cfe20cf7bb405438509aadede052a57702197e931fc286444c46` and
+  `3184a825c5c085d01ecf2010259fe4dc268a85411e694a24c3b0431000462dd9`.
+- E5 is **NOT_RUN** because provider behavior is unchanged and the same production path is fully
+  deterministic with a local fixture. Anthropic spend remains USD 2.74434625. Exact-head CI,
+  merge, post-main CI, and cleanup remain required.
+
 ## External workload — validated local-only feature
 
 - Commit `941ab66 feat(termui): accept PathLike filenames in edit`.

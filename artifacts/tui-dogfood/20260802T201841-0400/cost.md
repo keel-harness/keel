@@ -53,6 +53,7 @@ applicable input rate.
 | R7 Anthropic live stop | 3 | 3,343 | 0 | 89 | 0.0139 | 2.7248 | 17.2752 |
 | R7 Anthropic live continuation | 3 | 489 | 3,343 | 6 | 0.0029 | 2.7277 | 17.2723 |
 | R8 Anthropic active-task replay | 4 | 3,735 | 3,260 | 110 | 0.0166 | 2.7443 | 17.2557 |
+| R9 local resume-history replay | 0 | 0 | 0 | 0 | 0.0000 | 2.7443 | 17.2557 |
 
 Anthropic provider calls: 27 successful, 4 rejected at zero reported usage. R7's two local-fixture
 requests are not Anthropic calls and carry no Anthropic cost. The USD 2.00 final-regression
@@ -68,5 +69,8 @@ R8's four local-fixture requests carry no Anthropic cost. Its one live run made 
 the aggregate `run_status` reported 6,999 input tokens (4 fresh / 3,735 cache write / 3,260 cache
 hit) and 110 output tokens. The unrounded increment was USD 0.01664625. Cumulative spend is USD
 2.74434625; the credential value was not inspected, printed, logged, or captured.
+R9's six local-fixture requests carry no Anthropic cost. The provider-independent behavior was
+validated before and after at 80x24 and 100x30; E5 is intentionally **NOT_RUN**. Cumulative spend
+remains USD 2.74434625 and the final USD 2.00 reserve remains intact.
 The R0 manifest caps a future six-workflow replay at
 USD 11.00, below the currently spendable USD 15.2557 after preserving the final USD 2.00 reserve.

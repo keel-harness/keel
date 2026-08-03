@@ -12,7 +12,7 @@ import {
 } from "./app.js";
 import { InputBar, type OverlayNavigation } from "./input-bar.js";
 import { activeReviewIsActionable } from "../view-model.js";
-import type { InputState } from "../input.js";
+import { emptyInput, type InputState } from "../input.js";
 import { withOverlayPresentation } from "../overlay-presentation.js";
 import type { DiffViewerOpenResult } from "../diff-viewer-control.js";
 import {
@@ -73,6 +73,7 @@ export function Interactive({
   onLocalInteraction,
   onSuspendRequest,
   initialComposerState,
+  initialInputHistory = [],
   onComposerState,
   initialApprovalState,
   onApprovalState,
@@ -95,6 +96,8 @@ export function Interactive({
   onSuspendRequest?: () => void;
   /** Exact dormant composer state to restore after the terminal renderer remounts. */
   initialComposerState?: InputState;
+  /** Resume-only ordinary prompt history. Normalized by the same reducer initializer as live input. */
+  initialInputHistory?: readonly string[];
   /** Persist the exact dormant composer state outside the renderer before a possible suspension. */
   onComposerState?: (state: InputState) => void;
   /** Exact partial approval decision to restore after the terminal renderer remounts. */
@@ -137,10 +140,13 @@ export function Interactive({
   const submittedPaletteFromView = useRef<ViewModel | undefined>(undefined);
   const [inputResetVersion, setInputResetVersion] = useState(0);
   const [overlayScroll, setOverlayScroll] = useState<OverlayScrollState>({ key: "", offset: 0 });
+  const initialComposer =
+    initialComposerState ??
+    (initialInputHistory.length > 0 ? emptyInput(initialInputHistory) : undefined);
   const composerInput = useRef<InputState | undefined>(
-    inputMode === "approval" && initialComposerState !== undefined
-      ? dormantComposerState(initialComposerState)
-      : initialComposerState,
+    inputMode === "approval" && initialComposer !== undefined
+      ? dormantComposerState(initialComposer)
+      : initialComposer,
   );
   const approvalInput = useRef<InputState | undefined>(initialApprovalState);
   const running =

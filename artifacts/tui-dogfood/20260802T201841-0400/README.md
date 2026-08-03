@@ -35,7 +35,7 @@ credentials nor user-home paths.
 ## Current gate
 
 All six requested workflow classes have live evidence. Evidence PR #53; implementation PRs #55,
-#57, #59, #61, #65, #66, #68, and #71; repeatability PR #63; and R6 evidence correction PR #69
+#57, #59, #61, #65, #66, #68, #71, and #73; repeatability PR #63; and R6 evidence correction PR #69
 were owner-approved, squash-merged, and cleaned up. Each merged slice passed its reviewed-head and
 post-merge `main` gates.
 
@@ -74,11 +74,20 @@ R7 merged through [PR #71](https://github.com/keel-harness/keel/pull/71) as `5e6
 CI run `30828066275` and post-merge `main` run `30828529420` passed; its branch/worktree were removed.
 The bounded live read/continuation cost USD 0.0168 and preserved the final-test reserve.
 
-R8 is tracked by [issue #72](https://github.com/keel-harness/keel/issues/72). Its local candidate
-keeps one sanitized, secret-redacted, grapheme-safe `task · …` row above controller activity during
-provider wait, Warden request checking, tool execution, and assistant streaming. Routine evidence
-yields row priority at 80x24 and 100x30; approvals and foreground panels retain focus; settled and
-one-shot output omit the task chrome. E2 through E5 pass locally, including a live governed read.
-Exact-head CI and merge proof remain required.
+R8 merged through [PR #73](https://github.com/keel-harness/keel/pull/73) as `fff2863`. Reviewed-head
+CI run `30833015213` and post-merge `main` run `30833570464` passed; the branch/worktree were removed.
+It keeps one sanitized, secret-redacted, grapheme-safe `task · …` row above controller activity
+during provider wait, Warden request checking, tool execution, and assistant streaming. Routine
+evidence yields row priority at 80x24 and 100x30; approvals and foreground panels retain focus;
+settled and one-shot output omit the task chrome.
 
-The manifest now tracks twenty-four unique safe screenshot checkpoints after adding the R8 frame.
+R9 is tracked by [issue #74](https://github.com/keel-harness/keel/issues/74). Its local candidate
+restores bounded, sanitized ordinary prompt history after `--continue` and `--resume`, without
+adding controller messages or steering to recall. Up/Down and Ctrl-R reuse the existing composer;
+an unsent draft and cursor remain recoverable. Red-first E2, real 80x24/100x30 before/after E3, and
+two visually inspected E4 frames pass. The provider-independent slice used only a non-secret local
+fixture, so E5 is intentionally **NOT_RUN** and Anthropic spend is unchanged. Exact-head CI and
+merge proof remain required.
+
+The manifest now tracks twenty-six unique safe screenshot checkpoints after adding the two R9
+before/after frames.

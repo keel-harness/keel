@@ -5,12 +5,13 @@ Scores use 1 (unusable) through 5 (excellent). `TBD` means the workflow has not 
 | Workflow | Phase | Clarity | Responsive | Progress | Control | Recovery | Hierarchy | Load | Trust | Warden value | Warden burden | Final confidence |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | Onboarding | before | 3 | 3 | 4 | 3 | 3 | 3 | 2 | 3 | N/A | N/A | 2 |
-| Onboarding | R8 candidate (E2-E5) | 4 | 3 | 4 | 3 | 3 | 4 | 3 | 4 | N/A | N/A | 2 |
+| Onboarding | after R8 | 4 | 3 | 4 | 3 | 3 | 4 | 3 | 4 | N/A | N/A | 2 |
+| Onboarding | R9 candidate (E2-E4) | 4 | 4 | 4 | 4 | 4 | 4 | 3 | 4 | N/A | N/A | 2 |
 | Feature | before | 3 | 2 | 3 | 3 | 2 | 2 | 2 | 3 | 2 | 1 | 4 |
 | Feature | after R1+R2 | 4 | 2 | 3 | 3 | 3 | 4 | 3 | 4 | 3 | 2 | 4 |
 | Feature | after R1+R2+R6 | 4 | 3 | 3 | 3 | 4 | 4 | 3 | 4 | 3 | 2 | 4 |
 | Feature | R7 candidate (E2-E5) | 4 | 3 | 4 | 4 | 4 | 4 | 3 | 4 | 3 | 2 | 4 |
-| Feature | R8 candidate (E2-E5) | 4 | 3 | 4 | 4 | 4 | 4 | 4 | 4 | 3 | 2 | 4 |
+| Feature | after R8 | 4 | 3 | 4 | 4 | 4 | 4 | 4 | 4 | 3 | 2 | 4 |
 | Debugging | before | 3 | 2 | 4 | 2 | 3 | 2 | 2 | 3 | 2 | 3 | 4 |
 | Debugging | after R3 | 4 | 2 | 4 | 2 | 4 | 4 | 3 | 4 | 3 | 3 | 4 |
 | Debugging | after R3+R5 | 4 | 2 | 4 | 2 | 4 | 4 | 4 | 4 | 4 | 3 | 4 |
@@ -57,5 +58,11 @@ evidence-bound official aggregate.
 R8's same-scenario 80x24/100x30 E2-E5 replay makes onboarding self-identifying during provider,
 Warden, tool, and streaming states and makes routine evidence yield to that hierarchy. It raises the
 directly observed onboarding clarity/hierarchy/load/trust cells and feature cognitive load by five
-points, producing a local candidate score of **3.60/5** (223/62). This remains a candidate until
-exact-head CI and merge proof pass; the official score remains **3.52/5**.
+points. R8's exact-head and post-merge gates passed, so **3.60/5** (223/62) is now the official
+evidence-bound aggregate.
+
+R9's main-versus-candidate 80x24/100x30 E2-E4 replay makes a completed onboarding prompt directly
+recallable after process restart, preserves an unsent draft through Up/Down navigation, and submits
+an edited recall. It raises the directly observed onboarding responsiveness/control/recovery cells
+by three points, producing a local candidate score of **3.65/5** (226/62). This remains a candidate
+until exact-head CI and merge proof pass; the official score remains **3.60/5**.

@@ -48,6 +48,7 @@ import {
 } from "../prestop-check.js";
 import { renderFrame, HeadlessUI } from "../tui/headless.js";
 import { InkUI } from "../tui/ink/ink-ui.js";
+import { INPUT_HISTORY_SEED } from "../tui/input-history.js";
 import { InputQueue } from "./input-queue.js";
 import { saveProjectAutopilotMode } from "../autopilot/mode-store.js";
 import { saveTrustDecision } from "../trust/trust-store.js";
@@ -97,6 +98,10 @@ class TestUI {
   latest: ViewModel | undefined;
   closes = 0;
   readonly queue = new InputQueue();
+  seededInputHistory: readonly string[] = [];
+  readonly [INPUT_HISTORY_SEED] = (history: readonly string[]): void => {
+    this.seededInputHistory = history;
+  };
   #renderWaiters: { pred: (v: ViewModel) => boolean; resolve: () => void }[] = [];
   render(view: ViewModel): void {
     this.latest = view;
@@ -3183,6 +3188,8 @@ describe("runKeelCommand resume (Epic 1.23 slice 2 — --continue / --resume con
       env: e,
       resume: { kind: "latest" },
     });
+    await ui2.awaitRender((view) => view.awaitingInput === true);
+    expect(ui2.seededInputHistory).toEqual(["first task"]);
     ui2.queue.push({ kind: "line", text: "follow-up" });
     await ui2.awaitRender((v) => asstSaid(v, "second answer"));
     ui2.queue.close();

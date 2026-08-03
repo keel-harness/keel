@@ -24,21 +24,28 @@
 ### DF-003 — resumed transcript does not seed interactive input history
 
 - Severity: P1 usability.
+- Status: fixed by the local R9 candidate under
+  [issue #74](https://github.com/keel-harness/keel/issues/74). Resume reconstruction selects only
+  ordinary turn-opening prompts, excludes structurally marked steering and in-run controller
+  messages, and seeds the existing composer through a kernel-internal optional sidecar. The shared
+  live/resume initializer removes terminal controls, redacts known secret shapes, removes blanks,
+  preserves stable duplicates, and keeps the newest 100 entries. E2/E3/E4 pass; exact-head CI and
+  merge proof remain.
 - Direct evidence: after clean exit and `keel --continue`, the transcript displayed both prior
   prompts, but pressing `↑` left the composer empty. Re-pasting the task was required.
 - Impact: recovery after restart is visually successful but operationally lossy; an advanced user
   cannot quickly retry or revise the last task.
-- Candidate fix: seed the composer history from resumed user-message events, with redaction and
-  stable-order tests. This is a public TUI behavior change and remains implementation-gated.
+- Implemented slice: seed prompt recall without changing model context, frozen UiPort, session
+  schema, Warden authority, or public CLI syntax.
 
 ### DF-004 — active viewport loses the current objective under evidence volume
 
 - Severity: P1 usability/trust.
-- Status: fixed by the local R8 candidate under
-  [issue #72](https://github.com/keel-harness/keel/issues/72). One bounded active-task row now
+- Status: fixed by R8, merged through [PR #73](https://github.com/keel-harness/keel/pull/73) as
+  `fff2863`. One bounded active-task row now
   survives provider wait, Warden request checking, tool execution, and assistant streaming at
   80x24 and 100x30. Approval/overlay focus, settled turns, and one-shot output remain unchanged.
-  E2/E3/E4/E5 pass; exact-head CI and merge proof remain.
+  E2/E3/E4/E5, exact-head CI `30833015213`, and post-merge CI `30833570464` pass.
 - Direct evidence: at 100×30, the running screen showed old tool evidence and `working · assistant
   drafting`, but no current-task summary. The user had to remember which request was active.
 - Impact: long tasks remain visibly alive but not self-identifying.
@@ -129,7 +136,8 @@
   rationale only after verifying the existing sandbox proof: writes are limited to workspace/temp
   and network egress is deny-all. Kernel/TUI presentation recognizes only that closed string for
   governed bash; near matches, command output, ordinary guidance, and malformed profiles cannot
-  manufacture containment evidence. Publication and exact-head CI are pending.
+  manufacture containment evidence. Its reviewed-head and post-merge CI gates passed, and the
+  branch/worktree were removed.
 - Direct evidence: audit allowed `python3 -m pip install --user -e …` because sandbox writes were
   workspace/temp-only and network was deny-all, but the TUI merely showed a checkmarked bash card.
 - Impact: users cannot tell whether Keel allowed a risky global/network operation or safely contained

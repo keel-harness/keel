@@ -2,6 +2,7 @@ import type { Overlay, UserInput } from "@keel/shared";
 import { URGENT_VERBS, commandByName, paletteCommands } from "./commands.js";
 import { nextGraphemeBoundary, previousGraphemeBoundary } from "./display-cells.js";
 import { stripControl } from "./view-model.js";
+import { redactText } from "../secrets/redact.js";
 
 /** A normalized keystroke (the Ink input widget maps raw key events to these). */
 export type Key =
@@ -66,8 +67,27 @@ export interface InputResult {
   readonly action?: UserInput;
 }
 
+/** Process-local prompt recall is intentionally smaller than the durable session ledger. Keep one
+ * bounded, safe normalization path for both live submissions and resume seeds: controls cannot be
+ * replayed into the terminal, known secret shapes never survive after submit, blanks are useless,
+ * and exact duplicates remain source-faithful. */
+export const MAX_INPUT_HISTORY_ENTRIES = 100;
+
+export function normalizeInputHistory(history: readonly string[]): readonly string[] {
+  const normalized = history
+    .map((entry) => redactText(stripControl(entry)))
+    .filter((entry) => entry.trim() !== "");
+  return normalized.slice(-MAX_INPUT_HISTORY_ENTRIES);
+}
+
 export function emptyInput(history: readonly string[] = []): InputState {
-  return { buffer: "", cursor: 0, history, histIndex: null, kill: "" };
+  return {
+    buffer: "",
+    cursor: 0,
+    history: normalizeInputHistory(history),
+    histIndex: null,
+    kill: "",
+  };
 }
 
 // Build a state, including `overlay` only when defined (exactOptionalPropertyTypes).
@@ -450,7 +470,7 @@ export function inputReduce(s: InputState, key: Key): InputResult {
         state: {
           buffer: "",
           cursor: 0,
-          history: [...s.history, s.buffer],
+          history: normalizeInputHistory([...s.history, s.buffer]),
           histIndex: null,
           kill: "",
         },

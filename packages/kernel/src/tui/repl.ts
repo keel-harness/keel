@@ -30,6 +30,7 @@ import { connectOverlayDismiss } from "./overlay-dismiss.js";
 import { connectLocalInputActivity } from "./input-activity.js";
 import { requestDiffViewer } from "./diff-viewer-control.js";
 import { visibleTerminalText } from "./visible-text.js";
+import { seedInputHistory } from "./input-history.js";
 
 export interface InteractivePlanApprovalResult {
   readonly ok: boolean;
@@ -58,6 +59,8 @@ export interface RunReplOpts extends Omit<RunSessionOpts, "seed" | "recordSeed" 
    *  (`keel --continue` / `--resume <id>`, Epic 1.23 slice 2). Seeds the model context but is NOT
    *  re-recorded (it is already in the ledger); the first new turn records only its own user message. */
   readonly resumed?: readonly ModelMessageT[];
+  /** Ordinary persisted user prompts eligible for process-local composer recall on resume. */
+  readonly resumedInputHistory?: readonly string[];
   /** Internal durable outcome metadata paired with `resumed`; never sent to the model. */
   readonly resumedFailedToolCallIds?: ReadonlySet<string>;
   /** Occurrence-precise durable outcome metadata paired with `resumed`. */
@@ -184,6 +187,7 @@ export async function runRepl(opts: RunReplOpts): Promise<RunOutcome> {
   const {
     head = [],
     resumed = [],
+    resumedInputHistory = [],
     resumedFailedToolCallIds,
     resumedFailedToolMessageIndexes,
     resumedSteeringApplied = 0,
@@ -238,6 +242,7 @@ export async function runRepl(opts: RunReplOpts): Promise<RunOutcome> {
   } else {
     idleView = reduce(firstRunView(opts.view), { type: "awaiting-input" });
   }
+  if (resumed.length > 0) seedInputHistory(opts.ui, resumedInputHistory);
   opts.ui.render(idleView);
   const disconnectOverlayDismiss = connectOverlayDismiss(opts.ui, () => {
     if (idleView.overlay === undefined) return;
