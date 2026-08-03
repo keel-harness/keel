@@ -3,7 +3,13 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ScriptedModel } from "@keel/simulator";
-import type { ModelMessageT, SimulatorScriptT } from "@keel/shared";
+import type {
+  ExecutorPort,
+  ModelMessageT,
+  ModelPort,
+  ModelStreamChunkT,
+  SimulatorScriptT,
+} from "@keel/shared";
 import { LocalExecutor } from "../local-executor.js";
 import { SessionStore, readSession } from "../session/store.js";
 import { rebuild } from "../session/resume.js";
@@ -108,5 +114,60 @@ describe("Epic 1.5 walking skeleton (text-only, headless)", () => {
     // the WARDEN_UNAVAILABLE stop, not a clean model-stop.
     const runStatus = readSession(store.id, e).events.filter((ev) => ev.type === "run_status");
     expect(runStatus.at(-1)).toMatchObject({ reason: "error", code: "WARDEN_UNAVAILABLE" });
+  });
+
+  it("preserves successful evidence and stops before an unfittable gross-runway provider call", async () => {
+    const e = env();
+    const seed: ModelMessageT[] = [{ role: "user", content: "run the focused tests" }];
+    const store = SessionStore.create({ cwd: "/w" }, e);
+    const ui = new HeadlessUI();
+    let modelCalls = 0;
+    const model: ModelPort = {
+      async *stream(): AsyncIterable<ModelStreamChunkT> {
+        modelCalls += 1;
+        yield {
+          type: "tool-call",
+          id: "tests",
+          name: "bash",
+          args: { command: `printf '%s' '${"x".repeat(4000)}'` },
+        };
+        yield {
+          type: "finish",
+          reason: "tool-calls",
+          usage: { inputTokens: 60, outputTokens: 0 },
+        };
+      },
+    };
+    const executor: ExecutorPort = {
+      execute() {
+        return Promise.resolve({ ok: true, output: "focused tests passed" });
+      },
+    };
+
+    const outcome = await runSession({
+      model,
+      executor,
+      ui,
+      store,
+      seed,
+      stop: {
+        budget: { maxGrossTokens: 100, grossWarnThresholds: [0.5] },
+      },
+    });
+
+    expect(modelCalls).toBe(1);
+    expect(outcome.lastStop).toBe("budget");
+    expect(ui.frame()).toMatch(/gross-token runway notice/i);
+    expect(ui.frame()).toMatch(/focused tests passed/i);
+    expect(ui.frame()).toMatch(/run stopped/i);
+    expect(ui.frame()).toMatch(/keel --continue/i);
+    expect(
+      readSession(store.id, e)
+        .events.filter((ev) => ev.type === "run_status")
+        .at(-1),
+    ).toMatchObject({
+      reason: "budget",
+      code: "GROSS_RUNWAY_PREFLIGHT",
+    });
   });
 });

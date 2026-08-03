@@ -4,6 +4,7 @@ import { KERNEL_STRINGS, budgetWarningMessage, infraTimeoutMessage } from "./str
 describe("kernel strings", () => {
   it("budgetWarningMessage states used, max, and remaining tokens", () => {
     const m = budgetWarningMessage(6, 10);
+    expect(m).toContain("effective-cost");
     expect(m).toContain("6");
     expect(m).toContain("10");
     expect(m).toContain("4"); // remaining = 10 - 6

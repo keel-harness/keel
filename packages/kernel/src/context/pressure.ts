@@ -93,7 +93,13 @@ function contextMessageTokens(message: { readonly content: string }): number {
 }
 
 export function isHarnessBudgetNotice(message: ModelMessageT): boolean {
-  return message.role === "user" && message.content.startsWith("Budget notice: ~");
+  return (
+    message.role === "user" &&
+    (message.content.startsWith("Budget notice: ~") ||
+      message.content.startsWith("Budget notice: effective-cost budget ~") ||
+      message.content.startsWith("Effective-cost budget notice: ~") ||
+      message.content.startsWith("Gross-token runway notice: ~"))
+  );
 }
 
 export function estimateModelViewTokens(input: {

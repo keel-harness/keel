@@ -40,6 +40,7 @@ import {
 } from "./view-model.js";
 import { physicalRowCount, terminalDisplayWidth } from "./row-budget.js";
 import { projectAssistantStream } from "./stream-projection.js";
+import { turnSummaryPresentation } from "./conversation-block.js";
 import { workspaceKey } from "../session/workspace-key.js";
 import {
   markToolPresentationOutcome,
@@ -2162,6 +2163,49 @@ describe("view-model reducer", () => {
     expect(
       blocked.items.some((i) => i.kind === "message" && i.content.includes("model/provider")),
     ).toBe(false);
+  });
+
+  it("shows a gross-runway warning to the human before the next turn", () => {
+    const view = reduce(initialView(seed), {
+      type: "budget-warning",
+      metric: "gross",
+      usedTokens: 80,
+      maxTokens: 100,
+    } as unknown as KernelEventT);
+    expect(lastMessageContent(view)).toMatch(
+      /gross-token runway.*20 remaining.*fresh budgeted run/i,
+    );
+  });
+
+  it("renders a gross-runway preflight as stopped while preserving successful command evidence", () => {
+    let view = reduce(initialView(seed), {
+      type: "tool-call",
+      id: "tests",
+      name: "bash",
+      args: { command: "pnpm test" },
+    });
+    view = reduce(view, {
+      type: "tool-result",
+      id: "tests",
+      ok: true,
+      output: "tests passed",
+    });
+    view = reduce(view, {
+      type: "stop",
+      reason: "budget",
+      code: "GROSS_RUNWAY_PREFLIGHT",
+      message:
+        "Gross-token runway stopped before another provider call: 80 of 100 used (20 remaining); the next request is estimated at ~24 input tokens before any answer. Prior tool and test evidence is saved. Run keel --continue for a fresh budgeted run.",
+    });
+
+    expect(lastMessageContent(view)).toMatch(/run stopped.*prior tool and test evidence is saved/i);
+    const summary = buildTurnSummary(view);
+    expect(summary?.ran).toHaveLength(1);
+    expect(summary?.ran?.[0]).toContain("tests passed");
+    expect(summary?.attention[0]).toContain("run stopped");
+    expect(summary === undefined ? undefined : turnSummaryPresentation(summary).title).toBe(
+      "stopped",
+    );
   });
 
   it("renders tool activity: a call starts running, its result flips it to ok/error + summary", () => {

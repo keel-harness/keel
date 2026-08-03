@@ -10,7 +10,12 @@ import type {
   SimulatorScriptT,
   ToolResultT,
 } from "@keel/shared";
-import { runAgentLoop, type AgentLoopInput } from "./loop.js";
+import {
+  createAgentLoopControlState,
+  runAgentLoop,
+  runAgentLoopWithControlState,
+  type AgentLoopInput,
+} from "./loop.js";
 import { LocalExecutor } from "./local-executor.js";
 import { KERNEL_STRINGS, budgetWarningMessage, infraTimeoutMessage } from "./strings.js";
 import {
@@ -3822,7 +3827,7 @@ describe("runAgentLoop budget warnings (1.1d)", () => {
       stop: { budget: { maxTokens: 10, warnThresholds: [0.5, 0.8] } },
     });
     expect(ev.filter((e) => e.type === "budget-warning")).toEqual([
-      { type: "budget-warning", usedTokens: 8, maxTokens: 10 },
+      { type: "budget-warning", metric: "effective", usedTokens: 8, maxTokens: 10 },
     ]);
     const stop = ev.find((e) => e.type === "stop");
     expect(stop?.type === "stop" && stop.reason).toBe("budget");
@@ -3872,6 +3877,207 @@ describe("runAgentLoop budget warnings (1.1d)", () => {
     expect(finished?.type === "run-finished" && finished.usage).toEqual({
       inputTokens: 7,
       outputTokens: 11,
+    });
+  });
+
+  it("distinguishes effective-cost and gross-runway warnings and injects each once", async () => {
+    let calls = 0;
+    const captured: ModelMessageT[][] = [];
+    const model: ModelPort = {
+      async *stream(input) {
+        calls += 1;
+        captured.push(input.messages.map((message) => ({ ...message })));
+        if (calls === 1) {
+          yield { type: "tool-call", id: "c", name: "echo", args: {} };
+          yield {
+            type: "finish",
+            reason: "tool-calls",
+            usage: { inputTokens: 60, outputTokens: 0, cachedInputTokens: 60 },
+          };
+          return;
+        }
+        yield { type: "text-delta", text: "done" };
+        yield {
+          type: "finish",
+          reason: "stop",
+          usage: { inputTokens: 1, outputTokens: 1 },
+        };
+      },
+    };
+
+    const events = await runModel(model, {
+      messages: userMsg("go"),
+      stop: {
+        budget: {
+          maxTokens: 10,
+          cacheReadWeight: 0.1,
+          warnThresholds: [0.5],
+          maxGrossTokens: 1000,
+          grossWarnThresholds: [0.05],
+        },
+      },
+    });
+
+    expect(events.filter((event) => event.type === "budget-warning")).toEqual([
+      { type: "budget-warning", metric: "effective", usedTokens: 6, maxTokens: 10 },
+      { type: "budget-warning", metric: "gross", usedTokens: 60, maxTokens: 1000 },
+    ]);
+    const secondTurn = captured[1] ?? [];
+    expect(
+      secondTurn.some(
+        (message) =>
+          message.role === "user" && /effective-cost budget.*4 remaining/i.test(message.content),
+      ),
+    ).toBe(true);
+    expect(
+      secondTurn.some(
+        (message) =>
+          message.role === "user" &&
+          /gross-token runway.*940 remaining.*fresh budgeted run/i.test(message.content),
+      ),
+    ).toBe(true);
+  });
+
+  it("does not repeat a gross-runway warning across automatic runs sharing controller state", async () => {
+    const controlState = createAgentLoopControlState();
+    let calls = 0;
+    const firstModel: ModelPort = {
+      async *stream() {
+        calls += 1;
+        if (calls === 1) {
+          yield { type: "tool-call", id: "c", name: "echo", args: {} };
+          yield {
+            type: "finish",
+            reason: "tool-calls",
+            usage: { inputTokens: 60, outputTokens: 0 },
+          };
+          return;
+        }
+        yield { type: "finish", reason: "stop", usage: { inputTokens: 1, outputTokens: 0 } };
+      },
+    };
+    const input: AgentLoopInput = {
+      messages: userMsg("go"),
+      stop: { budget: { maxGrossTokens: 1000, grossWarnThresholds: [0.05] } },
+    };
+    const firstEvents: KernelEventT[] = [];
+    for await (const event of runAgentLoopWithControlState(
+      firstModel,
+      echoExec(),
+      input,
+      controlState,
+    )) {
+      firstEvents.push(event);
+    }
+    expect(firstEvents.filter((event) => event.type === "budget-warning")).toHaveLength(1);
+
+    const secondEvents: KernelEventT[] = [];
+    const secondModel: ModelPort = {
+      async *stream() {
+        yield { type: "finish", reason: "stop", usage: { inputTokens: 1, outputTokens: 0 } };
+      },
+    };
+    for await (const event of runAgentLoopWithControlState(
+      secondModel,
+      echoExec(),
+      input,
+      controlState,
+    )) {
+      secondEvents.push(event);
+    }
+    expect(secondEvents.some((event) => event.type === "budget-warning")).toBe(false);
+  });
+});
+
+describe("runAgentLoop gross-runway preflight (R7)", () => {
+  function modelWithLargeFirstToolResult(): { readonly model: ModelPort; calls: number } {
+    const state = {
+      calls: 0,
+      model: {
+        async *stream(): AsyncGenerator<ModelStreamChunkT> {
+          state.calls += 1;
+          if (state.calls === 1) {
+            yield {
+              type: "tool-call",
+              id: "large",
+              name: "echo",
+              args: { text: "x".repeat(4000) },
+            };
+            yield {
+              type: "finish",
+              reason: "tool-calls",
+              usage: { inputTokens: 60, outputTokens: 0 },
+            };
+            return;
+          }
+          yield { type: "text-delta", text: "summary" };
+          yield {
+            type: "finish",
+            reason: "stop",
+            usage: { inputTokens: 1, outputTokens: 1 },
+          };
+        },
+      } satisfies ModelPort,
+    };
+    return state;
+  }
+
+  async function runAtGrossCap(maxGrossTokens: number) {
+    const state = modelWithLargeFirstToolResult();
+    const events = await runModel(state.model, {
+      messages: userMsg("go"),
+      stop: { budget: { maxGrossTokens } },
+    });
+    return { events, calls: state.calls };
+  }
+
+  it("stops before a provider call when its estimated input alone consumes the remaining gross cap", async () => {
+    const first = await runAtGrossCap(100);
+    const stop = first.events.find((event) => event.type === "stop");
+    expect(first.calls).toBe(1);
+    expect(stop).toMatchObject({
+      type: "stop",
+      reason: "budget",
+      code: "GROSS_RUNWAY_PREFLIGHT",
+    });
+    const message = stop?.type === "stop" ? stop.message : undefined;
+    expect(message).toMatch(/estimated at ~\d+ input tokens/i);
+    expect(message).toMatch(/prior tool and test evidence is saved/i);
+    expect(message).toMatch(/keel --continue.*fresh budgeted run/i);
+
+    const estimateMatch = message?.match(/estimated at ~(\d+) input tokens/i);
+    const estimatedInput = Number(estimateMatch?.[1]);
+    expect(Number.isSafeInteger(estimatedInput)).toBe(true);
+
+    const exact = await runAtGrossCap(60 + estimatedInput);
+    expect(exact.calls).toBe(1);
+    expect(exact.events.find((event) => event.type === "stop")).toMatchObject({
+      code: "GROSS_RUNWAY_PREFLIGHT",
+    });
+
+    const oneTokenFits = await runAtGrossCap(61 + estimatedInput);
+    expect(oneTokenFits.calls).toBe(2);
+    expect(oneTokenFits.events.find((event) => event.type === "stop")).toMatchObject({
+      reason: "model-stop",
+    });
+  });
+
+  it("makes the fit decision from the compacted next request, not the larger stale view", async () => {
+    const state = modelWithLargeFirstToolResult();
+    let compactorCalls = 0;
+    const events = await runModel(state.model, {
+      messages: userMsg("go"),
+      stop: { budget: { maxGrossTokens: 300 } },
+      compactor(messages) {
+        compactorCalls += 1;
+        return compactorCalls === 1 ? messages : [messages[0]!];
+      },
+    });
+
+    expect(compactorCalls).toBe(2);
+    expect(state.calls).toBe(2);
+    expect(events.find((event) => event.type === "stop")).toMatchObject({
+      reason: "model-stop",
     });
   });
 });
@@ -4515,6 +4721,12 @@ describe("runAgentLoop QC hardening (remediation)", () => {
       runModel(fixedUsageModel(1), {
         messages: userMsg("go"),
         stop: { budget: { maxTokens: 10, warnThresholds: [1] } },
+      }),
+    ).rejects.toThrow(/warnThreshold/);
+    await expect(
+      runModel(fixedUsageModel(1), {
+        messages: userMsg("go"),
+        stop: { budget: { maxGrossTokens: 10, grossWarnThresholds: [1] } },
       }),
     ).rejects.toThrow(/warnThreshold/);
   });

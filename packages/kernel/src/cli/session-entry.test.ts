@@ -1548,6 +1548,7 @@ describe("productionLoopSafety (INT-1 — a real run is guarded, not just turn-c
       KEEL_MAX_OUTPUT_TOKENS: "80000",
     });
     expect(s.stop?.budget?.maxGrossTokens).toBe(1200000);
+    expect(s.stop?.budget?.grossWarnThresholds).toEqual([0.8]);
     expect(s.stop?.budget?.maxOutputTokens).toBe(80000);
     for (const bad of ["0", "-5", "abc", "1.5", ""]) {
       const t = productionLoopSafety({ KEEL_MAX_GROSS_TOKENS: bad, KEEL_MAX_OUTPUT_TOKENS: bad });
@@ -1569,6 +1570,7 @@ describe("productionLoopSafety (INT-1 — a real run is guarded, not just turn-c
     // caps on RAW gross with no cache discount (a true pre-ADR-0044 cap).
     const b = productionLoopSafety({ KEEL_MAX_GROSS_TOKENS: "400000" }).stop?.budget;
     expect(b?.maxGrossTokens).toBe(400000);
+    expect(b?.grossWarnThresholds).toEqual([0.8]);
     expect(b?.maxTokens).toBeUndefined();
   });
 

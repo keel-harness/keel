@@ -1933,7 +1933,9 @@ export function productionLoopSafety(env: NodeJS.ProcessEnv): {
                 budget: {
                   cacheReadWeight,
                   ...(maxTokens !== undefined ? { maxTokens, warnThresholds: [0.8] } : {}),
-                  ...(maxGrossTokens !== undefined ? { maxGrossTokens } : {}),
+                  ...(maxGrossTokens !== undefined
+                    ? { maxGrossTokens, grossWarnThresholds: [0.8] }
+                    : {}),
                   ...(maxOutputTokens !== undefined ? { maxOutputTokens } : {}),
                 },
               }
