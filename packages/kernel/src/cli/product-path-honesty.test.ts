@@ -892,6 +892,64 @@ describe("product-path warden routing honesty", () => {
     expect(verifyMessage).toContain("checkpoints:");
   });
 
+  it("carries verified containment from a spawned Warden into headless and durable session output", async () => {
+    const cwd = tempDir("keel-product-contained-cwd-");
+    const home = tempDir("keel-product-contained-home-");
+    const auditDir = tempDir("keel-product-contained-audit-");
+    const executionLog = join(tempDir("keel-product-contained-exec-"), "executed.jsonl");
+    const env: NodeJS.ProcessEnv = { KEEL_HOME: home, KEEL_NO_SNAPSHOT: "1" };
+    const command = "python3 -m pip --version";
+
+    const ui = await runProductScript(
+      {
+        turns: [{ toolCalls: [{ name: "bash", args: { command } }] }, { text: "done" }],
+      },
+      { cwd, env, warden: fakeWarden({ auditDir, executionLog }), interactive: false },
+    );
+
+    expect(ui.frame()).toContain("contained: writes workspace/temp · network deny-all");
+    expect(ui.frame()).toContain(`stdout: product-path:${command}`);
+    const sessionId = sessionIdFor(env);
+    const result = readSession(sessionId, env).events.find(
+      (event) => event.type === "tool_result" && event.name === "bash",
+    );
+    expect(result?.type).toBe("tool_result");
+    if (result?.type !== "tool_result") throw new Error("expected contained bash result");
+    expect(result.output).toContain(
+      "warden containment: writes limited to workspace/temp; network egress deny-all\n\n",
+    );
+    expect(result.output).toContain(`"stdout":"product-path:${command}"`);
+
+    const records = readAuditJsonl(join(auditDir, `${sessionId}.jsonl`));
+    const actions = auditedActions(records);
+    expect(actions).toHaveLength(2);
+    for (const record of actions) {
+      expect(record.policy).toMatchObject({ verdict: "allow", ruleIds: [] });
+      expect(record.policy).not.toHaveProperty("guidance");
+    }
+    expect(JSON.stringify(records)).not.toContain("warden containment:");
+    expect(verifyChain(toChainRecords(records)).ok).toBe(true);
+
+    const execution = JSON.parse(readFileSync(executionLog, "utf8").trim()) as {
+      readonly command: string;
+      readonly profile: {
+        readonly filesystem?: { readonly allowWrite?: readonly string[] };
+        readonly network?: {
+          readonly allowedDomains?: readonly string[];
+          readonly deniedDomains?: readonly string[];
+          readonly strictAllowlist?: boolean;
+        };
+      };
+    };
+    expect(execution.command).toBe(command);
+    expect(execution.profile.filesystem?.allowWrite).toEqual(expect.arrayContaining([cwd]));
+    expect(execution.profile.network).toEqual({
+      allowedDomains: [],
+      deniedDomains: ["*"],
+      strictAllowlist: true,
+    });
+  });
+
   it("routes allowed and denied read through the spawned warden without leaking through LocalExecutor", async () => {
     const cwd = tempDir("keel-product-read-cwd-");
     const home = tempDir("keel-product-read-home-");

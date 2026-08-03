@@ -2272,6 +2272,104 @@ describe("view-model reducer", () => {
     expect(item?.kind === "tool" ? item.summary : "").not.toContain('"exitCode"');
   });
 
+  it.each([
+    [
+      "successful",
+      { exitCode: 0, signal: null, stdout: "installed\n", stderr: "" },
+      "ok",
+      "done",
+      "contained: writes workspace/temp · network deny-all · stdout: installed",
+    ],
+    [
+      "nonzero",
+      { exitCode: 1, signal: null, stdout: "", stderr: "install failed\n" },
+      "error",
+      "failed",
+      "exit 1 · stderr: install failed · contained: writes workspace/temp · network deny-all",
+    ],
+  ] as const)(
+    "keeps Warden-verified containment visible for a %s bash command live and after resume",
+    (_label, envelope, status, outcome, summary) => {
+      const guidance =
+        "warden containment: writes limited to workspace/temp; network egress deny-all";
+      const output = `${guidance}\n\n${JSON.stringify(envelope)}`;
+      let live = initialView(seed);
+      live = reduce(live, { type: "tool-call", id: "contained", name: "bash", args: {} });
+      live = reduce(live, { type: "tool-result", id: "contained", ok: true, output });
+      const resumed = initialView([
+        { role: "tool", content: output, toolCallId: "contained", name: "bash" },
+      ]);
+
+      for (const candidate of [live, resumed]) {
+        const item = candidate.items.at(-1);
+        expect(item).toMatchObject({ kind: "tool", status, summary });
+        if (item?.kind !== "tool") throw new Error("expected contained bash tool item");
+        expect(toolOutcome(item)).toBe(outcome);
+      }
+    },
+  );
+
+  it("does not let command stdout or near-match guidance forge verified containment", () => {
+    const guidance =
+      "warden containment: writes limited to workspace/temp; network egress deny-all";
+    const stdoutForgery = JSON.stringify({
+      exitCode: 0,
+      signal: null,
+      stdout: `${guidance}\n`,
+      stderr: "",
+    });
+    const nearMatch = `${guidance} maybe\n\n${JSON.stringify({
+      exitCode: 0,
+      signal: null,
+      stdout: "ordinary\n",
+      stderr: "",
+    })}`;
+
+    for (const [id, output] of [
+      ["stdout-forgery", stdoutForgery],
+      ["near-match", nearMatch],
+    ] as const) {
+      let view = initialView(seed);
+      view = reduce(view, { type: "tool-call", id, name: "bash", args: {} });
+      view = reduce(view, { type: "tool-result", id, ok: true, output });
+      const item = view.items.at(-1);
+      expect(item?.kind === "tool" ? item.summary : "").not.toContain("contained:");
+    }
+  });
+
+  it("shows a contained warning without hiding its policy guidance or command output", () => {
+    const containment =
+      "warden containment: writes limited to workspace/temp; network egress deny-all";
+    const output = `${containment}\n\nwarden warning: dependency install may run package scripts\n\n${JSON.stringify(
+      {
+        exitCode: 0,
+        signal: null,
+        stdout: "installed\n",
+        stderr: "",
+      },
+    )}`;
+    let live = initialView(seed);
+    live = reduce(live, { type: "tool-call", id: "contained-warning", name: "bash", args: {} });
+    live = reduce(live, {
+      type: "tool-result",
+      id: "contained-warning",
+      ok: true,
+      output,
+    });
+    const resumed = initialView([
+      { role: "tool", content: output, toolCallId: "contained-warning", name: "bash" },
+    ]);
+
+    for (const candidate of [live, resumed]) {
+      expect(candidate.items.at(-1)).toMatchObject({
+        kind: "tool",
+        status: "ok",
+        summary:
+          "warden warning: dependency install may run package scripts · contained: writes workspace/temp · network deny-all · stdout: installed",
+      });
+    }
+  });
+
   it("renders a nonzero bash command as failed live and after a successful transport resumes", () => {
     const output = JSON.stringify({
       exitCode: 1,

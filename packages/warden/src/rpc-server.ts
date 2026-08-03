@@ -822,6 +822,70 @@ function jsonObjectOrUndefined(value: unknown): JsonObjectT | undefined {
   return parsed.success ? parsed.data : undefined;
 }
 
+const VERIFIED_SANDBOX_CONTAINMENT_GUIDANCE =
+  "warden containment: writes limited to workspace/temp; network egress deny-all";
+
+function responsePolicyGuidance(guidance: string): string {
+  return guidance === VERIFIED_SANDBOX_CONTAINMENT_GUIDANCE ||
+    guidance.startsWith(`${VERIFIED_SANDBOX_CONTAINMENT_GUIDANCE}\n`)
+    ? `policy guidance: ${guidance}`
+    : guidance;
+}
+
+function stringArrayOrUndefined(value: unknown): readonly string[] | undefined {
+  return Array.isArray(value) && value.every((entry) => typeof entry === "string")
+    ? value
+    : undefined;
+}
+
+/**
+ * Return response-only copy for the exact containment fact already established by the Warden's
+ * policy-input builder. This does not classify the command, grant authority, or alter the policy
+ * decision/audit record. Every checked field is Warden-produced after `sandboxProofIsContained`.
+ */
+function verifiedSandboxContainmentGuidance(
+  input: PolicyInputT,
+  decision: PolicyDecision,
+): string | undefined {
+  if (decision.verdict !== "allow" && decision.verdict !== "warn") return undefined;
+  if (!input.sideEffect.dynamic.classifier.reasons.includes("sandbox_contained_arbitrary_code"))
+    return undefined;
+  const sandbox = jsonObjectOrUndefined(input.sideEffect.extensions?.["keel.sandbox"]);
+  const filesystem = jsonObjectOrUndefined(sandbox?.["filesystem"]);
+  const network = jsonObjectOrUndefined(sandbox?.["network"]);
+  const allowRead = stringArrayOrUndefined(filesystem?.["allowRead"]);
+  const allowWrite = stringArrayOrUndefined(filesystem?.["allowWrite"]);
+  const denyRead = stringArrayOrUndefined(filesystem?.["denyRead"]);
+  const denyWrite = stringArrayOrUndefined(filesystem?.["denyWrite"]);
+  const allowedDomains = stringArrayOrUndefined(network?.["allowedDomains"]);
+  const deniedDomains = stringArrayOrUndefined(network?.["deniedDomains"]);
+  if (
+    sandbox?.["containedArbitraryCode"] !== true ||
+    typeof sandbox["enforcementTier"] !== "string" ||
+    !sandbox["enforcementTier"].startsWith("sandbox:") ||
+    allowRead === undefined ||
+    allowRead.length === 0 ||
+    allowWrite === undefined ||
+    allowWrite.length === 0 ||
+    denyRead === undefined ||
+    denyRead.length === 0 ||
+    denyWrite === undefined ||
+    denyWrite.length === 0 ||
+    allowedDomains === undefined ||
+    allowedDomains.length !== 0 ||
+    deniedDomains === undefined ||
+    !deniedDomains.includes("*") ||
+    network?.["strictAllowlist"] !== true
+  ) {
+    return undefined;
+  }
+  const warningGuidance =
+    decision.guidance === undefined ? undefined : responsePolicyGuidance(decision.guidance);
+  return warningGuidance === undefined
+    ? VERIFIED_SANDBOX_CONTAINMENT_GUIDANCE
+    : `${VERIFIED_SANDBOX_CONTAINMENT_GUIDANCE}\n${warningGuidance}`;
+}
+
 interface AuditAppendFailureContext {
   readonly actionMayHaveExecuted?: boolean;
   readonly mutationPossible?: boolean;
@@ -3274,6 +3338,8 @@ async function executeWithProfile(
   decision?: PolicyDecision,
   options: {
     includePolicyDetails?: boolean;
+    /** Model/UI response copy only; the authoritative decision and audit records stay unchanged. */
+    responseGuidance?: string;
     credentialProxy?: ReturnType<typeof resolveCredentialProxyRules>;
     skipCredentialProxy?: boolean;
     audit?: {
@@ -3399,7 +3465,16 @@ async function executeWithProfile(
       { actionMayHaveExecuted: true },
     );
   }
-  return resultFromSandboxExecution(result, decision, {
+  const responseGuidance =
+    options.responseGuidance ??
+    (decision?.guidance === undefined ? undefined : responsePolicyGuidance(decision.guidance));
+  const responseDecision =
+    decision === undefined ||
+    responseGuidance === undefined ||
+    responseGuidance === decision.guidance
+      ? decision
+      : { ...decision, guidance: responseGuidance };
+  return resultFromSandboxExecution(result, responseDecision, {
     ...(options.includePolicyDetails === undefined
       ? {}
       : { includePolicyDetails: options.includePolicyDetails }),
@@ -6053,6 +6128,10 @@ async function methodResult(
           });
           return reviewRequiredResult(review, auditSeq);
         }
+        const responseGuidance = verifiedSandboxContainmentGuidance(
+          effectivePolicyInput,
+          policyDecision,
+        );
         return await executeWithProfile(
           context,
           effectiveCommand.command,
@@ -6060,6 +6139,7 @@ async function methodResult(
           policyDecision,
           {
             ...(credentialProxy === undefined ? {} : { credentialProxy }),
+            ...(responseGuidance === undefined ? {} : { responseGuidance }),
             audit: {
               params: p,
               policyInput: effectivePolicyInput,

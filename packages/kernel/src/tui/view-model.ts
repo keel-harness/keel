@@ -1106,12 +1106,35 @@ interface BashResultEnvelope {
   readonly complete: boolean;
 }
 
+const VERIFIED_SANDBOX_CONTAINMENT_GUIDANCE =
+  "warden containment: writes limited to workspace/temp; network egress deny-all";
+const VERIFIED_SANDBOX_CONTAINMENT_SUMMARY = "contained: writes workspace/temp · network deny-all";
+
+function unwrapVerifiedSandboxContainment(output: string): {
+  readonly body: string;
+  readonly contained: boolean;
+  readonly warning?: string;
+} {
+  const prefix = `${VERIFIED_SANDBOX_CONTAINMENT_GUIDANCE}\n\n`;
+  if (!output.startsWith(prefix)) return { body: output, contained: false };
+  const remainder = output.slice(prefix.length);
+  const warningPrefix = "warden warning: ";
+  if (!remainder.startsWith(warningPrefix)) return { body: remainder, contained: true };
+  const separator = remainder.indexOf("\n\n");
+  if (separator === -1) return { body: remainder, contained: true };
+  return {
+    body: remainder.slice(separator + 2),
+    contained: true,
+    warning: remainder.slice(0, separator),
+  };
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
 function parseBashResultEnvelope(output: string): BashResultEnvelope | undefined {
-  const trimmed = output.trim();
+  const trimmed = unwrapVerifiedSandboxContainment(output).body.trim();
   if (!trimmed.startsWith("{") || !trimmed.endsWith("}")) return undefined;
   let parsed: unknown;
   try {
@@ -1162,7 +1185,12 @@ function firstMeaningfulLines(s: string, maxLines: number): readonly string[] {
   return out;
 }
 
-function bashEnvelopeSummary(env: BashResultEnvelope, ok: boolean): string {
+function bashEnvelopeSummary(
+  env: BashResultEnvelope,
+  ok: boolean,
+  contained = false,
+  warning?: string,
+): string {
   const status = [
     ok ? undefined : env.exitCode !== undefined ? `exit ${env.exitCode}` : undefined,
     ok ? undefined : env.signal !== undefined ? `signal ${env.signal}` : undefined,
@@ -1170,11 +1198,11 @@ function bashEnvelopeSummary(env: BashResultEnvelope, ok: boolean): string {
 
   if (ok) {
     const stdout = firstMeaningfulLines(env.stdout, 6);
-    if (stdout.length > 0)
-      return truncateLine(`stdout: ${stdout.join(" · ")}`, MAX_LIVE_OUTPUT_LEN);
-    const stderr = firstMeaningfulLines(env.stderr, 3);
-    if (stderr.length > 0)
-      return truncateLine(`stderr: ${stderr.join(" · ")}`, MAX_LIVE_OUTPUT_LEN);
+    if (stdout.length > 0) status.push(`stdout: ${stdout.join(" · ")}`);
+    else {
+      const stderr = firstMeaningfulLines(env.stderr, 3);
+      if (stderr.length > 0) status.push(`stderr: ${stderr.join(" · ")}`);
+    }
   } else {
     const stderr = stripControlLine(lastMeaningfulLine(env.stderr)).trim().replace(/\s+/g, " ");
     const stdout = stripControlLine(lastMeaningfulLine(env.stdout)).trim().replace(/\s+/g, " ");
@@ -1183,10 +1211,20 @@ function bashEnvelopeSummary(env: BashResultEnvelope, ok: boolean): string {
     if (detail !== undefined) status.push(detail);
   }
 
-  if (status.length > 0) return truncateLine(status.join(" · "), MAX_LIVE_OUTPUT_LEN);
-  if (env.exitCode !== undefined) return `exit ${env.exitCode}`;
-  if (env.signal !== undefined) return `signal ${env.signal}`;
-  return "";
+  let summary = "";
+  if (status.length > 0) summary = status.join(" · ");
+  else if (env.exitCode !== undefined) summary = `exit ${env.exitCode}`;
+  else if (env.signal !== undefined) summary = `signal ${env.signal}`;
+  const facts = [
+    ...(warning === undefined ? [] : [stripControlLine(warning).trim().replace(/\s+/g, " ")]),
+    ...(contained ? [VERIFIED_SANDBOX_CONTAINMENT_SUMMARY] : []),
+  ].filter((fact) => fact !== "");
+  if (facts.length > 0) {
+    summary = ok
+      ? `${facts.join(" · ")}${summary === "" ? "" : ` · ${summary}`}`
+      : `${summary}${summary === "" ? "" : " · "}${facts.join(" · ")}`;
+  }
+  return truncateLine(summary, MAX_LIVE_OUTPUT_LEN);
 }
 
 type KernelReviewSettlementOutcome = "partial" | "failed";
@@ -1261,8 +1299,10 @@ function toolResultSummary(
     }
   }
   if (name === "bash") {
+    const containment = unwrapVerifiedSandboxContainment(output);
     const envelope = parseBashResultEnvelope(output);
-    if (envelope !== undefined) return bashEnvelopeSummary(envelope, ok);
+    if (envelope !== undefined)
+      return bashEnvelopeSummary(envelope, ok, containment.contained, containment.warning);
   }
   const summary = ok
     ? firstLine(output.slice(0, MAX_LIVE_OUTPUT_LEN))
@@ -1903,11 +1943,14 @@ export interface SeedPresentation {
 }
 
 function resumedBashWasLimited(content: string): boolean {
-  const json = content.startsWith("{")
-    ? content
-    : content.startsWith("warden warning:") || content.startsWith("warden modified tool args:")
-      ? (content.split("\n\n", 2)[1] ?? "")
-      : "";
+  const containedBody = unwrapVerifiedSandboxContainment(content);
+  const json = containedBody.contained
+    ? containedBody.body
+    : content.startsWith("{")
+      ? content
+      : content.startsWith("warden warning:") || content.startsWith("warden modified tool args:")
+        ? (content.split("\n\n", 2)[1] ?? "")
+        : "";
   if (json === "") return false;
   try {
     const parsed: unknown = JSON.parse(json);

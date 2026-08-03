@@ -288,6 +288,67 @@ describe("WardenExecutor", () => {
     expect(modified.output).toContain("ran with safe args");
   });
 
+  it("renders only the exact Warden-verified containment rationale on an allowed bash result", async () => {
+    const guidance =
+      "warden containment: writes limited to workspace/temp; network egress deny-all";
+    const envelope = {
+      exitCode: 0,
+      signal: null,
+      stdout: "installed\n",
+      stderr: "",
+    };
+    const verified = new WardenExecutor({
+      client: clientReturning({ verdict: "allow", result: envelope, guidance, auditSeq: 4 }),
+      sessionId: SESSION_ID,
+    });
+    await expect(verified.execute(call("bash"))).resolves.toEqual({
+      ok: true,
+      output: `${guidance}\n\n${JSON.stringify(envelope)}`,
+    });
+
+    for (const candidate of [
+      `${guidance} `,
+      guidance.replace("deny-all", "deny most"),
+      "the command appears sandbox-contained",
+      `${guidance}\u001b[31m`,
+      `${guidance}\n${"A".repeat(256)}`,
+    ]) {
+      const unverified = new WardenExecutor({
+        client: clientReturning({
+          verdict: "allow",
+          result: envelope,
+          guidance: candidate,
+          auditSeq: 5,
+        }),
+        sessionId: SESSION_ID,
+      });
+      await expect(unverified.execute(call("bash"))).resolves.toEqual({
+        ok: true,
+        output: JSON.stringify(envelope),
+      });
+    }
+  });
+
+  it("keeps warning guidance distinct from verified containment on an allowed execution", async () => {
+    const containment =
+      "warden containment: writes limited to workspace/temp; network egress deny-all";
+    const envelope = { exitCode: 0, signal: null, stdout: "installed\n", stderr: "" };
+    const executor = new WardenExecutor({
+      client: clientReturning({
+        verdict: "warn",
+        result: envelope,
+        guidance: `${containment}\ndependency install may run package scripts`,
+        auditSeq: 6,
+      }),
+      sessionId: SESSION_ID,
+    });
+
+    await expect(executor.execute(call("bash"))).resolves.toEqual({
+      ok: true,
+      output: `${containment}\n\nwarden warning: dependency install may run package scripts\n\n${JSON.stringify(envelope)}`,
+    });
+  });
+
   it("keeps a policy-allowed typed-tool execution error failed", async () => {
     const executor = new WardenExecutor({
       client: clientReturning({

@@ -56,9 +56,10 @@ and one intentional bash contradiction with zero provider calls. This is repeata
 infrastructure; it does not raise the current UX score.
 
 R5 is tracked by [issue #64](https://github.com/keel-harness/keel/issues/64) and intentionally split
-at the authority boundary. R5a is a kernel-only candidate for DF-014: an authenticated terminal
-Warden denial now exposes its exact safe recovery guidance, or explicitly says guidance is
-unavailable, without changing the verdict, model-visible envelope, policy, audit, or frozen
-contracts. R5b will separately address allowed-action containment rationale using only verified
-Warden facts. The current manifest tracks twenty safe screenshot checkpoints after adding the R5a
-after frame.
+at the authority boundary. R5a merged through [PR #65](https://github.com/keel-harness/keel/pull/65):
+an authenticated terminal Warden denial now exposes its exact safe recovery guidance, or explicitly
+says guidance is unavailable, without changing the verdict, model-visible envelope, policy, audit,
+or frozen contracts. R5b is the current candidate for DF-012. It exposes the exact two-fact
+containment rationale only when the Warden has verified sandbox-limited workspace/temp writes and
+deny-all network egress. The current manifest tracks twenty-one safe screenshot checkpoints after
+adding the R5b after frame.
