@@ -201,13 +201,14 @@
 ### DF-017 — queued `/now` correction does not preempt the active model turn
 
 - Severity: P1 user control.
-- Status: fixed by the local R10 candidate under
-  [issue #79](https://github.com/keel-harness/keel/issues/79). `/now` now promises the existing
+- Status: fixed by R10 under [issue #79](https://github.com/keel-harness/keel/issues/79), merged
+  through [PR #80](https://github.com/keel-harness/keel/pull/80) as `d397bfa`. `/now` now promises the existing
   pre-mutation boundary rather than implied cancellation, shows controller-owned pending/applied
   state, and leaves Esc as the explicit immediate control. Esc no longer auto-dispatches pending
   steering. A correction stranded by terminal budget remains durable and is re-applied exactly
-  once after fresh-process resume. E2/E3/E4 and all exact local repository gates pass; reviewed-head
-  CI, merge, post-main CI, and cleanup remain.
+  once after fresh-process resume. E2/E3/E4 and all exact local repository gates pass. Exact
+  reviewed-head CI `30845070144` and post-merge `main` CI `30845526192` passed; candidate and merge
+  trees are identical, and the branch/worktree were removed.
 - Direct evidence: `/now Stop repeating the diagnosis...` was entered while the task was active,
   but it executed only after the current run exhausted its token budget.
 - Impact: the name and interaction suggest immediacy, but the old line of work continues to spend

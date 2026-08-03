@@ -72,6 +72,6 @@ R10's production-path 80x24/100x30 E2-E4 replay makes the urgent boundary exact,
 controller-owned pending/applied state, stops immediately on Esc without silently starting new
 model work, and carries a budget-stranded urgent correction across fresh-process resume exactly
 once. This materially raises the directly observed interruption clarity, progress, recovery,
-cognitive load, and trust cells by five points. The local candidate score is **3.73/5** (231/62).
-It remains a candidate until exact-head CI, merge, and post-main proof pass; the official score
-remains **3.65/5**.
+cognitive load, and trust cells by five points. Exact reviewed-head CI run `30845070144`, merge
+`d397bfa`, exact-tree equivalence, post-merge `main` run `30845526192`, and cleanup all passed, so
+**3.73/5** (231/62) is now the official evidence-bound score.

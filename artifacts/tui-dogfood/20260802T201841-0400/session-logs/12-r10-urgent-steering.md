@@ -85,4 +85,6 @@ remains USD 2.74434625, USD 17.25565375 remains, and the final USD 2 reserve is 
 
 No local five-lens must-fix remains. The final candidate passes focused 744/744, artifact/claim
 192/192, PTY harness 7/7, unrestricted full coverage 6,511/20, lint, typecheck, format, build, and
-diff checks. Reviewed-head CI, merge, post-main CI, and branch/worktree cleanup remain required.
+diff checks. Exact reviewed-head CI `30845070144`, merge `d397bfa`, identical candidate/merge tree
+`686f579`, post-merge `main` CI `30845526192`, and branch/worktree cleanup all passed. R10 is
+published and the evidence-bound score is 3.73/5.

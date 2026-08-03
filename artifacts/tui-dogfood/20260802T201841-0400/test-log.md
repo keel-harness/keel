@@ -678,5 +678,13 @@
 - Final exact local gate: focused **744/744**; artifact/claim consistency **192/192**; PTY harness
   **7/7**; unrestricted `corepack pnpm test:cov` **6,511 passed / 20 existing skips**, exit 0 with
   all enforced thresholds satisfied; `corepack pnpm lint`, `corepack pnpm typecheck`,
-  `corepack pnpm format`, `corepack pnpm build`, and `git diff --check` all exit 0. Reviewed-head
-  CI, merge, post-main CI, and cleanup remain.
+  `corepack pnpm format`, `corepack pnpm build`, and `git diff --check` all exit 0.
+- Candidate `9a970834e777cbf091280e90aec3fa9ba135515a` passed exact-head CI run `30845070144`,
+  merged through PR #80 as `d397bfac33342861ec2ee11f3e650eafd24d9adc`, and passed exact
+  post-merge `main` CI run `30845526192`. Candidate and squash-merge trees are both
+  `686f5796647f74b411372e0509345a3875ebdf8c`. The canonical checkout was fast-forwarded cleanly;
+  issue #79 closed, and the local/remote feature branch and isolated worktree were removed.
+- The publication closeout changes evidence documents only; no runtime behavior or contract changes.
+  Its focused artifact/claim checks passed **175/175** across four files, repository formatting and
+  `git diff --check` passed, and behavior tests were therefore not repeated locally. Exact PR CI
+  remains the full repository gate for the closeout commit.

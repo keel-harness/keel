@@ -91,7 +91,8 @@ fixture, so E5 is intentionally **NOT_RUN** and Anthropic spend is unchanged. Re
 `30836483686` passed. Current `main`, including the advisory repair above, is green, so the
 evidence-bound official score is **3.65/5**.
 
-R10 is tracked by [issue #79](https://github.com/keel-harness/keel/issues/79). The local candidate
+R10 is tracked by [issue #79](https://github.com/keel-harness/keel/issues/79) and merged through
+[PR #80](https://github.com/keel-harness/keel/pull/80) as `d397bfa`. The published implementation
 makes `/now` promise only `queued urgently — before the next change`, keeps `Esc interrupts now`
 only while immediate cancellation is available, and renders controller-owned `pending` then
 `applied` state. Esc stops without auto-dispatching queued work. If a controller budget cannot
@@ -99,7 +100,9 @@ start another provider turn, urgent steering remains unapplied and durable, the 
 command is shown, and a fresh process re-applies the urgent correction exactly once before work.
 Focused E2, unrestricted full coverage, lint, typecheck, format, build, diff checks,
 production-path 80x24/100x30 E3, and four visually inspected E4 frames pass with zero Anthropic
-calls. Reviewed-head CI, merge, post-main CI, and cleanup remain.
+calls. Exact reviewed-head CI run `30845070144` and post-merge `main` run `30845526192` passed;
+the candidate and squash-merge trees are both `686f579`, and the branch/worktree were removed. The
+evidence-bound official score is now **3.73/5**.
 
 The manifest now tracks thirty unique safe screenshot checkpoints after adding the four R10
 pending/applied/budget/resume frames.

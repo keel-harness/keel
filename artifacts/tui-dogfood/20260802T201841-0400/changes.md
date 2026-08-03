@@ -312,7 +312,7 @@ R9 subsequently merged through [PR #75](https://github.com/keel-harness/keel/pul
 through PR #78 as `ba292e6`, and exact current-main CI `30839183270` passes. The R9 branch and
 worktree were removed.
 
-## Keel — R10 truthful urgent-steering candidate
+## Keel — R10 truthful urgent steering
 
 - `/now`, `/before-next-edit`, and `/stop-after-current` retain the accepted pre-mutation contract.
   Their acknowledgement now promises only `queued urgently — before the next change`; the distinct
@@ -364,8 +364,12 @@ worktree were removed.
   reproduces the pre-existing ambiguous interrupted mutation state, which remains scoped to R14.
 - The reconciled exact local candidate passes focused **744/744**, artifact/claim **192/192**,
   Python harness **7/7**, unrestricted full coverage **6,511 / 20 existing skips**, repository
-  lint, typecheck, format, build, and `git diff --check`. Reviewed-head CI, merge, post-main CI, and
-  cleanup remain required.
+  lint, typecheck, format, build, and `git diff --check`.
+- Signed-off candidate `9a97083` merged through
+  [PR #80](https://github.com/keel-harness/keel/pull/80) as `d397bfa`. Candidate and squash-merge
+  trees are identical at `686f579`; exact reviewed-head CI run `30845070144` and exact post-merge
+  `main` CI run `30845526192` passed. Issue #79 closed, and the local/remote branch and isolated
+  worktree were removed.
 
 ## External workload — validated local-only feature
 
