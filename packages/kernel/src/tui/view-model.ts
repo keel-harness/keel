@@ -54,7 +54,11 @@ import {
 } from "./display-cells.js";
 import { recoveredExploratoryFailureIndexes } from "./recovered-tool.js";
 import { appendAssistantStream, beginAssistantStream } from "./stream-projection.js";
-import { TUI_RUNTIME_TRUTH, type UiRuntimeProtectionState } from "./strings.js";
+import {
+  TUI_RUNTIME_TRUTH,
+  TUI_TERMINAL_REVIEW_TRUTH,
+  type UiRuntimeProtectionState,
+} from "./strings.js";
 import { visibleTerminalText } from "./visible-text.js";
 import {
   markReviewSettlementPresentation,
@@ -961,18 +965,37 @@ export function compactReview(view: ViewModel): string {
 
 // Keep the historical prefix so resumed sessions from before the explicit "not executed" copy still
 // populate /reviews.
-const REVIEW_PREFIXES = ["warden review required (not executed):", "warden review required:"];
+const REVIEW_PREFIXES = [
+  TUI_TERMINAL_REVIEW_TRUTH.summaryPrefix,
+  "warden review required (not executed):",
+  "warden review required:",
+];
 const MAX_VISIBLE_REVIEW_LINES = 5;
 
-function reviewDetail(summary: string): string | undefined {
+const TERMINAL_REVIEW_NO_LIVE_MARKERS = [
+  "no live review was opened by this kernel; no approval can be resolved from this result",
+  "no live approval is active",
+] as const;
+
+function isTerminalReviewWithoutLiveDecision(summary: string): boolean {
+  const lower = summary.toLowerCase();
+  return (
+    REVIEW_PREFIXES.some((prefix) => lower.startsWith(prefix)) &&
+    TERMINAL_REVIEW_NO_LIVE_MARKERS.some((marker) => lower.includes(marker))
+  );
+}
+
+function reviewDetail(summary: string, terminalWithoutLiveDecision = false): string | undefined {
   const lower = summary.toLowerCase();
   const prefix = REVIEW_PREFIXES.find((candidate) => lower.startsWith(candidate));
   if (prefix === undefined) return undefined;
   const detail = summary.slice(prefix.length).trim();
-  return detail.length > 0 ? sanitizeVisibleReviewDetail(detail) : summary;
+  return detail.length > 0
+    ? sanitizeVisibleReviewDetail(detail, terminalWithoutLiveDecision)
+    : summary;
 }
 
-function sanitizeVisibleReviewDetail(detail: string): string {
+function sanitizeVisibleReviewDetail(detail: string, terminalWithoutLiveDecision: boolean): string {
   const safe = detail
     .split(";")
     .map((segment) => segment.trim())
@@ -980,6 +1003,10 @@ function sanitizeVisibleReviewDetail(detail: string): string {
     .filter((segment) => !/\[[^\]]+\]/u.test(segment))
     .filter((segment) => !/^allow:/iu.test(segment))
     .filter((segment) => !/exact command envelope only/iu.test(segment))
+    .filter((segment) => !/^no live review was opened by this kernel$/iu.test(segment))
+    .filter((segment) => !/^no approval can be resolved from this result$/iu.test(segment))
+    .filter((segment) => !/^simplify the request, then rerun$/iu.test(segment))
+    .filter((segment) => !terminalWithoutLiveDecision || !/\bask for approval\.?$/iu.test(segment))
     .join("; ");
   return safe.length > 0 ? safe : "review detail available in transcript; no live approval here";
 }
@@ -989,7 +1016,7 @@ function visibleReviewLines(view: ViewModel): readonly string[] {
     .flatMap((item): string[] => {
       if (item.kind !== "tool" || item.status !== "error") return [];
       const summary = stripControlLine(item.summary).trim();
-      const detail = reviewDetail(summary);
+      const detail = reviewDetail(summary, isTerminalReviewWithoutLiveDecision(summary));
       if (detail === undefined) return [];
       return [truncateLine(detail, 180)];
     })
@@ -1205,10 +1232,13 @@ function toolResultSummary(
       }
       return truncateLine(denialFirstLine, MAX_LIVE_OUTPUT_LEN);
     }
-    const review = reviewDetail(cleanedOutput);
+    const terminal = outcome === "blocked" && isTerminalReviewWithoutLiveDecision(cleanedOutput);
+    const review = reviewDetail(cleanedOutput, terminal);
     if (review !== undefined) {
-      const prefix = "warden review required (not executed): ";
-      const suffix = " · no live approval";
+      const prefix = terminal
+        ? `${TUI_TERMINAL_REVIEW_TRUTH.summaryPrefix} `
+        : "warden review required (not executed): ";
+      const suffix = terminal ? "" : " · no live approval";
       const detailBudget = MAX_LIVE_OUTPUT_LEN - prefix.length - suffix.length;
       return `${prefix}${truncateLine(review, detailBudget)}${suffix}`;
     }
@@ -1889,6 +1919,7 @@ function resumedToolOutcome(
   ) {
     return "skipped";
   }
+  if (isTerminalReviewWithoutLiveDecision(content)) return "blocked";
   if (content.startsWith("warden review required (not executed):")) return "review";
   if (content.startsWith("blocked by warden (not executed):")) return "blocked";
   const reviewSettlementOutcome = kernelReviewSettlementOutcome(content);

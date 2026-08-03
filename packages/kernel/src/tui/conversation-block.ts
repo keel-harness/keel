@@ -26,6 +26,7 @@ import {
   reviewSettlementRecovery,
   type ReviewSettlementPresentationOutcome,
 } from "./review-settlement-presentation.js";
+import { TUI_TERMINAL_REVIEW_TRUTH } from "./strings.js";
 
 type UserMessage = UiMessage & { readonly role: "user" };
 
@@ -439,6 +440,7 @@ function attentionTitle(
   if (/\btarget may have changed\b/.test(text)) return "partial";
   if (/^(?:[^:]+:\s*)?skipped:/u.test(text)) return "skipped";
   if (/\b(interrupted|stopped|aborted)\b/.test(text)) return "stopped";
+  if (text.includes(TUI_TERMINAL_REVIEW_TRUTH.summaryPrefix)) return "blocked";
   if (
     /\b(blocked by (?:warden|policy)|pol-\d+\s+deny|\bdeny:|denied by warden|warden denied)\b/.test(
       text,
@@ -562,6 +564,9 @@ function receiptFor(items: readonly ViewItem[], summary: UiTurnSummary | undefin
 
 function reviewReason(what: string): string {
   const lower = what.toLowerCase();
+  if (lower.includes(TUI_TERMINAL_REVIEW_TRUTH.summaryPrefix)) {
+    return TUI_TERMINAL_REVIEW_TRUTH.reason;
+  }
   if (/target may have changed/u.test(lower))
     return "execution failed after mutation began; final target state is unknown";
   if (/blocked by (?:warden|policy)|\bpol-\d+ deny\b|denied by warden/u.test(lower))
@@ -574,6 +579,9 @@ function reviewReason(what: string): string {
 
 function reviewNextAction(what: string): string {
   const lower = what.toLowerCase();
+  if (lower.includes(TUI_TERMINAL_REVIEW_TRUTH.summaryPrefix)) {
+    return TUI_TERMINAL_REVIEW_TRUTH.recovery;
+  }
   if (/target may have changed/u.test(lower)) return "inspect the target before retrying";
   if (
     /\b(blocked by (?:warden|policy)|pol-\d+\s+deny|\bdeny:|denied by warden|warden denied)\b/.test(
@@ -609,6 +617,7 @@ function toolProblemReason(
     TurnEvidenceKind,
     "partial" | "review" | "blocked" | "skipped" | "failed" | "stopped"
   >,
+  detail = "",
   reviewSettlement?: ReviewSettlementPresentationOutcome,
 ): string {
   if (outcome === "partial" && reviewSettlement === "partial") {
@@ -616,6 +625,12 @@ function toolProblemReason(
   }
   if (outcome === "partial")
     return "execution failed after mutation began; final target state is unknown";
+  if (
+    outcome === "blocked" &&
+    detail.toLowerCase().includes(TUI_TERMINAL_REVIEW_TRUTH.summaryPrefix)
+  ) {
+    return TUI_TERMINAL_REVIEW_TRUTH.reason;
+  }
   if (outcome === "blocked") return "the warden denied the action before execution";
   if (outcome === "review")
     return "the warden required a human decision; this result was not executed";
@@ -637,6 +652,9 @@ function toolProblemNext(
   if (outcome === "partial") return "inspect the target before retrying";
   if (outcome === "review") return "no live approval · simplify the request, then rerun";
   if (outcome === "blocked") {
+    if (detail.toLowerCase().includes(TUI_TERMINAL_REVIEW_TRUTH.summaryPrefix)) {
+      return TUI_TERMINAL_REVIEW_TRUTH.recovery;
+    }
     return /review closed as denied/iu.test(detail)
       ? "no review pending · simplify the request or rerun with a live approval surface"
       : "fix the request or command, then retry";
@@ -837,7 +855,7 @@ function toolEvidenceLine(
     return {
       kind: problemOutcome,
       text,
-      why: toolProblemReason(problemOutcome, reviewSettlement),
+      why: toolProblemReason(problemOutcome, summary, reviewSettlement),
       next: toolProblemNext(problemOutcome, summary, reviewSettlement),
     };
   }

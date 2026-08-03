@@ -325,7 +325,10 @@ function renderReview(result: ExecuteResult): ToolResultT {
   const summary = oneLineControlStripped(result.guidance ?? "human approval required");
   const noLiveReview =
     "no live review was opened by this kernel; no approval can be resolved from this result; simplify the request, then rerun";
-  return terminalReviewResult(`warden review required (not executed): ${summary}; ${noLiveReview}`);
+  return terminalReviewResult(
+    `warden review required (not executed): ${summary}; ${noLiveReview}`,
+    "blocked",
+  );
 }
 
 function renderSettledReviewDenial(result: ExecuteResult, reason: string): ToolResultT {

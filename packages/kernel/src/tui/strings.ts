@@ -43,3 +43,11 @@ export const TUI_RUNTIME_TRUTH: Readonly<Record<UiRuntimeProtectionState, UiRunt
     panel: "status not reported — do not infer enforcement",
   },
 };
+
+/** Controller-derived truth for a terminal Warden review result which supplied no live review
+ * handle. This is a block with recovery, not an approval prompt or a policy denial. */
+export const TUI_TERMINAL_REVIEW_TRUTH = {
+  summaryPrefix: "blocked (not executed): no live decision available ·",
+  reason: "no live decision is available; this result was not executed",
+  recovery: "no live decision · simplify the request, then rerun",
+} as const;
