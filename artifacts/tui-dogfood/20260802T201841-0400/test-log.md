@@ -848,3 +848,14 @@
 - Closeout changes evidence only; no product behavior changed, so no new red test applies. The
   artifact consistency suite passes **21/21**, repository format check passes, and
   `git diff --check` passes in the isolated closeout worktree.
+- Closeout candidate `892d19fbf3152baafcba0f9e4d9a9e904018f82e` passed exact-head CI run
+  `30860515588` and owner-authorized PR #89 squash-merged as
+  `6f2092274c597812ea31017918808bdb01b2228b`; candidate and merge trees are both
+  `35d0268020ea6c1ba217dcf2604837211da6c90a`.
+- Exact-main CI run `30860586756` attempt 1 was **not green**. Node 20 job `91841765561` stopped in
+  prerequisite installation before project build or tests because GitHub's runner received HTTP
+  403 responses from `packages.microsoft.com` during `apt-get update`. The same commit's Node 22
+  and Node 24 egress-product lanes passed, as had all three lanes in implementation-main run
+  `30859848006`. Failed jobs were rerun without changing repository bytes; attempt 2 passed,
+  including Node 20 egress-product job `91842800657` and `ci-required`. This is recorded as a runner
+  dependency transient, not hidden and not evidence of a product regression.

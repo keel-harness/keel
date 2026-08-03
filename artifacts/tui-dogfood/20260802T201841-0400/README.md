@@ -41,7 +41,11 @@ remediation PR #78; and R14 PR #88 were owner-approved, squash-merged, and clean
 slice passed reviewed-head CI. R9's first post-merge run exposed a high `brace-expansion` advisory;
 PR #78 repaired it. Exact current-main CI run `30856149564` passes at `939b8c4` after the later
 validated slices and PTY observer repair. R14 then passed exact current-main CI run `30859848006`
-at `198f56f`.
+at `198f56f`. Its evidence closeout merged through PR #89 as `6f20922`. Exact-main CI run
+`30860586756` first failed before project execution when one Node 20 runner received HTTP 403 from
+Microsoft's preinstalled apt repositories; the same commit's Node 22/24 lanes passed. A failed-jobs-
+only rerun passed at attempt 2, including `ci-required`, so the transient remains visible without
+being misreported as a product failure.
 
 R3's safe first slice is tracked by [issue #58](https://github.com/keel-harness/keel/issues/58):
 exact edit/write retries reconcile without hiding history, live and resumed receipts show
