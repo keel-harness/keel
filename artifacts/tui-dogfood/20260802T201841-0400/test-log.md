@@ -408,3 +408,47 @@
   prefix with scripts disabled, and passed the strengthened real installed final-response smoke. The initial
   offline install attempt was **NOT_RUN to completion** because the clean task cache lacked registry
   dependencies; the permitted isolated install fetched them and reported zero vulnerabilities.
+
+## 2026-08-03 — R5b publication closeout
+
+- Corrected reviewed head `049fa7ea598b185128561abdc92ed8e9c579bbfe` passed exact-head CI run
+  `30795625464`. PR [#66](https://github.com/keel-harness/keel/pull/66) was squash-merged under the
+  owner's separate admin authorization as `38d925ea1a65e7d23d6712e94ea731fd6d16df77`.
+- Reviewed and merge trees are identical at `c98696dc3d3463c155442874023879f6db0641bf`.
+  Exact post-merge `main` CI run `30796233837` passed. Issue #64 was closed and the branch/worktree
+  were removed.
+
+## 2026-08-03 — R6 concurrent-resume preflight
+
+- Started from clean synchronized `main` at `38d925ea1a65e7d23d6712e94ea731fd6d16df77` after exact
+  post-R5 CI. Published the required plan as
+  [issue #67](https://github.com/keel-harness/keel/issues/67) before code and created isolated branch
+  `fix/tui-concurrent-resume-preflight`.
+- Worktree dependency setup first stopped with `ERR_PNPM_LOCKFILE_CONFIG_MISMATCH` because the
+  ambient package graph did not match patched-dependency config. That command is **NOT_RUN to
+  completion** and changed no tracked file. Existing ignored dependency trees were linked for the
+  isolated worktree and are excluded from the candidate.
+- First real red: **5 failed / 104 skipped**. Writer errors lacked ownership state, startup emitted no
+  authoritative `session.start`, and true concurrent resumes reached the model. A separate real-RPC
+  red failed **1 / 321 skipped** because `AUDIT_WRITE_FAILED` omitted safe recovery metadata.
+- Implemented startup acquisition through the existing Warden `audit.append` and existing
+  `session.start` event. Active/indeterminate errors become sanitized actionable CLI failures before
+  prompt/model work; pending resumed steering is applied only after preflight. Existing stale-lock
+  recovery remains fail-closed except for its known-dead single reclaim.
+- Directly affected Warden/kernel suites passed **431/431**. The unrestricted full suite passed
+  **6,471 tests / 20 existing opt-in skips**, 359 passing files and 4 skipped files.
+- The local macOS coverage run executed those same tests but exited nonzero because six loopback
+  tests could not bind under the outer sandbox and platform-conditional Linux files remained below
+  their per-file thresholds; CI runs coverage on Linux and plain tests on macOS. The changed writer
+  cleared its Warden floor at **95.95% statements/lines, 96.77% functions, 93.33% branches**.
+- E3: a credential-unset production-source CLI run in a real 100x30 PTY, against external Click and
+  a spawned Warden, proved blocked exit 1, **0 provider requests**, unchanged active lock, clean
+  owner exit/release, recovered exit 0, exactly one local-fixture request, and a valid audit chain.
+- E4: `screenshots/24-r6-concurrent-resume-after.png` is a visually inspected 1400x840 sanitized
+  terminal-frame transcription of the exact PTY message. It is not claimed as a live-window
+  capture. SHA-256 `1bb042ed3c51f67f8478cbbddb7d16b97871512408ba929eb9458368da31d320`.
+- E5: **NOT_RUN**; Anthropic usage and spend are zero. Cumulative spend remains **USD 2.7109** and
+  the USD 2.00 final-regression reserve remains intact.
+- Final candidate gates passed: affected suites **431/431**, repository typecheck, lint, format,
+  build, `git diff --check`, and real SRT denial/credential/address-guard probes **18/18** with the
+  checked-in fixture CA configured before Node startup.

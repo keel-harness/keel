@@ -104,6 +104,11 @@
 ### DF-011 — concurrent resume reaches provider work before detecting audit-writer conflict
 
 - Severity: P1 recovery/cost.
+- Status: R6 implementation candidate under
+  [issue #67](https://github.com/keel-harness/keel/issues/67). Every governed startup now acquires
+  the existing Warden audit writer before prompt/model work. Active or indeterminate ownership
+  performs zero model calls and zero resumed-ledger mutation, preserves the lock, and gives a
+  sanitized exact recovery command; known-dead recovery retains the existing one-time reclaim.
 - Direct evidence: a second `--continue` accepted a user prompt and invoked the provider, then the
   first tool failed `AUDIT_WRITE_FAILED … already has an active writer lock`.
 - Impact: the user spends tokens before learning that another session owns the authoritative audit
@@ -113,8 +118,9 @@
 ### DF-012 — containment rationale is invisible for allowed package-install commands
 
 - Severity: P1 Warden usefulness/trust.
-- Status: R5b implementation candidate under
-  [issue #64](https://github.com/keel-harness/keel/issues/64). The Warden emits one exact response-only
+- Status: fixed by R5b, merged through
+  [PR #66](https://github.com/keel-harness/keel/pull/66) as `38d925e`; exact-head CI run
+  `30795625464` and exact post-merge `main` CI run `30796233837` passed. The Warden emits one exact response-only
   rationale only after verifying the existing sandbox proof: writes are limited to workspace/temp
   and network egress is deny-all. Kernel/TUI presentation recognizes only that closed string for
   governed bash; near matches, command output, ordinary guidance, and malformed profiles cannot

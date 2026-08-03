@@ -25,8 +25,18 @@ import {
   runAuditVerifyCommand,
   runKeelCommand,
 } from "./session-entry.js";
-import type { ProductionWardenStartOptions } from "../warden/runtime.js";
-import type { SimulatorScriptT, UserInput, ViewModel } from "@keel/shared";
+import {
+  createProductionWardenRuntime,
+  type ProductionWardenStartOptions,
+} from "../warden/runtime.js";
+import type {
+  ModelPort,
+  ModelStreamChunkT,
+  ModelTurnInput,
+  SimulatorScriptT,
+  UserInput,
+  ViewModel,
+} from "@keel/shared";
 import { InputQueue } from "./input-queue.js";
 import { EVAL_DIRECT_EXEC_ACK, EVAL_DIRECT_EXEC_ENV } from "./eval-executor-gate.js";
 
@@ -123,6 +133,16 @@ const assistantSaid = (view: ViewModel, content: string): boolean =>
     (item) => item.kind === "message" && item.role === "assistant" && item.content === content,
   );
 
+class CountingModel implements ModelPort {
+  calls = 0;
+
+  async *stream(_input: ModelTurnInput): AsyncIterable<ModelStreamChunkT> {
+    this.calls += 1;
+    yield { type: "text-delta", text: "continued" };
+    yield { type: "finish", reason: "stop", usage: { inputTokens: 1, outputTokens: 1 } };
+  }
+}
+
 function readAuditJsonl(path: string): AnyAuditRecordT[] {
   return readFileSync(path, "utf8")
     .trim()
@@ -132,7 +152,12 @@ function readAuditJsonl(path: string): AnyAuditRecordT[] {
 }
 
 function auditedActions(records: readonly AnyAuditRecordT[]): AnyAuditRecordT[] {
-  return records.filter((record) => record.eventType !== "checkpoint");
+  return records.filter(
+    (record) =>
+      record.eventType !== "checkpoint" &&
+      record.eventType !== "session.start" &&
+      record.eventType !== "session.end",
+  );
 }
 
 function fakeWarden(options: {
@@ -160,6 +185,16 @@ function fakeWarden(options: {
 	          principal: ${JSON.stringify(PRINCIPAL)},
 	          policyPack: defaultPolicyPackRef(),
 	          checkpoint: { secretKey: checkpointSecretKey }
+	        });
+	        let auditClosed = false;
+	        function closeAudit() {
+	          if (auditClosed) return;
+	          auditClosed = true;
+	          auditLog.close();
+	        }
+	        process.once("SIGTERM", () => {
+	          closeAudit();
+	          process.exit(0);
 	        });
 
         runStdioWardenServer({
@@ -208,7 +243,7 @@ function fakeWarden(options: {
             }
           },
           onShutdown: () => {
-            auditLog.close();
+            closeAudit();
             setImmediate(() => process.exit(0));
           }
         });
@@ -471,6 +506,8 @@ function fakeConsoleBridgeSequencingWarden(capturePath: string): ProductionWarde
                 auditHead: { seq: 1, hash: activeHash },
                 pendingReviews: 0
               });
+            } else if (req.method === "warden.audit.append") {
+              send(req.id, { auditSeq: 1 });
             } else if (req.method === "warden.execute") {
               const toolCall = req.params.toolCall;
               calls.push({ name: toolCall.name, args: toolCall.args, sessionId: req.params.sessionId });
@@ -550,6 +587,153 @@ async function runProductScript(
 }
 
 describe("product-path warden routing honesty", () => {
+  it("rejects an active concurrent resume before model work or resumed-ledger writes, then recovers after clean release", async () => {
+    const cwd = tempDir("keel-product-concurrent-resume-cwd-");
+    const home = tempDir("keel-product-concurrent-resume-home-");
+    const auditDir = tempDir("keel-product-concurrent-resume-audit-");
+    const executionLog = join(tempDir("keel-product-concurrent-resume-exec-"), "executed.jsonl");
+    const env: NodeJS.ProcessEnv = { KEEL_HOME: home, KEEL_NO_SNAPSHOT: "1" };
+    const store = SessionStore.create({ cwd }, env);
+    store.close();
+    const ledgerPath = join(home, "sessions", `${store.id}.jsonl`);
+    const ledgerBefore = readFileSync(ledgerPath, "utf8");
+    const auditPath = join(auditDir, `${store.id}.jsonl`);
+    const lockPath = `${auditPath}.lock`;
+    const warden = fakeWarden({ auditDir, executionLog });
+    const owner = await createProductionWardenRuntime({
+      cwd,
+      sessionId: store.id,
+      env,
+      workspaceTrusted: true,
+      start: warden,
+    });
+    const lockBytes = readFileSync(lockPath, "utf8");
+    const ownerPid = (JSON.parse(lockBytes) as { readonly pid: number }).pid;
+    const blockedModel = new CountingModel();
+
+    let blocked: unknown;
+    try {
+      blocked = await runKeelCommand("paid follow-up", {
+        model: blockedModel,
+        ui: new HeadlessUI(undefined, true, false),
+        cwd,
+        env,
+        trustFlag: true,
+        resume: { kind: "id", id: store.id },
+        warden,
+      }).then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+
+      expect(blocked).toBeInstanceOf(Error);
+      expect((blocked as Error).message).toContain(`session ${store.id} is already active`);
+      expect((blocked as Error).message).toContain("Exit that Keel process cleanly");
+      expect((blocked as Error).message).toContain(`run keel --resume ${store.id}`);
+      expect((blocked as Error).message).toContain("no model call was made");
+      expect((blocked as Error).message).not.toContain(auditDir);
+      expect((blocked as Error).message).not.toContain(String(ownerPid));
+      expect(blockedModel.calls).toBe(0);
+      expect(readFileSync(ledgerPath, "utf8")).toBe(ledgerBefore);
+      expect(readFileSync(lockPath, "utf8")).toBe(lockBytes);
+      expect(existsSync(executionLog)).toBe(false);
+    } finally {
+      await owner.dispose();
+    }
+
+    expect(existsSync(lockPath)).toBe(false);
+    const resumedModel = new CountingModel();
+    await runKeelCommand("paid follow-up", {
+      model: resumedModel,
+      ui: new HeadlessUI(undefined, true, false),
+      cwd,
+      env,
+      trustFlag: true,
+      resume: { kind: "id", id: store.id },
+      warden,
+    });
+
+    expect(resumedModel.calls).toBe(1);
+    const records = readAuditJsonl(auditPath);
+    expect(records[0]).toMatchObject({
+      eventType: "session.start",
+      sessionId: store.id,
+      payload: { sessionId: store.id },
+    });
+    expect(verifyChain(toChainRecords(records)).ok).toBe(true);
+    expect(existsSync(lockPath)).toBe(false);
+  });
+
+  it("fails closed before model work when resume lock ownership is indeterminate", async () => {
+    const cwd = tempDir("keel-product-indeterminate-resume-cwd-");
+    const home = tempDir("keel-product-indeterminate-resume-home-");
+    const auditDir = tempDir("keel-product-indeterminate-resume-audit-");
+    const executionLog = join(tempDir("keel-product-indeterminate-resume-exec-"), "executed.jsonl");
+    const env: NodeJS.ProcessEnv = { KEEL_HOME: home, KEEL_NO_SNAPSHOT: "1" };
+    const store = SessionStore.create({ cwd }, env);
+    store.close();
+    const ledgerPath = join(home, "sessions", `${store.id}.jsonl`);
+    const ledgerBefore = readFileSync(ledgerPath, "utf8");
+    const lockPath = join(auditDir, `${store.id}.jsonl.lock`);
+    writeFileSync(lockPath, "not-json\n");
+    const model = new CountingModel();
+
+    const blocked = await runKeelCommand("paid follow-up", {
+      model,
+      ui: new HeadlessUI(undefined, true, false),
+      cwd,
+      env,
+      trustFlag: true,
+      resume: { kind: "latest" },
+      warden: fakeWarden({ auditDir, executionLog }),
+    }).then(
+      () => undefined,
+      (error: unknown) => error,
+    );
+
+    expect(blocked).toBeInstanceOf(Error);
+    expect((blocked as Error).message).toContain(
+      `session ${store.id} audit-writer ownership is indeterminate`,
+    );
+    expect((blocked as Error).message).toContain("Start a fresh session with keel");
+    expect((blocked as Error).message).toContain("no model call was made");
+    expect((blocked as Error).message).not.toContain(auditDir);
+    expect(model.calls).toBe(0);
+    expect(readFileSync(ledgerPath, "utf8")).toBe(ledgerBefore);
+    expect(readFileSync(lockPath, "utf8")).toBe("not-json\n");
+    expect(existsSync(executionLog)).toBe(false);
+  });
+
+  it("reclaims a known-dead resume lock through the Warden and starts exactly one model turn", async () => {
+    const cwd = tempDir("keel-product-stale-resume-cwd-");
+    const home = tempDir("keel-product-stale-resume-home-");
+    const auditDir = tempDir("keel-product-stale-resume-audit-");
+    const executionLog = join(tempDir("keel-product-stale-resume-exec-"), "executed.jsonl");
+    const env: NodeJS.ProcessEnv = { KEEL_HOME: home, KEEL_NO_SNAPSHOT: "1" };
+    const store = SessionStore.create({ cwd }, env);
+    store.close();
+    const auditPath = join(auditDir, `${store.id}.jsonl`);
+    writeFileSync(`${auditPath}.lock`, `${JSON.stringify({ pid: 99_999_999, path: auditPath })}\n`);
+    const model = new CountingModel();
+
+    await runKeelCommand("paid follow-up", {
+      model,
+      ui: new HeadlessUI(undefined, true, false),
+      cwd,
+      env,
+      trustFlag: true,
+      resume: { kind: "id", id: store.id },
+      warden: fakeWarden({ auditDir, executionLog }),
+    });
+
+    expect(model.calls).toBe(1);
+    expect(existsSync(`${auditPath}.lock`)).toBe(false);
+    expect(readAuditJsonl(auditPath)[0]).toMatchObject({
+      eventType: "session.start",
+      sessionId: store.id,
+    });
+  });
+
   it("bridges eval-direct console calls through one warden while leaving ordinary tools direct", async () => {
     const cwd = tempDir("keel-product-console-direct-cwd-");
     const home = tempDir("keel-product-console-direct-home-");

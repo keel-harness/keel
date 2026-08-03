@@ -114,6 +114,8 @@ function productionFixtureScript(options: {
             auditHead: { seq: 0, hash: zeroHash },
             pendingReviews: 0
           });
+        } else if (request.method === "warden.audit.append") {
+          send(request.id, { auditSeq: 1 });
         } else if (request.method === "warden.execute") {
           send(request.id, { verdict: "allow", result: "edited example.ts", auditSeq: 7 });
         } else if (request.method === "warden.presentation.take") {

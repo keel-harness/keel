@@ -7,6 +7,7 @@ Scores use 1 (unusable) through 5 (excellent). `TBD` means the workflow has not 
 | Onboarding | before | 3 | 3 | 4 | 3 | 3 | 3 | 2 | 3 | N/A | N/A | 2 |
 | Feature | before | 3 | 2 | 3 | 3 | 2 | 2 | 2 | 3 | 2 | 1 | 4 |
 | Feature | after R1+R2 | 4 | 2 | 3 | 3 | 3 | 4 | 3 | 4 | 3 | 2 | 4 |
+| Feature | after R1+R2+R6 | 4 | 3 | 3 | 3 | 4 | 4 | 3 | 4 | 3 | 2 | 4 |
 | Debugging | before | 3 | 2 | 4 | 2 | 3 | 2 | 2 | 3 | 2 | 3 | 4 |
 | Debugging | after R3 | 4 | 2 | 4 | 2 | 4 | 4 | 3 | 4 | 3 | 3 | 4 |
 | Debugging | after R3+R5 | 4 | 2 | 4 | 2 | 4 | 4 | 4 | 4 | 4 | 3 | 4 |
@@ -35,3 +36,8 @@ command output, warnings, nonzero failure status, audit content, and zero new in
 materially rerun checkpoints raise debugging cognitive load/Warden usefulness and Warden-heavy
 hierarchy/load/usefulness by five applicable points. Across the latest like-for-like rows, the
 evidence-weighted aggregate is now **3.39/5** (210/62), still below the 3.8 release gate.
+
+R6 repeats the observed concurrent-resume failure through the production startup and Warden
+boundary. Rejecting the conflict before prompt/model work materially raises feature responsiveness
+and recovery by two applicable points without changing other axes. The latest like-for-like
+aggregate is **3.42/5** (212/62), still below the 3.8 release gate.

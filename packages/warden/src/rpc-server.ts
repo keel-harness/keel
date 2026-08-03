@@ -25,7 +25,12 @@ import {
   type ValidationPostureIdT,
   canonicalLifecycleManifestHash,
 } from "@keel/shared";
-import { type AuditAppendInput, type AuditSink, readAuditLog } from "./audit/writer.js";
+import {
+  AuditChainActiveError,
+  type AuditAppendInput,
+  type AuditSink,
+  readAuditLog,
+} from "./audit/writer.js";
 import { sessionAuditLogPath } from "./audit/session-log.js";
 import { buildEvidenceBundle } from "./audit/bundle.js";
 import { isInside, isInsideCanonical } from "./path-util.js";
@@ -910,6 +915,7 @@ function auditWriteError(
     next === undefined ? `${prefix}: ${message}` : `${prefix}: ${message}; ${next}`;
   return rpcError(null, -32000, responseMessage, {
     code: "AUDIT_WRITE_FAILED",
+    ...(error instanceof AuditChainActiveError ? { auditWriterLockState: error.state } : {}),
     ...(failureContext.actionMayHaveExecuted === true ? { actionMayHaveExecuted: true } : {}),
     ...(failureContext.mutationPossible === true ? { mutationPossible: true } : {}),
     ...(next === undefined ? {} : { next }),

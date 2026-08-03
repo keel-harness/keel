@@ -47,9 +47,10 @@ applicable input rate.
 | R0 manifest/comparator replay | 0 | 0 | 0 | 0 | 0.0000 | 2.7109 | 17.2891 |
 | R5a denial-guidance replay | 0 | 0 | 0 | 0 | 0.0000 | 2.7109 | 17.2891 |
 | R5b containment replay | 0 | 0 | 0 | 0 | 0.0000 | 2.7109 | 17.2891 |
+| R6 concurrent-resume preflight | 0 | 0 | 0 | 0 | 0.0000 | 2.7109 | 17.2891 |
 
 Provider calls: 23 successful, 2 rejected at zero reported usage. The USD 2.00 final-regression
-reserve remains intact. The R1 through R5b and R0 replays were deterministic and offline; they made
+reserve remains intact. The R1 through R6 and R0 replays were deterministic and offline; they made
 no Anthropic request. R3's displayed 175 and R4's displayed 136 replay tokens are synthetic
 recording usage, not provider usage or spend. R5b's displayed 59 tokens are likewise synthetic.
 The R0 manifest caps a future six-workflow replay at
