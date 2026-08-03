@@ -79,7 +79,10 @@
         "10-feature-budget-failure.png",
         "11-feature-completion.png",
         "17-r2-bash-command-failure-after.png",
-        "24-r6-concurrent-resume-after.png"
+        "24-r6-concurrent-resume-after.png",
+        "33-r11-command-recovery-before.png",
+        "34-r11-command-recovery-active.png",
+        "35-r11-command-recovery-after.png"
       ],
       "costCeilingUsd": 2
     },
@@ -215,7 +218,10 @@
         "08-warden-reviews-panel.png",
         "09-file-edit-review-unavailable.png",
         "16-r1-terminal-review-after.png",
-        "23-r5b-containment-after.png"
+        "23-r5b-containment-after.png",
+        "33-r11-command-recovery-before.png",
+        "34-r11-command-recovery-active.png",
+        "35-r11-command-recovery-after.png"
       ],
       "costCeilingUsd": 1.5
     }

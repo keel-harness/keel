@@ -55,6 +55,7 @@ applicable input rate.
 | R8 Anthropic active-task replay | 4 | 3,735 | 3,260 | 110 | 0.0166 | 2.7443 | 17.2557 |
 | R9 local resume-history replay | 0 | 0 | 0 | 0 | 0.0000 | 2.7443 | 17.2557 |
 | R10 local urgent-steering replays | 0 | 0 | 0 | 0 | 0.0000 | 2.7443 | 17.2557 |
+| R11 local bounded-recovery replays | 0 | 0 | 0 | 0 | 0.0000 | 2.7443 | 17.2557 |
 
 Anthropic provider calls: 27 successful, 4 rejected at zero reported usage. R7's two local-fixture
 requests are not Anthropic calls and carry no Anthropic cost. The USD 2.00 final-regression
@@ -77,5 +78,11 @@ R10's six local-fixture requests across normal 80x24/100x30 and budget/resume pa
 Anthropic cost. E5 is intentionally **NOT_RUN** because urgent state and terminal deferral are
 controller-owned and the production provider boundary was exercised deterministically. Cumulative
 spend remains USD 2.74434625 and the final USD 2.00 reserve remains intact.
+R11's eight local-fixture requests cover baseline and candidate runs at 80x24 and 100x30: one
+baseline request and three candidate requests at each size. They carry no Anthropic cost. E5 is
+intentionally **NOT_RUN** because eligibility, call bounding, Warden dispatch, finalization, and
+presentation are controller-owned and the production provider boundary was exercised
+deterministically. Cumulative spend remains USD 2.74434625; USD 17.25565375 remains and the final
+USD 2.00 reserve is intact.
 The R0 manifest caps a future six-workflow replay at
 USD 11.00, below the currently spendable USD 15.2557 after preserving the final USD 2.00 reserve.

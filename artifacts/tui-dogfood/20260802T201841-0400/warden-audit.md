@@ -168,3 +168,33 @@ The Warden decision, mutation classification, grantability, sandbox, egress, aud
 and model-visible tool result are unchanged. The pending screenshot also retains the pre-existing
 `execution status is unknown` line after interruption; R10 does not convert that ambiguity into a
 false mutation fact. That finding remains R14.
+
+## R11 validation outcome
+
+R11 introduces no human review interrupt or automatic denial, so historical totals remain **6
+total / 2 necessary / 4 excessive or avoidable**. Baseline and candidate replays exercise the same
+legitimate composite pytest-version request through the spawned Warden. Baseline keeps the action
+unexecuted, reports no live decision, ends `BLOCKED`, and exits 1.
+
+Candidate does not reinterpret that decision. The exact process-local no-handle result permits one
+model turn to propose at most one fresh action. The Warden receives that action through its ordinary
+policy, sandbox, egress, execution, and audit path. The original bytes are never dispatched again;
+the controller does not parse or rewrite them. At both terminal sizes, only
+`python3 -m pytest --version` executes and the run finishes cleanly. A second review, denial,
+nonzero/no-test result, indeterminate state, sibling call, or absent call remains terminal and
+cannot recursively reopen recovery.
+
+Final adversarial review proved that Warden transport success is not command success: real JSON
+envelopes with nonzero `exitCode`, a termination signal, or an indeterminate `exitCode` initially
+cleared the block. Those three tests failed red. Warning-decorated nonzero, untrusted apparent
+success, and malformed-envelope cases were added before implementation. The controller now accepts
+a governed bash correction as successful only for a complete envelope with safe-integer exit 0,
+null signal, and string stdout/stderr; the legacy textual nonzero fallback also remains fail-closed.
+This narrows completion truth without altering a Warden verdict or authority.
+
+The recovery receipt is presentation-only reconciliation over controller-owned sequence facts. It
+makes the successful correction dominant while stating that the original reviewed action was not
+executed; ledger and verbose history remain intact. Warden verdicts, grantability, policy inputs,
+sandbox/egress profiles, audit authority and format, RPC, shared schemas, model-visible tool
+results, and approval batching are unchanged. R11 reduces operator burden after a terminal
+decision; it does not reduce review frequency or create approval authority.

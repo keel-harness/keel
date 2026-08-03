@@ -106,3 +106,37 @@ evidence-bound official score is now **3.73/5**.
 
 The manifest now tracks thirty unique safe screenshot checkpoints after adding the four R10
 pending/applied/budget/resume frames.
+
+R11 is the active candidate under [issue #82](https://github.com/keel-harness/keel/issues/82). An
+exact process-local WardenExecutor marker now offers one model-driven recovery pass only after a
+blocked, not-executed terminal review with no live handle. The controller neither parses nor
+rewrites the reviewed command: it accepts at most one fresh model-authored call, sends that call
+through the ordinary Warden path, skips siblings, and performs one tool-disabled closeout. Failed,
+nonzero, no-test, reviewed, denied, indeterminate, absent, truncated, budget, and deadline paths
+remain terminal.
+
+The production-source CLI, spawned Warden, external Click checkout, non-secret loopback provider,
+and real 80x24/100x30 PTYs passed the same scenario before and after. Baseline made one request,
+executed no command, ended `BLOCKED`, and exited 1. Candidate made exactly three bounded requests,
+kept the original command unexecuted, ran one model-authored `python3 -m pytest --version` through
+Warden, recorded `pytest 9.1.1`, ended clean `model-stop`, and exited 0. The final TUI says `done`
+with an explicit controller-derived recovery receipt; the original result stays in the ledger and
+verbose history. Click stayed clean and no Anthropic call was made.
+
+Three visually inspected sanitized 1400x840 transcriptions add before, active, and after evidence:
+`screenshots/33-r11-command-recovery-before.png`,
+`34-r11-command-recovery-active.png`, and `35-r11-command-recovery-after.png`. The manifest now
+tracks thirty-three unique safe checkpoints. The evidence-bound candidate score is **3.82/5**
+(237/62 applicable cells); it is not official until reviewed-head CI, merge, and exact post-main CI
+pass. The stricter release gate remains open on per-workflow trust/control/final-confidence
+requirements even if this aggregate candidate merges.
+
+Final adversarial review found one additional must-fix before publication: transport success could
+clear the blocked state even when the real Warden JSON envelope reported a nonzero exit, signal, or
+indeterminate exit. Six production-shaped negative cases failed red before the correction outcome
+check was made fail-closed; a real zero-exit envelope remains the positive control. The reconciled
+candidate now passes focused **825/825**, artifact evidence **21/21**, unrestricted full tests and
+coverage **6,528 passed / 20 existing opt-in skips**, all enforced thresholds at 98.00% statements
+and 93.73% branches overall, typecheck, lint, format, build, and `git diff --check`. The exact
+80x24/100x30 PTY replay was repeated after this fix and retained result SHA-256 `97e78a47…` with
+eight local-fixture requests, zero paid requests, and clean Click state.

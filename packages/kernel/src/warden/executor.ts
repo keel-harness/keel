@@ -38,7 +38,11 @@ import {
   tryApplyAutopilotCommandReview,
   type WardenCallOptions,
 } from "./approval.js";
-import { isTerminalReviewResult, terminalReviewResult } from "./terminal-review.js";
+import {
+  isTerminalReviewResult,
+  recoverableTerminalReviewResult,
+  terminalReviewResult,
+} from "./terminal-review.js";
 import {
   isAcceptedHumanAutopilotRoutingPosture,
   type ResolvedAutonomyPosture,
@@ -343,9 +347,8 @@ function renderReview(result: ExecuteResult): ToolResultT {
   const summary = oneLineControlStripped(result.guidance ?? "human approval required");
   const noLiveReview =
     "no live review was opened by this kernel; no approval can be resolved from this result; simplify the request, then rerun";
-  return terminalReviewResult(
+  return recoverableTerminalReviewResult(
     `warden review required (not executed): ${summary}; ${noLiveReview}`,
-    "blocked",
   );
 }
 

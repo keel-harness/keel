@@ -9,7 +9,7 @@ import {
   type WardenExecutorOptions,
 } from "./executor.js";
 import { ScopedEgressApprovals } from "./approval.js";
-import { isTerminalReviewResult } from "./terminal-review.js";
+import { isTerminalReviewRecoveryAvailable, isTerminalReviewResult } from "./terminal-review.js";
 import type { ResolvedAutonomyPosture } from "../autopilot/posture.js";
 import { toolPresentationOutcome } from "../tool-presentation-outcome.js";
 import { abortForToolDeadline } from "../infra.js";
@@ -585,6 +585,7 @@ describe("WardenExecutor", () => {
     expect(reviewed.output).toContain(
       "allow: keel approve rev_1 --scope once --domain example.com",
     );
+    expect(isTerminalReviewRecoveryAvailable(reviewed)).toBe(false);
 
     const consoleReview = new WardenExecutor({
       client: clientReturning({
@@ -625,6 +626,7 @@ describe("WardenExecutor", () => {
         "warden review required (not executed): human approval required for external write; no live review was opened by this kernel; no approval can be resolved from this result; simplify the request, then rerun",
     });
     expect(toolPresentationOutcome(terminalReview)).toBe("blocked");
+    expect(isTerminalReviewRecoveryAvailable(terminalReview)).toBe(true);
 
     const reviewWithoutDetails = new WardenExecutor({
       client: clientReturning({
@@ -640,6 +642,7 @@ describe("WardenExecutor", () => {
         "warden review required (not executed): human approval required; no live review was opened by this kernel; no approval can be resolved from this result; simplify the request, then rerun",
     });
     expect(toolPresentationOutcome(terminalReviewWithoutDetails)).toBe("blocked");
+    expect(isTerminalReviewRecoveryAvailable(terminalReviewWithoutDetails)).toBe(true);
   });
 
   it("renders deny guidance and RPC errors as one control-stripped line", async () => {

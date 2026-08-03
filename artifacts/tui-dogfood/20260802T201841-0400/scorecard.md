@@ -12,6 +12,7 @@ Scores use 1 (unusable) through 5 (excellent). `TBD` means the workflow has not 
 | Feature | after R1+R2+R6 | 4 | 3 | 3 | 3 | 4 | 4 | 3 | 4 | 3 | 2 | 4 |
 | Feature | R7 candidate (E2-E5) | 4 | 3 | 4 | 4 | 4 | 4 | 3 | 4 | 3 | 2 | 4 |
 | Feature | after R8 | 4 | 3 | 4 | 4 | 4 | 4 | 4 | 4 | 3 | 2 | 4 |
+| Feature | R11 candidate (E2-E4) | 4 | 4 | 4 | 4 | 5 | 4 | 4 | 4 | 3 | 3 | 4 |
 | Debugging | before | 3 | 2 | 4 | 2 | 3 | 2 | 2 | 3 | 2 | 3 | 4 |
 | Debugging | after R3 | 4 | 2 | 4 | 2 | 4 | 4 | 3 | 4 | 3 | 3 | 4 |
 | Debugging | after R3+R5 | 4 | 2 | 4 | 2 | 4 | 4 | 4 | 4 | 4 | 3 | 4 |
@@ -24,6 +25,7 @@ Scores use 1 (unusable) through 5 (excellent). `TBD` means the workflow has not 
 | Warden-heavy | before | 2 | 2 | 2 | 1 | 2 | 2 | 2 | 2 | 2 | 1 | 3 |
 | Warden-heavy | after R1 | 4 | 2 | 2 | 2 | 4 | 3 | 3 | 4 | 3 | 2 | 4 |
 | Warden-heavy | after R1+R5 | 4 | 2 | 2 | 2 | 4 | 4 | 4 | 4 | 4 | 2 | 4 |
+| Warden-heavy | R11 candidate (E2-E4) | 4 | 3 | 2 | 2 | 5 | 4 | 4 | 4 | 4 | 3 | 4 |
 
 The evidence-weighted baseline across applicable cells was **2.77/5**. Applying the validated R1
 Warden-heavy, R2 feature-workflow, R3 debugging-recovery, and R4 bounded mutation-review changes
@@ -75,3 +77,15 @@ once. This materially raises the directly observed interruption clarity, progres
 cognitive load, and trust cells by five points. Exact reviewed-head CI run `30845070144`, merge
 `d397bfa`, exact-tree equivalence, post-merge `main` run `30845526192`, and cleanup all passed, so
 **3.73/5** (231/62) is now the official evidence-bound score.
+
+R11 repeats the original Click composite-command failure at 80x24 and 100x30. Baseline stops after
+one terminal no-handle review and needs an operator redirect. Candidate offers exactly one
+model-driven Warden-gated correction, executes only the atomic call, and ends cleanly with an
+explicit recovery receipt; failed and unsafe paths retain needs-attention truth. This directly
+raises feature responsiveness, recovery, and Warden-interruption burden plus Warden-heavy
+responsiveness, recovery, and interruption burden. The latest rows add six applicable points
+overall. The evidence-bound candidate aggregate is **3.82/5** (237/62); the unweighted mean of the
+six latest workflow means is **3.84/5**. It remains
+a candidate until reviewed-head CI, merge, exact post-main CI, and cleanup pass. Passing the
+aggregate target alone does not pass the stricter release gate: per-workflow user-control, trust,
+recovery, and final-confidence requirements still need the final six-workflow rerun.

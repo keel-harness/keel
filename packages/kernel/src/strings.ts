@@ -87,6 +87,22 @@ export const KERNEL_STRINGS = {
     "pass: do not call or retry them. Answer the user's original request now using only the successful " +
     "read/search evidence already completed. Clearly state any material limitation caused by the " +
     "blocked action. Do not offer an approval path or claim the action ran.",
+  /**
+   * One model-driven correction after a terminal no-handle result. The controller never derives a
+   * shell rewrite: the model may choose one fresh atomic action, which remains Warden-gated.
+   */
+  terminalReviewRecovery:
+    "The Warden confirmed the last action was not executed and no live decision exists. You have " +
+    "one model-driven recovery attempt. Choose at most one smaller atomic tool call that preserves " +
+    "the task intent, using exact Warden guidance already in the result when present. Do not repeat, " +
+    "split, normalize, or mechanically rewrite the original action; do not invent approval or emit " +
+    "multiple calls. The fresh call is still Warden-gated. If no safe call exists, state the exact " +
+    "remaining work and stop.",
+  /** Tool-disabled closeout after the sole bounded correction call completes. */
+  terminalReviewRecoveryFinalization:
+    "The one bounded correction attempt is complete. Tools are disabled. Report the observed result " +
+    "and the exact remaining work. Do not claim the original reviewed action ran, and do not offer " +
+    "another retry or approval path.",
   /** Fail-closed copy when a reviewed occurrence returns a non-terminal result after its deadline. */
   reviewDeadlineLateOutcome:
     "review outcome completed after the tool deadline; action may have executed; do not retry automatically; restart the governed session and inspect audit",

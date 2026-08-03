@@ -9,6 +9,95 @@ import {
 } from "./recovered-tool.js";
 
 describe("recovered exploratory failures", () => {
+  it("reconciles one successful bounded correction without hiding original non-execution truth", () => {
+    const blocked = markToolPresentationOutcome(
+      {
+        kind: "tool",
+        id: "reviewed-composite",
+        name: "bash",
+        status: "error",
+        summary:
+          "blocked (not executed): no live decision available · POL-003 review: use a simpler command",
+      } as const,
+      "blocked",
+    );
+    const items: ViewItem[] = [
+      { kind: "message", role: "user", content: "verify pytest" },
+      blocked,
+      {
+        kind: "tool",
+        id: "atomic-correction",
+        name: "bash",
+        status: "ok",
+        summary: "pytest 9.1.1",
+      },
+      {
+        kind: "message",
+        role: "assistant",
+        content: "The atomic check passed; the reviewed composite command was not executed.",
+      },
+    ];
+
+    expect(reconciledToolAttempts(items)).toEqual({
+      failureIndexes: new Set([1]),
+      recoveredCount: 1,
+      receiptLines: [
+        "recovered · bash completed one bounded correction; original reviewed action was not executed",
+      ],
+    });
+  });
+
+  it("does not reconcile a terminal review when the bounded correction fails or has siblings", () => {
+    const blocked = markToolPresentationOutcome(
+      {
+        kind: "tool",
+        id: "reviewed-composite",
+        name: "bash",
+        status: "error",
+        summary:
+          "blocked (not executed): no live decision available · POL-003 review: use a simpler command",
+      } as const,
+      "blocked",
+    );
+    const answer = {
+      kind: "message" as const,
+      role: "assistant" as const,
+      content: "The correction failed; exact work remains.",
+    };
+    const failed: ViewItem[] = [
+      blocked,
+      markToolPresentationOutcome(
+        {
+          kind: "tool",
+          id: "failed-correction",
+          name: "bash",
+          status: "error",
+          summary: "exit 1",
+        } as const,
+        "failed",
+      ),
+      answer,
+    ];
+    const siblings: ViewItem[] = [
+      blocked,
+      { kind: "tool", id: "correction", name: "bash", status: "ok", summary: "passed" },
+      markToolPresentationOutcome(
+        {
+          kind: "tool",
+          id: "skipped-sibling",
+          name: "bash",
+          status: "error",
+          summary: "bounded recovery permits one tool call; not executed",
+        } as const,
+        "skipped",
+      ),
+      answer,
+    ];
+
+    expect(reconciledToolAttempts(failed).failureIndexes).toEqual(new Set());
+    expect(reconciledToolAttempts(siblings).failureIndexes).toEqual(new Set());
+  });
+
   it("never hides a binary refusal merely because another read later succeeds", () => {
     const binaryRefusal = markToolPresentationOutcome(
       {

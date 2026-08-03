@@ -1,5 +1,6 @@
 import type { JsonObjectT, UiToolActivity, ViewItem } from "@keel/shared";
 import { toolOutcome } from "./tool-outcome.js";
+import { TUI_TERMINAL_REVIEW_TRUTH } from "./strings.js";
 
 const recoveryIdentityByActivity = new WeakMap<UiToolActivity, string>();
 const MAX_RECOVERED_RECEIPT_LINES = 3;
@@ -67,12 +68,20 @@ interface RecoveredMutationAttempt {
   readonly failedIndexes: readonly number[];
 }
 
+interface RecoveredTerminalReviewAttempt {
+  readonly failureIndex: number;
+  readonly successIndex: number;
+  readonly name: string;
+  readonly subject?: string;
+}
+
 function reconcileToolAttempts(
   items: readonly ViewItem[],
   includeMutationRecovery: boolean,
 ): {
   readonly recovered: ReadonlySet<number>;
   readonly mutationAttempts: readonly RecoveredMutationAttempt[];
+  readonly terminalAttempt?: RecoveredTerminalReviewAttempt;
 } {
   const recovered = new Set<number>();
   let answerSeen = false;
@@ -90,6 +99,11 @@ function reconcileToolAttempts(
       readonly failedIndexes: number[];
     }
   >();
+  let terminalAttempt: RecoveredTerminalReviewAttempt | undefined;
+  let laterToolCount = 0;
+  let soleLaterSuccessfulCorrection:
+    | { readonly index: number; readonly item: UiToolActivity }
+    | undefined;
 
   for (let index = items.length - 1; index >= 0; index -= 1) {
     const item = items[index]!;
@@ -97,6 +111,38 @@ function reconcileToolAttempts(
       if (item.role === "assistant" && item.content.trim().length > 0) answerSeen = true;
       continue;
     }
+    // The exact no-live-review result is controller-owned presentation derived from a
+    // WardenExecutor result. Before R11 it ended the turn, so exactly one later tool occurrence can
+    // exist only on the bounded recovery lane. Failed corrections and skipped siblings therefore
+    // remain consequential. This shares the existing reverse pass to preserve linear projection.
+    if (
+      includeMutationRecovery &&
+      terminalAttempt === undefined &&
+      laterToolCount === 1 &&
+      soleLaterSuccessfulCorrection !== undefined &&
+      item.status === "error" &&
+      toolOutcome(item) === "blocked" &&
+      item.summary.startsWith(TUI_TERMINAL_REVIEW_TRUTH.summaryPrefix)
+    ) {
+      terminalAttempt = {
+        failureIndex: index,
+        successIndex: soleLaterSuccessfulCorrection.index,
+        name: soleLaterSuccessfulCorrection.item.name,
+        ...(soleLaterSuccessfulCorrection.item.subject !== undefined
+          ? { subject: soleLaterSuccessfulCorrection.item.subject }
+          : {}),
+      };
+      recovered.add(index);
+    }
+    if (
+      laterToolCount === 0 &&
+      answerSeen &&
+      item.status === "ok" &&
+      toolOutcome(item) === "done"
+    ) {
+      soleLaterSuccessfulCorrection = { index, item };
+    }
+    laterToolCount += 1;
     if (answerSeen && isExploratorySuccess(item)) successfulPathToAnswer = true;
     if (successfulPathToAnswer && isRecoverableExploratoryFailure(item)) recovered.add(index);
     if (!includeMutationRecovery) continue;
@@ -131,6 +177,7 @@ function reconcileToolAttempts(
     mutationAttempts: [...attemptsBySuccess.values()].sort(
       (a, b) => a.successIndex - b.successIndex,
     ),
+    ...(terminalAttempt !== undefined ? { terminalAttempt } : {}),
   };
 }
 
@@ -145,9 +192,20 @@ export function reconciledToolAttempts(items: readonly ViewItem[]): {
   readonly receiptLines: readonly string[];
 } {
   const reconciliation = reconcileToolAttempts(items, true);
-  const recoveredCount = reconciliation.mutationAttempts.length;
+  const terminalReceipt =
+    reconciliation.terminalAttempt === undefined
+      ? []
+      : [
+          `recovered · ${
+            reconciliation.terminalAttempt.subject === undefined
+              ? reconciliation.terminalAttempt.name
+              : `${reconciliation.terminalAttempt.name} ${reconciliation.terminalAttempt.subject}`
+          } completed one bounded correction; original reviewed action was not executed`,
+        ];
+  const recoveredCount =
+    reconciliation.mutationAttempts.length + (reconciliation.terminalAttempt === undefined ? 0 : 1);
   const receiptLines = reconciliation.mutationAttempts
-    .slice(0, MAX_RECOVERED_RECEIPT_LINES)
+    .slice(0, MAX_RECOVERED_RECEIPT_LINES - terminalReceipt.length)
     .map((attempt) => {
       const target =
         attempt.subject === undefined ? attempt.name : `${attempt.name} ${attempt.subject}`;
@@ -156,6 +214,7 @@ export function reconciledToolAttempts(items: readonly ViewItem[]): {
         ? `recovered · ${target} completed after earlier blocked attempt`
         : `recovered · ${target} completed after ${String(attempts)} earlier blocked attempts`;
     });
+  receiptLines.unshift(...terminalReceipt);
   const hidden = recoveredCount - receiptLines.length;
   if (hidden > 0) {
     receiptLines.push(

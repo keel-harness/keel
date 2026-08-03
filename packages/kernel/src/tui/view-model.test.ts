@@ -238,6 +238,92 @@ describe("view-model reducer", () => {
     );
   });
 
+  it("presents one successful bounded correction as done across live and resumed history", () => {
+    const output =
+      "warden review required (not executed): POL-003 review: use a simpler command; no live review was opened by this kernel; no approval can be resolved from this result; simplify the request, then rerun";
+    const finalAnswer = "The atomic check passed; the reviewed composite command was not executed.";
+    let live = initialView([{ role: "user", content: "verify pytest" }]);
+    live = reduce(live, {
+      type: "tool-call",
+      id: "reviewed-composite",
+      name: "bash",
+      args: { command: "cd . && python3 -m pytest --version 2>&1" },
+    });
+    live = reduce(
+      live,
+      markToolPresentationOutcome(
+        { type: "tool-result", id: "reviewed-composite", ok: false, output },
+        "blocked",
+      ),
+    );
+    live = reduce(live, {
+      type: "tool-call",
+      id: "atomic-correction",
+      name: "bash",
+      args: { command: "python3 -m pytest --version" },
+    });
+    live = reduce(live, {
+      type: "tool-result",
+      id: "atomic-correction",
+      ok: true,
+      output: "pytest 9.1.1",
+    });
+    live = reduce(live, { type: "text-delta", text: finalAnswer });
+    live = reduce(live, {
+      type: "run-finished",
+      usage: { inputTokens: 20, outputTokens: 8 },
+    });
+
+    const resumed = initialView(
+      [
+        { role: "user", content: "verify pytest" },
+        {
+          role: "assistant",
+          content: "",
+          toolCalls: [
+            {
+              id: "reviewed-composite",
+              name: "bash",
+              args: { command: "cd . && python3 -m pytest --version 2>&1" },
+            },
+          ],
+        },
+        { role: "tool", content: output, toolCallId: "reviewed-composite", name: "bash" },
+        {
+          role: "assistant",
+          content: "",
+          toolCalls: [
+            {
+              id: "atomic-correction",
+              name: "bash",
+              args: { command: "python3 -m pytest --version" },
+            },
+          ],
+        },
+        {
+          role: "tool",
+          content: "pytest 9.1.1",
+          toolCallId: "atomic-correction",
+          name: "bash",
+        },
+        { role: "assistant", content: finalAnswer },
+      ],
+      {},
+      { failedToolMessageIndexes: new Set([2]) },
+    );
+    const resumedSummary = buildTurnSummary(resumed);
+
+    expect(live.turnSummary).toMatchObject({
+      title: "done",
+      attention: [],
+      receipt: [
+        "recovered · bash completed one bounded correction; original reviewed action was not executed",
+      ],
+    });
+    expect(resumedSummary).toMatchObject({ title: "done", attention: [] });
+    expect(turnSummaryPresentation(live.turnSummary!)).toMatchObject({ title: "done" });
+  });
+
   it("does not let ordinary bash output manufacture an authoritative review outcome", () => {
     const output = JSON.stringify({
       exitCode: 1,
