@@ -224,11 +224,12 @@
 - Sanitized visual evidence: `screenshots/25-r7-gross-runway-after.png`, visually inspected at its
   exact worktree path, 1400x840, SHA-256
   `96e15ce2009e68791b786eb81ca23441922e911ac554b70319dbf2ae112fb703`.
-- Required Anthropic E5 is **BLOCKED**: the configured credential was present but rejected as invalid
-  on the first bounded measurement call and one later controlled validity recheck. Both reported
-  zero usage; the credential was never exposed, no further retry will be made until replacement,
-  and cumulative spend remains USD 2.7109. The candidate is not merge-ready until E5 and exact-head
-  CI.
+- Required Anthropic E5 passed after credential replacement. One governed read returned
+  `## Version 8.5.0`; with 3,435 gross tokens used, the 6,500 cap stopped before the forecast
+  3,164-input-token second request. `--continue` restored seven messages and a new no-tool
+  instruction returned exactly `CONTINUED.`. Ledger usage was 3,346 input / 89 output, then 3,835
+  input / 6 output; incremental cost was USD 0.0168 and cumulative spend is USD 2.7277. No external
+  file changed, no human Warden interrupt occurred, and exact-head CI remains the merge gate.
 
 ## External workload — validated local-only feature
 

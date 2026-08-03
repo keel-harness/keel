@@ -503,11 +503,19 @@
 - E4: `screenshots/25-r7-gross-runway-after.png` is a visually inspected 1400x840 sanitized
   terminal-frame transcription at the exact worktree path, not a live-window capture. SHA-256
   `96e15ce2009e68791b786eb81ca23441922e911ac554b70319dbf2ae112fb703`.
-- E5: **BLOCKED**. The configured Anthropic credential existed in Keel's secret store, but the first
-  bounded measurement request and one controlled validity recheck after exact-head CI both returned
-  `API key is invalid` with zero reported usage. The key was never read, printed, copied, logged, or
-  included in evidence; no further retry will be made until it is replaced. Cumulative spend remains
-  **USD 2.7109**, remaining budget **USD 17.2891**, with the USD 2 reserve intact.
+- E5: **PASSED** after credential replacement. A production-source CLI at 100x30 used live
+  `claude-sonnet-4-6` to request one trusted read of the first 20 `CHANGES.md` lines. The read
+  returned `## Version 8.5.0`; after 3,435 gross tokens, Keel warned and stopped before a forecast
+  3,164-input-token second request could consume the 3,065-token remainder of a 6,500 cap. The
+  successful read stayed visible and durable.
+- A fresh `--continue` run resumed seven messages. The new instruction `Reply with exactly
+  CONTINUED. Do not call tools.` returned exactly `CONTINUED.` without a tool call. The two durable
+  `run_status` events reported 3,346 input / 89 output tokens (3 fresh / 3,343 cache write) and
+  3,835 input / 6 output (3 fresh / 489 cache write / 3,343 cache hit). Incremental Anthropic cost
+  was **USD 0.0168**; cumulative spend is **USD 2.7277**, remaining budget **USD 17.2723**, and the
+  USD 2 reserve remains intact. The credential value was never read, printed, logged, or captured.
+- External Click stayed clean and no human Warden interrupt occurred. Live call count was exactly
+  one at the runway stop and two after continuation.
 - Five-lens review found one must-fix before commit: controller-notice recognition matched arbitrary
   user prose beginning `Budget notice:`. The new adversarial test failed **1 / 16 passed**, then
   passed **17/17** after recognition was narrowed to exact legacy/new controller prefixes.
@@ -516,4 +524,7 @@
 - Local five-lens QC found no code must-fix: scope matches issue #70; provider prevention and metric
   identity are adversarially covered; exact boundaries, compaction, persistence, and resume are
   tested; the UI says stopped and preserves evidence; the change adds no dependency or authority.
-  Publication remains blocked on valid-credential E5 and then exact-head CI.
+  Live E5 now passes; publication remains blocked only on the updated evidence head's exact-head CI.
+- Post-E5 evidence reconciliation passed the artifact guard **21/21**, Prettier checked all eight
+  touched Markdown files, and `git diff --check` passed. No product code changed after the already
+  green candidate gates; the new evidence head still requires full exact-head CI.

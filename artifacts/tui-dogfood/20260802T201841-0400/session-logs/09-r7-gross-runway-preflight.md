@@ -67,11 +67,15 @@ No existing test was weakened, skipped, removed, or reclassified.
   terminal-frame transcription of exact PTY facts. The in-app browser was unavailable, so it is not
   claimed as a live window capture. SHA-256:
   `96e15ce2009e68791b786eb81ca23441922e911ac554b70319dbf2ae112fb703`.
-- E5: **BLOCKED / zero usage**. Keel's configured Anthropic credential was present in its secret
-  store, but the provider rejected the first bounded measurement request and one later controlled
-  validity recheck as `API key is invalid`. The value was never read, printed, copied, logged, or
-  captured. No Anthropic usage was reported, no further retry will be made until replacement, and
-  cumulative spend remains USD 2.7109.
+- E5: **PASSED** with live `claude-sonnet-4-6` after credential replacement. At 100x30, one governed
+  read returned `## Version 8.5.0`; 3,435 gross tokens had been used and the 6,500-token cap stopped
+  before a forecast 3,164-input-token second call could consume the 3,065 remainder. The successful
+  receipt remained visible. A 16,000-token `--continue` run restored seven messages and returned
+  exactly `CONTINUED.` to a no-tool instruction.
+- The two `run_status` records reported 3,346 input / 89 output tokens (3 fresh / 3,343 cache write)
+  and 3,835 input / 6 output (3 fresh / 489 cache write / 3,343 cache hit). Incremental cost was USD
+  0.0168; cumulative spend is USD 2.7277 with USD 17.2723 remaining and the USD 2 reserve intact.
+  The credential value was never read, printed, copied, logged, or captured.
 
 ## Verification
 
@@ -104,5 +108,5 @@ No existing test was weakened, skipped, removed, or reclassified.
   threshold set, and one pre-stream guard; no dependency, new service, schema migration, or policy
   adapter.
 
-No local five-lens must-fix remains. Publication and merge remain blocked only on the explicitly
-required valid-credential E5 replay and then exact-head CI.
+No local five-lens must-fix remains. Live E5 passes. Publication and merge remain blocked only on
+the updated evidence head's exact-head CI.

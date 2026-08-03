@@ -175,9 +175,10 @@
   runway separately from effective-cost budget, warns visibly once, and estimates the exact
   post-compaction next request before provider work. If input alone consumes the remaining cap, the
   run stops with saved-evidence and `keel --continue` guidance while successful tool/test receipts
-  remain successful. E2/E3/E4 pass; required Anthropic E5 is blocked by the configured credential
-  being rejected as invalid twice with zero reported usage; no further retry will be made until the
-  credential is replaced.
+  remain successful. E2/E3/E4 pass; required Anthropic E5 also passed after credential replacement.
+  One live governed read completed, the gross preflight prevented a second call, and a fresh-budget
+  continuation restored evidence and completed without another tool action. Exact-head CI and merge
+  proof remain.
 - Direct evidence: two debugging turns stopped at the configured 300k gross-token boundary after
   making edits and running only part of the requested checks. The persistent HUD showed a large
   token count but no actionable warning before the turn began.

@@ -75,7 +75,9 @@ distinguishes gross runway from effective-cost budget, warns visibly once, and s
 provider request whose estimated input cannot fit the remaining gross cap. A production source CLI,
 spawned Warden, external Click checkout, fixed 100x30 PTY, and local fixture proved exactly one
 request at stop plus successful evidence restoration through `keel --continue`. Required Anthropic
-E5 is blocked because the configured credential was rejected as invalid with zero usage; the
-candidate will not merge until a valid-credential replay and exact-head CI pass.
+E5 then passed with the same source CLI and external checkout: one governed read consumed 3,346
+input / 89 output tokens, the 6,500-token runway stopped before a second call, and a fresh-budget
+continuation returned `CONTINUED.` using 3,835 input / 6 output tokens. Ledger-reconciled incremental
+cost was USD 0.0168; the candidate now awaits exact-head CI and merge proof.
 
 The manifest now tracks twenty-three safe screenshot checkpoints after adding the R7 after frame.

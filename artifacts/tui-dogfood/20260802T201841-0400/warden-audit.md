@@ -117,7 +117,8 @@ grant, policy, sandbox, or audit enforcement.
 R7 introduced no human review interrupt or automatic denial, so historical totals remain 6 total /
 2 necessary / 4 excessive or avoidable. Its production-path replay used the trusted typed `read`
 tool through the spawned Warden; the bounded in-workspace read remained routine and completed
-without asking for authority.
+without asking for authority. The later bounded live-Anthropic E5 replay repeated that same governed
+read and continuation path with no review interrupt, so the totals remain unchanged.
 
 The new gross warning and pre-provider fit stop are kernel budget controls, not Warden decisions.
 They cannot allow, deny, grant, batch, remember, or reinterpret an action. The second provider call

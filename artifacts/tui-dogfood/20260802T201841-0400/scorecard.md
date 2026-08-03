@@ -8,14 +8,14 @@ Scores use 1 (unusable) through 5 (excellent). `TBD` means the workflow has not 
 | Feature | before | 3 | 2 | 3 | 3 | 2 | 2 | 2 | 3 | 2 | 1 | 4 |
 | Feature | after R1+R2 | 4 | 2 | 3 | 3 | 3 | 4 | 3 | 4 | 3 | 2 | 4 |
 | Feature | after R1+R2+R6 | 4 | 3 | 3 | 3 | 4 | 4 | 3 | 4 | 3 | 2 | 4 |
-| Feature | R7 candidate (E2-E4) | 4 | 3 | 4 | 4 | 4 | 4 | 3 | 4 | 3 | 2 | 4 |
+| Feature | R7 candidate (E2-E5) | 4 | 3 | 4 | 4 | 4 | 4 | 3 | 4 | 3 | 2 | 4 |
 | Debugging | before | 3 | 2 | 4 | 2 | 3 | 2 | 2 | 3 | 2 | 3 | 4 |
 | Debugging | after R3 | 4 | 2 | 4 | 2 | 4 | 4 | 3 | 4 | 3 | 3 | 4 |
 | Debugging | after R3+R5 | 4 | 2 | 4 | 2 | 4 | 4 | 4 | 4 | 4 | 3 | 4 |
-| Debugging | R7 candidate (E2-E4) | 4 | 3 | 4 | 3 | 4 | 4 | 4 | 4 | 4 | 3 | 4 |
+| Debugging | R7 candidate (E2-E5) | 4 | 3 | 4 | 3 | 4 | 4 | 4 | 4 | 4 | 3 | 4 |
 | Refactor | before | 3 | 3 | 4 | 3 | 3 | 3 | 2 | 3 | 2 | 2 | 4 |
 | Refactor | after R4 mutation review | 4 | 3 | 4 | 3 | 4 | 4 | 3 | 4 | 3 | 2 | 4 |
-| Refactor | R7 candidate (E2-E4) | 4 | 3 | 4 | 4 | 4 | 4 | 4 | 4 | 3 | 2 | 4 |
+| Refactor | R7 candidate (E2-E5) | 4 | 3 | 4 | 4 | 4 | 4 | 4 | 4 | 3 | 2 | 4 |
 | Interrupt | before | 4 | 4 | 4 | 5 | 4 | 4 | 3 | 4 | N/A | N/A | 4 |
 | Warden-heavy | before | 2 | 2 | 2 | 1 | 2 | 2 | 2 | 2 | 2 | 1 | 3 |
 | Warden-heavy | after R1 | 4 | 2 | 2 | 2 | 4 | 3 | 3 | 4 | 3 | 2 | 4 |
@@ -45,10 +45,10 @@ boundary. Rejecting the conflict before prompt/model work materially raises feat
 and recovery by two applicable points without changing other axes. The latest like-for-like
 aggregate is **3.42/5** (212/62), still below the 3.8 release gate.
 
-R7's production-path E2-E4 replay materially improves long-task progress visibility and control for
-feature work, debugging responsiveness/control, and refactor control/cognitive load. The fixture
-proved a successful governed read, distinct warning, zero second provider call, stopped hierarchy,
-saved evidence, and working `--continue` recovery. Those candidate rows project **3.52/5** (218/62).
-That is not yet promoted to the official release-gate score: the explicitly required Anthropic E5
-replay is blocked because the configured credential was rejected as invalid with zero usage. Until
-E5 and merge proof pass, the evidence-bound official aggregate remains **3.42/5**.
+R7's production-path E2-E5 replays materially improve long-task progress visibility and control for
+feature work, debugging responsiveness/control, and refactor control/cognitive load. The local
+fixture and bounded live Anthropic replay both proved a successful governed read, distinct warning,
+zero second provider call, stopped hierarchy, saved evidence, and working `--continue` recovery.
+Those candidate rows score **3.52/5** (218/62). That is not yet promoted to the official
+release-gate score: exact-head CI and merge proof remain required. Until those pass, the
+evidence-bound official aggregate remains **3.42/5**.
