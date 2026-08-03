@@ -5,10 +5,12 @@ Scores use 1 (unusable) through 5 (excellent). `TBD` means the workflow has not 
 | Workflow | Phase | Clarity | Responsive | Progress | Control | Recovery | Hierarchy | Load | Trust | Warden value | Warden burden | Final confidence |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | Onboarding | before | 3 | 3 | 4 | 3 | 3 | 3 | 2 | 3 | N/A | N/A | 2 |
+| Onboarding | R8 candidate (E2-E5) | 4 | 3 | 4 | 3 | 3 | 4 | 3 | 4 | N/A | N/A | 2 |
 | Feature | before | 3 | 2 | 3 | 3 | 2 | 2 | 2 | 3 | 2 | 1 | 4 |
 | Feature | after R1+R2 | 4 | 2 | 3 | 3 | 3 | 4 | 3 | 4 | 3 | 2 | 4 |
 | Feature | after R1+R2+R6 | 4 | 3 | 3 | 3 | 4 | 4 | 3 | 4 | 3 | 2 | 4 |
 | Feature | R7 candidate (E2-E5) | 4 | 3 | 4 | 4 | 4 | 4 | 3 | 4 | 3 | 2 | 4 |
+| Feature | R8 candidate (E2-E5) | 4 | 3 | 4 | 4 | 4 | 4 | 4 | 4 | 3 | 2 | 4 |
 | Debugging | before | 3 | 2 | 4 | 2 | 3 | 2 | 2 | 3 | 2 | 3 | 4 |
 | Debugging | after R3 | 4 | 2 | 4 | 2 | 4 | 4 | 3 | 4 | 3 | 3 | 4 |
 | Debugging | after R3+R5 | 4 | 2 | 4 | 2 | 4 | 4 | 4 | 4 | 4 | 3 | 4 |
@@ -49,6 +51,11 @@ R7's production-path E2-E5 replays materially improve long-task progress visibil
 feature work, debugging responsiveness/control, and refactor control/cognitive load. The local
 fixture and bounded live Anthropic replay both proved a successful governed read, distinct warning,
 zero second provider call, stopped hierarchy, saved evidence, and working `--continue` recovery.
-Those candidate rows score **3.52/5** (218/62). That is not yet promoted to the official
-release-gate score: exact-head CI and merge proof remain required. Until those pass, the
-evidence-bound official aggregate remains **3.42/5**.
+Those rows score **3.52/5** (218/62). R7's exact-head and post-merge gates passed, so this is now the
+evidence-bound official aggregate.
+
+R8's same-scenario 80x24/100x30 E2-E5 replay makes onboarding self-identifying during provider,
+Warden, tool, and streaming states and makes routine evidence yield to that hierarchy. It raises the
+directly observed onboarding clarity/hierarchy/load/trust cells and feature cognitive load by five
+points, producing a local candidate score of **3.60/5** (223/62). This remains a candidate until
+exact-head CI and merge proof pass; the official score remains **3.52/5**.

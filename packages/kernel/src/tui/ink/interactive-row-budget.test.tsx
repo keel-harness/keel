@@ -27,6 +27,10 @@ class SizedOutput extends EventEmitter {
   output(): string {
     return this.chunks.join("");
   }
+
+  clear(): void {
+    this.chunks.length = 0;
+  }
 }
 
 class TestStdin extends EventEmitter {
@@ -54,6 +58,36 @@ async function renderShell(view: ViewModel, columns = 80, rows = 24): Promise<st
     maxFps: 1000,
   });
   await rendered.waitUntilRenderFlush();
+  const frame = stdout.output();
+  rendered.unmount();
+  return frame;
+}
+
+async function renderShellSequence(
+  views: readonly ViewModel[],
+  columns = 80,
+  rows = 24,
+): Promise<string> {
+  const first = views[0];
+  if (first === undefined) return "";
+  const stdout = new SizedOutput(columns, rows);
+  const stderr = new SizedOutput(columns, rows);
+  const rendered = renderInk(<Interactive view={first} onAction={vi.fn()} />, {
+    stdout: stdout as unknown as NonNullable<RenderOptions["stdout"]>,
+    stderr: stderr as unknown as NonNullable<RenderOptions["stderr"]>,
+    stdin: new TestStdin() as unknown as NonNullable<RenderOptions["stdin"]>,
+    debug: true,
+    interactive: true,
+    exitOnCtrlC: false,
+    patchConsole: false,
+    maxFps: 1000,
+  });
+  await rendered.waitUntilRenderFlush();
+  for (const view of views.slice(1)) {
+    stdout.clear();
+    rendered.rerender(<Interactive view={view} onAction={vi.fn()} />);
+    await rendered.waitUntilRenderFlush();
+  }
   const frame = stdout.output();
   rendered.unmount();
   return frame;
@@ -90,7 +124,93 @@ function reviewView(): ViewModel {
   });
 }
 
+function longActiveTaskView(streaming: boolean): ViewModel {
+  return {
+    ...launchBase(),
+    items: [
+      {
+        kind: "message",
+        role: "user",
+        content:
+          "Inspect the Click repository architecture, identify the test command, and explain where a multi-file terminal feature should be implemented without changing public behavior.",
+      },
+      ...Array.from({ length: 12 }, (_, index) => ({
+        kind: "tool" as const,
+        id: `read-${String(index)}`,
+        name: "read",
+        status: "ok" as const,
+        summary: `README slice ${String(index + 1)}`,
+      })),
+      ...(streaming
+        ? [{ kind: "message" as const, role: "assistant" as const, content: "Inspecting modules." }]
+        : [
+            {
+              kind: "tool" as const,
+              id: "running-search",
+              name: "search",
+              status: "running" as const,
+              summary: "",
+            },
+          ]),
+    ],
+    streaming,
+    currentTurn: {
+      doing: streaming ? "assistant drafting" : "running search",
+      why: streaming ? "provider text stream is active" : "a governed tool is executing",
+      next: streaming ? "tool call or final answer" : "waiting for tool result",
+    },
+    pendingInputs: 1,
+    queuedInputs: [{ class: "queued", content: "focus on the existing Ink renderer" }],
+  };
+}
+
+function activeTaskSequence(streaming: boolean): readonly ViewModel[] {
+  const final = longActiveTaskView(streaming);
+  return [
+    {
+      ...final,
+      items: [final.items[0]!],
+      streaming: true,
+      currentTurn: {
+        doing: "waiting for assistant",
+        why: "the provider has not produced a visible event yet",
+        next: "assistant response or tool request",
+      },
+    },
+    final,
+  ];
+}
+
 describe("production Ink shell row budgets", () => {
+  it.each([
+    [80, 24, false],
+    [80, 24, true],
+    [100, 30, false],
+    [100, 30, true],
+  ] as const)(
+    "keeps task, action, protection, queue, and composer above routine evidence at %ix%i (streaming=%s)",
+    async (columns, rows, streaming) => {
+      const output = await renderShellSequence(activeTaskSequence(streaming), columns, rows);
+      expect(output).toContain("task · Inspect the Click repository architecture");
+
+      const start = output.lastIndexOf("task · ");
+      const cockpit = output.slice(Math.max(0, start));
+      const taskRows = cockpit.split("\n").filter((line) => line.includes("task · "));
+      expect(taskRows).toHaveLength(1);
+      expect(cockpit).toContain(
+        streaming ? "working · assistant drafting" : "working · running search",
+      );
+      expect(cockpit).toContain("queued next · focus on the existing Ink renderer");
+      expect(cockpit).toContain("protection:");
+      expect(cockpit).toContain("›");
+      expect(cockpit).not.toContain("README slice 1");
+      expect(
+        summarizeRowBudget(cockpit, columns).physicalRows,
+        `${columns}x${rows}: ${cockpit}`,
+      ).toBeLessThanOrEqual(rows);
+    },
+  );
+
   it("keeps launch, help, and the complete command palette usable at a real 80x24 TTY", async () => {
     const base = launchBase();
     const frames = [
@@ -408,6 +528,7 @@ describe("production Ink shell row budgets", () => {
       expect(frame, label).toContain("panel open");
       expect(frame, label).toContain("Esc closes");
       expect(frame, label).toContain("protection:");
+      expect(frame, label).not.toContain("task · ");
       expect(frame, label).not.toContain("^G editor");
       expect(frame, label).not.toContain("↑ history");
     }

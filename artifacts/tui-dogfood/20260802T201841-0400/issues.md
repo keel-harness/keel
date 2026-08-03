@@ -34,6 +34,11 @@
 ### DF-004 — active viewport loses the current objective under evidence volume
 
 - Severity: P1 usability/trust.
+- Status: fixed by the local R8 candidate under
+  [issue #72](https://github.com/keel-harness/keel/issues/72). One bounded active-task row now
+  survives provider wait, Warden request checking, tool execution, and assistant streaming at
+  80x24 and 100x30. Approval/overlay focus, settled turns, and one-shot output remain unchanged.
+  E2/E3/E4/E5 pass; exact-head CI and merge proof remain.
 - Direct evidence: at 100×30, the running screen showed old tool evidence and `working · assistant
   drafting`, but no current-task summary. The user had to remember which request was active.
 - Impact: long tasks remain visibly alive but not self-identifying.
@@ -104,8 +109,8 @@
 ### DF-011 — concurrent resume reaches provider work before detecting audit-writer conflict
 
 - Severity: P1 recovery/cost.
-- Status: R6 implementation candidate under
-  [issue #67](https://github.com/keel-harness/keel/issues/67). Every governed startup now acquires
+- Status: fixed by R6, merged through [PR #68](https://github.com/keel-harness/keel/pull/68), with
+  evidence correction [PR #69](https://github.com/keel-harness/keel/pull/69). Every governed startup acquires
   the existing Warden audit writer before prompt/model work. Active or indeterminate ownership
   performs zero model calls and zero resumed-ledger mutation, preserves the lock, and gives a
   sanitized exact recovery command; known-dead recovery retains the existing one-time reclaim.
@@ -170,15 +175,14 @@
 ### DF-016 — gross-token exhaustion repeatedly cuts off verification without useful runway
 
 - Severity: P1 progress/control under long tasks.
-- Status: R7 implementation candidate validated locally under
-  [issue #70](https://github.com/keel-harness/keel/issues/70). Keel now identifies cumulative gross
+- Status: fixed by R7, merged through [PR #71](https://github.com/keel-harness/keel/pull/71) under
+  [issue #70](https://github.com/keel-harness/keel/issues/70). Keel identifies cumulative gross
   runway separately from effective-cost budget, warns visibly once, and estimates the exact
   post-compaction next request before provider work. If input alone consumes the remaining cap, the
   run stops with saved-evidence and `keel --continue` guidance while successful tool/test receipts
-  remain successful. E2/E3/E4 pass; required Anthropic E5 also passed after credential replacement.
+  remain successful. E2/E3/E4/E5 and exact reviewed-head/post-merge CI passed.
   One live governed read completed, the gross preflight prevented a second call, and a fresh-budget
-  continuation restored evidence and completed without another tool action. Exact-head CI and merge
-  proof remain.
+  continuation restored evidence and completed without another tool action.
 - Direct evidence: two debugging turns stopped at the configured 300k gross-token boundary after
   making edits and running only part of the requested checks. The persistent HUD showed a large
   token count but no actionable warning before the turn began.
@@ -199,7 +203,7 @@
 ### DF-018 — compaction triggers too late to save an otherwise completed turn
 
 - Severity: P1 progress/cost.
-- Status: diagnosis corrected and addressed by the same R7 candidate. The compactor already ran at
+- Status: diagnosis corrected and fixed by merged R7. The compactor already ran at
   the safe pre-request boundary; it cannot reclaim cumulative spend. R7 retains that ordering and
   evaluates fit from the compacted message/tool view before the provider call. Compaction remains
   opt-in and no claim is made that it reduces past gross usage.

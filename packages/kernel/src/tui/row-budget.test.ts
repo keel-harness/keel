@@ -237,6 +237,7 @@ describe("TUI Slice 0 row-budget baselines", () => {
       expect(frame, label).toContain("protection:");
       expect(frame, label).not.toMatch(/not wired|use CLI today|approve and remember/i);
       expect(frame, label).not.toMatch(/secure by construction|trusted by default/i);
+      expect(frame, label).not.toContain("task · ");
     }
   });
 

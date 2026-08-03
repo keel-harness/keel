@@ -816,7 +816,7 @@ describe("Ink App (frame snapshots via ink-testing-library)", () => {
     );
   });
 
-  it("does not repeat assistant-stream activity below a response that is visibly growing", async () => {
+  it("keeps active task and controller state below a response that is visibly growing", async () => {
     const active = (count: number): ViewModel => ({
       items: [
         { kind: "message", role: "user", content: "stream an explanation" },
@@ -843,7 +843,8 @@ describe("Ink App (frame snapshots via ink-testing-library)", () => {
       const first = stdout.output();
       expect(first).toContain("streamed-row-11");
       expect(first).toContain("streamed-row-12");
-      expect(first).not.toContain("working · assistant drafting");
+      expect(first).toContain("task · stream an explanation");
+      expect(first).toContain("working · assistant drafting");
       expect(first).toContain("protection:");
       stdout.clear();
 
@@ -852,14 +853,15 @@ describe("Ink App (frame snapshots via ink-testing-library)", () => {
       const next = stdout.output();
       expect(next).toContain("streamed-row-15");
       expect(next).toContain("streamed-row-16");
-      expect(next).not.toContain("working · assistant drafting");
+      expect(next).toContain("task · stream an explanation");
+      expect(next).toContain("working · assistant drafting");
       expect(next).toContain("protection:");
     } finally {
       rendered.unmount();
     }
   });
 
-  it("uses visible atomic assistant prose as the sole streaming activity signal", async () => {
+  it("pairs visible atomic assistant prose with the bounded active cockpit", async () => {
     const active = (content: string): ViewModel => ({
       items: [
         { kind: "message", role: "user", content: "stream without a newline" },
@@ -880,7 +882,8 @@ describe("Ink App (frame snapshots via ink-testing-library)", () => {
         const words = content.trim().split(/\s+/u);
         expect(stdout.output()).toContain(words[0]!);
         expect(stdout.output()).toContain(words.at(-1)!);
-        expect(stdout.output()).not.toContain("working · assistant drafting");
+        expect(stdout.output()).toContain("task · stream without a newline");
+        expect(stdout.output()).toContain("working · assistant drafting");
       } finally {
         rendered.unmount();
       }
@@ -912,7 +915,8 @@ describe("Ink App (frame snapshots via ink-testing-library)", () => {
       const active = stdout.output();
       expect(active).toContain("settled-row");
       expect(active).toContain("unfinished-row");
-      expect(active).not.toContain("working · assistant drafting");
+      expect(active).toContain("task · stream safely");
+      expect(active).toContain("working · assistant drafting");
       stdout.clear();
 
       stdout.columns = 80;
@@ -2176,7 +2180,12 @@ describe("Ink App (frame snapshots via ink-testing-library)", () => {
         view={{
           items: [{ kind: "message", role: "user", content: "run make" }],
           status,
-          streaming: false,
+          streaming: true,
+          currentTurn: {
+            doing: "waiting for approval",
+            why: "the warden requires a decision",
+            next: "approve or deny",
+          },
           pendingReviews: 1,
           activeApproval: {
             detail: "legacy combined detail",
@@ -2220,6 +2229,8 @@ describe("Ink App (frame snapshots via ink-testing-library)", () => {
     expect(frame).toContain("Consequence");
     expect(frame).toContain("Next");
     expect(frame).not.toContain("legacy combined detail");
+    expect(frame).not.toContain("task · run make");
+    expect(frame).not.toContain("working · waiting for approval");
     expect(frame).toContain("[a] Approve once · this action only");
     expect(frame).toContain("[s] Session · exact target until exit");
     expect(frame).toContain("[d] Deny · action will not run");
@@ -3460,8 +3471,11 @@ describe("Ink App (frame snapshots via ink-testing-library)", () => {
       await rendered.waitUntilRenderFlush();
 
       const output = stdout.output();
-      expect(output.match(/second prompt/gu)).toHaveLength(1);
-      expect(output.indexOf("second-answer-1")).toBeGreaterThan(output.indexOf("second prompt"));
+      expect(output.match(/you {2}second prompt/gu)).toHaveLength(1);
+      expect(output.match(/task · second prompt/gu)).toHaveLength(1);
+      expect(output.indexOf("second-answer-1")).toBeGreaterThan(
+        output.indexOf("you  second prompt"),
+      );
       expect(output).toContain("second-answer-2");
     } finally {
       rendered.unmount();
@@ -3518,7 +3532,8 @@ describe("Ink App (frame snapshots via ink-testing-library)", () => {
       expect(stdout.output()).not.toContain("first-a");
       expect(stdout.output()).not.toContain("second-q");
       expect(stdout.output()).not.toContain("second-a");
-      expect(stdout.output().match(/third-q/gu)).toHaveLength(1);
+      expect(stdout.output().match(/you {2}third-q/gu)).toHaveLength(1);
+      expect(stdout.output().match(/task · third-q/gu)).toHaveLength(1);
       expect(stdout.output().match(/third-a/gu)).toHaveLength(1);
     } finally {
       rendered.unmount();
@@ -3589,7 +3604,8 @@ describe("Ink App (frame snapshots via ink-testing-library)", () => {
       expect(stdout.output()).not.toContain("first-tool-a");
       expect(stdout.output()).not.toContain("second-tool-q");
       expect(stdout.output()).not.toContain("second-tool-a");
-      expect(stdout.output().match(/third-tool-q/gu)).toHaveLength(1);
+      expect(stdout.output().match(/you {2}third-tool-q/gu)).toHaveLength(1);
+      expect(stdout.output().match(/task · third-tool-q/gu)).toHaveLength(1);
       expect(stdout.output().match(/third-tool-a/gu)).toHaveLength(1);
     } finally {
       rendered.unmount();

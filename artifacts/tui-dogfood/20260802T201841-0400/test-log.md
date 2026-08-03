@@ -528,3 +528,42 @@
 - Post-E5 evidence reconciliation passed the artifact guard **21/21**, Prettier checked all eight
   touched Markdown files, and `git diff --check` passed. No product code changed after the already
   green candidate gates; the new evidence head still requires full exact-head CI.
+
+## 2026-08-03 — R8 persistent active task
+
+- Started from clean synchronized `main` at `5e6999cd836fee1a341a9c8cd2955abf7959abd2` after R7's
+  exact post-main CI passed. Published [issue #72](https://github.com/keel-harness/keel/issues/72)
+  and created isolated branch `fix/tui-active-task-line`.
+- Valid red-first coverage ended at **13 intended failures** across headless, real Ink, assistant
+  streaming, Unicode/cell clipping, sanitization, ownership, and 80x24/100x30 row budgets. One
+  impossible row fixture was corrected before accepting the red.
+- Focused green passed **430/430**. Typecheck, lint, format, build, and `git diff --check` passed.
+- The first unrestricted full suite was **6,491 passed / 20 skipped / 1 failed** and exposed a real
+  80x24 `/reviews` collision. A focused panel-ownership regression stayed red until task chrome was
+  suppressed under foreground focus. The corrected unrestricted suite passed **6,492 / 20** across
+  359 passing files and 4 opt-in skipped files.
+- E3: credential-unset production source, spawned Warden, external Click, a non-secret local
+  fixture, and real 80x24/100x30 PTYs made four local requests. Task copy was present exactly once
+  during wait/stream, absent after settlement, both exits were 0, and Click stayed clean.
+- E4: `screenshots/26-r8-active-objective-after.png` is a visually inspected 1400x840 sanitized
+  exact-frame transcription, SHA-256
+  `28f37d0d67bddd6f0733f33c7bc4c3a8ab32c38663876dacc7305bad982cf8ba`.
+- E5: a bounded live 100x30 Anthropic run showed the task through provider wait, Warden checking,
+  successful read wait, and assistant streaming, then removed it on settlement. `CHANGES.md`
+  returned `## Version 8.5.0`; no review or mutation occurred. Usage: 6,999 input / 110 output (4
+  fresh / 3,735 cache write / 3,260 cache hit), incremental USD 0.01664625, cumulative USD
+  2.74434625, USD 17.25565375 remaining.
+- The whole-repository instrumented coverage command was **non-green**: it was killed with exit 137
+  before Vitest emitted its summary. A bounded changed-file coverage run passed **250/250**;
+  `conversation-block.ts` measured 98.38% statements/lines, 94.94% branches, 98.76% functions, and
+  `headless.ts` measured 97.83% statements/lines, 93.11% branches, 100% functions. Ink remains
+  excluded by the checked-in coverage policy and is covered by real-Ink render tests.
+- Local five-lens QC found no must-fix. Spec: exact issue #72 scope and no frozen/shared change.
+  Security: ANSI, controls, invisible scalars, secret shapes, and approval/panel ownership are
+  adversarially covered. Reliability: 80/100 columns, CJK, emoji, combining marks, unbroken text,
+  provider/tool/assistant phases, and settlement are covered. DX: the same workload is now
+  self-identifying with no added Warden prompt. Simplicity: one presentation helper and an optional
+  render-width input, no dependency or new authority.
+- Post-evidence behavior/artifact regression passed **469/469**. The exact candidate then passed
+  repository typecheck, lint, format, build, and `git diff --check`. Exact-head CI, merge, post-main
+  CI, and cleanup remain required.

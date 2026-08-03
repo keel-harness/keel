@@ -52,8 +52,9 @@ applicable input rate.
 | R7 Anthropic credential rejections (2) | 0 | 0 | 0 | 0 | 0.0000 | 2.7109 | 17.2891 |
 | R7 Anthropic live stop | 3 | 3,343 | 0 | 89 | 0.0139 | 2.7248 | 17.2752 |
 | R7 Anthropic live continuation | 3 | 489 | 3,343 | 6 | 0.0029 | 2.7277 | 17.2723 |
+| R8 Anthropic active-task replay | 4 | 3,735 | 3,260 | 110 | 0.0166 | 2.7443 | 17.2557 |
 
-Anthropic provider calls: 25 successful, 4 rejected at zero reported usage. R7's two local-fixture
+Anthropic provider calls: 27 successful, 4 rejected at zero reported usage. R7's two local-fixture
 requests are not Anthropic calls and carry no Anthropic cost. The USD 2.00 final-regression
 reserve remains intact. The R1 through R6 and R0 replays were deterministic and offline; they made
 no Anthropic request. R3's displayed 175 and R4's displayed 136 replay tokens are synthetic
@@ -63,5 +64,9 @@ stop reported 3,346 input tokens (3 fresh / 3,343 cache write) and 89 output tok
 reported 3,835 input (3 fresh / 489 cache write / 3,343 cache hit) and 6 output. The exact unrounded
 increment was USD 0.0168159. Both earlier R7 credential rejections reported zero usage, and the
 credential value was never read or exposed.
+R8's four local-fixture requests carry no Anthropic cost. Its one live run made two Anthropic calls;
+the aggregate `run_status` reported 6,999 input tokens (4 fresh / 3,735 cache write / 3,260 cache
+hit) and 110 output tokens. The unrounded increment was USD 0.01664625. Cumulative spend is USD
+2.74434625; the credential value was not inspected, printed, logged, or captured.
 The R0 manifest caps a future six-workflow replay at
-USD 11.00, below the currently spendable USD 15.2723 after preserving the final USD 2.00 reserve.
+USD 11.00, below the currently spendable USD 15.2557 after preserving the final USD 2.00 reserve.
