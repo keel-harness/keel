@@ -14,6 +14,8 @@ export const REVIEW_REQUIRED_AFTER_SYNTHESIS_MESSAGE =
 export const BLOCKED_AFTER_SYNTHESIS_CODE = "BLOCKED_AFTER_SYNTHESIS";
 export const BLOCKED_AFTER_SYNTHESIS_MESSAGE =
   "answered from prior evidence; blocked action was not executed";
+/** Non-error terminal detail: the next estimated request input cannot fit the gross-token runway. */
+export const GROSS_RUNWAY_PREFLIGHT_CODE = "GROSS_RUNWAY_PREFLIGHT";
 
 export function stopCodeNeedsAttention(code: string | undefined): boolean {
   return code === REVIEW_REQUIRED_AFTER_SYNTHESIS_CODE || code === BLOCKED_AFTER_SYNTHESIS_CODE;
@@ -124,6 +126,8 @@ export const KernelEvent = z.discriminatedUnion("type", [
   z
     .object({
       type: z.literal("budget-warning"),
+      /** Explicit on new events; absent means the legacy effective-cost warning. Kernel-local only. */
+      metric: z.enum(["effective", "gross"]).optional(),
       usedTokens: z.number().int().nonnegative(),
       maxTokens: z.number().int().positive(),
     })

@@ -27,6 +27,12 @@ describe("KernelEvent vocabulary", () => {
       { type: "loop-detected", signal: "tool-repeat", detail: "echo" },
       { type: "stop", reason: "loop-detected" },
       { type: "budget-warning", usedTokens: 6, maxTokens: 10 },
+      {
+        type: "budget-warning",
+        metric: "gross",
+        usedTokens: 60,
+        maxTokens: 100,
+      },
       { type: "infra-error", source: "tool", message: "tool 'slow' exceeded 1000ms" },
       { type: "run-finished", usage: { inputTokens: 0, outputTokens: 3 } },
     ];

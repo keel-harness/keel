@@ -1,6 +1,6 @@
 import type { ModelMessageT, SessionEventT, ToolCallT } from "@keel/shared";
 import type { KernelEventT } from "../events.js";
-import { KERNEL_STRINGS, budgetWarningMessage } from "../strings.js";
+import { KERNEL_STRINGS, budgetWarningMessage, grossRunwayWarningMessage } from "../strings.js";
 import type { SessionStore } from "./store.js";
 
 type StopStatus = Extract<KernelEventT, { type: "stop" }>;
@@ -134,7 +134,11 @@ export async function* record(
         recordUser(ev.prompt);
         break;
       case "budget-warning":
-        recordUser(budgetWarningMessage(ev.usedTokens, ev.maxTokens));
+        recordUser(
+          ev.metric === "gross"
+            ? grossRunwayWarningMessage(ev.usedTokens, ev.maxTokens)
+            : budgetWarningMessage(ev.usedTokens, ev.maxTokens),
+        );
         break;
       case "loop-detected":
         recordUser(ev.guidance ?? loopGuidance);

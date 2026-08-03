@@ -48,10 +48,20 @@ applicable input rate.
 | R5a denial-guidance replay | 0 | 0 | 0 | 0 | 0.0000 | 2.7109 | 17.2891 |
 | R5b containment replay | 0 | 0 | 0 | 0 | 0.0000 | 2.7109 | 17.2891 |
 | R6 concurrent-resume preflight | 0 | 0 | 0 | 0 | 0.0000 | 2.7109 | 17.2891 |
+| R7 local-provider runway replay | 0 | 0 | 0 | 0 | 0.0000 | 2.7109 | 17.2891 |
+| R7 Anthropic credential rejections (2) | 0 | 0 | 0 | 0 | 0.0000 | 2.7109 | 17.2891 |
+| R7 Anthropic live stop | 3 | 3,343 | 0 | 89 | 0.0139 | 2.7248 | 17.2752 |
+| R7 Anthropic live continuation | 3 | 489 | 3,343 | 6 | 0.0029 | 2.7277 | 17.2723 |
 
-Provider calls: 23 successful, 2 rejected at zero reported usage. The USD 2.00 final-regression
+Anthropic provider calls: 25 successful, 4 rejected at zero reported usage. R7's two local-fixture
+requests are not Anthropic calls and carry no Anthropic cost. The USD 2.00 final-regression
 reserve remains intact. The R1 through R6 and R0 replays were deterministic and offline; they made
 no Anthropic request. R3's displayed 175 and R4's displayed 136 replay tokens are synthetic
 recording usage, not provider usage or spend. R5b's displayed 59 tokens are likewise synthetic.
+R7's displayed 48k and 5.6k are controlled local-fixture usage, not Anthropic usage. Its live E5
+stop reported 3,346 input tokens (3 fresh / 3,343 cache write) and 89 output tokens; the continuation
+reported 3,835 input (3 fresh / 489 cache write / 3,343 cache hit) and 6 output. The exact unrounded
+increment was USD 0.0168159. Both earlier R7 credential rejections reported zero usage, and the
+credential value was never read or exposed.
 The R0 manifest caps a future six-workflow replay at
-USD 11.00, below the currently spendable USD 15.2891 after preserving the final USD 2.00 reserve.
+USD 11.00, below the currently spendable USD 15.2723 after preserving the final USD 2.00 reserve.

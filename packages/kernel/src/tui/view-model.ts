@@ -25,8 +25,12 @@ import type {
   ViewModel,
 } from "@keel/shared";
 import { basename } from "node:path";
-import { stopCodeNeedsAttention, type KernelEventT } from "../events.js";
-import { KERNEL_STRINGS } from "../strings.js";
+import {
+  GROSS_RUNWAY_PREFLIGHT_CODE,
+  stopCodeNeedsAttention,
+  type KernelEventT,
+} from "../events.js";
+import { KERNEL_STRINGS, budgetWarningMessage, grossRunwayWarningMessage } from "../strings.js";
 import {
   REVIEW_DECISION_UNCONFIRMED_SUFFIX,
   REVIEW_DENIAL_UNCONFIRMED_SUFFIX,
@@ -1881,7 +1885,9 @@ export function buildTurnSummary(view: ViewModel): UiTurnSummary | undefined {
   const terminalNotices = items
     .filter(
       (it): it is Extract<ViewItem, { kind: "message" }> =>
-        it.kind === "message" && it.role === "system" && it.content.startsWith("⚠ run ended"),
+        it.kind === "message" &&
+        it.role === "system" &&
+        (it.content.startsWith("⚠ run ended") || it.content.startsWith("⚠ run stopped")),
     )
     .map((it) => truncateLine(it.content, 96))
     .slice(0, 1);
@@ -2845,6 +2851,16 @@ export function reduce(view: ViewModel, ev: KernelEventT | UiInputEventT): ViewM
     }
     case "turn-started":
       return view.streaming ? withDerived({ ...view, streaming: false }) : view;
+    case "budget-warning": {
+      const content =
+        ev.metric === "gross"
+          ? grossRunwayWarningMessage(ev.usedTokens, ev.maxTokens)
+          : budgetWarningMessage(ev.usedTokens, ev.maxTokens);
+      return withDerived({
+        ...view,
+        items: [...view.items, { kind: "message", role: "system", content: `◇ ${content}` }],
+      });
+    }
     case "stop": {
       // Surface an abnormal terminal so a failed run is not silent (INT-2). `model-stop` is success
       // and `aborted` is the user interrupt (noticed via the `interrupted` event) — neither adds a
@@ -2875,6 +2891,19 @@ export function reduce(view: ViewModel, ev: KernelEventT | UiInputEventT): ViewM
       // recovery guidance. Keep the non-success stop for exit/session honesty without adding a second
       // generic provider-error notice to the transcript.
       if (ev.code === "REVIEW_REQUIRED" || ev.code === "BLOCKED") return base;
+      if (ev.code === GROSS_RUNWAY_PREFLIGHT_CODE && ev.message !== undefined) {
+        return withDerived({
+          ...base,
+          items: [
+            ...base.items,
+            {
+              kind: "message",
+              role: "system",
+              content: `⚠ run stopped — ${stripControl(ev.message)}`,
+            },
+          ],
+        });
+      }
       const why = TERMINAL_FAILURE[ev.reason];
       if (why === undefined) return base;
       const detail = ev.reason === "error" && ev.message ? `: ${stripControl(ev.message)}` : "";

@@ -114,9 +114,36 @@ export const KERNEL_STRINGS = {
 export function budgetWarningMessage(usedTokens: number, maxTokens: number): string {
   const remaining = Math.max(0, maxTokens - usedTokens);
   return (
-    `Budget notice: ~${String(usedTokens)} of ${String(maxTokens)} tokens used ` +
+    `Budget notice: effective-cost budget ~${String(usedTokens)} of ${String(maxTokens)} tokens used ` +
     `(~${String(remaining)} remaining). Prioritize finishing and verifying the task now — ` +
     `wrap up, avoid unnecessary steps, and make sure the result is correct before you run out.`
+  );
+}
+
+/** Visible + model-visible cumulative gross-token runway warning. Unlike the effective-cost budget,
+ * gross usage is a non-reclaimable emergency backstop; a fresh physical run receives a fresh cap. */
+export function grossRunwayWarningMessage(usedTokens: number, maxTokens: number): string {
+  const remaining = Math.max(0, maxTokens - usedTokens);
+  return (
+    `Gross-token runway notice: ~${String(usedTokens)} of ${String(maxTokens)} cumulative tokens used ` +
+    `(~${String(remaining)} remaining). Finish the current path now. If another request cannot fit, ` +
+    `Keel will stop before calling the provider; run keel --continue for a fresh budgeted run using ` +
+    `the saved session evidence.`
+  );
+}
+
+/** Controller-owned terminal guidance when the next request input cannot fit inside gross runway. */
+export function grossRunwayPreflightMessage(input: {
+  readonly usedTokens: number;
+  readonly maxTokens: number;
+  readonly estimatedInputTokens: number;
+}): string {
+  const remaining = Math.max(0, input.maxTokens - input.usedTokens);
+  return (
+    `Gross-token runway stopped before another provider call: ~${String(input.usedTokens)} of ` +
+    `${String(input.maxTokens)} used (~${String(remaining)} remaining); the next request is estimated ` +
+    `at ~${String(input.estimatedInputTokens)} input tokens before any answer. Prior tool and test ` +
+    `evidence is saved. Run keel --continue for a fresh budgeted run.`
   );
 }
 

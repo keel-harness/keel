@@ -64,8 +64,20 @@ containment rationale only when the Warden has verified sandbox-limited workspac
 deny-all network egress. Exact reviewed-head and post-merge CI passed, and the branch/worktree were
 removed.
 
-R6 is tracked by [issue #67](https://github.com/keel-harness/keel/issues/67). Its candidate acquires
-the existing Warden audit writer before prompt/model work, so a concurrent resume fails with zero
-provider requests, unchanged lock/ledger state, and an exact recovery command. A real 100x30 PTY
-and spawned-Warden replay passed; exact-head publication gates remain pending.
-The manifest now tracks twenty-two safe screenshot checkpoints after adding the R6 after frame.
+R6 is merged through implementation [PR #68](https://github.com/keel-harness/keel/pull/68) and
+evidence correction [PR #69](https://github.com/keel-harness/keel/pull/69). It acquires the existing
+Warden audit writer before prompt/model work, so a concurrent resume fails with zero provider
+requests, unchanged lock/ledger state, and an exact recovery command. Exact post-main CI run
+`30801280763` passed; branches/worktrees were removed.
+
+R7 is tracked by [issue #70](https://github.com/keel-harness/keel/issues/70). Its local candidate
+distinguishes gross runway from effective-cost budget, warns visibly once, and stops before a
+provider request whose estimated input cannot fit the remaining gross cap. A production source CLI,
+spawned Warden, external Click checkout, fixed 100x30 PTY, and local fixture proved exactly one
+request at stop plus successful evidence restoration through `keel --continue`. Required Anthropic
+E5 then passed with the same source CLI and external checkout: one governed read consumed 3,346
+input / 89 output tokens, the 6,500-token runway stopped before a second call, and a fresh-budget
+continuation returned `CONTINUED.` using 3,835 input / 6 output tokens. Ledger-reconciled incremental
+cost was USD 0.0168; the candidate now awaits exact-head CI and merge proof.
+
+The manifest now tracks twenty-three safe screenshot checkpoints after adding the R7 after frame.

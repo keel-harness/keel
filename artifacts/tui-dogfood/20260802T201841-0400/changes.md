@@ -199,6 +199,38 @@
   `bdb193d28c9db3b38b3fa6ceab3b7b37201cb6ba41015898d9b477bd51f7eea6`. The exact committed
   absolute path was visually inspected after correcting the initial bad crop. Provider usage: zero.
 
+## Keel — R7 gross-token runway preflight candidate
+
+- Gross-token runway now has a separate one-shot warning identity from the effective-cost budget.
+  Both the human and model receive the same bounded controller copy with used, cap, remaining, and
+  continuation semantics.
+- After the existing optional compactor boundary and before `model.stream`, Keel estimates the exact
+  next request's messages and tools. If estimated input alone consumes the remaining gross cap, it
+  makes no provider call and emits `GROSS_RUNWAY_PREFLIGHT` with saved-evidence guidance.
+- The terminal outcome renders as `stopped`, keeps a successful read/test receipt successful, and
+  includes `keel --continue`; the recorder persists the exact controller warning already sent to
+  the model. Compaction stays default-off.
+- Red-first coverage exercised metric identity, separate/one-shot/shared-state warnings,
+  equal/one-token-fit boundaries, post-compaction fit, invalid thresholds, durable copy, TUI
+  hierarchy, and production wiring. Focused green was **524/524**, final loop **170/170**, and the
+  end-to-end walking skeleton **4/4**.
+- Unrestricted full suite: **6,481 passed / 20 existing opt-in skips**. Local macOS coverage executed
+  the suite but remains non-green on unrelated existing per-file gaps; all changed production files
+  exceed the kernel floor. Final candidate typecheck, lint, format, build, and diff check passed.
+- Product evidence: production source CLI, spawned Warden, external Click, local non-secret fixture,
+  and a fixed 100x30 PTY. One governed read succeeded; a distinct 48k/50k warning appeared; the
+  5,538-token forecast stopped the second call with 2,000 remaining; `--continue` restored evidence
+  and completed in one fresh run. Fixture counter: exactly one request at stop, two after resume.
+- Sanitized visual evidence: `screenshots/25-r7-gross-runway-after.png`, visually inspected at its
+  exact worktree path, 1400x840, SHA-256
+  `96e15ce2009e68791b786eb81ca23441922e911ac554b70319dbf2ae112fb703`.
+- Required Anthropic E5 passed after credential replacement. One governed read returned
+  `## Version 8.5.0`; with 3,435 gross tokens used, the 6,500 cap stopped before the forecast
+  3,164-input-token second request. `--continue` restored seven messages and a new no-tool
+  instruction returned exactly `CONTINUED.`. Ledger usage was 3,346 input / 89 output, then 3,835
+  input / 6 output; incremental cost was USD 0.0168 and cumulative spend is USD 2.7277. No external
+  file changed, no human Warden interrupt occurred, and exact-head CI remains the merge gate.
+
 ## External workload — validated local-only feature
 
 - Commit `941ab66 feat(termui): accept PathLike filenames in edit`.

@@ -19,6 +19,7 @@ import { JsonObject, effectiveTokens } from "@keel/shared";
 import {
   BLOCKED_AFTER_SYNTHESIS_CODE,
   BLOCKED_AFTER_SYNTHESIS_MESSAGE,
+  GROSS_RUNWAY_PREFLIGHT_CODE,
   REVIEW_REQUIRED_AFTER_SYNTHESIS_CODE,
   REVIEW_REQUIRED_AFTER_SYNTHESIS_MESSAGE,
   type KernelEventT,
@@ -26,6 +27,8 @@ import {
 import {
   KERNEL_STRINGS,
   budgetWarningMessage,
+  grossRunwayPreflightMessage,
+  grossRunwayWarningMessage,
   infraTimeoutMessage,
   knownRedCompletionMessage,
   turnLimitFinalizeMessage,
@@ -121,6 +124,9 @@ export interface AgentLoopStop {
      *  of caching, so a cached-heavy task cannot churn indefinitely on the cheap effective budget.
      *  (Turns are the primary churn bound; this is extra insurance.) Unset = no gross backstop. */
     readonly maxGrossTokens?: number;
+    /** Fractions of `maxGrossTokens` at which to inject a one-shot cumulative-runway warning.
+     * Separate from `warnThresholds`: gross churn and effective cost are different metrics. */
+    readonly grossWarnThresholds?: readonly number[];
     /** **Output**-token over-generation guard: stop when cumulative `outputTokens >=
      *  maxOutputTokens`. Bounds runaway generation (e.g. repeated full-file rewrites). Unset = none. */
     readonly maxOutputTokens?: number;
@@ -267,6 +273,7 @@ export interface AgentLoopControlState {
   /** Physical-run elapsed time at which progress runway began. */
   progressRunwayStartElapsedMs: number | undefined;
   readonly warnedThresholds: Set<number>;
+  readonly warnedGrossThresholds: Set<number>;
 }
 
 export function createAgentLoopControlState(): AgentLoopControlState {
@@ -279,6 +286,7 @@ export function createAgentLoopControlState(): AgentLoopControlState {
     progressRunwayTurnsUsed: 0,
     progressRunwayStartElapsedMs: undefined,
     warnedThresholds: new Set<number>(),
+    warnedGrossThresholds: new Set<number>(),
   };
 }
 
@@ -746,7 +754,8 @@ export async function* runAgentLoopWithControlState(
   // Default 1.0 → cached counts at full price (gross-equivalent), the conservative behavior.
   const cacheReadWeight = input.stop?.budget?.cacheReadWeight ?? 1.0;
   const warnThresholds = input.stop?.budget?.warnThresholds ?? [];
-  for (const t of warnThresholds) {
+  const grossWarnThresholds = input.stop?.budget?.grossWarnThresholds ?? [];
+  for (const t of [...warnThresholds, ...grossWarnThresholds]) {
     if (!Number.isFinite(t) || t <= 0 || t >= 1) {
       throw new RangeError(
         `budget warnThreshold must be a finite fraction in (0, 1); got ${String(t)}`,
@@ -754,6 +763,7 @@ export async function* runAgentLoopWithControlState(
     }
   }
   const warnedThresholds = controlState.warnedThresholds;
+  const warnedGrossThresholds = controlState.warnedGrossThresholds;
   let usage: ModelUsageT = controlState.usage;
   const runUsageBaseline = usage;
   let lastRequestUsage: ModelUsageT | undefined;
@@ -1201,8 +1211,27 @@ export async function* runAgentLoopWithControlState(
         // The effective metric can be fractional (cached × a sub-1 weight); the event + message
         // report whole tokens — floor (never round up past the real usage).
         const usedReported = Math.floor(used);
-        yield { type: "budget-warning", usedTokens: usedReported, maxTokens };
+        yield { type: "budget-warning", metric: "effective", usedTokens: usedReported, maxTokens };
         pushControllerPrompt(budgetWarningMessage(usedReported, maxTokens));
+      }
+    }
+
+    // Gross runway is cumulative churn, not effective spend and not active context occupancy. Warn
+    // on its own thresholds so users and the model can distinguish the non-reclaimable backstop.
+    if (maxGrossTokens !== undefined && grossWarnThresholds.length > 0) {
+      const usedGross = usage.inputTokens + usage.outputTokens;
+      const newlyCrossed = grossWarnThresholds.filter(
+        (t) => !warnedGrossThresholds.has(t) && usedGross >= t * maxGrossTokens,
+      );
+      if (newlyCrossed.length > 0) {
+        for (const t of newlyCrossed) warnedGrossThresholds.add(t);
+        yield {
+          type: "budget-warning",
+          metric: "gross",
+          usedTokens: usedGross,
+          maxTokens: maxGrossTokens,
+        };
+        pushControllerPrompt(grossRunwayWarningMessage(usedGross, maxGrossTokens));
       }
     }
 
@@ -1239,6 +1268,31 @@ export async function* runAgentLoopWithControlState(
       } else {
         restoreUserProvenance(userProvenance);
         messages = inputOrder;
+      }
+    }
+
+    // Post-compaction gross-runway fit preflight (R7). Gross usage already spent cannot be reclaimed,
+    // but compaction can shrink this exact next request. If even its estimated INPUT consumes the
+    // remaining cap, no answer has useful runway: stop before `model.stream` and preserve evidence.
+    if (maxGrossTokens !== undefined) {
+      const usedGross = usage.inputTokens + usage.outputTokens;
+      const remainingGross = maxGrossTokens - usedGross;
+      const estimatedInputTokens = estimateTurnInputTokens({
+        messages,
+        ...(toolsForTurn !== undefined ? { tools: toolsForTurn } : {}),
+      });
+      if (estimatedInputTokens >= remainingGross) {
+        yield {
+          type: "stop",
+          reason: "budget",
+          code: GROSS_RUNWAY_PREFLIGHT_CODE,
+          message: grossRunwayPreflightMessage({
+            usedTokens: usedGross,
+            maxTokens: maxGrossTokens,
+            estimatedInputTokens,
+          }),
+        };
+        break;
       }
     }
 

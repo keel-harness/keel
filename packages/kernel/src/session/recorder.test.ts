@@ -290,6 +290,28 @@ describe("session recorder (text-only fold)", () => {
     });
   });
 
+  it("folds a gross-runway warning into metric-specific controller guidance", async () => {
+    const e = env();
+    const store = SessionStore.create({ cwd: "/w" }, e);
+    const kevents = [
+      {
+        type: "budget-warning",
+        metric: "gross",
+        usedTokens: 80,
+        maxTokens: 100,
+      },
+      { type: "stop", reason: "budget" },
+      { type: "run-finished", usage: { inputTokens: 80, outputTokens: 0 } },
+    ] as unknown as KernelEventT[];
+    for await (const ev of record(store, [], toAsync(kevents))) expect(ev).toBeDefined();
+    store.close();
+    const recorded = readSession(store.id, e).events[0];
+    expect(recorded?.type).toBe("user");
+    expect(recorded?.type === "user" ? recorded.content : "").toMatch(
+      /gross-token runway.*20 remaining.*fresh budgeted run/i,
+    );
+  });
+
   it("folds loop-detected into the injected guidance (default and custom)", async () => {
     const k = (): KernelEventT[] => [
       { type: "loop-detected", signal: "tool-repeat", detail: "echo" },

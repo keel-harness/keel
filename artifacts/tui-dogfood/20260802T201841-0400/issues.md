@@ -170,6 +170,15 @@
 ### DF-016 — gross-token exhaustion repeatedly cuts off verification without useful runway
 
 - Severity: P1 progress/control under long tasks.
+- Status: R7 implementation candidate validated locally under
+  [issue #70](https://github.com/keel-harness/keel/issues/70). Keel now identifies cumulative gross
+  runway separately from effective-cost budget, warns visibly once, and estimates the exact
+  post-compaction next request before provider work. If input alone consumes the remaining cap, the
+  run stops with saved-evidence and `keel --continue` guidance while successful tool/test receipts
+  remain successful. E2/E3/E4 pass; required Anthropic E5 also passed after credential replacement.
+  One live governed read completed, the gross preflight prevented a second call, and a fresh-budget
+  continuation restored evidence and completed without another tool action. Exact-head CI and merge
+  proof remain.
 - Direct evidence: two debugging turns stopped at the configured 300k gross-token boundary after
   making edits and running only part of the requested checks. The persistent HUD showed a large
   token count but no actionable warning before the turn began.
@@ -190,6 +199,10 @@
 ### DF-018 — compaction triggers too late to save an otherwise completed turn
 
 - Severity: P1 progress/cost.
+- Status: diagnosis corrected and addressed by the same R7 candidate. The compactor already ran at
+  the safe pre-request boundary; it cannot reclaim cumulative spend. R7 retains that ordering and
+  evaluates fit from the compacted message/tool view before the provider call. Compaction remains
+  opt-in and no claim is made that it reduces past gross usage.
 - Direct evidence: with `KEEL_COMPACTION=1` and a 200k context target, the refactor turn completed
   all four test commands, then failed at 304k gross tokens. The `token_hard` compaction event was
   recorded immediately before the budget status; only the next turn benefited (6k-token HUD).

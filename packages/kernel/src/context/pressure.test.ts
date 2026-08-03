@@ -4,6 +4,7 @@ import {
   computeContextPressure,
   estimateModelViewTokens,
   estimateTrailingToolObservationTokens,
+  isHarnessBudgetNotice,
   resolveContextWindow,
   type ContextPressure,
 } from "./pressure.js";
@@ -12,6 +13,28 @@ import { budgetWarningMessage } from "../strings.js";
 const messages = (content: string): readonly ModelMessageT[] => [{ role: "user", content }];
 
 describe("computeContextPressure", () => {
+  it("recognizes both effective-cost and gross-runway controller notices", () => {
+    expect(isHarnessBudgetNotice({ role: "user", content: budgetWarningMessage(8, 10) })).toBe(
+      true,
+    );
+    expect(
+      isHarnessBudgetNotice({
+        role: "user",
+        content:
+          "Gross-token runway notice: ~80 of 100 cumulative tokens used (~20 remaining). Finish now or continue with keel --continue for a fresh budgeted run.",
+      }),
+    ).toBe(true);
+  });
+
+  it("does not classify ordinary user prose that merely begins with Budget notice", () => {
+    expect(
+      isHarnessBudgetNotice({
+        role: "user",
+        content: "Budget notice: explain how this application's customer budgets are calculated.",
+      }),
+    ).toBe(false);
+  });
+
   it("keeps provider last-request input, local view estimate, new observation estimate, overhead, and window metadata separate", () => {
     const pressure = computeContextPressure({
       messages: messages("small prompt"),
