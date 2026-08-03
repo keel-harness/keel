@@ -5,15 +5,15 @@ settings:
   excludeLinksFromLockfile: false
 
 overrides:
-  brace-expansion@<=5.0.7: npm:brace-expansion@5.0.8
+  brace-expansion@<5.0.9: npm:brace-expansion@5.0.9
   postcss@<=8.5.17: 8.5.18
   js-yaml@>=4.0.0 <4.3.0: 4.3.0
   esbuild: 0.28.1
 
 patchedDependencies:
-  brace-expansion@5.0.8:
-    hash: 41f7f0b4f9d233a448a7198e6783326de8a975184bc50c6a0bcdde9a0880db2c
-    path: patches/brace-expansion@5.0.8.patch
+  brace-expansion@5.0.9:
+    hash: d409384f75193f80e16acb927234db688c5962dbbcfb1101c979e2bd66e11bb5
+    path: patches/brace-expansion@5.0.9.patch
   ink@7.0.5:
     hash: 4f0744664042b807eb1c0b86aab98d60b0f61c1a4efc5cfaef02bc0fb20aa8e7
     path: patches/ink@7.0.5.patch
@@ -917,8 +917,8 @@ packages:
     resolution: {integrity: sha512-BLrgEcRTwX2o6gGxGOCNyMvGSp35YofuYzw9h1IMTRmKqttAZZVU67bdb9Pr2vUHA8+j3i2tJfjO6C6+4myGTA==}
     engines: {node: 18 || 20 || >=22}
 
-  brace-expansion@5.0.8:
-    resolution: {integrity: sha512-JZyDyq3D4AUifKTPOB7DELf6XsB3WdPuNxCtob1vFXPsSXhdAiHBWJ/tJ8HAc9aH84BK+5JFZLNkJKx3G9kzQg==}
+  brace-expansion@5.0.9:
+    resolution: {integrity: sha512-ScQ4IuvIEF1TMlP7Zt+vjJ//9zlPb2SDcxWxM3bk8s6t6GGdJ7KO1dCcTidOPJKePW30LE/2cT7wCyPho9/Wxg==}
     engines: {node: 20 || >=22}
 
   cac@6.7.14:
@@ -2307,7 +2307,7 @@ snapshots:
 
   balanced-match@4.0.4: {}
 
-  brace-expansion@5.0.8(patch_hash=41f7f0b4f9d233a448a7198e6783326de8a975184bc50c6a0bcdde9a0880db2c):
+  brace-expansion@5.0.9(patch_hash=d409384f75193f80e16acb927234db688c5962dbbcfb1101c979e2bd66e11bb5):
     dependencies:
       balanced-match: 4.0.4
 
@@ -2698,15 +2698,15 @@ snapshots:
 
   minimatch@10.2.5:
     dependencies:
-      brace-expansion: 5.0.8(patch_hash=41f7f0b4f9d233a448a7198e6783326de8a975184bc50c6a0bcdde9a0880db2c)
+      brace-expansion: 5.0.9(patch_hash=d409384f75193f80e16acb927234db688c5962dbbcfb1101c979e2bd66e11bb5)
 
   minimatch@3.1.5:
     dependencies:
-      brace-expansion: 5.0.8(patch_hash=41f7f0b4f9d233a448a7198e6783326de8a975184bc50c6a0bcdde9a0880db2c)
+      brace-expansion: 5.0.9(patch_hash=d409384f75193f80e16acb927234db688c5962dbbcfb1101c979e2bd66e11bb5)
 
   minimatch@9.0.9:
     dependencies:
-      brace-expansion: 5.0.8(patch_hash=41f7f0b4f9d233a448a7198e6783326de8a975184bc50c6a0bcdde9a0880db2c)
+      brace-expansion: 5.0.9(patch_hash=d409384f75193f80e16acb927234db688c5962dbbcfb1101c979e2bd66e11bb5)
 
   minipass@7.1.3: {}
 

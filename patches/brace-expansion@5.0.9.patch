@@ -1,14 +1,14 @@
 diff --git a/dist/commonjs/index.js b/dist/commonjs/index.js
-index 6f005c555bb9eb692a5783b80f8d58d9420410dc..67d8aac7efb444df649e26124350ad8128eff3b9 100644
+index 869a6bee23807b9f01c18c99ab8e952b4b242f97..6d7777069ff8fdfd5ab2f0f6627edee6aa16b55c 100644
 --- a/dist/commonjs/index.js
 +++ b/dist/commonjs/index.js
-@@ -260,4 +260,9 @@ function expand_(str, max, maxLength, isTop) {
+@@ -286,4 +286,9 @@ function expand_(str, max, maxLength, isTop) {
      }
      return acc;
  }
 +// Keep the legacy CommonJS callable export consumed by minimatch 3 and 9
 +// while exposing the named export used by minimatch 10. The upstream 5.x
 +// package intentionally changed this shape; Keel's transitive consumers span
-+// both APIs while the security-fixed implementation exists only in 5.0.8+.
++// both APIs while the security-fixed implementation exists only in 5.0.9+.
 +module.exports = Object.assign(expand, exports, { default: expand });
  //# sourceMappingURL=index.js.map
