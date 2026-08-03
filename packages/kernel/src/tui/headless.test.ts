@@ -59,6 +59,49 @@ function governedStatus(
 }
 
 describe("headless renderer", () => {
+  it("renders count-true routine observation groups while detailed density retains every tool", () => {
+    const base: ViewModel = {
+      items: [
+        { kind: "message", role: "user", content: "inspect the repository" },
+        ...Array.from({ length: 8 }, (_, index) => ({
+          kind: "tool" as const,
+          id: `read-${String(index)}`,
+          name: "read",
+          status: "ok" as const,
+          summary: `src/file-${String(index)}.ts`,
+        })),
+        ...Array.from({ length: 4 }, (_, index) => ({
+          kind: "tool" as const,
+          id: `search-${String(index)}`,
+          name: "search",
+          status: "ok" as const,
+          summary: `symbol-${String(index)}`,
+        })),
+        { kind: "message", role: "assistant", content: "Architecture explained." },
+      ],
+      status,
+      streaming: false,
+      awaitingInput: true,
+    };
+
+    const normal = renderFrame(base, false, true, 80);
+    expect(normal.match(/read: 8 successful observations/gu)).toHaveLength(1);
+    expect(normal.match(/search: 4 successful observations/gu)).toHaveLength(1);
+    expect(normal).not.toContain("src/file-2.ts");
+    expect(normal).not.toContain("symbol-2");
+
+    const detailed = renderFrame({ ...base, density: "verbose" }, false, true, 80);
+    for (let index = 0; index < 8; index += 1) {
+      expect(detailed).toContain(`src/file-${String(index)}.ts`);
+    }
+    for (let index = 0; index < 4; index += 1) {
+      expect(detailed).toContain(`symbol-${String(index)}`);
+    }
+    expect(renderFrame({ ...base, density: "quiet" }, false, true, 80)).not.toContain(
+      "successful observations",
+    );
+  });
+
   it("keeps one bounded, source-faithful task line beside active controller state only", () => {
     const secret = "sk-ant-api03-abcDEF123456789_ghijklmnop-qrstuvwxyz0123456789AA";
     const prompt = `Inspect\u001b[31m the repo\u001b[0m\nthen\tfix ${secret} ${"without rewriting the task ".repeat(8)}`;

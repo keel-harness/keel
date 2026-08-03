@@ -540,6 +540,17 @@ groups; preserve failure, review, mutation, and verification evidence. Add `/too
 smallest existing detail affordance rather than inventing a panel suite. Validate row budgets,
 scrolling, raw-artifact reachability, no-color meaning, and objective persistence.
 
+Candidate status: red-first implementation is locally validated under
+[issue #91](https://github.com/keel-harness/keel/issues/91). The smallest existing `/verbose`
+affordance preserves every exact successful observation; normal/calm mode groups only repeated
+successful exact `read` and `search` entries, while quiet continues to omit them. Counts precede at
+most two source-ordered unique examples and every group is bounded to 120 display cells. Failures,
+reviews, blocked/limited/partial results, mutations, and nonroutine tools remain exact. Focused
+**411/411**, full TUI **1,357/1,357**, unrestricted coverage, typecheck, format, build, package, and
+diff checks pass. The exact installed npm carrier passes the same thirteen-request onboarding
+fixture at 80×24 and 100×30, reducing twelve rows to two with clean exit and composer recovery.
+Publication CI remains pending.
+
 ### R13 · P2 — credential-recovery truth
 
 Finding: **DF-007**. Prefer the smallest honest fix: after `auth set`, say whether the current

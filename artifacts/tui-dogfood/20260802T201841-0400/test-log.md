@@ -859,3 +859,42 @@
   `30859848006`. Failed jobs were rerun without changing repository bytes; attempt 2 passed,
   including Node 20 egress-product job `91842800657` and `ci-required`. This is recorded as a runner
   dependency transient, not hidden and not evidence of a product regression.
+
+## 2026-08-03 — R12 calm routine evidence density
+
+- Started from clean synchronized `main` at `90ba14a20eb20830fac2726bfe92b1e07d5ff852`. Published
+  [issue #91](https://github.com/keel-harness/keel/issues/91) and created isolated branch
+  `fix/tui-routine-evidence-density`.
+- Baseline exact installed carrier at 80x24 and 100x30 made thirteen loopback requests, exited 0,
+  returned the composer, and rendered eight individual read rows plus four individual search rows.
+  Both sanitized transcripts had SHA-256
+  `bb457b2074f85b89254d1f5369565d4636c54d63a616a3c753dc76eb3bbd2306`.
+- Red-first targeted run failed **2 tests / 89 passed** for the expected absent grouping. The first
+  broader implementation run exposed one detailed-density regression: verbose showed both grouped
+  and exact evidence. A regression was retained before narrowing grouping to normal/calm only.
+- The final presentation groups only repeated successful exact `read` and `search` evidence. Counts
+  precede at most two source-ordered unique examples and each line is bounded to 120 display cells.
+  Singles, failures, reviews, blocked/limited/partial outcomes, mutations, and nonroutine tools
+  remain exact; quiet omits and verbose/debug preserve all individual rows.
+- Focused E2 passes **411/411** across conversation, headless, and real Ink. The full TUI directory
+  passes **1,357/1,357**, including row budgets, input, resize, scroll, NO_COLOR, Static settlement,
+  and duplicate-rerender checks. Unrestricted full coverage passes **6,545 tests / 20 existing
+  opt-in skips** with all enforced thresholds. A final unrestricted JSON-reporter run repeats
+  **6,545 / 20** across 1,034 passing suites with zero failures. Repository lint, typecheck, format,
+  build, package, and `git diff --check` pass.
+- E3 exact installed carrier passes at 80x24 and 100x30. Each makes thirteen requests, exits 0,
+  restores the composer, and renders exactly one read group plus one search group. Transcript hashes
+  are `63f3fc2cf9f961f7ac559c53e6e9ccf70b854d3e1d6b4e0b131740b4452c6290` and
+  `eaeec91b18e84f02240d8e39e063dd87799fa425c1da2516cc6f8561ea57d60d`.
+- E4 screenshots 37–38 are visually inspected sanitized 1400x840 exact-text comparison
+  transcriptions. Their SHA-256 values are
+  `280da6a76ecfb224b13e277f72df2144c3823e25342c57b75c169eda374d8343` and
+  `4a5826db71cf71403f0d53d8a3215586f5a590fd7879f206a58dfcf56206a55d`.
+- E5 is **NOT_RUN**. Twenty-six loopback requests made zero Anthropic calls. Cumulative spend remains
+  USD 2.74434625, USD 17.25565375 remains, and the final USD 2 reserve is intact.
+- Five-lens QC: spec/ADR stays within established density and progressive-disclosure contracts;
+  security changes no authority or controller fact; reliability covers singles, failures, reviews,
+  nonroutine evidence, long/repeated examples, densities, NO_COLOR, Static rerender, and two terminal
+  sizes; DX preserves counts and `/verbose` inspection while removing ten rows; simplicity adds one
+  bounded grouping helper and no panel, dependency, protocol, or parallel evidence system. No local
+  must-fix remains. Publication commit and CI are pending.

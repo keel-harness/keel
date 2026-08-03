@@ -938,6 +938,61 @@ function toolEvidenceLine(
   return { kind: "tool", text: `${name}: ${target.length > 0 ? target : "done"}` };
 }
 
+type RoutineObservationTool = "read" | "search";
+
+interface ToolEvidenceEntry {
+  readonly line: TurnEvidenceLine;
+  readonly receipt: string;
+  readonly rawText: string;
+  readonly routineObservation?: {
+    readonly tool: RoutineObservationTool;
+    readonly detail: string;
+  };
+}
+
+/** Collapse only repeated, controller-settled trusted observations. Counts remain occurrence-true;
+ * examples are source ordered and bounded after the count-bearing prefix. Consequential outcomes
+ * never reach this path because their evidence kind is not `tool`. */
+function groupedRoutineObservationEntries(
+  entries: readonly ToolEvidenceEntry[],
+): readonly ToolEvidenceEntry[] {
+  const groups = new Map<RoutineObservationTool, ToolEvidenceEntry[]>();
+  for (const entry of entries) {
+    const observation = entry.routineObservation;
+    if (observation === undefined) continue;
+    const group = groups.get(observation.tool) ?? [];
+    group.push(entry);
+    groups.set(observation.tool, group);
+  }
+
+  const emitted = new Set<RoutineObservationTool>();
+  return entries.flatMap((entry): ToolEvidenceEntry[] => {
+    const observation = entry.routineObservation;
+    if (observation === undefined) return [entry];
+    const group = groups.get(observation.tool) ?? [entry];
+    if (group.length < 2) return [entry];
+    if (emitted.has(observation.tool)) return [];
+    emitted.add(observation.tool);
+
+    const examples = [...new Set(group.map((candidate) => candidate.routineObservation?.detail))]
+      .filter((detail): detail is string => detail !== undefined && detail.length > 0)
+      .slice(0, 2);
+    const exampleLabel = examples.length === 1 ? "example" : "examples";
+    const exampleText = examples.length === 0 ? "" : ` · ${exampleLabel}: ${examples.join("; ")}`;
+    const text = truncateDisplayCells(
+      `${observation.tool}: ${String(group.length)} successful observations${exampleText}`,
+      MAX_EVIDENCE_TEXT,
+    );
+    return [
+      {
+        line: { kind: "tool", text },
+        receipt: text.toLowerCase(),
+        rawText: text,
+      },
+    ];
+  });
+}
+
 /** Exact planner-owned evidence identity for one raw tool card. Headless detail-mode deduplication
  * uses this instead of reconstructing or prefix-matching text independently. */
 export function toolEvidenceLineForItem(
@@ -998,24 +1053,32 @@ function turnEvidencePresentation(
   const seen = new Set<string>();
   const add = (line: TurnEvidenceLine): void => addEvidenceLine(lines, seen, line);
   const checkedSet = new Set(cleanSummaryLines(summary?.checked));
-  const toolLines = items.flatMap(
-    (
-      item,
-      index,
-    ): {
-      readonly line: TurnEvidenceLine;
-      readonly receipt: string;
-      readonly rawText: string;
-    }[] => {
-      if (item.kind !== "tool") return [];
-      if (recoveredFailures.has(index)) return [];
-      if (options.deferExploratoryFailures === true && isRecoverableExploratoryFailure(item))
-        return [];
-      const line = toolEvidenceLine(item, { checked: checkedSet });
-      const rawText = `${summaryLine(item.name)}: ${summaryLine(item.summary) || "failed"}`;
-      return line === undefined ? [] : [{ line, receipt: toolReceiptForMatch(item), rawText }];
-    },
-  );
+  const toolLines = items.flatMap((item, index): ToolEvidenceEntry[] => {
+    if (item.kind !== "tool") return [];
+    if (recoveredFailures.has(index)) return [];
+    if (options.deferExploratoryFailures === true && isRecoverableExploratoryFailure(item))
+      return [];
+    const line = toolEvidenceLine(item, { checked: checkedSet });
+    const rawText = `${summaryLine(item.name)}: ${summaryLine(item.summary) || "failed"}`;
+    if (line === undefined) return [];
+    const routineTool =
+      line.kind === "tool" && (item.name === "read" || item.name === "search")
+        ? item.name
+        : undefined;
+    const prefix = routineTool === undefined ? "" : `${routineTool}: `;
+    const detail =
+      routineTool !== undefined && line.text.startsWith(prefix)
+        ? line.text.slice(prefix.length)
+        : line.text;
+    return [
+      {
+        line,
+        receipt: toolReceiptForMatch(item),
+        rawText,
+        ...(routineTool === undefined ? {} : { routineObservation: { tool: routineTool, detail } }),
+      },
+    ];
+  });
   const unmatchedToolLines = [...toolLines];
   const typedProblems: { readonly line: TurnEvidenceLine; readonly rawText: string }[] = [];
 
@@ -1087,7 +1150,11 @@ function turnEvidencePresentation(
     });
   }
 
-  for (const entry of unmatchedToolLines) {
+  const visibleToolLines =
+    density === "verbose" || density === "debug"
+      ? unmatchedToolLines
+      : groupedRoutineObservationEntries(unmatchedToolLines);
+  for (const entry of visibleToolLines) {
     if (isProblemEvidenceKind(entry.line.kind)) typedProblems.push(entry);
     else add(entry.line);
   }

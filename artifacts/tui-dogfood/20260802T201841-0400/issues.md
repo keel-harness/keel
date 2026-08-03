@@ -55,6 +55,13 @@
 ### DF-005 — routine read-only bash evidence is repetitive and dominates the viewport
 
 - Severity: P2 cognitive load.
+- Status: fixed in the local R12 candidate under
+  [issue #91](https://github.com/keel-harness/keel/issues/91). Normal/calm completion evidence
+  groups repeated successful `read` and `search` observations by exact tool name with occurrence
+  counts and two bounded examples. Verbose/debug retain exact rows; failures, reviews, mutations,
+  partial/limited results, and nonroutine tools never enter the group. Exact installed-carrier
+  80×24 and 100×30 replays reduce twelve routine rows to two without changing requests, Warden
+  decisions, final answer, or composer recovery. Publication CI remains pending.
 - Direct evidence: the onboarding screen repeated long absolute file lists, a `what more … 11 more
   commands` row, and six separate trusted-read rows. The useful state line occupied less space than
   historical activity.

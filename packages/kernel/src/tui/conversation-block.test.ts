@@ -483,6 +483,153 @@ describe("conversationPlan", () => {
     ]);
   });
 
+  it("groups repeated successful read and search evidence without losing count or detailed mode", () => {
+    const base = view([
+      user("inspect the repository"),
+      ...Array.from({ length: 8 }, (_, index) => ({
+        kind: "tool" as const,
+        id: `read-${String(index)}`,
+        name: "read",
+        status: "ok" as const,
+        summary: `src/file-${String(index)}.ts`,
+      })),
+      ...Array.from({ length: 4 }, (_, index) => ({
+        kind: "tool" as const,
+        id: `search-${String(index)}`,
+        name: "search",
+        status: "ok" as const,
+        summary: `symbol-${String(index)}`,
+      })),
+      assistant("Architecture explained."),
+    ]);
+    const plan = conversationPlan({ ...base, awaitingInput: true });
+    const turn = plan.blocks.find((block) => block.kind === "turn");
+
+    expect(turn?.kind).toBe("turn");
+    if (turn?.kind !== "turn") return;
+    expect(turn.evidence?.lines).toEqual([
+      {
+        kind: "tool",
+        text: "read: 8 successful observations · examples: src/file-0.ts; src/file-1.ts",
+      },
+      {
+        kind: "tool",
+        text: "search: 4 successful observations · examples: symbol-0; symbol-1",
+      },
+    ]);
+    expect(
+      visibleTurnItemsWithIndexes(turn.items, "verbose").filter(({ item }) => item.kind === "tool"),
+    ).toHaveLength(12);
+
+    const quiet = conversationPlan({ ...base, density: "quiet", awaitingInput: true });
+    const quietTurn = quiet.blocks.find((block) => block.kind === "turn");
+    expect(quietTurn?.kind === "turn" ? quietTurn.evidence : undefined).toBeUndefined();
+  });
+
+  it("keeps one successful read or search exact instead of manufacturing a group", () => {
+    const plan = conversationPlan(
+      view(
+        [
+          user("inspect two targets"),
+          { kind: "tool", id: "read-1", name: "read", status: "ok", summary: "README.md" },
+          {
+            kind: "tool",
+            id: "search-1",
+            name: "search",
+            status: "ok",
+            summary: "src/cli.ts:main",
+          },
+          assistant("Done."),
+        ],
+        { awaitingInput: true },
+      ),
+    );
+    const turn = plan.blocks.find((block) => block.kind === "turn");
+
+    expect(turn?.kind === "turn" ? turn.evidence?.lines : []).toEqual([
+      { kind: "tool", text: "read: README.md" },
+      { kind: "tool", text: "search: src/cli.ts:main" },
+    ]);
+  });
+
+  it("keeps grouped occurrence counts before bounded, source-ordered examples", () => {
+    const long = `src/${"segment".repeat(100)}/module.ts`;
+    const plan = conversationPlan(
+      view(
+        [
+          user("inspect repeated targets"),
+          { kind: "tool", id: "read-1", name: "read", status: "ok", summary: long },
+          { kind: "tool", id: "read-2", name: "read", status: "ok", summary: long },
+          { kind: "tool", id: "read-3", name: "read", status: "ok", summary: "README.md" },
+          assistant("Done."),
+        ],
+        { awaitingInput: true },
+      ),
+    );
+    const turn = plan.blocks.find((block) => block.kind === "turn");
+    const line = turn?.kind === "turn" ? turn.evidence?.lines[0]?.text : undefined;
+
+    expect(line).toMatch(/^read: 3 successful observations .* examples: src\//u);
+    expect(terminalDisplayWidth(line ?? "")).toBeLessThanOrEqual(120);
+  });
+
+  it("never groups consequential read/search outcomes, mutations, or unrelated tools as success", () => {
+    const blockedRead = markToolPresentationOutcome(
+      {
+        kind: "tool" as const,
+        id: "read-blocked",
+        name: "read",
+        status: "error" as const,
+        summary: "blocked by warden: outside workspace",
+      },
+      "blocked",
+    );
+    const limitedSearch = markToolPresentationOutcome(
+      {
+        kind: "tool" as const,
+        id: "search-limited",
+        name: "search",
+        status: "ok" as const,
+        summary: "first 50 matches shown",
+      },
+      "limited",
+    );
+    const base = view(
+      [
+        user("inspect and update"),
+        { kind: "tool", id: "read-1", name: "read", status: "ok", summary: "README.md" },
+        { kind: "tool", id: "read-2", name: "read", status: "ok", summary: "package.json" },
+        blockedRead,
+        limitedSearch,
+        edit("edit-1", "src/app.ts"),
+        { kind: "tool", id: "plan-1", name: "plan", status: "ok", summary: "2 steps" },
+        assistant("The inspection needs attention."),
+      ],
+      { awaitingInput: true },
+    );
+    const summary = buildTurnSummary(base);
+    const plan = conversationPlan({
+      ...base,
+      ...(summary === undefined ? {} : { turnSummary: summary }),
+    });
+    const turn = plan.blocks.find((block) => block.kind === "turn");
+
+    expect(turn?.kind).toBe("turn");
+    if (turn?.kind !== "turn") return;
+    expect(turn.evidence?.lines).toContainEqual({
+      kind: "tool",
+      text: "read: 2 successful observations · examples: README.md; package.json",
+    });
+    expect(turn.evidence?.lines.some((line) => line.kind === "blocked")).toBe(true);
+    expect(turn.evidence?.lines.some((line) => line.kind === "limited")).toBe(true);
+    expect(
+      turn.evidence?.lines.some(
+        (line) => line.kind === "file-evidence-unavailable" || line.kind === "file-evidence",
+      ),
+    ).toBe(true);
+    expect(turn.evidence?.lines).toContainEqual({ kind: "tool", text: "plan: 2 steps" });
+  });
+
   it("keeps a warden review consequential without labeling a recovered answer as blocked", () => {
     const base = view([
       user("what is in this repo?"),

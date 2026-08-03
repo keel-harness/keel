@@ -222,3 +222,16 @@ boundary remains indeterminate. R14 therefore improves explanation without weake
 Warden authority. Candidate `03a6ad2` and merge `198f56f` share tree `5d77488`; exact reviewed-head
 CI `30859417733` and post-main CI `30859848006` passed. Issue #87 closed and cleanup passed. The
 interrupt totals remain unchanged.
+
+## R12 validation outcome
+
+R12 introduces no human review interrupt or automatic denial, so historical totals remain **6
+total / 2 necessary / 4 excessive or avoidable**. Its exact installed-carrier replays perform eight
+ordinary governed reads and four ordinary governed searches per terminal size; all complete without
+requesting new authority.
+
+Grouping runs only after controller settlement and changes presentation only. It cannot allow or
+deny a tool, grant or batch a review, alter policy input, change sandbox or egress posture, write an
+audit record, or synthesize a result. Reviews, blocked/limited/partial outcomes, failures, mutations,
+and nonroutine tools are excluded. Verbose/debug preserve every exact observation. Warden verdicts,
+grantability, audit, model-visible results, frozen contracts, and interrupt totals are unchanged.
