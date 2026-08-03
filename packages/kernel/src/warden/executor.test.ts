@@ -541,11 +541,13 @@ describe("WardenExecutor", () => {
       }),
       sessionId: SESSION_ID,
     });
-    await expect(reviewFallback.execute(call("bash"))).resolves.toEqual({
+    const terminalReview = await reviewFallback.execute(call("bash"));
+    expect(terminalReview).toEqual({
       ok: false,
       output:
         "warden review required (not executed): human approval required for external write; no live review was opened by this kernel; no approval can be resolved from this result; simplify the request, then rerun",
     });
+    expect(toolPresentationOutcome(terminalReview)).toBe("blocked");
 
     const reviewWithoutDetails = new WardenExecutor({
       client: clientReturning({
@@ -554,11 +556,13 @@ describe("WardenExecutor", () => {
       }),
       sessionId: SESSION_ID,
     });
-    await expect(reviewWithoutDetails.execute(call("bash"))).resolves.toEqual({
+    const terminalReviewWithoutDetails = await reviewWithoutDetails.execute(call("bash"));
+    expect(terminalReviewWithoutDetails).toEqual({
       ok: false,
       output:
         "warden review required (not executed): human approval required; no live review was opened by this kernel; no approval can be resolved from this result; simplify the request, then rerun",
     });
+    expect(toolPresentationOutcome(terminalReviewWithoutDetails)).toBe("blocked");
   });
 
   it("renders deny guidance and RPC errors as one control-stripped line", async () => {

@@ -2013,6 +2013,25 @@ describe("headless renderer", () => {
     expect(frame).toMatch(/next: .*correct/i);
   });
 
+  it("renders a resumed ungrantable review as a blocked no-live-decision card without color", () => {
+    const output =
+      "warden review required (not executed): POL-003 review: unclassified or obfuscated shell shape requires human review; use a simpler command or ask for approval.; no live review was opened by this kernel; no approval can be resolved from this result; simplify the request, then rerun";
+    const resumed = initialView(
+      [{ role: "tool", content: output, toolCallId: "terminal-review", name: "bash" }],
+      {},
+      { failedToolMessageIndexes: new Set([0]) },
+    );
+    const frame = renderFrame(resumed);
+
+    expect(frame).toContain("tool  ✗ bash  blocked");
+    expect(frame).toContain("no live decision available");
+    expect(frame).toContain("next: no live decision · simplify the request, then rerun");
+    expect(frame).not.toContain("review needed");
+    expect(frame).not.toContain("approval required");
+    expect(frame).not.toContain("ask for approval");
+    expect(frame.includes(ESC)).toBe(false);
+  });
+
   it("normal density compacts repeated same-reason failed tool cards while preserving receipts", () => {
     const frame = renderFrame({
       items: [

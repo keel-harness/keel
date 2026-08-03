@@ -1513,6 +1513,31 @@ describe("conversationPlan", () => {
     expect(turn.evidence?.lines.every((line) => line.text.length <= 120)).toBe(true);
   });
 
+  it("explains a terminal review block without claiming a denial or pending human decision", () => {
+    const plan = conversationPlan(
+      view([
+        user("run the diagnostic"),
+        problem(
+          "terminal-review",
+          "blocked (not executed): no live decision available · POL-003 terminal review",
+          "blocked",
+        ),
+      ]),
+    );
+    const turn = plan.blocks.find((block) => block.kind === "turn");
+    expect(turn?.kind).toBe("turn");
+    if (turn?.kind !== "turn") return;
+
+    expect(turn.receipt).toContain("blocked");
+    expect(turn.receipt).not.toContain("review needed");
+    expect(turn.evidence?.lines).toContainEqual({
+      kind: "blocked",
+      text: "bash: blocked (not executed): no live decision available · POL-003 terminal review",
+      why: "no live decision is available; this result was not executed",
+      next: "no live decision · simplify the request, then rerun",
+    });
+  });
+
   it("labels hard warden denials as blocked instead of review or generic failure", () => {
     const plan = conversationPlan(
       view(

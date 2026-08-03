@@ -13,6 +13,7 @@ import {
   reviewSettlementPresentation,
   reviewSettlementRecovery,
 } from "./review-settlement-presentation.js";
+import { TUI_TERMINAL_REVIEW_TRUTH } from "./strings.js";
 
 export interface ToolCardPlan {
   readonly glyph: "⋯" | "✓" | "~" | "!" | "✗" | "○" | "■";
@@ -70,6 +71,9 @@ const MAX_LIVE_OUTPUT = 160;
 function recoveryFor(item: UiToolActivity, outcome: string): string | undefined {
   const reviewRecovery = reviewSettlementRecovery(reviewSettlementPresentation(item));
   if (reviewRecovery !== undefined) return `next: ${reviewRecovery}`;
+  if (outcome === "blocked" && item.summary.startsWith(TUI_TERMINAL_REVIEW_TRUTH.summaryPrefix)) {
+    return `next: ${TUI_TERMINAL_REVIEW_TRUTH.recovery}`;
+  }
   return outcome in RECOVERY ? RECOVERY[outcome as keyof typeof RECOVERY] : undefined;
 }
 

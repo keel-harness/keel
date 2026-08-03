@@ -186,6 +186,56 @@ describe("view-model reducer", () => {
     expect(resumed.items[0]).not.toHaveProperty("mutationPresentation");
   });
 
+  it("keeps an ungrantable terminal review blocked and non-actionable across live presentation and resume", () => {
+    const output =
+      "warden review required (not executed): POL-003 review: unclassified or obfuscated shell shape requires human review; use a simpler command or ask for approval.; no live review was opened by this kernel; no approval can be resolved from this result; simplify the request, then rerun";
+    let live = initialView([{ role: "user", content: "run the diagnostic" }]);
+    live = reduce(live, {
+      type: "tool-call",
+      id: "terminal-review",
+      name: "bash",
+      args: { command: "python3 -m pytest --version" },
+    });
+    live = reduce(
+      live,
+      markToolPresentationOutcome(
+        { type: "tool-result", id: "terminal-review", ok: false, output },
+        "blocked",
+      ),
+    );
+    const resumed = initialView(
+      [{ role: "tool", content: output, toolCallId: "terminal-review", name: "bash" }],
+      {},
+      { failedToolMessageIndexes: new Set([0]) },
+    );
+    const liveItem = live.items[1];
+    const resumedItem = resumed.items[0];
+    if (liveItem?.kind !== "tool" || resumedItem?.kind !== "tool") {
+      throw new Error("expected terminal review tool items");
+    }
+
+    expect(itemOutcome(live, 1)).toBe("blocked");
+    expect(itemOutcome(resumed, 0)).toBe("blocked");
+    expect(liveItem.summary).toBe(
+      "blocked (not executed): no live decision available · POL-003 review: unclassified or obfuscated shell shape requires human review",
+    );
+    expect(liveItem.summary).not.toContain("ask for approval");
+    expect(resumedItem.summary).toBe(liveItem.summary);
+    expect(toolCardPlan(liveItem, undefined)).toMatchObject({
+      statusLabel: "blocked",
+      recovery: "next: no live decision · simplify the request, then rerun",
+    });
+    expect(toolCardPlan(resumedItem, undefined)).toMatchObject({
+      statusLabel: "blocked",
+      recovery: "next: no live decision · simplify the request, then rerun",
+    });
+    expect(activeReviewIsActionable(live)).toBe(false);
+    expect(activeReviewIsActionable(resumed)).toBe(false);
+    expect(reviewQueuePanel(live)).toContain(
+      "POL-003 review: unclassified or obfuscated shell shape requires human review",
+    );
+  });
+
   it("does not let ordinary bash output manufacture an authoritative review outcome", () => {
     const output = JSON.stringify({
       exitCode: 1,
