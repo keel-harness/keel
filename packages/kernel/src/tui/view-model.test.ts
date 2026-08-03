@@ -1995,6 +1995,102 @@ describe("view-model reducer", () => {
     expect(item?.kind === "tool" ? item.summary : "").not.toContain('"exitCode"');
   });
 
+  it("renders a nonzero bash command as failed live and after a successful transport resumes", () => {
+    const output = JSON.stringify({
+      exitCode: 1,
+      signal: null,
+      stdout: "1 failed, 2 passed\n",
+      stderr: "AssertionError: expected 3, received 2\n",
+    });
+    let live = initialView(seed);
+    live = reduce(live, { type: "tool-call", id: "nonzero", name: "bash", args: {} });
+    live = reduce(live, { type: "tool-result", id: "nonzero", ok: true, output });
+    const resumed = initialView([
+      { role: "tool", content: output, toolCallId: "nonzero", name: "bash" },
+    ]);
+
+    for (const candidate of [live, resumed]) {
+      const item = candidate.items.at(-1);
+      expect(item).toMatchObject({
+        kind: "tool",
+        status: "error",
+        summary: "exit 1 · stderr: AssertionError: expected 3, received 2",
+      });
+      if (item?.kind !== "tool") throw new Error("expected failed bash tool item");
+      expect(toolOutcome(item)).toBe("failed");
+      expect(toolCardPlan(item, undefined)).toMatchObject({
+        glyph: "✗",
+        statusLabel: "failed",
+      });
+    }
+  });
+
+  it.each([
+    [
+      "signal termination",
+      { exitCode: null, signal: "SIGTERM", stdout: "", stderr: "terminated\n" },
+      "failed",
+      "error",
+      "signal SIGTERM · stderr: terminated",
+    ],
+    [
+      "exit zero",
+      { exitCode: 0, signal: null, stdout: "3 passed\n", stderr: "" },
+      "done",
+      "ok",
+      "stdout: 3 passed",
+    ],
+  ] as const)(
+    "derives %s from the complete bash envelope without changing transport truth",
+    (_label, envelope, expectedOutcome, expectedStatus, expectedSummary) => {
+      let v = initialView(seed);
+      v = reduce(v, { type: "tool-call", id: "bash-result", name: "bash", args: {} });
+      v = reduce(v, {
+        type: "tool-result",
+        id: "bash-result",
+        ok: true,
+        output: JSON.stringify(envelope),
+      });
+      const item = v.items.at(-1);
+
+      expect(item).toMatchObject({ status: expectedStatus, summary: expectedSummary });
+      if (item?.kind !== "tool") throw new Error("expected bash tool item");
+      expect(toolOutcome(item)).toBe(expectedOutcome);
+    },
+  );
+
+  it("does not override typed outcomes or let non-bash JSON manufacture command failure", () => {
+    const output = JSON.stringify({
+      exitCode: 1,
+      signal: null,
+      stdout: "partial output",
+      stderr: "failure",
+      limited: true,
+    });
+    let v = initialView(seed);
+    v = reduce(v, { type: "tool-call", id: "limited", name: "bash", args: {} });
+    v = reduce(
+      v,
+      markToolPresentationOutcome(
+        { type: "tool-result", id: "limited", ok: true, output },
+        "limited",
+      ),
+    );
+    v = reduce(v, { type: "tool-call", id: "read-json", name: "read", args: {} });
+    v = reduce(v, { type: "tool-result", id: "read-json", ok: true, output });
+    v = reduce(v, { type: "tool-call", id: "incomplete", name: "bash", args: {} });
+    v = reduce(v, {
+      type: "tool-result",
+      id: "incomplete",
+      ok: true,
+      output: JSON.stringify({ exitCode: 1, stdout: "ordinary JSON", stderr: "" }),
+    });
+
+    expect(itemOutcome(v, 1)).toBe("limited");
+    expect(itemOutcome(v, 2)).toBe("done");
+    expect(itemOutcome(v, 3)).toBe("done");
+  });
+
   it("summarizes failed bash JSON envelopes from stderr with the exit code", () => {
     let v = initialView(seed);
     v = reduce(v, { type: "tool-call", id: "c0", name: "bash", args: {} });

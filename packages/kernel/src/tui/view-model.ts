@@ -1098,6 +1098,7 @@ interface BashResultEnvelope {
   readonly signal?: string;
   readonly stdout: string;
   readonly stderr: string;
+  readonly complete: boolean;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -1131,7 +1132,18 @@ function parseBashResultEnvelope(output: string): BashResultEnvelope | undefined
     ...(typeof signal === "string" && signal.length > 0 ? { signal } : {}),
     stdout: typeof stdout === "string" ? stdout : "",
     stderr: typeof stderr === "string" ? stderr : "",
+    complete:
+      ((typeof exitCode === "number" && Number.isFinite(exitCode)) || exitCode === null) &&
+      ((typeof signal === "string" && signal.length > 0) || signal === null) &&
+      typeof stdout === "string" &&
+      typeof stderr === "string",
   };
+}
+
+function bashEnvelopeCommandFailed(env: BashResultEnvelope): boolean {
+  return (
+    env.complete && ((env.exitCode !== undefined && env.exitCode !== 0) || env.signal !== undefined)
+  );
 }
 
 function firstMeaningfulLines(s: string, maxLines: number): readonly string[] {
@@ -1906,10 +1918,12 @@ function resumedToolOutcome(
   content: string,
   failed: boolean,
 ): ReturnType<typeof toolPresentationOutcome> {
-  if (!failed) {
-    if (name === "bash" && resumedBashWasLimited(content)) return "limited";
-    return undefined;
+  if (name === "bash") {
+    if (!failed && resumedBashWasLimited(content)) return "limited";
+    const envelope = parseBashResultEnvelope(content);
+    if (!failed && envelope !== undefined && bashEnvelopeCommandFailed(envelope)) return "failed";
   }
+  if (!failed) return undefined;
   if (content === INTERRUPTED_TOOL_RESULT || content === KERNEL_STRINGS.toolAborted)
     return "stopped";
   if (
@@ -1971,17 +1985,18 @@ function seedItem(
         ? presentation.failedToolMessageIndexes.has(messageIndex)
         : presentation.failedToolCallIds?.has(id) === true;
     const outcome = resumedToolOutcome(name, m.content, failed);
+    const presentationFailed = failed || outcome === "failed";
     const reviewSettlementOutcome = failed ? kernelReviewSettlementOutcome(m.content) : undefined;
     const mutationPresentation = resumedMutationPresentation(name, outcome);
     const item: Extract<ViewItem, { kind: "tool" }> = {
       kind: "tool",
       id,
       name, // the model picks the tool name — data, never a format string
-      status: failed ? "error" : "ok",
+      status: presentationFailed ? "error" : "ok",
       summary: toolResultSummary(
         name,
         name === "edit" ? stripControl(firstLine(m.content)) : "",
-        !failed,
+        !presentationFailed,
         m.content,
         outcome,
       ),
@@ -2662,7 +2677,18 @@ export function reduce(view: ViewModel, ev: KernelEventT | UiInputEventT): ViewM
       // verified mutation evidence.
       const hasPresentationResolver =
         ev.ok && mutationPresentationResolverForEvent(ev) !== undefined;
-      const outcome = toolPresentationOutcome(ev);
+      const taggedOutcome = toolPresentationOutcome(ev);
+      const target = view.items[targetIndex];
+      const bashEnvelope =
+        taggedOutcome === undefined && ev.ok && target?.kind === "tool" && target.name === "bash"
+          ? parseBashResultEnvelope(ev.output)
+          : undefined;
+      const outcome =
+        taggedOutcome ??
+        (bashEnvelope !== undefined && bashEnvelopeCommandFailed(bashEnvelope)
+          ? "failed"
+          : undefined);
+      const presentationOk = ev.ok && outcome !== "failed";
       const reviewSettlementOutcome = ev.ok
         ? undefined
         : kernelReviewSettlementOutcome(stripControlLine(ev.output).trim());
@@ -2678,7 +2704,7 @@ export function reduce(view: ViewModel, ev: KernelEventT | UiInputEventT): ViewM
             kind: "tool" as const,
             id: it.id,
             name: it.name,
-            status: ev.ok ? ("ok" as const) : ("error" as const),
+            status: presentationOk ? ("ok" as const) : ("error" as const),
             // keep an edit's path summary (its diff shows the change); else show the result — for a
             // FAILED tool, the meaningful output is the error, almost always the LAST line, not the
             // first (§3.9, slice 6); a successful tool keeps its calm first-line summary. Bound it the
@@ -2686,7 +2712,7 @@ export function reduce(view: ViewModel, ev: KernelEventT | UiInputEventT): ViewM
             // mega-line would otherwise make firstLine/lastMeaningfulLine return the whole blob and be
             // stored + re-rendered whole. Slice the raw output to the bound FIRST (head for success's
             // first line, tail for a failure's last line) so the work is bounded too, then truncate.
-            summary: toolResultSummary(it.name, it.summary, ev.ok, ev.output, outcome),
+            summary: toolResultSummary(it.name, it.summary, presentationOk, ev.output, outcome),
             ...(it.subject !== undefined ? { subject: it.subject } : {}),
             ...(it.diff !== undefined ? { diff: it.diff } : {}),
             ...(hasPresentationResolver

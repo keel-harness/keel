@@ -2032,6 +2032,25 @@ describe("headless renderer", () => {
     expect(frame.includes(ESC)).toBe(false);
   });
 
+  it("renders a resumed nonzero bash command as failed without relying on color", () => {
+    const output = JSON.stringify({
+      exitCode: 2,
+      signal: null,
+      stdout: "collected 3 items\n",
+      stderr: "2 failed, 1 passed\n",
+    });
+    const resumed = initialView([
+      { role: "tool", content: output, toolCallId: "nonzero", name: "bash" },
+    ]);
+    const frame = renderFrame(resumed);
+
+    expect(frame).toContain("tool  ✗ bash  failed");
+    expect(frame).toContain("exit 2 · stderr: 2 failed, 1 passed");
+    expect(frame).toContain("next: correct the input or revise the request, then retry");
+    expect(frame).not.toContain("tool  ✓ bash  done");
+    expect(frame.includes(ESC)).toBe(false);
+  });
+
   it("normal density compacts repeated same-reason failed tool cards while preserving receipts", () => {
     const frame = renderFrame({
       items: [
