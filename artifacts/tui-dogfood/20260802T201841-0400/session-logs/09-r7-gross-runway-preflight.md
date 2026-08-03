@@ -68,9 +68,10 @@ No existing test was weakened, skipped, removed, or reclassified.
   claimed as a live window capture. SHA-256:
   `96e15ce2009e68791b786eb81ca23441922e911ac554b70319dbf2ae112fb703`.
 - E5: **BLOCKED / zero usage**. Keel's configured Anthropic credential was present in its secret
-  store, but the provider rejected the first bounded measurement request as `API key is invalid`.
-  The value was never read, printed, copied, logged, or captured. No retry was attempted and no
-  Anthropic usage was reported, so cumulative spend remains USD 2.7109.
+  store, but the provider rejected the first bounded measurement request and one later controlled
+  validity recheck as `API key is invalid`. The value was never read, printed, copied, logged, or
+  captured. No Anthropic usage was reported, no further retry will be made until replacement, and
+  cumulative spend remains USD 2.7109.
 
 ## Verification
 

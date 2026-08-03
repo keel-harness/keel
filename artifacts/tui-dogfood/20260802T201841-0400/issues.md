@@ -176,7 +176,8 @@
   post-compaction next request before provider work. If input alone consumes the remaining cap, the
   run stops with saved-evidence and `keel --continue` guidance while successful tool/test receipts
   remain successful. E2/E3/E4 pass; required Anthropic E5 is blocked by the configured credential
-  being rejected as invalid, with zero usage and no retry.
+  being rejected as invalid twice with zero reported usage; no further retry will be made until the
+  credential is replaced.
 - Direct evidence: two debugging turns stopped at the configured 300k gross-token boundary after
   making edits and running only part of the requested checks. The persistent HUD showed a large
   token count but no actionable warning before the turn began.

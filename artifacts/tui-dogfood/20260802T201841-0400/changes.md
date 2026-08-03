@@ -225,8 +225,10 @@
   exact worktree path, 1400x840, SHA-256
   `96e15ce2009e68791b786eb81ca23441922e911ac554b70319dbf2ae112fb703`.
 - Required Anthropic E5 is **BLOCKED**: the configured credential was present but rejected as invalid
-  on the first bounded measurement call. It reported zero usage, was not retried or exposed, and
-  cumulative spend remains USD 2.7109. The candidate is not merge-ready until E5 and exact-head CI.
+  on the first bounded measurement call and one later controlled validity recheck. Both reported
+  zero usage; the credential was never exposed, no further retry will be made until replacement,
+  and cumulative spend remains USD 2.7109. The candidate is not merge-ready until E5 and exact-head
+  CI.
 
 ## External workload — validated local-only feature
 

@@ -503,9 +503,10 @@
 - E4: `screenshots/25-r7-gross-runway-after.png` is a visually inspected 1400x840 sanitized
   terminal-frame transcription at the exact worktree path, not a live-window capture. SHA-256
   `96e15ce2009e68791b786eb81ca23441922e911ac554b70319dbf2ae112fb703`.
-- E5: **BLOCKED**. The configured Anthropic credential existed in Keel's secret store but the first
-  bounded measurement request returned `API key is invalid` with zero usage. The key was never
-  printed, copied, logged, or included in evidence; no retry was attempted. Cumulative spend remains
+- E5: **BLOCKED**. The configured Anthropic credential existed in Keel's secret store, but the first
+  bounded measurement request and one controlled validity recheck after exact-head CI both returned
+  `API key is invalid` with zero reported usage. The key was never read, printed, copied, logged, or
+  included in evidence; no further retry will be made until it is replaced. Cumulative spend remains
   **USD 2.7109**, remaining budget **USD 17.2891**, with the USD 2 reserve intact.
 - Five-lens review found one must-fix before commit: controller-notice recognition matched arbitrary
   user prose beginning `Budget notice:`. The new adversarial test failed **1 / 16 passed**, then
