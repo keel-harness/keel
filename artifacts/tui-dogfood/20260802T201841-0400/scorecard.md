@@ -6,7 +6,7 @@ Scores use 1 (unusable) through 5 (excellent). `TBD` means the workflow has not 
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | Onboarding | before | 3 | 3 | 4 | 3 | 3 | 3 | 2 | 3 | N/A | N/A | 2 |
 | Onboarding | after R8 | 4 | 3 | 4 | 3 | 3 | 4 | 3 | 4 | N/A | N/A | 2 |
-| Onboarding | R9 candidate (E2-E4) | 4 | 4 | 4 | 4 | 4 | 4 | 3 | 4 | N/A | N/A | 2 |
+| Onboarding | after R9 (E2-E4) | 4 | 4 | 4 | 4 | 4 | 4 | 3 | 4 | N/A | N/A | 2 |
 | Feature | before | 3 | 2 | 3 | 3 | 2 | 2 | 2 | 3 | 2 | 1 | 4 |
 | Feature | after R1+R2 | 4 | 2 | 3 | 3 | 3 | 4 | 3 | 4 | 3 | 2 | 4 |
 | Feature | after R1+R2+R6 | 4 | 3 | 3 | 3 | 4 | 4 | 3 | 4 | 3 | 2 | 4 |
@@ -20,6 +20,7 @@ Scores use 1 (unusable) through 5 (excellent). `TBD` means the workflow has not 
 | Refactor | after R4 mutation review | 4 | 3 | 4 | 3 | 4 | 4 | 3 | 4 | 3 | 2 | 4 |
 | Refactor | R7 candidate (E2-E5) | 4 | 3 | 4 | 4 | 4 | 4 | 4 | 4 | 3 | 2 | 4 |
 | Interrupt | before | 4 | 4 | 4 | 5 | 4 | 4 | 3 | 4 | N/A | N/A | 4 |
+| Interrupt | R10 candidate (E2-E4) | 5 | 4 | 5 | 5 | 5 | 4 | 4 | 5 | N/A | N/A | 4 |
 | Warden-heavy | before | 2 | 2 | 2 | 1 | 2 | 2 | 2 | 2 | 2 | 1 | 3 |
 | Warden-heavy | after R1 | 4 | 2 | 2 | 2 | 4 | 3 | 3 | 4 | 3 | 2 | 4 |
 | Warden-heavy | after R1+R5 | 4 | 2 | 2 | 2 | 4 | 4 | 4 | 4 | 4 | 2 | 4 |
@@ -64,5 +65,13 @@ evidence-bound aggregate.
 R9's main-versus-candidate 80x24/100x30 E2-E4 replay makes a completed onboarding prompt directly
 recallable after process restart, preserves an unsent draft through Up/Down navigation, and submits
 an edited recall. It raises the directly observed onboarding responsiveness/control/recovery cells
-by three points, producing a local candidate score of **3.65/5** (226/62). This remains a candidate
-until exact-head CI and merge proof pass; the official score remains **3.60/5**.
+by three points. Reviewed-head CI passed, PR #75 merged, and current-main CI is green after the
+separate dependency remediation, so **3.65/5** (226/62) is now the official evidence-bound score.
+
+R10's production-path 80x24/100x30 E2-E4 replay makes the urgent boundary exact, preserves a
+controller-owned pending/applied state, stops immediately on Esc without silently starting new
+model work, and carries a budget-stranded urgent correction across fresh-process resume exactly
+once. This materially raises the directly observed interruption clarity, progress, recovery,
+cognitive load, and trust cells by five points. The local candidate score is **3.73/5** (231/62).
+It remains a candidate until exact-head CI, merge, and post-main proof pass; the official score
+remains **3.65/5**.

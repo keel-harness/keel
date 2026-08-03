@@ -4684,6 +4684,26 @@ describe("Ink App (frame snapshots via ink-testing-library)", () => {
     expect(frame).not.toMatch(/[╭╰]/u);
   });
 
+  it("keeps urgent pending then applied semantics readable without color", () => {
+    const pending = reduce(initialView([{ role: "user", content: "inspect first" }]), {
+      type: "input-queued",
+      class: "urgent",
+      content: "do not edit auth.ts",
+    });
+    const pendingFrame = render(<App view={pending} />).lastFrame() ?? "";
+    expect(pendingFrame).toContain("queued urgently — before the next change");
+    expect(pendingFrame).toContain("Esc interrupts now");
+
+    const applied = reduce(pending, {
+      type: "input-applied",
+      class: "urgent",
+      content: "do not edit auth.ts",
+    });
+    const appliedFrame = render(<App view={applied} />).lastFrame() ?? "";
+    expect(appliedFrame).toContain("urgent · applied");
+    expect(appliedFrame).not.toContain("queued urgently");
+  });
+
   it("shows the pending egress review queue count without approval language", () => {
     const { lastFrame } = render(
       <App

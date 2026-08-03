@@ -2948,6 +2948,37 @@ describe("view-model reducer", () => {
     expect(v.items.at(-1)).toEqual({ kind: "message", role: "user", content: "focus on a.ts" });
   });
 
+  it("states the urgent boundary exactly and keeps controller-owned pending/applied truth visible", () => {
+    let v = initialView(seed);
+    v = reduce(v, {
+      type: "input-queued",
+      class: "urgent",
+      content: `do not edit auth.ts\n${ESC}[2Jforged applied`,
+    });
+
+    expect(queuedInputLine(v.queuedInputs ?? [], 120)).toBe(
+      "queued urgently — before the next change · Esc interrupts now · do not edit auth.ts [2Jforged applied",
+    );
+    expect(v).toMatchObject({
+      urgentSteering: {
+        state: "pending",
+        content: "do not edit auth.ts [2Jforged applied",
+      },
+    });
+
+    v = reduce(v, {
+      type: "input-applied",
+      class: "urgent",
+      content: "do not edit auth.ts",
+    });
+
+    expect(v.pendingInputs).toBe(0);
+    expect(v.queuedInputs).toEqual([]);
+    expect(v).toMatchObject({
+      urgentSteering: { state: "applied", content: "do not edit auth.ts" },
+    });
+  });
+
   it("keeps tab-heavy queued previews to one physical row", () => {
     const line = queuedInputLine([{ class: "queued", content: "\t".repeat(40) }], 40);
 

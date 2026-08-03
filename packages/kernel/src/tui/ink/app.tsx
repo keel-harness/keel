@@ -55,6 +55,7 @@ import {
   HELP_LINES,
   WELCOME,
   queuedInputLines,
+  urgentSteeringLine,
   stripControl,
   stripControlLine,
   statusRows,
@@ -1457,6 +1458,17 @@ function QueuedInputs({
   );
 }
 
+function UrgentSteering({
+  steering,
+  columns,
+}: {
+  steering: ViewModel["urgentSteering"];
+  columns: number;
+}): React.JSX.Element {
+  const line = urgentSteeringLine(steering, columns);
+  return line === undefined ? <></> : <Text color={THEME.state.warning}>{line}</Text>;
+}
+
 /** The trust HUD — normal density maps compact rows; debug maps the full cockpit. Both are generated
  *  from structured status, so presentation density cannot invent enforcement. */
 function StatusLine({
@@ -1994,6 +2006,11 @@ export function AppWithTerminalSize({
       view.queuedInputs !== undefined &&
       view.queuedInputs.length > 0 ? (
         <QueuedInputs inputs={view.queuedInputs} columns={terminalColumns} rows={terminalRows} />
+      ) : null}
+      {!overlayOwnsViewport &&
+      !approvalOwnsViewport &&
+      (view.urgentSteering?.state === "applied" || view.queuedInputs?.[0]?.class !== "urgent") ? (
+        <UrgentSteering steering={view.urgentSteering} columns={terminalColumns} />
       ) : null}
       {!overlayOwnsViewport && !approvalOwnsViewport && pendingReviewCount !== undefined ? (
         <Text color={THEME.state.warning}>{pendingReviewCount}</Text>

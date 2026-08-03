@@ -149,3 +149,22 @@ grant or remember approval, change policy input, alter a sandbox/egress profile,
 record, or add a model message. Structured steering remains excluded from recall by exact durable
 index and content. Warden verdicts, review burden, grantability, model/tool contracts, frozen UiPort,
 session/audit schemas, and public CLI syntax are unchanged.
+
+## R10 validation outcome
+
+R10 introduced no human review interrupt or automatic denial, so historical totals remain **6
+total / 2 necessary / 4 excessive or avoidable**. Its production-path replays used one trusted,
+bounded in-workspace `read` before urgent steering prevented the planned edit. The normal and
+budget/resume paths made zero Anthropic requests and requested no package, Git, broad shell,
+external filesystem, or egress authority.
+
+Urgent pending/applied state is kernel presentation derived from the durable steering ledger. It
+cannot allow a tool, grant or batch a review, alter policy input, change the sandbox/egress profile,
+or reinterpret a Warden verdict. Approval and foreground-overlay rows retain priority. The budget
+preflight prevents further provider/goal work while leaving the correction unapplied; fresh resume
+uses the existing durable marker to apply it exactly once.
+
+The Warden decision, mutation classification, grantability, sandbox, egress, audit record, RPC,
+and model-visible tool result are unchanged. The pending screenshot also retains the pre-existing
+`execution status is unknown` line after interruption; R10 does not convert that ambiguity into a
+false mutation fact. That finding remains R14.

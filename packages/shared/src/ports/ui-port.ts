@@ -236,6 +236,16 @@ export interface UiAttentionMark {
 export interface UiQueuedInput {
   readonly class: "queued" | "urgent";
   readonly content: string;
+  /** Explicit false after the active turn has ended; absence means Esc can still interrupt now. */
+  readonly interruptAvailable?: false;
+}
+
+/** Latest urgent steering lifecycle for the active logical turn. Presentation only: the session
+ *  ledger remains canonical, and renderers must never infer this state from transcript prose. */
+export interface UiUrgentSteering {
+  readonly state: "pending" | "applied";
+  readonly content: string;
+  readonly interruptAvailable?: boolean;
 }
 
 /** Focus pane for the active turn. This is explanatory chrome, not a model/security claim. */
@@ -370,6 +380,9 @@ export interface ViewModel {
   readonly lastWardenPendingReviews?: number;
   /** Visible queued follow-ups. Presentation only; the ledger remains canonical. */
   readonly queuedInputs?: readonly UiQueuedInput[];
+  /** Controller-owned urgent timing truth for the active logical turn. Optional additive UIPort
+   *  state; absence means no urgent lifecycle is being reported. */
+  readonly urgentSteering?: UiUrgentSteering;
   /** Attention rail / event mini-map derived from the visible ViewModel stream. */
   readonly attentionRail?: readonly UiAttentionMark[];
   /** Current-turn focus pane derived from real loop/input events. */

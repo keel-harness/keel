@@ -306,6 +306,67 @@ and worktree were removed.
   deterministic with a local fixture. Anthropic spend remains USD 2.74434625. Exact-head CI,
   merge, post-main CI, and cleanup remain required.
 
+R9 subsequently merged through [PR #75](https://github.com/keel-harness/keel/pull/75) as
+`baf7db4`; reviewed-head CI `30836483686` passed. Its first post-merge run exposed a high
+`brace-expansion` advisory rather than an R9 behavior failure. The separate remediation merged
+through PR #78 as `ba292e6`, and exact current-main CI `30839183270` passes. The R9 branch and
+worktree were removed.
+
+## Keel — R10 truthful urgent-steering candidate
+
+- `/now`, `/before-next-edit`, and `/stop-after-current` retain the accepted pre-mutation contract.
+  Their acknowledgement now promises only `queued urgently — before the next change`; the distinct
+  `Esc interrupts now` hint appears only while immediate cancellation is available.
+- One bounded, sanitized, no-color-dependent presentation state shows `pending` until the controller
+  inserts the urgent message, then `applied — correction is in the active turn`. A later urgent item
+  behind ordinary queued input stays pending rather than inheriting another item's applied state.
+- Esc aborts the active turn without auto-dispatching queued or urgent steering. Pending ledger
+  state remains durable for the next explicit turn; stale Esc copy is removed after interruption.
+- The gross-runway/terminal-budget preflight preserves unapplied urgent steering in the ledger,
+  skips post-stop goal validation and any new provider call, and displays the exact resume command.
+  Fresh-process resume distinguishes urgent corrections from ordinary comments and applies each
+  exactly once before model work.
+- The implementation uses an additive optional `UiUrgentSteering` presentation field. It does not
+  change a serialized session/RPC/audit schema, Warden verdict, policy, mutation classification,
+  sandbox, provider budget, or model-visible tool contract.
+- Red-first behavior coverage includes exact pending/applied copy, control stripping, mixed queues,
+  narrow row budgets, active approvals/overlays, in-flight tools, no post-boundary mutation, Esc,
+  terminal budget, no post-stop goal validation, same-process next-turn application, and
+  fresh-process resume.
+- Focused post-fix E2 passes **744/744** across view-model, headless, real Ink, runner steering,
+  REPL, and CLI entrypoint suites. The preliminary unrestricted coverage run passes **6,511 / 20
+  existing opt-in skips** and all repository coverage gates outside the outer sandbox; typecheck,
+  format, and build passed at that candidate point.
+- The managed full-coverage attempt was infrastructure-invalid for six loopback tests (`listen
+  EPERM 127.0.0.1`). The exact unrestricted rerun passed. No test or threshold was weakened.
+- The first 80-column production replay found an evidence-harness defect: the PTY waiter recognized
+  only the wide governed footer. A valid Python red failed **1 / 7**, then an alternative wide-or-
+  compact multiline matcher passed **7/7**. The earlier `python3 -m unittest` path was an invalid
+  package invocation and is not counted as product evidence.
+- E3 used the built production CLI, spawned Warden, external Click, deterministic loopback provider,
+  and fixed 80x24/100x30 PTYs. Both sizes showed pending then applied state; the next edit did not
+  execute; ordinary follow-up remained distinct; four fixture requests completed; Click stayed
+  clean. A separate 100x30 terminal-budget run stopped with the correction pending, then resumed in
+  a fresh process and applied it exactly once.
+- E4 adds four visually inspected, sanitized 1400x840 exact-frame transcriptions:
+  `screenshots/29-r10-urgent-pending.png`, `30-r10-urgent-applied.png`,
+  `31-r10-budget-pending.png`, and `32-r10-resume-applied.png`. Their SHA-256 values are
+  `db02077af4a1c355ddab7548ab0806343a6cb707cb3819108dd846c7256e0d71`,
+  `8ca9780c971b3035864abb0b0ac135ff9eb05847f7f0615584290ee2eedc09db`,
+  `423abbdb99823389a17a4bbbc4f46ac7ef59eda2c826179f58f2e003457d4b04`, and
+  `c64e7ed192d11b1027b4e80b7533d69d37a4485f43567a5f1afbcfdcb645a095`.
+- E5 is **NOT_RUN** because the changed behavior is controller-owned and the production-path local
+  replay covers provider boundaries deterministically. R10 made zero Anthropic calls; cumulative
+  spend remains USD 2.74434625.
+- Five-lens QC found and repaired two must-fix controller errors before the candidate was accepted:
+  Esc previously re-drove pending steering into a new turn, and budget-stranded urgent state could
+  still start goal validation. Post-fix review finds no unresolved must-fix. R10 also directly
+  reproduces the pre-existing ambiguous interrupted mutation state, which remains scoped to R14.
+- The reconciled exact local candidate passes focused **744/744**, artifact/claim **192/192**,
+  Python harness **7/7**, unrestricted full coverage **6,511 / 20 existing skips**, repository
+  lint, typecheck, format, build, and `git diff --check`. Reviewed-head CI, merge, post-main CI, and
+  cleanup remain required.
+
 ## External workload — validated local-only feature
 
 - Commit `941ab66 feat(termui): accept PathLike filenames in edit`.

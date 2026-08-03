@@ -385,6 +385,7 @@ describe("headless renderer", () => {
       overlay: { kind: "panel", content: "stale review panel" },
       queuedInputs: [{ content: "then deploy", class: "queued" }],
       pendingInputs: 1,
+      urgentSteering: { state: "applied", content: "do not edit auth.ts" },
       currentTurn: { doing: "running make", why: "the user requested it", next: "deploy" },
       turnSummary: {
         title: "needs attention",
@@ -401,6 +402,7 @@ describe("headless renderer", () => {
     expect(frame).not.toContain("old warning");
     expect(frame).not.toContain("rail:");
     expect(frame).not.toContain("stale review panel");
+    expect(frame).not.toContain("urgent · applied");
   });
 
   it("renders assistant Markdown as terminal-native plain text", () => {
@@ -1910,6 +1912,40 @@ describe("headless renderer", () => {
     expect(frame).not.toContain("input:2 queued");
     expect(frame).not.toContain("stop before generated files");
     expect(frame.includes(ESC)).toBe(false);
+  });
+
+  it("renders an urgent applied badge without relying on color or replayed prose", () => {
+    const frame = renderFrame({
+      items: [{ kind: "message", role: "user", content: "do not edit auth.ts" }],
+      status,
+      streaming: true,
+      urgentSteering: { state: "applied", content: "do not edit auth.ts" },
+    });
+
+    expect(frame).toContain("urgent · applied");
+    expect(frame).not.toContain("queued urgently");
+    expect(frame.includes(ESC)).toBe(false);
+  });
+
+  it("keeps a later urgent correction visible when an ordinary comment is first in the queue", () => {
+    const frame = renderFrame({
+      items: [],
+      status,
+      streaming: true,
+      pendingInputs: 2,
+      queuedInputs: [
+        { class: "queued", content: "also update docs" },
+        { class: "urgent", content: "do not edit auth.ts" },
+      ],
+      urgentSteering: {
+        state: "pending",
+        content: "do not edit auth.ts",
+        interruptAvailable: true,
+      },
+    });
+
+    expect(frame).toContain("queued next · also update docs · +1 later");
+    expect(frame).toContain("urgent · pending — before the next change · Esc interrupts now");
   });
 
   it("shows no input indicator when none are pending", () => {

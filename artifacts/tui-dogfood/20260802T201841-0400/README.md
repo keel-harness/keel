@@ -35,9 +35,10 @@ credentials nor user-home paths.
 ## Current gate
 
 All six requested workflow classes have live evidence. Evidence PR #53; implementation PRs #55,
-#57, #59, #61, #65, #66, #68, #71, and #73; repeatability PR #63; and R6 evidence correction PR #69
-were owner-approved, squash-merged, and cleaned up. Each merged slice passed its reviewed-head and
-post-merge `main` gates.
+#57, #59, #61, #65, #66, #68, #71, #73, and #75; repeatability PR #63; R6 evidence correction PR
+#69; and dependency-remediation PR #78 were owner-approved, squash-merged, and cleaned up. Each UX
+slice passed reviewed-head CI. R9's first post-merge run exposed a high `brace-expansion` advisory;
+PR #78 repaired it, and exact current-main CI run `30839183270` passes at `ba292e6`.
 
 R3's safe first slice is tracked by [issue #58](https://github.com/keel-harness/keel/issues/58):
 exact edit/write retries reconcile without hiding history, live and resumed receipts show
@@ -81,13 +82,24 @@ during provider wait, Warden request checking, tool execution, and assistant str
 evidence yields row priority at 80x24 and 100x30; approvals and foreground panels retain focus;
 settled and one-shot output omit the task chrome.
 
-R9 is tracked by [issue #74](https://github.com/keel-harness/keel/issues/74). Its local candidate
-restores bounded, sanitized ordinary prompt history after `--continue` and `--resume`, without
-adding controller messages or steering to recall. Up/Down and Ctrl-R reuse the existing composer;
-an unsent draft and cursor remain recoverable. Red-first E2, real 80x24/100x30 before/after E3, and
-two visually inspected E4 frames pass. The provider-independent slice used only a non-secret local
-fixture, so E5 is intentionally **NOT_RUN** and Anthropic spend is unchanged. Exact-head CI and
-merge proof remain required.
+R9 merged through [PR #75](https://github.com/keel-harness/keel/pull/75) as `baf7db4`. It restores
+bounded, sanitized ordinary prompt history after `--continue` and `--resume`, without adding
+controller messages or steering to recall. Up/Down and Ctrl-R reuse the existing composer; an
+unsent draft and cursor remain recoverable. Red-first E2, real 80x24/100x30 before/after E3, and two
+visually inspected E4 frames pass. The provider-independent slice used only a non-secret local
+fixture, so E5 is intentionally **NOT_RUN** and Anthropic spend is unchanged. Reviewed-head CI run
+`30836483686` passed. Current `main`, including the advisory repair above, is green, so the
+evidence-bound official score is **3.65/5**.
 
-The manifest now tracks twenty-six unique safe screenshot checkpoints after adding the two R9
-before/after frames.
+R10 is tracked by [issue #79](https://github.com/keel-harness/keel/issues/79). The local candidate
+makes `/now` promise only `queued urgently — before the next change`, keeps `Esc interrupts now`
+only while immediate cancellation is available, and renders controller-owned `pending` then
+`applied` state. Esc stops without auto-dispatching queued work. If a controller budget cannot
+start another provider turn, urgent steering remains unapplied and durable, the exact resume
+command is shown, and a fresh process re-applies the urgent correction exactly once before work.
+Focused E2, unrestricted full coverage, lint, typecheck, format, build, diff checks,
+production-path 80x24/100x30 E3, and four visually inspected E4 frames pass with zero Anthropic
+calls. Reviewed-head CI, merge, post-main CI, and cleanup remain.
+
+The manifest now tracks thirty unique safe screenshot checkpoints after adding the four R10
+pending/applied/budget/resume frames.

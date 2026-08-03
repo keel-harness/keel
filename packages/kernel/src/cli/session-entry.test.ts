@@ -3263,6 +3263,65 @@ describe("runKeelCommand resume (Epic 1.23 slice 2 — --continue / --resume con
     });
   });
 
+  it("applies pending urgent steering once on resume and preserves its class in the acknowledgement", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "keel-resume-urgent-"));
+    const e: NodeJS.ProcessEnv = { KEEL_HOME: cwd };
+    const ts = "2026-08-03T00:00:00.000Z";
+    const store = SessionStore.create({ cwd }, e);
+    const sid = store.id;
+    store.append({ type: "user", v: 1, ts, content: "start task" });
+    store.append({
+      type: "steering",
+      v: 1,
+      ts,
+      inputId: "inp_urgent",
+      class: "urgent",
+      content: "do not edit auth.ts",
+      insertedAt: null,
+      changedTaskState: false,
+      invalidatedPlan: false,
+    });
+    store.close();
+
+    const ui = new TestUI();
+    const run = runKeelCommand(undefined, {
+      model: new ScriptedModel({ turns: [{ text: "urgent correction handled" }] }),
+      ui,
+      cwd,
+      env: e,
+      resume: { kind: "id", id: sid },
+    });
+    await ui.awaitRender(
+      (view) =>
+        view.awaitingInput === true &&
+        view.items.some(
+          (item) =>
+            item.kind === "message" &&
+            item.role === "system" &&
+            /1 urgent correction re-applied and dispatched/i.test(item.content),
+        ),
+    );
+    expect(
+      ui.latest?.items.some(
+        (item) => item.kind === "message" && /pending comment/u.test(item.content),
+      ),
+    ).toBe(false);
+    ui.queue.close();
+    await run;
+
+    const after = rebuild(readSession(sid, e));
+    expect(after.pendingSteering).toEqual([]);
+    expect(after.messages.filter((message) => message.role === "user")).toContainEqual({
+      role: "user",
+      content: "do not edit auth.ts",
+    });
+    expect(
+      readSession(sid, e).events.filter(
+        (event) => event.type === "steering" && event.inputId === "inp_urgent",
+      ),
+    ).toHaveLength(2);
+  });
+
   it("--resume <id> resumes that specific session; an unresolvable id falls back to a fresh session", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "keel-resume-id-"));
     const e: NodeJS.ProcessEnv = { KEEL_HOME: cwd };

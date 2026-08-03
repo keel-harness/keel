@@ -609,3 +609,74 @@
   the main/candidate replay materially removes restart retyping. Simplicity: one small optional
   sidecar and shared initializer, no dependency or new authority. Exact-head CI, merge, post-main
   CI, and cleanup remain required.
+
+## 2026-08-03 — R9 publication closeout
+
+- Reviewed-head CI run `30836483686` passed and PR #75 squash-merged as `baf7db4`.
+- The first post-merge `main` run `30837011412` failed a high `brace-expansion` advisory. This was a
+  supply-chain gate, not an R9 behavior regression, and it was not ignored or reclassified green.
+- The separate remediation merged through PR #78 as `ba292e6`. Exact current-main CI run
+  `30839183270` passes. The R9 branch/worktree were removed and the official score is 3.65/5.
+
+## 2026-08-03 — R10 truthful urgent steering
+
+- Started from clean synchronized `main` at `ba292e6eb84d94410a2ad5bb15eb283d6fcf0798`, after the
+  advisory repair's exact-main CI passed. Published
+  [issue #79](https://github.com/keel-harness/keel/issues/79) and created isolated branch
+  `fix/tui-urgent-steering-truth`.
+- Red-first tests covered exact timing copy, pending/applied ownership, control stripping, mixed
+  queues, terminal dimensions, foreground priority, in-flight tools, the pre-mutation boundary,
+  terminal budget, resume, and interrupt behavior. The first implementation exposed two real QC
+  must-fix defects: Esc auto-started a new provider turn for pending steering, and a budget stop
+  could still enter goal validation. Both received failing regressions before correction.
+- Post-fix focused E2 passes **744/744** across six test files. Repository typecheck, format, and
+  build passed at the product candidate point.
+- The first managed `corepack pnpm test:cov` completed with **6,505 passes / 20 skips / 6 failures**;
+  every failure was a loopback listener rejected by the outer execution sandbox with `listen EPERM
+  127.0.0.1`. The exact unrestricted rerun passed **6,511 / 20 existing skips** across 360 passing
+  files and 4 opt-in skipped files, and all enforced coverage thresholds passed. No threshold or
+  test was weakened. Because a later Python-only harness regression was added, final exact-candidate
+  repository gates remain to be rerun.
+- The first canonical PTY attempt used an unresolved temporary root and was infrastructure-invalid.
+  After correcting that setup, 80x24 still timed out despite a visible compact governed footer. A
+  valid Python regression failed **1 / 7** and proved `wait_for_idle` accepted only the wide footer.
+  The first attempted fix incorrectly waited for wide and compact forms sequentially; the strengthened
+  red required alternatives. The final multiline alternation passes **7/7**. An earlier
+  `python3 -m unittest packaging/test_smoke_urgent_steering.py` command was an invalid module-path
+  invocation and is recorded as such, not as product red evidence.
+- E3 normal path: the built production CLI spawned Warden, used external Click and a deterministic
+  OpenAI-compatible loopback fixture, and ran at fixed 80x24 and 100x30. Both runs exited cleanly;
+  each showed urgent pending then applied, performed one governed read, did not execute the next
+  edit, retained one ordinary follow-up, made four total fixture requests, and left Click unchanged.
+  Sanitized transcript SHA-256 values are
+  `0312d3288d8f23b4fae22655fffd85b0f3ebe297840cfbcd48015e2eb18464e3` and
+  `026e7ec47c972c3269b2e2f284f12549ce5a9fee131850f5a717eab74eec4cfc`; ledger hashes are
+  `a154e69b454e7587e31e291f004c4d038b67b54fbc1a3030e738ce3e3efa23ff` and
+  `f0bafec55fc9a980457bea840e432c1510cddfeda9e4792da79452655c25f5bf`.
+- E3 budget/resume path: at 100x30 with `KEEL_MAX_GROSS_TOKENS=5000`, the first process exited 1
+  with the correction visibly pending, exact resume command present, and no stale Esc hint. The
+  fresh process exited 0, displayed `1 urgent correction re-applied and dispatched`, made two local
+  fixture requests total, and preserved exact durable markers `[insertedAt null, insertedAt 7]`.
+  The first oracle expected nonexistent status fields even though the scenario succeeded; the
+  corrected oracle checks the actual durable insertion contract and passes.
+- E4: four sanitized 1400x840 exact-frame transcriptions were visually inspected. Screenshot
+  SHA-256 values are: pending
+  `db02077af4a1c355ddab7548ab0806343a6cb707cb3819108dd846c7256e0d71`; applied
+  `8ca9780c971b3035864abb0b0ac135ff9eb05847f7f0615584290ee2eedc09db`; terminal-budget pending
+  `423abbdb99823389a17a4bbbc4f46ac7ef59eda2c826179f58f2e003457d4b04`; resumed applied
+  `c64e7ed192d11b1027b4e80b7533d69d37a4485f43567a5f1afbcfdcb645a095`.
+- E5: **NOT_RUN**. The behavior is provider-independent, all provider boundary behavior ran through
+  the production path with a loopback fixture, and R10 made zero paid calls. Cumulative spend stays
+  USD 2.74434625 with USD 17.25565375 remaining and the final USD 2 reserve intact.
+- Five-lens QC after the two corrections: spec/ADR matches MASTER_SPEC §4.10 and ADR-0034/0036;
+  the optional presentation field follows ADR-0073 and changes no frozen carrier. Security keeps
+  state controller/ledger-owned, bounded, sanitized, and subordinate to approval focus. Reliability
+  covers mixed queues, in-flight work, no mutation, budget, no goal-validation re-entry, same/fresh
+  resume, and 80/100 columns. DX makes pending/applied/immediate timing explicit and directly
+  reproduces DF-021 for R14. Simplicity adds no dependency, policy, Warden behavior, or parallel
+  summary system. No unresolved must-fix remains locally.
+- Final exact local gate: focused **744/744**; artifact/claim consistency **192/192**; PTY harness
+  **7/7**; unrestricted `corepack pnpm test:cov` **6,511 passed / 20 existing skips**, exit 0 with
+  all enforced thresholds satisfied; `corepack pnpm lint`, `corepack pnpm typecheck`,
+  `corepack pnpm format`, `corepack pnpm build`, and `git diff --check` all exit 0. Reviewed-head
+  CI, merge, post-main CI, and cleanup remain.

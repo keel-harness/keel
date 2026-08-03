@@ -46,6 +46,23 @@ class UrgentSteeringSmokeOracleTests(unittest.TestCase):
         self.assertTrue(callable(lifecycle.run_launch_sample))
         self.assertTrue(callable(lifecycle.wait_for_idle))
 
+    def test_idle_waiter_accepts_the_compact_governed_footer_used_at_80_columns(self):
+        lifecycle = SMOKE.load_lifecycle()
+        compact = "protection: governed · sbx:on · net:on · policy:Guided · audit:on"
+        frame = f"keel\n{compact}\ninput · type a task or /help\n›  "
+
+        class Session:
+            def read_until(self, patterns, timeout):
+                self.patterns = patterns
+                self.timeout = timeout
+                return frame
+
+        session = Session()
+        self.assertEqual(lifecycle.wait_for_idle(session, 7), frame)
+        self.assertEqual(session.timeout, 7)
+        self.assertTrue(hasattr(session.patterns[0], "search"))
+        self.assertIsNotNone(session.patterns[0].search(frame))
+
     def test_accepts_exact_terminal_ledger_contract(self):
         result = SMOKE.assert_ledger(valid_records(), "KSTR0001")
         self.assertEqual(result["runStatuses"], ["aborted", "model-stop", "model-stop"])

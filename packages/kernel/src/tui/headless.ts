@@ -40,6 +40,7 @@ import {
   statusRows,
   leadingSystemEnd,
   queuedInputLine,
+  urgentSteeringLine,
   stripControl,
   stripControlLine,
   welcomeText,
@@ -321,6 +322,13 @@ function renderTrailerBlocks(
     }
     if (!approvalOwnsViewport && view.queuedInputs !== undefined && view.queuedInputs.length > 0) {
       blocks.push(renderQueuedInputs(view.queuedInputs));
+    }
+    if (!approvalOwnsViewport) {
+      const urgent =
+        view.urgentSteering?.state === "applied" || view.queuedInputs?.[0]?.class !== "urgent"
+          ? urgentSteeringLine(view.urgentSteering)
+          : undefined;
+      if (urgent !== undefined) blocks.push(urgent);
     }
     const pendingReviews = !approvalOwnsViewport
       ? renderPendingReviewCount(view.pendingReviews ?? 0)
