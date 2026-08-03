@@ -55,7 +55,11 @@ audit log but late for user time and provider spend.
   non-secret local fixture, with a valid audit chain.
 - `screenshots/24-r6-concurrent-resume-after.png` is a visually inspected 1400x840 sanitized
   terminal-frame transcription of the exact PTY message, not a live window capture. SHA-256:
-  `1bb042ed3c51f67f8478cbbddb7d16b97871512408ba929eb9458368da31d320`.
+  `bdb193d28c9db3b38b3fa6ceab3b7b37201cb6ba41015898d9b477bd51f7eea6`.
+- Evidence correction: PR #68 initially carried the earlier mostly blank crop because inspection
+  targeted the same relative name in the primary checkout rather than the isolated worktree. The
+  corrected raster was written to and inspected from its exact absolute worktree path; the PTY proof
+  and runtime behavior were unaffected.
 - E5: **NOT_RUN**. Anthropic input/output and spend are zero; cumulative spend remains USD 2.7109.
 
 ## Five-lens QC
