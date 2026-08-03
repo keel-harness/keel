@@ -397,7 +397,9 @@ worktree were removed.
 - Fresh installed-carrier smoke passed all three urgent verbs. Fixed 80x24/100x30 replays passed
   the same `/before-next-edit` scenario with the file unchanged, no edit result, explicit
   not-started copy, and zero paid requests. Screenshot 36 is the visually inspected after frame.
-- Candidate aggregate: **3.85/5** (239/62), pending reviewed-head and post-main CI.
+- Candidate `03a6ad2` passed exact reviewed-head CI `30859417733` and squash-merged through PR #88
+  as `198f56f`; both commits have tree `5d77488`. Exact post-main CI `30859848006` passed, issue
+  #87 closed, cleanup passed, and the official aggregate is **3.85/5** (239/62).
 
 ## Keel — R11 bounded terminal-command recovery
 

@@ -265,9 +265,10 @@
 ### DF-021 — successful interrupt controls are undermined by ambiguous tool-state evidence
 
 - Severity: P2 trust; control itself worked.
-- Status: fixed in the local R14 candidate under
-  [issue #87](https://github.com/keel-harness/keel/issues/87), pending reviewed-head and post-main
-  CI. R10's production-path pending frame independently reproduced the old
+- Status: fixed by R14 under [issue #87](https://github.com/keel-harness/keel/issues/87), merged
+  through [PR #88](https://github.com/keel-harness/keel/pull/88) as `198f56f`. Exact reviewed-head
+  CI `30859417733` and post-main CI `30859848006` passed; issue #87 closed and cleanup passed. R10's
+  production-path pending frame independently reproduced the old
   `execution status is unknown` evidence while proving that urgent steering and Esc work.
 - Direct evidence: `/before-next-edit` visibly queued and was applied at the requested boundary;
   `Esc` promptly produced a durable saved-session interrupt note. However, the boundary event also
@@ -282,7 +283,8 @@
 - Validation: five focused suites pass **576/576**; unrestricted coverage passes **6,539 / 20
   existing opt-in skips**; the installed carrier passes all three urgent verbs and fixed
   80x24/100x30 replays with the file unchanged, no edit result, and zero paid requests. Screenshot
-  36 is the sanitized after frame; R10 screenshot 29 is the before comparison.
+  36 is the sanitized after frame; R10 screenshot 29 is the before comparison. The official
+  evidence-bound aggregate is **3.85/5** (239/62).
 
 ### DF-022 — installed-renderer readiness smoke depends on PTY read chunking
 

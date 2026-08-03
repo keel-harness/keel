@@ -219,4 +219,6 @@ model-visible result, and is cleared at the canonical run boundary. `not started
 when the runner did not invoke the executor. In-flight and completed-without-result copies explicitly
 say effects are indeterminate and require workspace/audit inspection before retry. A factless direct
 boundary remains indeterminate. R14 therefore improves explanation without weakening or claiming
-Warden authority.
+Warden authority. Candidate `03a6ad2` and merge `198f56f` share tree `5d77488`; exact reviewed-head
+CI `30859417733` and post-main CI `30859848006` passed. Issue #87 closed and cleanup passed. The
+interrupt totals remain unchanged.

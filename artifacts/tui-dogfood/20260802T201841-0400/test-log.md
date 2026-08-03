@@ -833,4 +833,18 @@
 - Five-lens QC: spec/ADR preserves the pre-mutation/interrupt contract; security adds no authority or
   durable claim; reliability covers exact occurrence reuse and factless fallback; DX makes the
   stopped edit immediately understandable; simplicity adds one process-local state tracker and one
-  reducer event. No local must-fix remains. Candidate score is **3.85/5** (239/62), pending exact CI.
+  reducer event. No local must-fix remains.
+- Candidate `03a6ad2beba7eaa023b823abf4958b8e39d557c2` with tree
+  `5d77488d8c28f11d5da393d5e720134c09ec58a3` passed exact reviewed-head CI run `30859417733`,
+  including `ci-required` job `91839083650`.
+- Owner-authorized admin squash merged PR #88 as
+  `198f56f8156426aebaa0029dd36c796701eead27`; merge tree
+  `5d77488d8c28f11d5da393d5e720134c09ec58a3` exactly matches the candidate. Exact post-main CI run
+  `30859848006` passed, including `ci-required` job `91840336493`. Issue #87 auto-closed. The
+  feature worktree, local branch, remote branch, and stale remote-tracking ref were removed/pruned;
+  only canonical `main` remained before this docs-only closeout branch was created. The
+  evidence-bound score is officially **3.85/5** (239/62); the strict final six-workflow gate
+  remains open.
+- Closeout changes evidence only; no product behavior changed, so no new red test applies. The
+  artifact consistency suite passes **21/21**, repository format check passes, and
+  `git diff --check` passes in the isolated closeout worktree.
