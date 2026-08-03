@@ -8,6 +8,7 @@ import {
 import { KERNEL_STRINGS } from "../strings.js";
 import {
   activeReviewIsActionable,
+  applyMutationPresentationResolution,
   aboutPanel,
   buildRecentSessionRows,
   buildUsageDigest,
@@ -1831,6 +1832,282 @@ describe("view-model reducer", () => {
     expect(card?.title).toBe("needs attention");
     expect(card?.attention).toEqual(["bash: permission denied"]);
     expect(text).not.toMatch(/sandbox|egress|policy|audit|trusted|autopilot|secure/i);
+  });
+
+  it("reconciles a terminal blocked edit after the exact retry completes", () => {
+    let v = initialView([{ role: "user", content: "update src/app.ts and test it" }]);
+    v = reduce(v, {
+      type: "tool-call",
+      id: "edit-blocked",
+      name: "edit",
+      args: { path: "src/app.ts", oldString: "before", newString: "after" },
+    });
+    v = reduce(
+      v,
+      markToolPresentationOutcome(
+        {
+          type: "tool-result",
+          id: "edit-blocked",
+          ok: false,
+          output: "blocked by warden (not executed): read the file before editing",
+        },
+        "blocked",
+      ),
+    );
+    v = reduce(v, {
+      type: "tool-call",
+      id: "read-correction",
+      name: "read",
+      args: { path: "src/app.ts" },
+    });
+    v = reduce(v, {
+      type: "tool-result",
+      id: "read-correction",
+      ok: true,
+      output: "before",
+    });
+    v = reduce(v, {
+      type: "tool-call",
+      id: "edit-retry",
+      name: "edit",
+      args: { path: "src/app.ts", oldString: "before", newString: "after" },
+    });
+    const retryIndex = v.items.findIndex(
+      (item) => item.kind === "tool" && item.id === "edit-retry",
+    );
+    v = reduce(v, {
+      type: "tool-liveness",
+      itemIndex: retryIndex,
+      id: "edit-retry",
+      elapsedMs: 2_000,
+      quietMs: 100,
+    });
+    v = reduce(v, { type: "tool-output-delta", id: "edit-retry", chunk: "editing" });
+    const retryResult = { ok: true as const, output: "edited" };
+    associateMutationPresentationResolver(retryResult, async () => ({
+      status: "unavailable",
+      reason: "capture-unavailable",
+    }));
+    const retryEvent = {
+      type: "tool-result" as const,
+      id: "edit-retry",
+      ok: retryResult.ok,
+      output: retryResult.output,
+    };
+    transferMutationPresentationResolver(retryResult, retryEvent);
+    v = reduce(v, retryEvent);
+    const pendingPresentation = v.items.find(
+      (item) => item.kind === "tool" && item.id === "edit-retry",
+    );
+    expect(pendingPresentation).toMatchObject({ mutationPresentation: { status: "pending" } });
+    if (pendingPresentation?.kind !== "tool") throw new Error("expected settled retry activity");
+    v = applyMutationPresentationResolution(v, pendingPresentation, {
+      status: "unavailable",
+      reason: "capture-unavailable",
+    });
+    v = reduce(v, {
+      type: "tool-call",
+      id: "test",
+      name: "bash",
+      args: { command: "pnpm test src/app.test.ts" },
+    });
+    v = reduce(v, { type: "tool-result", id: "test", ok: true, output: "1 passed" });
+    v = reduce(v, { type: "text-delta", text: "Updated the file and ran the focused test." });
+
+    const summary = buildTurnSummary(v);
+    expect(summary?.title).toBe("done");
+    expect(summary?.attention).toEqual([]);
+    expect(summary?.receipt).toEqual([
+      "recovered · edit src/app.ts completed after earlier blocked attempt",
+    ]);
+    expect(summary?.ran).toEqual(["bash: 1 passed"]);
+    expect(summary?.checked).toEqual([]);
+  });
+
+  it("reconstructs the same recovered edit receipt from resumed tool-call arguments", () => {
+    const blockedOutput = "blocked by warden (not executed): read the file before editing";
+    const v = initialView(
+      [
+        { role: "user", content: "update src/app.ts and test it" },
+        {
+          role: "assistant",
+          content: "",
+          toolCalls: [
+            {
+              id: "edit-blocked",
+              name: "edit",
+              args: { path: "src/app.ts", oldString: "before", newString: "after" },
+            },
+          ],
+        },
+        { role: "tool", toolCallId: "edit-blocked", name: "edit", content: blockedOutput },
+        {
+          role: "assistant",
+          content: "",
+          toolCalls: [{ id: "read-correction", name: "read", args: { path: "src/app.ts" } }],
+        },
+        { role: "tool", toolCallId: "read-correction", name: "read", content: "before" },
+        {
+          role: "assistant",
+          content: "",
+          toolCalls: [
+            {
+              id: "edit-retry",
+              name: "edit",
+              args: { path: "src/app.ts", oldString: "before", newString: "after" },
+            },
+          ],
+        },
+        { role: "tool", toolCallId: "edit-retry", name: "edit", content: "edited" },
+        {
+          role: "assistant",
+          content: "Updated the file and ran the focused test.",
+          toolCalls: [{ id: "test", name: "bash", args: { command: "pnpm test src/app.test.ts" } }],
+        },
+        { role: "tool", toolCallId: "test", name: "bash", content: "1 passed" },
+      ],
+      {},
+      { failedToolMessageIndexes: new Set([2]) },
+    );
+
+    const summary = buildTurnSummary(v);
+    expect(summary?.title).toBe("done");
+    expect(summary?.attention).toEqual([]);
+    expect(summary?.receipt).toEqual([
+      "recovered · edit src/app.ts completed after earlier blocked attempt",
+    ]);
+    expect(summary?.ran).toEqual(["bash: 1 passed"]);
+  });
+
+  it("does not manufacture recovery from ambiguous overlapping resume call identities", () => {
+    const blockedOutput = "blocked by warden (not executed): read the file before editing";
+    const failedOutput = "edit failed before completion";
+    const v = initialView(
+      [
+        { role: "user", content: "update the fixture" },
+        {
+          role: "assistant",
+          content: "",
+          toolCalls: [
+            {
+              id: "reused",
+              name: "edit",
+              args: { path: "src/a.ts", oldString: "before", newString: "after" },
+            },
+          ],
+        },
+        {
+          role: "assistant",
+          content: "",
+          toolCalls: [
+            {
+              id: "reused",
+              name: "edit",
+              args: { path: "src/b.ts", oldString: "before", newString: "after" },
+            },
+          ],
+        },
+        { role: "tool", content: blockedOutput, toolCallId: "reused", name: "edit" },
+        { role: "tool", content: failedOutput, toolCallId: "reused", name: "edit" },
+        {
+          role: "assistant",
+          content: "",
+          toolCalls: [
+            {
+              id: "reused",
+              name: "edit",
+              args: { path: "src/a.ts", oldString: "before", newString: "after" },
+            },
+          ],
+        },
+        { role: "tool", content: "edited", toolCallId: "reused", name: "edit" },
+        { role: "assistant", content: "Finished the requested update." },
+      ],
+      {},
+      { failedToolMessageIndexes: new Set([3, 4]) },
+    );
+
+    expect(buildTurnSummary(v)?.title).toBe("needs attention");
+    expect(buildTurnSummary(v)?.receipt).toBeUndefined();
+  });
+
+  it("does not reconcile different or display-colliding mutation targets", () => {
+    const sharedPrefix = `src/${"a".repeat(220)}`;
+    const sharedTail = `${"z".repeat(64)}/file.ts`;
+    const blockedPath = `${sharedPrefix}blocked-middle${sharedTail}`;
+    const successfulPath = `${sharedPrefix}successful-middle${sharedTail}`;
+    let v = initialView([{ role: "user", content: "update the file" }]);
+    v = reduce(v, {
+      type: "tool-call",
+      id: "edit-blocked",
+      name: "edit",
+      args: { path: blockedPath, oldString: "before", newString: "after" },
+    });
+    v = reduce(
+      v,
+      markToolPresentationOutcome(
+        {
+          type: "tool-result",
+          id: "edit-blocked",
+          ok: false,
+          output: "blocked by warden (not executed): read the file before editing",
+        },
+        "blocked",
+      ),
+    );
+    v = reduce(v, {
+      type: "tool-call",
+      id: "edit-other",
+      name: "edit",
+      args: { path: successfulPath, oldString: "before", newString: "after" },
+    });
+    v = reduce(v, { type: "tool-result", id: "edit-other", ok: true, output: "edited" });
+
+    const toolSubjects = v.items.flatMap((item) =>
+      item.kind === "tool" && item.subject !== undefined ? [item.subject] : [],
+    );
+    expect(toolSubjects[0]).toBe(toolSubjects[1]);
+    expect(buildTurnSummary(v)?.title).toBe("needs attention");
+    expect(buildTurnSummary(v)?.receipt).toBeUndefined();
+  });
+
+  it("keeps ordinary and partial mutation failures consequential after an exact retry", () => {
+    for (const outcome of ["failed", "partial"] as const) {
+      let v = initialView([{ role: "user", content: "update src/app.ts" }]);
+      v = reduce(v, {
+        type: "tool-call",
+        id: `${outcome}-first`,
+        name: "edit",
+        args: { path: "src/app.ts", oldString: "before", newString: "after" },
+      });
+      v = reduce(
+        v,
+        markToolPresentationOutcome(
+          {
+            type: "tool-result",
+            id: `${outcome}-first`,
+            ok: false,
+            output: outcome === "partial" ? "target may have changed" : "edit failed",
+          },
+          outcome,
+        ),
+      );
+      v = reduce(v, {
+        type: "tool-call",
+        id: `${outcome}-retry`,
+        name: "edit",
+        args: { path: "src/app.ts", oldString: "before", newString: "after" },
+      });
+      v = reduce(v, {
+        type: "tool-result",
+        id: `${outcome}-retry`,
+        ok: true,
+        output: "edited",
+      });
+
+      expect(buildTurnSummary(v)?.title).toBe("needs attention");
+      expect(buildTurnSummary(v)?.receipt).toBeUndefined();
+    }
   });
 
   it("surfaces an abnormal terminal as a visible notice; success/abort add none (INT-2)", () => {

@@ -34,11 +34,13 @@ credentials nor user-home paths.
 
 ## Current gate
 
-All six requested workflow classes have live evidence. The evidence bundle is published for review
-in [PR #53](https://github.com/keel-harness/keel/pull/53); merge requires both exact-head green CI
-and independent review. The corrected first implementation slice is tracked by
-[issue #54](https://github.com/keel-harness/keel/issues/54) and implemented in
-[PR #55](https://github.com/keel-harness/keel/pull/55). R1 local E2/E3/E4 gates are green; merge and
-post-merge claims remain pending exact-head CI and independent review. The next presentation-truth
-slice is tracked by [issue #56](https://github.com/keel-harness/keel/issues/56) and stacked
-[PR #57](https://github.com/keel-harness/keel/pull/57); it must not merge before R1.
+All six requested workflow classes have live evidence. Evidence PR #53 and implementation PRs #55
+and #57 were owner-approved, squash-merged, and cleaned up. Exact post-R2 `main` CI run
+`30782086893` passed at `86a6c6e542dc420ae35c932803debc24f4215dad` before R3 began.
+
+The third presentation-truth slice is tracked by
+[issue #58](https://github.com/keel-harness/keel/issues/58). Its local E2/E3/E4 gates are green:
+exact edit/write retries reconcile without hiding history, live and resumed receipts show
+`recovered`, malformed or ambiguous histories fail safe, and the original Click workflow is clearer
+at the same 100×30 terminal size. Publication, independent review, merge, and exact post-merge CI
+remain pending.

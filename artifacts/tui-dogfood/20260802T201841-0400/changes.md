@@ -33,6 +33,27 @@
 - Product evidence: Warden-allowed pytest command exited 5 and rendered failed in a sanitized 100×30
   Kitty capture. Anthropic usage: zero.
 
+## Keel — validated R3 recovered mutation receipts
+
+- Exact process-local operation/path identity reconciles only a terminal non-executed blocked
+  `edit`/`write` with a later successful exact retry. Ordinary failed, partial, stopped, ambiguous,
+  and different-target attempts remain consequential.
+- Normal, quiet, headless, and resumed receipts explicitly say `recovered`; verbose/debug history
+  retains the prior block. Receipt detail is capped at three lines plus exact overflow disclosure.
+- Recovery identity is reconstructed from existing tool-call arguments on resume, is never rendered
+  or persisted, transfers across live immutable activity clones, and is discarded when duplicate
+  unresolved provider IDs make occurrence identity ambiguous.
+- Assistant prose cannot create verification or compaction-timing facts. Successful bash remains
+  factual `ran`; accepted ADR-0079's `verification not run` wording is unchanged.
+- Red evidence: 2 lifecycle failures / 171 passes; 4 unchanged performance-test failures; one-shot
+  receipt 1 failure / 134 skipped; ambiguous resume 1 failure / 173 skipped. No test was weakened.
+- Green evidence: focused 590; full current-head 6,426 passed with 20 existing opt-in skips; full
+  typecheck, lint, repository format, and diff check passed.
+- Product evidence: real offline Warden replay against Click, external Click `227 passed, 23
+  skipped`, and sanitized matching Kitty 100×30 captures
+  `screenshots/18-r3-recovered-receipt-before.png` and
+  `screenshots/19-r3-recovered-receipt-after.png`. Anthropic usage: zero.
+
 ## External workload — validated local-only feature
 
 - Commit `941ab66 feat(termui): accept PathLike filenames in edit`.

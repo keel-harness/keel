@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
-import type { ViewItem } from "@keel/shared";
+import type { UiToolActivity, ViewItem } from "@keel/shared";
 import { markToolPresentationOutcome } from "../tool-presentation-outcome.js";
-import { recoveredExploratoryFailureIndexes } from "./recovered-tool.js";
+import {
+  associateToolRecoveryIdentity,
+  reconciledToolAttempts,
+  recoveredExploratoryFailureIndexes,
+  toolRecoveryIdentityForCall,
+} from "./recovered-tool.js";
 
 describe("recovered exploratory failures", () => {
   it("never hides a binary refusal merely because another read later succeeds", () => {
@@ -82,5 +87,43 @@ describe("recovered exploratory failures", () => {
     const recovered = recoveredExploratoryFailureIndexes(observed);
     expect(recovered.size).toBe(10_000);
     expect(indexedReads).toBeLessThanOrEqual(items.length + 2);
+  });
+
+  it("bounds recovered mutation receipts while retaining the exact recovered count", () => {
+    const items: ViewItem[] = [];
+    for (let index = 0; index < 6; index += 1) {
+      const args = { path: `src/file-${String(index)}.ts` };
+      const identity = toolRecoveryIdentityForCall("edit", args);
+      const blocked = markToolPresentationOutcome(
+        {
+          kind: "tool",
+          id: `blocked-${String(index)}`,
+          name: "edit",
+          status: "error",
+          summary: "blocked by warden (not executed)",
+          subject: args.path,
+        } as const,
+        "blocked",
+      );
+      const successful: UiToolActivity = {
+        kind: "tool",
+        id: `successful-${String(index)}`,
+        name: "edit",
+        status: "ok",
+        summary: "edited",
+        subject: args.path,
+      };
+      associateToolRecoveryIdentity(blocked, identity);
+      associateToolRecoveryIdentity(successful, identity);
+      items.push(blocked, successful);
+    }
+
+    const reconciliation = reconciledToolAttempts(items);
+    expect(reconciliation.failureIndexes).toHaveLength(6);
+    expect(reconciliation.recoveredCount).toBe(6);
+    expect(reconciliation.receiptLines).toHaveLength(4);
+    expect(reconciliation.receiptLines.at(-1)).toBe(
+      "recovered · 3 more exact retries; inspect verbose history",
+    );
   });
 });

@@ -971,6 +971,79 @@ describe("headless renderer", () => {
     expect(frame).not.toContain("\u001b");
   });
 
+  it("renders recovered controller truth without promoting assistant verification or timing prose", () => {
+    let view = initialView([{ role: "user", content: "update src/app.ts and test it" }]);
+    view = reduce(view, {
+      type: "tool-call",
+      id: "edit-blocked",
+      name: "edit",
+      args: { path: "src/app.ts", oldString: "before", newString: "after" },
+    });
+    view = reduce(
+      view,
+      markToolPresentationOutcome(
+        {
+          type: "tool-result",
+          id: "edit-blocked",
+          ok: false,
+          output: "blocked by warden (not executed): read the file before editing",
+        },
+        "blocked",
+      ),
+    );
+    view = reduce(view, {
+      type: "tool-call",
+      id: "edit-retry",
+      name: "edit",
+      args: { path: "src/app.ts", oldString: "before", newString: "after" },
+    });
+    view = reduce(view, {
+      type: "tool-result",
+      id: "edit-retry",
+      ok: true,
+      output: "edited",
+    });
+    view = reduce(view, {
+      type: "tool-call",
+      id: "test",
+      name: "bash",
+      args: { command: "pnpm test src/app.test.ts" },
+    });
+    view = reduce(view, { type: "tool-result", id: "test", ok: true, output: "1 passed" });
+    view = reduce(view, {
+      type: "text-delta",
+      text: "The test passed and compaction happened mid-task.",
+    });
+    const summary = buildTurnSummary(view);
+    const frame = renderFrame({
+      ...view,
+      streaming: false,
+      awaitingInput: true,
+      ...(summary === undefined ? {} : { turnSummary: summary }),
+    });
+    const oneShot = renderFrame(
+      {
+        ...view,
+        streaming: false,
+        awaitingInput: true,
+        ...(summary === undefined ? {} : { turnSummary: summary }),
+      },
+      false,
+      false,
+    );
+
+    expect(frame).toContain("recovered · edit src/app.ts completed after earlier blocked attempt");
+    expect(oneShot).toContain(
+      "what: recovered: edit src/app.ts completed after earlier blocked attempt",
+    );
+    expect(frame).toContain("ran: bash: 1 passed");
+    expect(frame).toContain("verification not run");
+    expect(frame).not.toContain("read the file before editing");
+    expect(frame).not.toContain("checked:");
+    expect(frame).not.toContain("compaction timing");
+    expect(frame).not.toContain("\u001b");
+  });
+
   it("never promotes model-written approval or denial claims into control-plane evidence", () => {
     const frame = renderFrame({
       items: [
