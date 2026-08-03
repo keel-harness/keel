@@ -4,6 +4,11 @@ Status: in progress.
 
 Public implementation plan: [keel-harness/keel#52](https://github.com/keel-harness/keel/issues/52).
 
+Stack-ranked remediation program:
+[ux-remediation-plan.md](./ux-remediation-plan.md). It makes the observed P0/P1 findings the first
+implementation queue, defines an evidence-bound 3.8/5 release gate, and keeps 4.0/5 as a separate
+stretch gate.
+
 This evidence set records a live-provider dogfood loop against an isolated checkout of
 `pallets/click`. The Keel source baseline is `a14133831f3a249a8e941c38c302f9effd61ce82`
 (`v0.1.1`); live `origin/main` matched and exact-head CI run `30772162659` passed before
