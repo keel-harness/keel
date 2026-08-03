@@ -48,7 +48,7 @@ import { SPEC as WRITE_SPEC } from "../tools/write.js";
 import { mergeAndRestoreHostNodeEnv } from "../tools/child-env.js";
 import { WardenExecutor } from "./executor.js";
 import type { WardenReviewAutoResolvedEvent, WardenReviewDecisionHandler } from "./executor.js";
-import { startWardenClient, type StartedWardenClient } from "./client.js";
+import { startWardenClient, WardenClientError, type StartedWardenClient } from "./client.js";
 import {
   canRoutePlanApprovalReviews,
   wardenStatusViewConfig,
@@ -84,6 +84,8 @@ export interface ProductionWardenClientOptions {
 
 export interface ProductionWardenRuntimeOptions extends ProductionWardenClientOptions {
   readonly sessionId: string;
+  /** Exact retry command for a resumed session. Presence means startup is a resume ownership check. */
+  readonly resumeCommand?: string;
   /** Kernel-local autonomy posture request. Public config wiring remains a separate slice. */
   readonly autonomy?: AutonomyPostureRequest;
   /**
@@ -839,16 +841,49 @@ export async function shutdownProductionWarden(client: StartedWardenClient): Pro
 export async function createProductionWardenRuntime(
   options: ProductionWardenRuntimeOptions,
 ): Promise<ProductionWardenRuntime> {
+  if (options.autonomy !== undefined && options.planApproval !== undefined) {
+    throw new Error("ProductionWardenRuntime cannot combine autonomy posture with a plan approval");
+  }
   const client = await startProductionWardenClient(options);
   try {
+    try {
+      await client.call("warden.audit.append", {
+        event: { eventType: "session.start", payload: { sessionId: options.sessionId } },
+      });
+    } catch (error) {
+      const details =
+        error instanceof WardenClientError &&
+        typeof error.details === "object" &&
+        error.details !== null &&
+        !Array.isArray(error.details)
+          ? (error.details as Record<string, unknown>)
+          : undefined;
+      const lockState = details?.["auditWriterLockState"];
+      if (
+        error instanceof WardenClientError &&
+        error.code === "AUDIT_WRITE_FAILED" &&
+        (lockState === "active" || lockState === "indeterminate")
+      ) {
+        if (lockState === "active") {
+          const recovery =
+            options.resumeCommand === undefined
+              ? "retry the original Keel command"
+              : `run ${options.resumeCommand}`;
+          throw new Error(
+            `session ${options.sessionId} is already active in another Keel process. ` +
+              `Exit that Keel process cleanly, then ${recovery}; no model call was made and the audit lock was not changed.`,
+          );
+        }
+        throw new Error(
+          `session ${options.sessionId} audit-writer ownership is indeterminate. ` +
+            "Start a fresh session with keel; no model call was made and the existing audit lock was not changed.",
+        );
+      }
+      throw error;
+    }
     let status = await client.call("warden.status", {});
     const trustedWorkspace = options.workspaceTrusted === true;
     const autonomy = resolveAutonomyPosture(options.autonomy, { trustedWorkspace });
-    if (options.autonomy !== undefined && options.planApproval !== undefined) {
-      throw new Error(
-        "ProductionWardenRuntime cannot combine autonomy posture with a plan approval",
-      );
-    }
     const planApproval = runtimePlanApprovalEnvelope(options.planApproval, trustedWorkspace);
     const planApprovalSummary =
       planApproval === undefined ? undefined : summarizePlanApprovalEnvelope(planApproval);

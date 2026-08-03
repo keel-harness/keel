@@ -55,11 +55,17 @@ PTY replay reproduced all eleven score axes, nineteen then-current safe screensh
 and one intentional bash contradiction with zero provider calls. This is repeatability
 infrastructure; it does not raise the current UX score.
 
-R5 is tracked by [issue #64](https://github.com/keel-harness/keel/issues/64) and intentionally split
+R5 was tracked by [issue #64](https://github.com/keel-harness/keel/issues/64) and intentionally split
 at the authority boundary. R5a merged through [PR #65](https://github.com/keel-harness/keel/pull/65):
 an authenticated terminal Warden denial now exposes its exact safe recovery guidance, or explicitly
 says guidance is unavailable, without changing the verdict, model-visible envelope, policy, audit,
-or frozen contracts. R5b is the current candidate for DF-012. It exposes the exact two-fact
+or frozen contracts. R5b merged through [PR #66](https://github.com/keel-harness/keel/pull/66). It exposes the exact two-fact
 containment rationale only when the Warden has verified sandbox-limited workspace/temp writes and
-deny-all network egress. The current manifest tracks twenty-one safe screenshot checkpoints after
-adding the R5b after frame.
+deny-all network egress. Exact reviewed-head and post-merge CI passed, and the branch/worktree were
+removed.
+
+R6 is tracked by [issue #67](https://github.com/keel-harness/keel/issues/67). Its candidate acquires
+the existing Warden audit writer before prompt/model work, so a concurrent resume fails with zero
+provider requests, unchanged lock/ledger state, and an exact recovery command. A real 100x30 PTY
+and spawned-Warden replay passed; exact-head publication gates remain pending.
+The manifest now tracks twenty-two safe screenshot checkpoints after adding the R6 after frame.

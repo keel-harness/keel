@@ -221,6 +221,8 @@ function delayedStartupWarden(delayMs: number): ProductionWardenStartOptions {
                 auditHead: { seq: 0, hash: activeHash },
                 pendingReviews: 0
               });
+            } else if (req.method === "warden.audit.append") {
+              send(req.id, { auditSeq: 1 });
             } else if (req.method === "warden.shutdown") {
               send(req.id, { finalCheckpoint: "test" });
               setImmediate(() => process.exit(0));
@@ -267,6 +269,7 @@ function gatedStartupWarden(gatePath: string): ProductionWardenStartOptions {
               policyPack:{name:"phase2a-starter-policy-pack",hash:activeHash},
               auditHead:{seq:0,hash:activeHash},pendingReviews:0
             });
+            else if(request.method==="warden.audit.append") send(request.id,{auditSeq:1});
             else if(request.method==="warden.shutdown"){
               send(request.id,{finalCheckpoint:"test-checkpoint"});setImmediate(()=>process.exit(0));
             }

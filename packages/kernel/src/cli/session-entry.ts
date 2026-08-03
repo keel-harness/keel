@@ -1408,12 +1408,6 @@ export async function runKeelCommand(
           })
           .catch(() => undefined)
       : Promise.resolve(undefined);
-    // Apply any still-pending queued steering from the resumed ledger BEFORE the first new turn, so a
-    // mid-run comment the prior run ended before applying is not silently dropped (ADR-0034 / P1-3).
-    // Inside the try so its ledger writes are covered by the store's finally; a no-op when nothing is
-    // pending. `resumed` seeds the REPL's model context (rebuilt history + the injected steering).
-    const resumed =
-      resumeState === undefined ? undefined : applyPendingSteeringOnResume(store, resumeState);
     const resumedSteeringApplied = resumeState?.pendingSteering.length ?? 0;
     const historicOnceApprovalReceipt =
       resumeId === undefined
@@ -1495,6 +1489,12 @@ export async function runKeelCommand(
             sessionId: store.id,
             env,
             workspaceTrusted: ctx.trusted,
+            ...(resumeId === undefined
+              ? {}
+              : {
+                  resumeCommand:
+                    deps.resume?.kind === "id" ? `keel --resume ${resumeId}` : "keel --continue",
+                }),
             ...(autonomy === undefined ? {} : { autonomy }),
             ...(planApproval === undefined ? {} : { planApproval }),
             onReviewAutoResolved: (event) => appendWardenAutoResolvedEvent(store, event),
@@ -1519,6 +1519,12 @@ export async function runKeelCommand(
         sessionId: store.id,
         env,
         workspaceTrusted: ctx.trusted,
+        ...(resumeId === undefined
+          ? {}
+          : {
+              resumeCommand:
+                deps.resume?.kind === "id" ? `keel --resume ${resumeId}` : "keel --continue",
+            }),
         ...(autonomy === undefined ? {} : { autonomy }),
         ...(planApproval === undefined ? {} : { planApproval }),
         onReviewAutoResolved: (event) => appendWardenAutoResolvedEvent(store, event),
@@ -1532,6 +1538,12 @@ export async function runKeelCommand(
         ...(deps.warden === undefined ? {} : { start: deps.warden }),
       });
     }
+    // Apply any still-pending queued steering from the resumed ledger before the first new turn, but
+    // only after the Warden has atomically acquired this session's authoritative audit-writer lock.
+    // A concurrent resume therefore cannot consume queued input or append steering before startup
+    // fails closed. `resumed` seeds the REPL's model context (history + the injected steering).
+    const resumed =
+      resumeState === undefined ? undefined : applyPendingSteeringOnResume(store, resumeState);
     try {
       const loopSafetyWithRuntimeAcceptance =
         loopSafety.verification === undefined || rt.activeLeases === undefined

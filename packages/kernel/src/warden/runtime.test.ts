@@ -69,6 +69,8 @@ function captureEnvWardenScript(capturePath: string): string {
             auditHead: { seq: 0, hash: zeroHash },
             pendingReviews: 0
           });
+        } else if (req.method === "warden.audit.append") {
+          send(req.id, { auditSeq: 1 });
         } else if (req.method === "warden.shutdown") {
           send(req.id, { finalCheckpoint: "test-checkpoint" });
           setImmediate(() => process.exit(0));
@@ -115,6 +117,8 @@ function captureEnvKeysWardenScript(capturePath: string, keys: readonly string[]
             auditHead: { seq: 0, hash: zeroHash },
             pendingReviews: 0
           });
+        } else if (req.method === "warden.audit.append") {
+          send(req.id, { auditSeq: 1 });
         } else if (req.method === "warden.shutdown") {
           send(req.id, { finalCheckpoint: "test-checkpoint" });
           setImmediate(() => process.exit(0));
@@ -170,6 +174,8 @@ function consoleCapabilityWardenScript(
             auditHead: { seq: 1, hash: activeHash },
             pendingReviews: 0
           });
+        } else if (req.method === "warden.audit.append") {
+          send(req.id, { auditSeq: 1 });
         } else if (req.method === "warden.execute") {
           calls.push({ method: req.method, params: req.params });
           flush();
@@ -284,15 +290,19 @@ function autonomyAuditFailureWardenScript(shutdownPath: string): string {
             pendingReviews: 0
           });
         } else if (req.method === "warden.audit.append") {
-          process.stdout.write(JSON.stringify({
-            jsonrpc: "2.0",
-            id: req.id,
-            error: {
-              code: -32000,
-              message: "audit append failed",
-              data: { code: "AUDIT_APPEND_FAILED" }
-            }
-          }) + "\\n");
+          if (req.params.event.eventType === "session.start") {
+            send(req.id, { auditSeq: 1 });
+          } else {
+            process.stdout.write(JSON.stringify({
+              jsonrpc: "2.0",
+              id: req.id,
+              error: {
+                code: -32000,
+                message: "audit append failed",
+                data: { code: "AUDIT_APPEND_FAILED" }
+              }
+            }) + "\\n");
+          }
         } else if (req.method === "warden.shutdown") {
           writeFileSync(shutdownPath, "shutdown");
           send(req.id, { finalCheckpoint: "test-checkpoint" });
@@ -768,6 +778,12 @@ describe("createProductionWardenRuntime", () => {
     expect(runtime.view.posture.audit).toBe(true);
     expect(JSON.parse(readFileSync(capturePath, "utf8"))).toEqual([
       {
+        eventType: "session.start",
+        payload: {
+          sessionId: "ses_01ARZ3NDEKTSV4RRFFQ69G5FAW",
+        },
+      },
+      {
         eventType: "mode.change",
         payload: {
           accepted: true,
@@ -814,6 +830,12 @@ describe("createProductionWardenRuntime", () => {
       "Project Autopilot · phase2a-starter-policy-pack@aaaaaaaaaaaa",
     );
     expect(JSON.parse(readFileSync(capturePath, "utf8"))).toEqual([
+      {
+        eventType: "session.start",
+        payload: {
+          sessionId: "ses_01ARZ3NDEKTSV4RRFFQ69G5FAX",
+        },
+      },
       {
         eventType: "mode.change",
         payload: {
@@ -1238,7 +1260,7 @@ describe("createProductionWardenRuntime", () => {
       }),
     ).rejects.toThrow("cannot combine autonomy posture with a plan approval");
 
-    expect(JSON.parse(readFileSync(capturePath, "utf8"))).toEqual([]);
+    expect(existsSync(capturePath)).toBe(false);
   });
 
   it("selects the Autopilot review principal from the local OS user fallback order", async () => {
@@ -1334,6 +1356,12 @@ describe("createProductionWardenRuntime", () => {
 
     expect(runtime.view.policy.label).toBe("Guided · phase2a-starter-policy-pack@aaaaaaaaaaaa");
     expect(JSON.parse(readFileSync(capturePath, "utf8"))).toEqual([
+      {
+        eventType: "session.start",
+        payload: {
+          sessionId: "ses_01ARZ3NDEKTSV4RRFFQ69G5FAX",
+        },
+      },
       {
         eventType: "mode.change",
         payload: {
@@ -2462,6 +2490,8 @@ describe("createProductionWardenRuntime", () => {
               auditHead: { seq: 0, hash: zeroHash },
               pendingReviews: 0
             });
+          } else if (req.method === "warden.audit.append") {
+            send(req.id, { auditSeq: 1 });
           } else if (req.method === "warden.execute") {
             executeCount += 1;
             if (executeCount === 1) {
@@ -2609,6 +2639,8 @@ describe("createProductionWardenRuntime", () => {
               auditHead: { seq: 0, hash: zeroHash },
               pendingReviews: 0
             });
+          } else if (req.method === "warden.audit.append") {
+            send(req.id, { auditSeq: 1 });
           } else if (req.method === "warden.execute") {
             writeFileSync(capturePath, JSON.stringify(req.params));
             send(req.id, {
@@ -2691,6 +2723,8 @@ describe("createProductionWardenRuntime", () => {
               enforcementTier: "none",
               policyPack: { name: "none", hash: zeroHash }
             });
+          } else if (req.method === "warden.audit.append") {
+            send(req.id, { auditSeq: 1 });
           } else if (req.method === "warden.status") {
             process.stdout.write(JSON.stringify({
               jsonrpc: "2.0",

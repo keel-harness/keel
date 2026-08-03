@@ -11,6 +11,7 @@ import {
   realpathSync,
   rmSync,
   symlinkSync,
+  unlinkSync,
   writeFileSync,
 } from "node:fs";
 import { createServer, type Server } from "node:http";
@@ -2072,6 +2073,50 @@ describe("keel-warden stdio JSON-RPC server", () => {
     );
 
     expect(raw.error.data?.code).toBe("AUDIT_UNAVAILABLE");
+  });
+
+  it("reports active versus indeterminate audit-writer ownership as additive error metadata", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "keel-rpc-audit-owner-state-"));
+    const sessionId = "ses_01ARZ3NDEKTSV4RRFFQ69G5FAY";
+    const auditPath = join(dir, `${sessionId}.jsonl`);
+    const lockPath = `${auditPath}.lock`;
+    const auditLog = new SessionAuditLog({ auditDir: dir, principal: TEST_PRINCIPAL });
+    const appendFrame = request("audit-owner-state", "warden.audit.append", {
+      event: { eventType: "session.start", payload: { sessionId } },
+    });
+    try {
+      writeFileSync(lockPath, `${JSON.stringify({ pid: process.pid, path: auditPath })}\n`);
+      const active = JsonRpcErrorResponse.parse(
+        await handleRpcLine(JSON.stringify(appendFrame), {
+          auditWriter: auditLog,
+          auditDir: dir,
+        }),
+      );
+      expect(active.error.data).toMatchObject({
+        code: "AUDIT_WRITE_FAILED",
+        auditWriterLockState: "active",
+      });
+      expect(readFileSync(lockPath, "utf8")).toBe(
+        `${JSON.stringify({ pid: process.pid, path: auditPath })}\n`,
+      );
+
+      unlinkSync(lockPath);
+      writeFileSync(lockPath, "not-json\n");
+      const indeterminate = JsonRpcErrorResponse.parse(
+        await handleRpcLine(JSON.stringify(appendFrame), {
+          auditWriter: auditLog,
+          auditDir: dir,
+        }),
+      );
+      expect(indeterminate.error.data).toMatchObject({
+        code: "AUDIT_WRITE_FAILED",
+        auditWriterLockState: "indeterminate",
+      });
+      expect(readFileSync(lockPath, "utf8")).toBe("not-json\n");
+    } finally {
+      auditLog.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it("uses the default audit session id when audit.append payload has no valid session id", async () => {

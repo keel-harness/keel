@@ -75,7 +75,8 @@
         "09-file-edit-review-unavailable.png",
         "10-feature-budget-failure.png",
         "11-feature-completion.png",
-        "17-r2-bash-command-failure-after.png"
+        "17-r2-bash-command-failure-after.png",
+        "24-r6-concurrent-resume-after.png"
       ],
       "costCeilingUsd": 2
     },

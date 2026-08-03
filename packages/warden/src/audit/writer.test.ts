@@ -24,7 +24,12 @@ import {
   verifySignedCheckpoint,
   verifyChain,
 } from "@keel/shared";
-import { AuditChainCorruptError, AuditChainWriter, readAuditLog } from "./writer.js";
+import {
+  AuditChainActiveError,
+  AuditChainCorruptError,
+  AuditChainWriter,
+  readAuditLog,
+} from "./writer.js";
 
 const PRINCIPAL: PrincipalT = {
   osUser: "alice",
@@ -446,11 +451,29 @@ describe("AuditChainWriter (warden-owned hash-chained JSONL — Epic 2.6)", () =
 
   it("fails closed on live or malformed writer locks", () => {
     writeFileSync(`${path}.lock`, `${JSON.stringify({ pid: process.pid, path })}\n`);
-    expect(() => open()).toThrow(/active writer lock/);
+    let liveError: unknown;
+    try {
+      open();
+    } catch (error) {
+      liveError = error;
+    }
+    expect(liveError).toBeInstanceOf(AuditChainActiveError);
+    expect(liveError).toMatchObject({ state: "active" });
+    expect(readFileSync(`${path}.lock`, "utf8")).toBe(
+      `${JSON.stringify({ pid: process.pid, path })}\n`,
+    );
 
     unlinkSync(`${path}.lock`);
     writeFileSync(`${path}.lock`, "not-json\n");
-    expect(() => open()).toThrow(/active writer lock/);
+    let indeterminateError: unknown;
+    try {
+      open();
+    } catch (error) {
+      indeterminateError = error;
+    }
+    expect(indeterminateError).toBeInstanceOf(AuditChainActiveError);
+    expect(indeterminateError).toMatchObject({ state: "indeterminate" });
+    expect(readFileSync(`${path}.lock`, "utf8")).toBe("not-json\n");
   });
 
   it("releases the writer lock if opening an existing corrupt chain fails", () => {

@@ -180,6 +180,24 @@
   grantability, enforcement, sandbox profiles, model/tool contracts, audit/session/event schemas,
   and public CLI contracts are unchanged.
 
+## Keel — R6 concurrent-resume preflight candidate
+
+- Every governed run now acquires the existing Warden-owned audit writer during startup by appending
+  the existing `session.start` event before prompt consumption or model work.
+- Concurrent resume fails before paid work with a sanitized session ID and exact supported recovery
+  command. Active and indeterminate ownership preserve the existing lock, make zero model calls,
+  and do not mutate the resumed ledger. A known-dead lock retains the existing one-time reclaim.
+- The existing `AUDIT_WRITE_FAILED` response adds only response-local lock-state metadata; no RPC
+  schema, audit event, policy verdict, enforcement rule, or public CLI contract changed.
+- Red evidence: **5 failed / 104 skipped**, then an RPC red of **1 failed / 321 skipped**. Green:
+  directly affected suites **431/431**; unrestricted full suite **6,471 passed / 20 existing opt-in
+  skips**; changed writer **95.95% statements/lines, 96.77% functions, 93.33% branches**.
+- Product evidence: real production-source CLI, spawned Warden, external Click checkout, and
+  100x30 PTY. The blocked run exited 1 with zero provider requests and unchanged owner lock; clean
+  owner exit released it; retry exited 0 with one local-fixture request and a valid audit chain.
+- Sanitized visual evidence: `screenshots/24-r6-concurrent-resume-after.png`, SHA-256
+  `1bb042ed3c51f67f8478cbbddb7d16b97871512408ba929eb9458368da31d320`. Provider usage: zero.
+
 ## External workload — validated local-only feature
 
 - Commit `941ab66 feat(termui): accept PathLike filenames in edit`.

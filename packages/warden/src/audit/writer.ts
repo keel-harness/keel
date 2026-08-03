@@ -138,9 +138,12 @@ export class AuditChainCorruptError extends Error {
 }
 
 export class AuditChainActiveError extends Error {
-  constructor(message: string) {
+  readonly state: "active" | "indeterminate";
+
+  constructor(message: string, state: "active" | "indeterminate") {
     super(message);
     this.name = "AuditChainActiveError";
+    this.state = state;
   }
 }
 
@@ -177,7 +180,8 @@ function staleLockPid(lockPath: string): number | undefined {
 
 function acquireLock(path: string): { path: string; fd: number } {
   const lockPath = lockPathFor(path);
-  for (let attempt = 0; attempt < 2; attempt += 1) {
+  let mayReclaimKnownDead = true;
+  for (;;) {
     try {
       const fd = openSync(lockPath, "wx");
       try {
@@ -193,20 +197,23 @@ function acquireLock(path: string): { path: string; fd: number } {
       if (
         typeof error !== "object" ||
         error === null ||
-        (error as NodeJS.ErrnoException).code !== "EEXIST" ||
-        attempt > 0
+        (error as NodeJS.ErrnoException).code !== "EEXIST"
       ) {
         throw error;
       }
       const pid = staleLockPid(lockPath);
-      if (pid !== undefined && !processIsAlive(pid)) {
+      const alive = pid === undefined ? undefined : processIsAlive(pid);
+      if (mayReclaimKnownDead && alive === false) {
+        mayReclaimKnownDead = false;
         unlinkSync(lockPath);
         continue;
       }
-      throw new AuditChainActiveError(`audit chain at ${path} already has an active writer lock`);
+      throw new AuditChainActiveError(
+        `audit chain at ${path} already has an active writer lock`,
+        alive === true ? "active" : "indeterminate",
+      );
     }
   }
-  throw new AuditChainActiveError(`audit chain at ${path} already has an active writer lock`);
 }
 
 function releaseLock(lock: { path: string; fd: number }): void {
