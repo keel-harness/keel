@@ -163,3 +163,26 @@ and squash-merged through [PR #85](https://github.com/keel-harness/keel/pull/85)
 byte-identical tree `16336f3`. Exact post-main run `30856149564` passed, including the formerly
 failing macOS installed-carrier package job `91827544534` and `ci-required` job `91829961337`.
 Issue #84 closed, the branch/worktree were removed, and R11's **3.82/5** aggregate is official.
+
+R14 is tracked by [issue #87](https://github.com/keel-harness/keel/issues/87). The local candidate
+replaces the blanket missing-result `execution status is unknown` card with occurrence-indexed,
+process-local controller facts: `not started`, `in flight`, or `completed without a recorded
+result`. A direct reducer boundary remains conservatively `indeterminate` when the runner has no
+fact. No synthetic result, model message, durable event, audit claim, frozen schema, or Warden
+authority is added.
+
+Red-first E2 covers exact occurrence identity, reused IDs, pending mutation-presentation cleanup,
+NO_COLOR headless/Ink rendering, and all three urgent controls. Focused **576/576**, unrestricted
+full coverage **6,539 passed / 20 existing opt-in skips**, lint, typecheck, format, build, package,
+and diff checks pass. The exact installed npm carrier passed all three urgent-control scenarios,
+then the same `/before-next-edit` replay at fixed 80x24 and 100x30. The governed read completed,
+the edit received no durable result, `target.txt` stayed unchanged, and the UI said `not started`
+plus `this tool did not execute`; the old ambiguous copy was absent. All twenty fixture requests
+were loopback-only and Anthropic spend stayed USD 2.74434625.
+
+The visually inspected sanitized 1400x840 transcription
+`screenshots/36-r14-interrupted-mutation-after.png` is the thirty-fourth manifest checkpoint and
+compares directly with R10 screenshot 29. It raises interruption visual hierarchy and final-result
+confidence by two observed points, yielding a **3.85/5 candidate** (239/62). This score is not
+official until reviewed-head and post-main CI pass; the stricter final six-workflow release gate
+remains open.

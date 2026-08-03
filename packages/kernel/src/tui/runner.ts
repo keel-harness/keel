@@ -334,6 +334,12 @@ async function runSessionImpl(
     lastNowMs: number;
     timer: LivenessTimer;
   }
+  interface ToolExecutionOccurrence {
+    readonly itemIndex: number;
+    readonly id: string;
+    state: "requested" | "in-flight" | "completed";
+  }
+  const toolExecutionOccurrences: ToolExecutionOccurrence[] = [];
   let activeToolLiveness: ActiveToolLiveness | undefined;
   let livenessFailure: unknown;
   let livenessFailed = false;
@@ -386,13 +392,12 @@ async function runSessionImpl(
     endToolLiveness(true, false);
     controller.abort();
   };
-  const beginToolLiveness = (id: string): void => {
+  const beginToolLiveness = (occurrence: ToolExecutionOccurrence): void => {
     if (!livenessEnabled) return;
     endToolLiveness(true);
-    const itemIndex = view.items.findIndex(
-      (item) => item.kind === "tool" && item.id === id && item.status === "running",
-    );
-    if (itemIndex < 0) return;
+    const target = view.items[occurrence.itemIndex];
+    if (target?.kind !== "tool" || target.status !== "running" || target.id !== occurrence.id)
+      return;
     const startedAtMs = readPresentationNow();
     const timer = setInterval(() => {
       try {
@@ -403,8 +408,8 @@ async function runSessionImpl(
     }, LIVENESS_TICK_MS);
     (timer as LivenessTimer & { unref?: () => void }).unref?.();
     activeToolLiveness = {
-      itemIndex,
-      id,
+      itemIndex: occurrence.itemIndex,
+      id: occurrence.id,
       startedAtMs,
       lastOutputAtMs: startedAtMs,
       lastNowMs: startedAtMs,
@@ -412,14 +417,32 @@ async function runSessionImpl(
     };
     updateToolLiveness(true);
   };
-  const presentationExecutor: ExecutorPort = livenessEnabled
-    ? {
-        execute(call, options) {
-          beginToolLiveness(call.id);
-          return opts.executor.execute(call, options);
-        },
+  const presentationExecutor: ExecutorPort = {
+    execute(call, options) {
+      const occurrence = toolExecutionOccurrences.find(
+        (candidate) => candidate.id === call.id && candidate.state === "requested",
+      );
+      if (occurrence === undefined) return opts.executor.execute(call, options);
+      occurrence.state = "in-flight";
+      beginToolLiveness(occurrence);
+      let execution: ReturnType<ExecutorPort["execute"]>;
+      try {
+        execution = opts.executor.execute(call, options);
+      } catch (error) {
+        occurrence.state = "completed";
+        throw error;
       }
-    : opts.executor;
+      void execution.then(
+        () => {
+          occurrence.state = "completed";
+        },
+        () => {
+          occurrence.state = "completed";
+        },
+      );
+      return execution;
+    },
+  };
   const disconnectOverlayDismiss = connectOverlayDismiss(opts.ui, () => {
     if (view.overlay === undefined) return;
     const { overlay: _overlay, ...rest } = view;
@@ -765,7 +788,39 @@ async function runSessionImpl(
           ev.type === "run-finished" && controlState !== undefined
             ? { ...ev, usage: controlState.usage }
             : ev;
+        if (ev.type === "run-finished" && toolExecutionOccurrences.length > 0) {
+          // The loop's canonical end closes process-local execution observation before the generic
+          // reducer settlement runs. These occurrence-indexed facts explain only what this runner
+          // directly observed; they do not synthesize a tool result, durable event, or audit claim.
+          endToolLiveness(false);
+          for (const occurrence of toolExecutionOccurrences) {
+            view = reduce(view, {
+              type: "tool-execution-state-at-run-end",
+              itemIndex: occurrence.itemIndex,
+              id: occurrence.id,
+              state:
+                occurrence.state === "requested"
+                  ? "not-started"
+                  : occurrence.state === "in-flight"
+                    ? "in-flight"
+                    : "completed",
+            });
+          }
+          toolExecutionOccurrences.length = 0;
+        }
         view = reduce(view, presentationEvent);
+        if (ev.type === "tool-call") {
+          const itemIndex = view.items.length - 1;
+          const target = view.items[itemIndex];
+          if (target?.kind === "tool" && target.status === "running" && target.id === ev.id) {
+            toolExecutionOccurrences.push({ itemIndex, id: ev.id, state: "requested" });
+          }
+        } else if (ev.type === "tool-result") {
+          const occurrenceIndex = toolExecutionOccurrences.findIndex(
+            (occurrence) => occurrence.id === ev.id,
+          );
+          if (occurrenceIndex >= 0) toolExecutionOccurrences.splice(occurrenceIndex, 1);
+        }
         if (ev.type === "tool-output-delta" && activeToolLiveness?.id === ev.id) {
           const now = readPresentationNow(activeToolLiveness.lastNowMs);
           activeToolLiveness.lastNowMs = now;

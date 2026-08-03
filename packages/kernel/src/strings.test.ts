@@ -35,7 +35,8 @@ describe("kernel strings", () => {
   it("run-end settlement copy does not invent execution truth", () => {
     const message = KERNEL_STRINGS.toolResultMissingAtRunEnd.toLowerCase();
     expect(message).toContain("tool result");
-    expect(message).toContain("unknown");
+    expect(message).toContain("indeterminate");
+    expect(message).toContain("inspect");
     expect(message).not.toContain("not executed");
     expect(message).not.toContain("did not execute");
   });

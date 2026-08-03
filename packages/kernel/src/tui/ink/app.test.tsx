@@ -286,6 +286,47 @@ describe("Ink App (frame snapshots via ink-testing-library)", () => {
     },
   );
 
+  it.each(["not-started", "in-flight", "completed"] as const)(
+    "keeps missing-result lifecycle %s legible in NO_COLOR Ink",
+    (state) => {
+      const restoreEnv = setTerminalEnv({ TERM: "dumb", NO_COLOR: "1" });
+      try {
+        let view = initialView([{ role: "user", content: "edit carefully" }], status);
+        view = reduce(view, {
+          type: "tool-call",
+          id: "edit-1",
+          name: "edit",
+          args: { path: "a.ts", oldString: "before", newString: "after" },
+        });
+        view = reduce(view, {
+          type: "tool-execution-state-at-run-end",
+          itemIndex: view.items.length - 1,
+          id: "edit-1",
+          state,
+        });
+        view = reduce(view, {
+          type: "run-finished",
+          usage: { inputTokens: 1, outputTokens: 1 },
+        });
+        const frame = render(<App view={{ ...view, density: "verbose", awaitingInput: true }} />)
+          .lastFrame()
+          ?.replace(/\s+/gu, " ");
+
+        expect(frame).toContain(
+          state === "not-started"
+            ? "not started"
+            : state === "in-flight"
+              ? "in flight when stopped"
+              : "completed without a recorded result",
+        );
+        expect(frame).not.toContain("execution status is unknown");
+        expect(frame).not.toContain("tool ✓ edit done");
+      } finally {
+        restoreEnv();
+      }
+    },
+  );
+
   it("separates the user group from the Keel response by one restrained blank row", () => {
     const frame =
       render(

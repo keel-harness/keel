@@ -22,6 +22,7 @@ Scores use 1 (unusable) through 5 (excellent). `TBD` means the workflow has not 
 | Refactor | R7 candidate (E2-E5) | 4 | 3 | 4 | 4 | 4 | 4 | 4 | 4 | 3 | 2 | 4 |
 | Interrupt | before | 4 | 4 | 4 | 5 | 4 | 4 | 3 | 4 | N/A | N/A | 4 |
 | Interrupt | R10 candidate (E2-E4) | 5 | 4 | 5 | 5 | 5 | 4 | 4 | 5 | N/A | N/A | 4 |
+| Interrupt | R14 candidate (E2-E4) | 5 | 4 | 5 | 5 | 5 | 5 | 4 | 5 | N/A | N/A | 5 |
 | Warden-heavy | before | 2 | 2 | 2 | 1 | 2 | 2 | 2 | 2 | 2 | 1 | 3 |
 | Warden-heavy | after R1 | 4 | 2 | 2 | 2 | 4 | 3 | 3 | 4 | 3 | 2 | 4 |
 | Warden-heavy | after R1+R5 | 4 | 2 | 2 | 2 | 4 | 4 | 4 | 4 | 4 | 2 | 4 |
@@ -91,3 +92,12 @@ official aggregate is **3.82/5** (237/62); the unweighted mean of the six latest
 **3.84/5**. Passing the aggregate target alone does not pass the stricter release gate:
 per-workflow user-control, trust, recovery, final-confidence, and the final exact-candidate
 six-workflow replay remain required.
+
+R14 repeats R10's urgent pre-edit scenario through the installed carrier at 80x24 and 100x30. The
+same read completes, the edit stays without a durable result, and the file remains unchanged; the
+new receipt says `not started` and `this tool did not execute` instead of making the user interpret
+generic unknown state. Synthetic reducer cases prove in-flight/completed-but-unrecorded outcomes
+remain indeterminate about effects and direct factless settlement stays conservative. This raises
+the directly observed interruption visual-hierarchy and final-confidence cells by two points. The
+evidence-bound aggregate is a **3.85/5 candidate** (239/62), pending reviewed-head and post-main CI;
+the strict final six-workflow gate remains open.

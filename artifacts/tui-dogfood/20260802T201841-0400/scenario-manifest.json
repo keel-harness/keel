@@ -183,7 +183,8 @@
         "29-r10-urgent-pending.png",
         "30-r10-urgent-applied.png",
         "31-r10-budget-pending.png",
-        "32-r10-resume-applied.png"
+        "32-r10-resume-applied.png",
+        "36-r14-interrupted-mutation-after.png"
       ],
       "costCeilingUsd": 1.5
     },

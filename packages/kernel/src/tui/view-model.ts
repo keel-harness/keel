@@ -159,6 +159,17 @@ export type UiInputEventT =
   | { readonly type: "goal-validation-finished" }
   | { readonly type: "interrupted" }
   | {
+      /**
+       * Process-local controller fact for a tool occurrence that reached the canonical run boundary
+       * without an authoritative tool result. This is presentation state only: it is never persisted,
+       * sent to the model, or promoted into a KernelEvent/audit claim.
+       */
+      readonly type: "tool-execution-state-at-run-end";
+      readonly itemIndex: number;
+      readonly id: string;
+      readonly state: "not-started" | "in-flight" | "completed";
+    }
+  | {
       readonly type: "tool-liveness";
       readonly itemIndex: number;
       readonly id: string;
@@ -2335,28 +2346,51 @@ function withoutStreamDeltas(items: readonly ViewItem[]): readonly ViewItem[] {
  * truthful occurrence metadata while removing live-only fields. This remains UI-local: it emits no
  * provider message, session event, audit record, or synthetic tool result.
  */
+function settleRunningTool(
+  item: Extract<ViewItem, { kind: "tool" }>,
+  summary: string,
+): UiToolActivity {
+  const mutationPresentation =
+    item.mutationPresentation?.status === "pending"
+      ? ({ status: "unavailable", reason: "occurrence-ended" } as const)
+      : item.mutationPresentation;
+  const activity: UiToolActivity = {
+    kind: "tool",
+    id: item.id,
+    name: item.name,
+    status: "error",
+    summary,
+    ...(item.subject !== undefined ? { subject: item.subject } : {}),
+    ...(item.diff !== undefined ? { diff: item.diff } : {}),
+    ...(mutationPresentation !== undefined ? { mutationPresentation } : {}),
+  };
+  const stopped = markToolPresentationOutcome(activity, "stopped");
+  transferToolRecoveryIdentity(item, stopped);
+  return stopped;
+}
+
+type MissingToolResultExecutionState = Extract<
+  UiInputEventT,
+  { type: "tool-execution-state-at-run-end" }
+>["state"];
+
+function missingToolResultSummary(state: MissingToolResultExecutionState): string {
+  switch (state) {
+    case "not-started":
+      return "not started: the controller ended the run before invoking this tool; this tool did not execute.";
+    case "in-flight":
+      return "in flight when stopped: the tool was invoked but no result was recorded; effects are indeterminate — inspect the workspace and available audit evidence before retrying.";
+    case "completed":
+      return "completed without a recorded result: the executor invocation settled, but outcome and effects are indeterminate — inspect the workspace and available audit evidence before retrying.";
+  }
+}
+
 function settleRunningToolsAtRunEnd(items: readonly ViewItem[]): readonly ViewItem[] {
   let changed = false;
   const settled = items.map((item): ViewItem => {
     if (item.kind !== "tool" || item.status !== "running") return item;
     changed = true;
-    const mutationPresentation =
-      item.mutationPresentation?.status === "pending"
-        ? ({ status: "unavailable", reason: "occurrence-ended" } as const)
-        : item.mutationPresentation;
-    const activity: UiToolActivity = {
-      kind: "tool",
-      id: item.id,
-      name: item.name,
-      status: "error",
-      summary: KERNEL_STRINGS.toolResultMissingAtRunEnd,
-      ...(item.subject !== undefined ? { subject: item.subject } : {}),
-      ...(item.diff !== undefined ? { diff: item.diff } : {}),
-      ...(mutationPresentation !== undefined ? { mutationPresentation } : {}),
-    };
-    const stopped = markToolPresentationOutcome(activity, "stopped");
-    transferToolRecoveryIdentity(item, stopped);
-    return stopped;
+    return settleRunningTool(item, KERNEL_STRINGS.toolResultMissingAtRunEnd);
   });
   return changed ? settled : items;
 }
@@ -2836,6 +2870,18 @@ export function reduce(view: ViewModel, ev: KernelEventT | UiInputEventT): ViewM
           transferToolRecoveryIdentity(item, withLiveness);
           return withLiveness;
         }),
+      });
+    }
+    case "tool-execution-state-at-run-end": {
+      if (!Number.isSafeInteger(ev.itemIndex) || ev.itemIndex < 0) return view;
+      const target = view.items[ev.itemIndex];
+      if (target?.kind !== "tool" || target.status !== "running" || target.id !== ev.id) {
+        return view;
+      }
+      const settled = settleRunningTool(target, missingToolResultSummary(ev.state));
+      return withDerived({
+        ...view,
+        items: view.items.map((item, index) => (index === ev.itemIndex ? settled : item)),
       });
     }
     case "tool-result": {

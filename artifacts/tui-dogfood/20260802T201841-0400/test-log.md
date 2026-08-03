@@ -795,3 +795,42 @@
 - Issue #84 auto-closed. Canonical `main` was fast-forwarded cleanly; only the canonical worktree and
   local `main` branch remain, and the remote feature branch was absent/pruned. R11's evidence-bound
   aggregate is officially **3.82/5**; the stricter final release gate remains open.
+
+## 2026-08-03 — R14 explicit interrupted-mutation state
+
+- Started from clean synchronized `main` at `7680e7843facc2471f3799588ea21a8d004517dd` after R11's
+  closeout passed exact post-main CI. Published
+  [issue #87](https://github.com/keel-harness/keel/issues/87) before implementation and created the
+  isolated `fix/tui-interrupted-tool-state` worktree.
+- Red-first focused selection failed **4/4** for the intended old-copy reason: one generic string
+  test and three urgent-control runner cases. No unrelated selected test failed.
+- The final five-file E2 suite passes **576/576**. It covers not-started/in-flight/completed states,
+  factless indeterminate fallback, exact occurrence identity, reused IDs, pending mutation evidence,
+  liveness cleanup, all urgent verbs, headless no-color, and real Ink `TERM=dumb` output.
+- Full repository lint, monorepo plus packaging typecheck, format, build, package, and
+  `git diff --check` pass. Unrestricted `corepack pnpm test:cov` passes **6,539 tests / 20 existing
+  opt-in skips** across 362 passing and 4 skipped files; all thresholds pass at 97.99% overall
+  statements/lines and 93.71% branches.
+- The first fresh npm install stalled because the isolated cache could not reach the registry in the
+  managed sandbox. It was cancelled, then the same exact local tarball installed with narrow network
+  permission, scripts disabled, and no global npm change; npm reported zero vulnerabilities.
+- The canonical installed-carrier smoke passed `/now`, `/before-next-edit`, and
+  `/stop-after-current`, four loopback requests apiece, clean exits, one durable read only, and the
+  target unchanged.
+- The first custom 80x24 evidence assertion looked only at the helper's live composer frame after
+  the activity had moved to terminal scrollback. That was an evidence-oracle error, not a product
+  failure. The corrected oracle uses the sanitized full PTY transcript for static history and keeps
+  current-frame checks for stale running state.
+- E3: exact 80x24 and 100x30 installed-carrier runs through spawned Warden and loopback fixture each
+  passed four requests, unchanged target, read-only ledger, clean later turn, and clean teardown.
+  Both transcripts contain `not started` / `this tool did not execute` and exclude the legacy copy.
+- E4: screenshot 36 is a sanitized exact-text 100x30 terminal-frame transcription rasterized at
+  1400x840 and visually inspected. The in-app browser was unavailable; local Quick Look plus an
+  exact top crop produced the PNG. Its SHA-256 is
+  `1ac83da123830f4e29adcc813d69a3d662403f2ca827699b99424006b945ec24`.
+- E5: **NOT_RUN**. Twenty local-fixture requests made zero Anthropic calls. Cumulative spend remains
+  USD 2.74434625, USD 17.25565375 remains, and the final USD 2 reserve is intact.
+- Five-lens QC: spec/ADR preserves the pre-mutation/interrupt contract; security adds no authority or
+  durable claim; reliability covers exact occurrence reuse and factless fallback; DX makes the
+  stopped edit immediately understandable; simplicity adds one process-local state tracker and one
+  reducer event. No local must-fix remains. Candidate score is **3.85/5** (239/62), pending exact CI.

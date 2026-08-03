@@ -617,6 +617,40 @@ describe("headless renderer", () => {
     expect(out).toContain("result: done");
   });
 
+  it.each(["not-started", "in-flight", "completed"] as const)(
+    "renders missing-result lifecycle %s explicitly without color",
+    (state) => {
+      let view = initialView([{ role: "user", content: "edit carefully" }]);
+      view = reduce(view, {
+        type: "tool-call",
+        id: "edit-1",
+        name: "edit",
+        args: { path: "a.ts", oldString: "before", newString: "after" },
+      });
+      view = reduce(view, {
+        type: "tool-execution-state-at-run-end",
+        itemIndex: view.items.length - 1,
+        id: "edit-1",
+        state,
+      });
+      view = reduce(view, {
+        type: "run-finished",
+        usage: { inputTokens: 1, outputTokens: 1 },
+      });
+
+      const frame = renderFrame({ ...view, density: "verbose", awaitingInput: true });
+      expect(frame).toContain(
+        state === "not-started"
+          ? "not started"
+          : state === "in-flight"
+            ? "in flight when stopped"
+            : "completed without a recorded result",
+      );
+      expect(frame).not.toContain("execution status is unknown");
+      expect(frame).not.toContain("tool  ✓ edit");
+    },
+  );
+
   it("the normal status line keeps an absent route explicitly unreported — no trust mode", () => {
     const line = renderStatus({ model: "sonnet", tokens: 12, posture: ALL_OFF_POSTURE });
     expect(line).toContain("sonnet");
