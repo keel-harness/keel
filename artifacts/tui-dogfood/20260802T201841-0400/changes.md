@@ -380,6 +380,25 @@ worktree were removed.
 - Green evidence: focused `2 passed, 244 deselected`; full termui `223 passed, 23 skipped`.
 - Static checks: ruff/mypy/pyright **NOT_RUN** because unavailable.
 
+## Keel — R14 explicit interrupted-mutation state
+
+- Missing-result activities now distinguish exact process-local controller observation:
+  `not started`, `in flight`, or `completed without a recorded result`. The generic reducer-only
+  boundary remains `indeterminate` and directs the user to workspace/audit evidence.
+- The runner keys each occurrence by exact view index and provider ID, changes state immediately
+  before executor invocation and on promise settlement, and removes it on authoritative
+  `tool-result`. Reused IDs cannot settle another activity.
+- Settlement removes liveness/live output and converts pending mutation presentation to an honest
+  occurrence-ended state. No synthetic result, model message, retry, undo, durable event, audit
+  claim, Warden policy, frozen schema, or file-effect inference was added.
+- Red-first selected tests failed **4/4** on the old generic copy. Focused tests now pass **576/576**;
+  unrestricted full coverage passes **6,539 / 20 existing skips** at 97.99% statements/lines and
+  93.71% branches overall. Lint, full typecheck, format, build, package, and diff checks pass.
+- Fresh installed-carrier smoke passed all three urgent verbs. Fixed 80x24/100x30 replays passed
+  the same `/before-next-edit` scenario with the file unchanged, no edit result, explicit
+  not-started copy, and zero paid requests. Screenshot 36 is the visually inspected after frame.
+- Candidate aggregate: **3.85/5** (239/62), pending reviewed-head and post-main CI.
+
 ## Keel — R11 bounded terminal-command recovery
 
 - An exact process-local marker is created only by `WardenExecutor` when a review result is

@@ -554,6 +554,13 @@ ambiguous `execution status is unknown` with controller-derived `not started`, `
 `completed`, or `indeterminate` when those facts exist. Link to bounded mutation evidence and
 honest recovery. Do not infer file state from the model's last sentence.
 
+Status: local candidate complete under [issue #87](https://github.com/keel-harness/keel/issues/87),
+pending reviewed-head and post-main CI. Exact runner occurrence state supplies `not started`, `in
+flight`, or `completed without a recorded result`; direct/factless reducer settlement remains
+`indeterminate`. Focused **576/576**, unrestricted coverage **6,539/20**, static/build/package
+gates, installed-carrier urgent-control smoke, fixed 80x24/100x30 E3, and sanitized E4 pass with
+zero paid calls. Candidate leverage is **3.85/5** (239/62); the final release gate remains open.
+
 ### R15 · high-value flagship — durable diff review
 
 Directly motivated by DF-009/DF-021 and the governing design contract. Once mutation evidence is

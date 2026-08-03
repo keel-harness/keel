@@ -1484,6 +1484,100 @@ describe("view-model reducer", () => {
     expect(v.turnSummary?.answer).toBe("done");
   });
 
+  it.each([
+    {
+      state: "not-started" as const,
+      summary:
+        "not started: the controller ended the run before invoking this tool; this tool did not execute.",
+    },
+    {
+      state: "in-flight" as const,
+      summary:
+        "in flight when stopped: the tool was invoked but no result was recorded; effects are indeterminate — inspect the workspace and available audit evidence before retrying.",
+    },
+    {
+      state: "completed" as const,
+      summary:
+        "completed without a recorded result: the executor invocation settled, but outcome and effects are indeterminate — inspect the workspace and available audit evidence before retrying.",
+    },
+  ])("settles the exact missing-result occurrence as $state", ({ state, summary }) => {
+    let v = initialView([{ role: "user", content: "edit carefully" }]);
+    v = reduce(v, {
+      type: "tool-call",
+      id: "reused",
+      name: "edit",
+      args: { path: "a.ts", oldString: "before", newString: "after" },
+    });
+    const itemIndex = v.items.length - 1;
+    v = reduce(v, {
+      type: "tool-liveness",
+      itemIndex,
+      id: "reused",
+      elapsedMs: 250,
+      quietMs: 100,
+    });
+    v = {
+      ...v,
+      items: v.items.map((item, index) =>
+        index === itemIndex && item.kind === "tool"
+          ? {
+              ...item,
+              liveOutput: "possibly starting",
+              mutationPresentation: { status: "pending" as const },
+            }
+          : item,
+      ),
+    };
+
+    v = reduce(v, {
+      type: "tool-execution-state-at-run-end",
+      itemIndex,
+      id: "reused",
+      state,
+    });
+
+    const stopped = v.items[itemIndex];
+    expect(stopped).toMatchObject({
+      kind: "tool",
+      name: "edit",
+      status: "error",
+      summary,
+      mutationPresentation: { status: "unavailable", reason: "occurrence-ended" },
+    });
+    if (stopped?.kind !== "tool") throw new Error("expected stopped edit activity");
+    expect(toolPresentationOutcome(stopped)).toBe("stopped");
+    expect(stopped).not.toHaveProperty("liveOutput");
+    expect(stopped).not.toHaveProperty("liveness");
+  });
+
+  it("does not settle a different occurrence when an id or item index is stale", () => {
+    let v = initialView([{ role: "user", content: "edit carefully" }]);
+    v = reduce(v, { type: "tool-call", id: "same", name: "read", args: { path: "a.ts" } });
+    v = reduce(v, {
+      type: "tool-call",
+      id: "same",
+      name: "edit",
+      args: { path: "a.ts", oldString: "before", newString: "after" },
+    });
+
+    expect(
+      reduce(v, {
+        type: "tool-execution-state-at-run-end",
+        itemIndex: 1,
+        id: "different",
+        state: "not-started",
+      }),
+    ).toBe(v);
+    expect(
+      reduce(v, {
+        type: "tool-execution-state-at-run-end",
+        itemIndex: 0,
+        id: "same",
+        state: "not-started",
+      }),
+    ).toBe(v);
+  });
+
   it("settles an orphaned running occurrence at run-finished without rewriting settled duplicates", () => {
     let v = initialView([{ role: "user", content: "inspect, then edit" }]);
     v = reduce(v, { type: "tool-call", id: "reused", name: "read", args: { path: "a.ts" } });
@@ -1526,7 +1620,8 @@ describe("view-model reducer", () => {
     expect(v.items[2]).toMatchObject({
       name: "edit",
       status: "error",
-      summary: "stopped: run ended before a tool result was recorded; execution status is unknown.",
+      summary:
+        "indeterminate: run ended before a tool result was recorded; Keel cannot prove whether execution started or what effects occurred. Inspect the workspace and available audit evidence before retrying.",
     });
     const stopped = v.items[2];
     if (stopped?.kind !== "tool") throw new Error("expected stopped edit activity");

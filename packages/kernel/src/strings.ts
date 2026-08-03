@@ -120,7 +120,7 @@ export const KERNEL_STRINGS = {
    * establish whether execution started or what effects occurred.
    */
   toolResultMissingAtRunEnd:
-    "stopped: run ended before a tool result was recorded; execution status is unknown.",
+    "indeterminate: run ended before a tool result was recorded; Keel cannot prove whether execution started or what effects occurred. Inspect the workspace and available audit evidence before retrying.",
 } as const;
 
 /**

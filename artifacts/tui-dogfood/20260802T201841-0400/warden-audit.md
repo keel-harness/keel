@@ -204,3 +204,19 @@ failure did not change a Warden verdict or interrupt count: Keel had rendered th
 posture, but the packaging observer lost the row across a same-read redraw. The observer-only repair
 merged through PR #85 and exact post-main CI `30856149564` passed, so this audit outcome is closed
 without weakening review, sandbox, egress, policy, or approval behavior.
+
+## R14 validation outcome
+
+R14 introduces no human review interrupt or automatic denial, so historical totals remain **6
+total / 2 necessary / 4 excessive or avoidable**. Its installed-carrier replays perform one
+ordinary governed in-workspace read, then urgent steering prevents the proposed edit before the
+executor is invoked. The target remains unchanged and the ledger contains only the read result.
+
+The new execution-state tracker is process-local presentation observation. It is keyed by exact
+view occurrence plus provider ID, cannot issue or approve a tool, cannot alter a policy verdict,
+sandbox/egress profile, grant, audit record, durable session event, RPC/shared schema, or
+model-visible result, and is cleared at the canonical run boundary. `not started` is asserted only
+when the runner did not invoke the executor. In-flight and completed-without-result copies explicitly
+say effects are indeterminate and require workspace/audit inspection before retry. A factless direct
+boundary remains indeterminate. R14 therefore improves explanation without weakening or claiming
+Warden authority.

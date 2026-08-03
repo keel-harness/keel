@@ -1304,7 +1304,7 @@ describe("runner — urgent steering terminal presentation truth (Epic 3.17)", (
         kind: "tool",
         status: "error",
         summary:
-          "stopped: run ended before a tool result was recorded; execution status is unknown.",
+          "not started: the controller ended the run before invoking this tool; this tool did not execute.",
       });
       if (prevented?.kind !== "tool") throw new Error("expected prevented edit activity");
       expect(toolPresentationOutcome(prevented)).toBe("stopped");
@@ -1313,6 +1313,7 @@ describe("runner — urgent steering terminal presentation truth (Epic 3.17)", (
           (item) => item.kind === "tool" && toolPresentationOutcome(item) === "stopped",
         ),
       ).toEqual([prevented]);
+      expect(renderFrame(outcome.finalView)).not.toContain("execution status is unknown");
       expect(renderFrame(outcome.finalView)).toContain(`redrive settled after ${name}`);
 
       const file = readSession(store.id, e);

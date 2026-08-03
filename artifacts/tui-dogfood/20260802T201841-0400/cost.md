@@ -57,6 +57,7 @@ applicable input rate.
 | R10 local urgent-steering replays | 0 | 0 | 0 | 0 | 0.0000 | 2.7443 | 17.2557 |
 | R11 local bounded-recovery replays | 0 | 0 | 0 | 0 | 0.0000 | 2.7443 | 17.2557 |
 | R11 post-main PTY observer repair | 0 | 0 | 0 | 0 | 0.0000 | 2.7443 | 17.2557 |
+| R14 local interrupted-mutation replays | 0 | 0 | 0 | 0 | 0.0000 | 2.7443 | 17.2557 |
 
 Anthropic provider calls: 27 successful, 4 rejected at zero reported usage. R7's two local-fixture
 requests are not Anthropic calls and carry no Anthropic cost. The USD 2.00 final-regression
@@ -88,5 +89,8 @@ USD 2.00 reserve is intact.
 The R11 post-main PTY diagnosis and issue #84 repair used only the already built local npm carrier,
 secret-free local Warden processes, and deterministic byte fixtures. It made zero provider calls,
 so cumulative spend and the final reserve are unchanged.
+R14 used twenty loopback-only fixture requests: twelve across the installed carrier's three urgent
+controls and four at each fixed 80x24/100x30 replay. No Anthropic endpoint or credential was used;
+cumulative spend remains USD 2.74434625, USD 17.25565375 remains, and the USD 2 reserve is intact.
 The R0 manifest caps a future six-workflow replay at
 USD 11.00, below the currently spendable USD 15.2557 after preserving the final USD 2.00 reserve.
