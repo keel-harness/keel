@@ -34,13 +34,16 @@ credentials nor user-home paths.
 
 ## Current gate
 
-All six requested workflow classes have live evidence. Evidence PR #53 and implementation PRs #55
-and #57 were owner-approved, squash-merged, and cleaned up. Exact post-R2 `main` CI run
-`30782086893` passed at `86a6c6e542dc420ae35c932803debc24f4215dad` before R3 began.
+All six requested workflow classes have live evidence. Evidence PR #53 and implementation PRs #55,
+#57, and #59 were owner-approved, squash-merged, and cleaned up. Exact post-R3 `main` CI run
+`30784690703` passed at `990f9904e791f74b80874100544930ace34c0e1a` before R4 began.
 
-The third presentation-truth slice is tracked by
-[issue #58](https://github.com/keel-harness/keel/issues/58). Its local E2/E3/E4 gates are green:
+R3's safe first slice is tracked by [issue #58](https://github.com/keel-harness/keel/issues/58):
 exact edit/write retries reconcile without hiding history, live and resumed receipts show
-`recovered`, malformed or ambiguous histories fail safe, and the original Click workflow is clearer
-at the same 100×30 terminal size. Publication, independent review, merge, and exact post-merge CI
-remain pending.
+`recovered`, and malformed or ambiguous histories fail safe. Generic equivalent-bash recovery and
+compaction timing remain unavailable from the existing controller facts and were not manufactured.
+
+The fourth slice is tracked by [issue #60](https://github.com/keel-harness/keel/issues/60). Candidate
+`cd26923` keeps a 1,634-line mostly unchanged mutation within ADR-0078's existing construction
+budget by factoring exact common edges before bounded middle comparison. E2/E3/E4 and full local
+gates are green; publication, independent review, merge, and exact post-merge CI remain pending.

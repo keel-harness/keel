@@ -214,3 +214,38 @@
   credential, username, or private path.
 - Provider usage: **0 input / 0 output**. The displayed 175 replay tokens came from the deterministic
   recording. Cumulative Anthropic cost remains **USD 2.7109**; the USD 2.00 reserve remains intact.
+
+## 2026-08-03 — R4 bounded mutation review construction
+
+- Verified synchronized `main` at `990f9904e791f74b80874100544930ace34c0e1a`; exact post-R3
+  `main` CI run `30784690703` passed. Opened scoped issue
+  [#60](https://github.com/keel-harness/keel/issues/60) and isolated branch
+  `fix/warden-trim-common-mutation-context` from that exact baseline.
+- Credential-unset offline reproduction against the Click workload edited a 68,669-byte,
+  1,634-line `CHANGES.md`. The mutation succeeded, but live/headless output showed
+  `observation exceeded presentation limits`. Whole-file 1,634 × 1,634 Hirschberg LCS required
+  about 2.67 million comparisons and crossed ADR-0078's unchanged 2,000,000-operation ceiling.
+- First real red: constructor `1 failed / 11 passed`; the new Click-sized regression threw
+  `ConstructionBudgetExceededError` from scalar accounting.
+- Implemented exact common-prefix/suffix factoring around the bounded middle LCS. Edge comparisons
+  use the same scalar accountant. Repeated-line insertion keeps exact source numbers, randomized
+  small comparisons retain reference-LCS cardinality, and a divergent 1,415 × 1,415 middle remains
+  fail-closed.
+- Focused green: constructor `14 passed`; all nine Warden mutation-presentation files `120 passed`;
+  kernel product-path/TUI mutation regression `75 passed`.
+- Full unrestricted unit/property suite: 358 files passed, 4 existing opt-in files skipped; 6,429
+  tests passed and 20 skipped. Enforced coverage passed: Warden 97.61% statements / 91.66% branches;
+  touched constructor 97.81% / 91.46%.
+- Full repository `typecheck`, `lint`, `format`, and `git diff --check` passed. External Click:
+  `227 passed, 23 skipped`.
+- The exact replay after the fix showed `+1 -1`, 1,634 → 1,634 lines, five rows shown, 1,630
+  unchanged rows omitted, and explicit `transition not atomic` / `concurrent mutation not excluded`.
+  Matched sanitized evidence: `screenshots/20-r4-mutation-review-before.png` and
+  `screenshots/21-r4-mutation-review-after.png`, Kitty 100×30.
+- Five-lens review found no unresolved must-fix: accepted ADR-0078 semantics and bounds are
+  preserved; adversarial work still fails closed; line identity/property tests are green; the
+  original workflow is materially clearer; the implementation is one local factoring helper.
+- Security claims affected: **none**. ADR needed: **no**, because no accepted decision or frozen
+  surface changed. Durable/resumed mutation evidence remains explicitly deferred by ADR-0078.
+- Provider usage: **0 input / 0 output**. The displayed 136 replay tokens are synthetic. Cumulative
+  Anthropic cost remains **USD 2.7109**; the USD 2.00 reserve remains intact.

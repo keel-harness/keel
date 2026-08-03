@@ -52,3 +52,16 @@ stating that the sequence recovered. After R3, normal/headless output shows the 
 one controller-owned `recovered` fact; verbose/debug keeps the original blocked attempt. Warden
 verdicts, policy, audit records, model-visible tool results, grantability, and enforcement are
 unchanged.
+
+## R4 validation outcome
+
+R4 introduced no human review interrupt or automatic denial, so the historical totals remain 6
+total / 2 necessary / 4 excessive or avoidable. The deterministic replay performed a current-session
+read followed by one Warden-allowed typed edit of a 1,634-line file.
+
+Before R4, the edit succeeded but the Warden's optional presentation constructor exhausted its
+2,000,000 scalar-operation budget and the TUI could show only generic unavailability. After R4, the
+same decision, mutation, audit sequence, and safety limits produce bounded controller evidence by
+factoring exact common edges before the middle comparison. Genuinely divergent middles still settle
+`capture-budget`; policy, grantability, enforcement, sandboxing, audit, redaction, frozen carriers,
+and resume persistence are unchanged.

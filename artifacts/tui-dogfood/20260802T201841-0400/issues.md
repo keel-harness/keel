@@ -81,6 +81,11 @@
 ### DF-009 — mutation review disappears when observation exceeds presentation limits
 
 - Severity: P1 trust/review.
+- Status: R4 implementation candidate validated under
+  [issue #60](https://github.com/keel-harness/keel/issues/60) at `cd26923`. A 68,669-byte,
+  1,634-line mostly unchanged edit now retains bounded live evidence under unchanged ADR-0078
+  limits. Resume still truthfully says that live observations were not persisted; durable review is
+  a separate frozen-contract decision, not part of this fix.
 - Direct evidence: every edit card showed `review unavailable — observation exceeded presentation
   limits`; after resume, it changed to `live mutation observations were not persisted`.
 - Impact: files can change successfully while the operator sees neither a bounded diff nor durable
@@ -134,9 +139,11 @@
 
 - Severity: P1 trust/audit comprehension.
 - Status: R3 implementation candidate validated under
-  [issue #58](https://github.com/keel-harness/keel/issues/58). Normal/headless output now makes the
-  exact successful retry dominant and emits a controller-owned `recovered` receipt; verbose/debug
-  history retains the prior block. Publication and review remain pending.
+  [issue #58](https://github.com/keel-harness/keel/issues/58), merged in
+  [PR #59](https://github.com/keel-harness/keel/pull/59) at `990f990`. Normal/headless output makes
+  the exact successful retry dominant and emits a controller-owned `recovered` receipt;
+  verbose/debug history retains the prior block. Exact post-merge `main` CI run `30784690703`
+  passed.
 - Direct evidence: audit seq 115 denied the edit, seq 116 read the file, and seq 117/118 allowed and
   completed the edit. The final evidence rail listed only the denial and read, then labeled the run
   `needs attention` / `verification not run` even though the edit and full test file succeeded.

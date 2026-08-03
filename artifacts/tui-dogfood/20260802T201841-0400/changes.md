@@ -35,6 +35,9 @@
 
 ## Keel — validated R3 recovered mutation receipts
 
+- Signed-off commit `a2189c7 fix(tui): reconcile recovered edit outcomes`; merged through
+  [PR #59](https://github.com/keel-harness/keel/pull/59) as `990f990`. Exact post-merge `main` CI
+  run `30784690703` passed and the branch/worktree were removed.
 - Exact process-local operation/path identity reconciles only a terminal non-executed blocked
   `edit`/`write` with a later successful exact retry. Ordinary failed, partial, stopped, ambiguous,
   and different-target attempts remain consequential.
@@ -53,6 +56,32 @@
   skipped`, and sanitized matching Kitty 100×30 captures
   `screenshots/18-r3-recovered-receipt-before.png` and
   `screenshots/19-r3-recovered-receipt-after.png`. Anthropic usage: zero.
+
+## Keel — validated R4 bounded mutation review construction
+
+- Signed-off implementation commit
+  `cd26923 fix(warden): preserve bounded mutation review evidence`; review issue
+  [#60](https://github.com/keel-harness/keel/issues/60).
+- The Warden constructor now factors exact common prefix/suffix line pairs before running bounded
+  Hirschberg LCS on the disjoint middle. Every edge and middle comparison still passes through the
+  existing cooperative scalar accountant.
+- The observed 68,669-byte, 1,634-line Click changelog edit falls from the whole-file 2.67 million
+  comparison shape to bounded common-edge work, so live output retains exact 1,634 → 1,634 totals,
+  five shown rows, 1,630 omitted unchanged rows, and the non-atomic/concurrent-mutation caveats.
+- Repeated-line source numbering and randomized LCS cardinality remain exact. A genuinely divergent
+  middle still fails closed at the unchanged 2,000,000-operation ceiling.
+- Red evidence: `1 failed / 11 passed` with `ConstructionBudgetExceededError` at scalar accounting.
+  Green evidence: constructor `14 passed`; all mutation-presentation Warden tests `120 passed`;
+  kernel product/TUI regression `75 passed`; unrestricted full suite `6,429 passed` with 20 existing
+  opt-in skips; enforced coverage passed at Warden 97.61% statements / 91.66% branches and touched
+  constructor 97.81% / 91.46%.
+- Full typecheck, lint, repository format, and diff check passed. External Click remained green at
+  `227 passed, 23 skipped`.
+- Product evidence: credential-unset offline Warden replay plus matched sanitized Kitty 100×30
+  captures `screenshots/20-r4-mutation-review-before.png` and
+  `screenshots/21-r4-mutation-review-after.png`. Anthropic usage: zero.
+- ADR-0078's process-local/no-resume-persistence rule, every quantitative limit, RPC/audit/session/
+  event schema, redaction, policy, enforcement, and security claims remain unchanged.
 
 ## External workload — validated local-only feature
 
