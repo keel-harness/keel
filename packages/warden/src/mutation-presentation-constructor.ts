@@ -282,6 +282,30 @@ async function lcsMatches(
   await lcsMatches(left, leftMiddle, leftEnd, right, rightMiddle, rightEnd, accountant, output);
 }
 
+async function commonEdgeLengths(
+  left: readonly string[],
+  right: readonly string[],
+  accountant: ScalarAccountant,
+): Promise<{ readonly prefix: number; readonly suffix: number }> {
+  const sharedLength = Math.min(left.length, right.length);
+  let prefix = 0;
+  while (prefix < sharedLength) {
+    if (accountant.compared()) await accountant.flush();
+    if (left[prefix] !== right[prefix]) break;
+    prefix += 1;
+  }
+
+  let suffix = 0;
+  while (suffix < sharedLength - prefix) {
+    const leftIndex = left.length - 1 - suffix;
+    const rightIndex = right.length - 1 - suffix;
+    if (accountant.compared()) await accountant.flush();
+    if (left[leftIndex] !== right[rightIndex]) break;
+    suffix += 1;
+  }
+  return { prefix, suffix };
+}
+
 function rawComparison(
   observed: readonly string[],
   installed: readonly string[],
@@ -432,16 +456,23 @@ async function comparisonForText(
 ): Promise<MutationPresentationV1T["comparison"]> {
   const accountant = new ScalarAccountant(control);
   const matches: Array<readonly [number, number]> = [];
+  const common = await commonEdgeLengths(observed, installed, accountant);
+  for (let index = 0; index < common.prefix; index += 1) {
+    matches.push([index, index]);
+  }
   await lcsMatches(
     observed,
-    0,
-    observed.length,
+    common.prefix,
+    observed.length - common.suffix,
     installed,
-    0,
-    installed.length,
+    common.prefix,
+    installed.length - common.suffix,
     accountant,
     matches,
   );
+  for (let offset = common.suffix; offset > 0; offset -= 1) {
+    matches.push([observed.length - offset, installed.length - offset]);
+  }
   await accountant.flush();
   const raw = rawComparison(observed, installed, matches);
   const admittedRanges = boundedRanges(selectedRanges(raw));
