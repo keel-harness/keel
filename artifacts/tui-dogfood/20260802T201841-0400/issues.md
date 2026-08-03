@@ -270,3 +270,21 @@
   rendered `edit ... execution status is unknown`, and later mutation reviews were unavailable.
 - Impact: the user can steer and stop reliably, but must inspect the diff independently to know
   whether the interrupted edit happened.
+
+### DF-022 — installed-renderer readiness smoke depends on PTY read chunking
+
+- Severity: P0 flaky release gate.
+- Status: deterministic fix candidate under
+  [issue #84](https://github.com/keel-harness/keel/issues/84). Exact-head and post-main CI remain
+  pending.
+- Direct evidence: exact R11 post-main run `30853723890`, macOS package job `91819749594`, failed
+  after 20s with raw SHA-256 `2ec55c36050786f510e75d7badcf592bed429217a57dbe7fbc4e6a8e262287ab`.
+  A secret-safe full projection proves Keel rendered
+  `protection: governed · sbx:on · net:on · policy:Guided · audit:on`; the observer kept only the
+  composer fragment after a same-read cursor boundary. The immediately prior green main run saw
+  readiness in 794ms.
+- Impact: byte-equivalent correct TUI output can pass or fail the package gate solely because the OS
+  split the same PTY bytes differently. Rerunning can hide the defect and falsely bless main.
+- Candidate repair: monotonic launch milestones inspect bounded sanitized history and choose the
+  latest protection row. A later unavailable/off row remains negative. Six consecutive exact-carrier
+  macOS samples pass after the change with clean teardown and no reduced-enforcement acceptance.
