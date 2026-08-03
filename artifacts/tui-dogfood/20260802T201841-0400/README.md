@@ -194,3 +194,19 @@ confidence by two observed points. Candidate `03a6ad2` passed exact reviewed-hea
 `ci-required` job `91840336493`. Issue #87 closed, the branch/worktree were removed, and the
 evidence-bound official score is now **3.85/5** (239/62). The stricter final six-workflow release
 gate remains open.
+
+R12 is locally validated under [issue #91](https://github.com/keel-harness/keel/issues/91). The same
+installed-carrier unfamiliar-repository fixture made thirteen deterministic loopback requests at
+80x24 and 100x30. Baseline rendered eight individual reads plus four individual searches; the
+candidate renders one read group and one search group with exact counts and bounded examples. The
+final answer, governed footer, clean exit, and returned composer are unchanged. `/verbose` and debug
+retain all exact rows, quiet retains its established omission, and consequential evidence never
+groups.
+
+Focused **411/411**, full TUI **1,357/1,357**, unrestricted full coverage and final full suite
+**6,545 / 20 existing opt-in skips**, lint, typecheck, format, build, package, and
+`git diff --check` pass. Screenshots 37–38 are visually inspected sanitized 1400x840 comparison
+transcriptions. R12 made zero Anthropic calls, so cumulative spend remains USD 2.74434625. The
+directly observed onboarding cognitive-load change makes the local candidate score **3.87/5**
+(240/62); publication CI remains pending and the official score remains **3.85/5** until merge
+closeout.

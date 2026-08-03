@@ -2922,6 +2922,65 @@ describe("Ink App (frame snapshots via ink-testing-library)", () => {
     }
   });
 
+  it("commits bounded routine observation groups once in a real 80x24 no-color transcript", async () => {
+    const restoreEnv = setTerminalEnv({ TERM: "dumb", NO_COLOR: "1" });
+    const items: ViewItem[] = [
+      { kind: "message", role: "user", content: "inspect the repository" },
+      ...Array.from({ length: 8 }, (_, index) => ({
+        kind: "tool" as const,
+        id: `read-${String(index)}`,
+        name: "read",
+        status: "ok" as const,
+        summary: `src/file-${String(index)}.ts`,
+      })),
+      ...Array.from({ length: 4 }, (_, index) => ({
+        kind: "tool" as const,
+        id: `search-${String(index)}`,
+        name: "search",
+        status: "ok" as const,
+        summary: `symbol-${String(index)}`,
+      })),
+      { kind: "message", role: "assistant", content: "Architecture explained." },
+    ];
+    const active: ViewModel = {
+      items,
+      status,
+      streaming: true,
+      currentTurn: {
+        doing: "assistant drafting",
+        why: "provider text stream is active",
+        next: "final answer",
+      },
+    };
+    const settled: ViewModel = {
+      items,
+      status,
+      streaming: false,
+      awaitingInput: true,
+    };
+    const { stdout, rendered } = renderWithRealStatic(active, { columns: 80, rows: 24 });
+
+    try {
+      await rendered.waitUntilRenderFlush();
+      stdout.clear();
+      rendered.rerender(<App view={settled} />);
+      await rendered.waitUntilRenderFlush();
+      const committed = stripControl(stdout.output());
+      expect(committed.match(/read: 8 successful observations/gu)).toHaveLength(1);
+      expect(committed.match(/search: 4 successful observations/gu)).toHaveLength(1);
+      expect(committed).not.toContain("what tool read: src/file-2.ts");
+      expect(committed).not.toContain("what tool search: symbol-2");
+
+      stdout.clear();
+      rendered.rerender(<App view={settled} />);
+      await rendered.waitUntilRenderFlush();
+      expect(stripControl(stdout.output())).not.toContain("successful observations");
+    } finally {
+      rendered.unmount();
+      restoreEnv();
+    }
+  });
+
   it("keeps sequential long-session streaming renders bounded and append-only", async () => {
     const history: ViewItem[] = Array.from({ length: 20 }, (_, turn) => [
       { kind: "message", role: "user", content: `history question ${turn + 1}` } as const,

@@ -380,6 +380,30 @@ worktree were removed.
 - Green evidence: focused `2 passed, 244 deselected`; full termui `223 passed, 23 skipped`.
 - Static checks: ruff/mypy/pyright **NOT_RUN** because unavailable.
 
+## Keel — R12 calm routine evidence density candidate
+
+- Published [issue #91](https://github.com/keel-harness/keel/issues/91) before implementation and
+  reproduced the current installed carrier at 80x24 and 100x30: eight reads plus four searches
+  became twelve uncapped completion rows.
+- Added a presentation-only grouping pass for repeated successful exact `read` and `search`
+  evidence in normal/calm mode. Each row starts with the exact occurrence count, keeps at most two
+  source-ordered unique examples, and is bounded to 120 display cells.
+- `/verbose` and debug retain exact individual rows; quiet retains omission. A failure, review,
+  blocked/limited/partial outcome, mutation, or nonroutine tool remains ungrouped.
+- Red-first regression failed **2 / 91 selected** for the expected twelve-row output. Focused
+  behavior later passed **411/411** and the full TUI directory passed **1,357/1,357**.
+- Unrestricted full coverage and the final unrestricted suite pass **6,545 tests / 20 existing
+  opt-in skips** with zero failures; lint, typecheck, format, build, package, and `git diff --check`
+  pass. The exact installed tarball SHA-256 is
+  `651a5efe94e45fabc2592dffd61ad13e4babed6d2a66777d94752489bb929878`.
+- Exact-carrier E3 passes at 80x24 and 100x30 with thirteen requests, exit 0, returned composer, one
+  read group, and one search group. Transcript SHA-256 values are
+  `63f3fc2cf9f961f7ac559c53e6e9ccf70b854d3e1d6b4e0b131740b4452c6290` and
+  `eaeec91b18e84f02240d8e39e063dd87799fa425c1da2516cc6f8561ea57d60d`.
+- E4 screenshots 37–38 are sanitized 1400x840 comparison transcriptions; E5 is **NOT_RUN** because
+  grouping is deterministic controller presentation and the production provider boundary was
+  exercised by the loopback fixture. Publication commit and CI remain pending.
+
 ## Keel — R14 explicit interrupted-mutation state
 
 - Missing-result activities now distinguish exact process-local controller observation:
