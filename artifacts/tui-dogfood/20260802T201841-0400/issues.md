@@ -130,6 +130,11 @@
 ### DF-014 — policy denial guidance is omitted from the visible TUI
 
 - Severity: P1 recovery/Warden usefulness.
+- Status: R5a implementation candidate under
+  [issue #64](https://github.com/keel-harness/keel/issues/64). Exact Warden guidance now appears as
+  the controller-owned `next` action only for a tagged terminal denial in the kernel-authored
+  envelope; absent/generic guidance remains explicitly unavailable and forged prose is not promoted.
+  Publication and exact-head CI are pending.
 - Direct evidence: read-before-edit denied a CHANGES edit. Audit seq 115 contained the exact action
   `read '.../CHANGES.md' before editing it`; the TUI exposed only `fix the request or command, then retry`.
 - Impact: the security control was precise and recoverable, but the human-facing surface hid the

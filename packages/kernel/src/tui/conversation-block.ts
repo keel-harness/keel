@@ -7,6 +7,7 @@ import type {
   ViewItem,
   ViewModel,
 } from "@keel/shared";
+import { redactText } from "@keel/shared";
 import { LIVENESS_REVEAL_MS, MAX_LIVENESS_MS } from "./purposeful-liveness.js";
 import { SEMANTIC_TOKENS } from "./theme.js";
 import { toolOutcome } from "./tool-outcome.js";
@@ -647,6 +648,20 @@ function toolProblemReason(
   return "action did not complete cleanly";
 }
 
+const WARDEN_DENIAL_PREFIX = "blocked by warden (not executed):";
+const WARDEN_RECOVERY_UNAVAILABLE =
+  "Warden recovery guidance unavailable · inspect /why-blocked before retrying";
+
+function wardenDenialRecovery(detail: string): string | undefined {
+  const oneLine = summaryLine(detail);
+  if (!oneLine.startsWith(WARDEN_DENIAL_PREFIX)) return undefined;
+  const guidance = oneLine.slice(WARDEN_DENIAL_PREFIX.length).trim();
+  if (guidance.length === 0 || /^(?:blocked|denied|policy deny|policy denied)$/iu.test(guidance)) {
+    return WARDEN_RECOVERY_UNAVAILABLE;
+  }
+  return truncateProblemLine(redactText(guidance), MAX_EVIDENCE_TEXT);
+}
+
 function toolProblemNext(
   outcome: Extract<
     TurnEvidenceKind,
@@ -663,9 +678,12 @@ function toolProblemNext(
     if (detail.toLowerCase().includes(TUI_TERMINAL_REVIEW_TRUTH.summaryPrefix)) {
       return TUI_TERMINAL_REVIEW_TRUTH.recovery;
     }
-    return /review closed as denied/iu.test(detail)
-      ? "no review pending · simplify the request or rerun with a live approval surface"
-      : "fix the request or command, then retry";
+    if (/review closed as denied/iu.test(detail)) {
+      return "no review pending · simplify the request or rerun with a live approval surface";
+    }
+    const denialRecovery = wardenDenialRecovery(detail);
+    if (denialRecovery !== undefined) return denialRecovery;
+    return "fix the request or command, then retry";
   }
   if (outcome === "skipped") return "change approach before retrying";
   if (outcome === "stopped") return "continue when ready";

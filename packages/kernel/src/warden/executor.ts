@@ -2,6 +2,7 @@ import type { z } from "zod";
 import {
   Principal,
   ProvenanceContext,
+  redactText,
   SessionId,
   WARDEN_METHODS,
   type ExecutorExecutionOptions,
@@ -273,7 +274,8 @@ function replaceControlCharacters(value: string): string {
 }
 
 function oneLineControlStripped(value: string): string {
-  return replaceControlCharacters(stripAnsiCsi(value)).replace(/\s+/gu, " ").trim();
+  const oneLine = replaceControlCharacters(stripAnsiCsi(value)).replace(/\s+/gu, " ").trim();
+  return redactText(oneLine);
 }
 
 function renderModifiedArgs(modifiedArgs: ExecuteResult["modifiedArgs"]): string | undefined {

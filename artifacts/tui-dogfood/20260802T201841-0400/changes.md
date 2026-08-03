@@ -106,6 +106,32 @@
 - A credential-unset real PTY replay at 100x30 reproduced 6 workflows, 11 score axes, 19 safe
   checkpoint basenames, the expected `bash-render-mismatch`, and 0 provider calls. No new visual
   capture was needed because R0 changes the test harness rather than the TUI.
+- Signed-off reviewed head `9e10c7f` passed exact-head CI run `30788707053`; PR #63 squash-merged
+  as `05452ec`. Candidate and merge trees are identical, exact post-merge `main` CI run
+  `30789072222` passed, and the branch/worktree were removed.
+
+## Keel — R5a actionable Warden denial guidance candidate
+
+- Public parent issue [#64](https://github.com/keel-harness/keel/issues/64) splits denial recovery
+  from allowed-action containment so each slice uses only existing authoritative facts.
+- A terminal `blocked` tool result in the exact kernel-authored
+  `blocked by warden (not executed):` envelope now renders `what · why · next`, with the Warden's
+  safe guidance as `next`. Empty or generic guidance says recovery guidance is unavailable and
+  points to `/why-blocked`; it is never inferred.
+- Promotion requires the controller-owned `blocked` presentation tag as well as the closed envelope.
+  An ordinary or model-authored failed edit that copies the text cannot manufacture Warden evidence.
+- Guidance is ANSI/control stripped, redacted at the executor boundary and again at presentation,
+  normalized to one line, and bounded to 120 display cells. Existing terminal-review recovery copy
+  still takes precedence.
+- A real 100x30 PTY reducer replay exposed and fixed a live-edit ordering defect that the initial
+  direct-view test missed. Live and resumed history now present the same exact recovery.
+- Product evidence is `screenshots/22-r5a-denial-guidance-after.png`, a sanitized terminal-frame
+  transcription of the real-PTY replay. It is not labeled as a live Kitty capture.
+- Green evidence: focused **473 passed**; full kernel **4,075 passed / 2 existing skips**; unrestricted
+  full suite **6,456 passed / 20 existing opt-in skips** with enforced coverage at 98.02% statements
+  / 93.73% branches. Repository typecheck, lint, format, build, and diff check passed.
+- Provider usage is zero. Policy verdicts, grantability, Warden enforcement, model-visible result
+  bytes except secret redaction, audit/session/event/RPC schemas, and CLI behavior are unchanged.
 
 ## External workload — validated local-only feature
 

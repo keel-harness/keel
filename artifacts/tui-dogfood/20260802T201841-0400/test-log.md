@@ -299,3 +299,46 @@
   was **NOT_RUN** because R0 changes no runtime/visual behavior; E5 was **NOT_RUN** with zero spend.
 - Provider usage: **0 input / 0 output**. Cumulative Anthropic cost remains **USD 2.7109**; remaining
   budget is **USD 17.2891**, including the intact USD 2.00 final-regression reserve.
+
+## 2026-08-03 — R0 publication closeout
+
+- Reviewed head `9e10c7fb0974076792fd7ee7b431d6ebbf1b8f7e` passed exact-head CI run
+  `30788707053`.
+- PR [#63](https://github.com/keel-harness/keel/pull/63) was squash-merged under the owner's separate
+  admin authorization as `05452ec46eddcd7d09cdb4b342f8865ad93fb8a2`.
+- Reviewed-head and merge trees are identical at `8f34d1c61ceff71237fea8368c55c11902a37863`.
+- Exact post-merge `main` CI run `30789072222` passed. The primary checkout was fast-forwarded and
+  the merged branch/worktree and deleted remote tracking ref were removed.
+
+## 2026-08-03 — R5a actionable Warden denial guidance
+
+- Verified clean synchronized `main` at `05452ec46eddcd7d09cdb4b342f8865ad93fb8a2` after exact
+  post-R0 CI. Opened parent [issue #64](https://github.com/keel-harness/keel/issues/64) and isolated
+  branch `fix/tui-warden-denial-guidance` from that exact baseline.
+- A frozen offline install first stopped because a required package tarball was absent. The exact
+  lockfile graph was then installed with `corepack pnpm install --frozen-lockfile --ignore-scripts`;
+  no lifecycle script, dependency, or lockfile change occurred.
+- First real red: **5 failed / 293 passed**. Exact read-before-edit guidance was not the visible safe
+  next action, generic guidance had no honest unavailable state, and executor output did not redact
+  a credential-shaped fixture.
+- The first implementation passed **298 focused tests**. A credential-unset 100x30 real PTY replay
+  then exposed a live-only edit-shortcut defect: live output remained generic while resume was exact.
+- Second red: a realistic reducer regression failed **1 test / 135 skipped**. The ordering fix then
+  passed, and final focused executor/conversation/headless/view-model regression passed **473 tests**.
+- One initial final-focused command was **NOT_RUN** because `pnpm --filter ... exec vitest` changed
+  the working directory while the selectors were root-relative; Vitest collected no files. The
+  corrected root invocation above is the valid result.
+- E3: deterministic controller replay through a real 100x30 PTY showed exact recovery guidance with
+  no ANSI or secret output. E4: `screenshots/22-r5a-denial-guidance-after.png` is a visually inspected
+  local rasterization of that sanitized PTY text; the in-app browser and detached Kitty window were
+  unavailable, so it is not claimed as a live-window capture. E5: **NOT_RUN**, zero provider use.
+- Full kernel regression passed **4,075 tests with 2 existing opt-in skips**. The first restricted
+  repository coverage attempt was **partial/invalid** because six loopback proxy cases hit the outer
+  harness's `listen EPERM`; it passed 6,449 tests with 20 skips before that boundary failure. The
+  exact-code unrestricted rerun passed **6,456 tests with 20 existing opt-in skips**.
+- Enforced coverage passed at 98.02% statements / 93.73% branches / 99.58% functions / 98.02%
+  lines repository-wide; kernel measured 97.85% / 94.60% and Warden 97.61% / 91.68% for statements /
+  branches.
+- The first final static pass found one Prettier-only failure in the corrected live-denial condition;
+  the formatter was applied to that file. Exact-candidate repository typecheck, lint, format, build,
+  and `git diff --check` then passed. No test or gate was weakened.

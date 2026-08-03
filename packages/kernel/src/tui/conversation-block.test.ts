@@ -1687,6 +1687,84 @@ describe("conversationPlan", () => {
     });
   });
 
+  it("keeps exact Warden denial guidance as the unresolved safe next action", () => {
+    const guidance =
+      "edit: read 'CHANGES.md' before editing it - keel requires reading a file this session before editing it";
+    const base = view([
+      user("update CHANGES.md"),
+      markToolPresentationOutcome(
+        {
+          kind: "tool",
+          id: "edit-1",
+          name: "edit",
+          status: "error",
+          summary: `blocked by warden (not executed): ${guidance}`,
+        } as const,
+        "blocked",
+      ),
+    ]);
+    const summary = buildTurnSummary(base);
+    const plan = conversationPlan({
+      ...base,
+      ...(summary === undefined ? {} : { turnSummary: summary }),
+    });
+    const turn = plan.blocks.find((block) => block.kind === "turn");
+
+    expect(turn?.kind).toBe("turn");
+    if (turn?.kind !== "turn") return;
+    expect(turn.evidence?.lines[0]).toMatchObject({
+      kind: "blocked",
+      why: "the warden denied the action before execution",
+      next: guidance,
+    });
+    expect(turn.evidence?.lines[0]?.text).toContain(
+      "edit: blocked by warden (not executed): edit: read 'CHANGES.md'",
+    );
+  });
+
+  it("does not invent recovery when a Warden denial has no useful guidance", () => {
+    const base = view([
+      user("update CHANGES.md"),
+      problem("edit-1", "blocked by warden (not executed): denied", "blocked"),
+    ]);
+    const summary = buildTurnSummary(base);
+    const plan = conversationPlan({
+      ...base,
+      ...(summary === undefined ? {} : { turnSummary: summary }),
+    });
+    const turn = plan.blocks.find((block) => block.kind === "turn");
+
+    expect(turn?.kind).toBe("turn");
+    if (turn?.kind !== "turn") return;
+    expect(turn.evidence?.lines[0]?.next).toBe(
+      "Warden recovery guidance unavailable · inspect /why-blocked before retrying",
+    );
+  });
+
+  it("bounds, de-controls, and redacts denial recovery guidance", () => {
+    const secret = "sk-ant-api03-abcDEF123456789_ghijklmnop-qrstuvwxyz0123456789AA";
+    const guidance = `POL-002 deny: ${secret} ${"wide ".repeat(40)}read CHANGES.md before editing\u001b[2J`;
+    const base = view([
+      user("update CHANGES.md"),
+      problem("edit-1", `blocked by warden (not executed): ${guidance}`, "blocked"),
+    ]);
+    const summary = buildTurnSummary(base);
+    const plan = conversationPlan({
+      ...base,
+      ...(summary === undefined ? {} : { turnSummary: summary }),
+    });
+    const turn = plan.blocks.find((block) => block.kind === "turn");
+
+    expect(turn?.kind).toBe("turn");
+    if (turn?.kind !== "turn") return;
+    const next = turn.evidence?.lines[0]?.next ?? "";
+    expect(next).toContain("read CHANGES.md before editing");
+    expect(next).toContain("[redacted:anthropic-key]");
+    expect(next).not.toContain(secret);
+    expect(next).not.toContain("\u001b");
+    expect(terminalDisplayWidth(next)).toBeLessThanOrEqual(120);
+  });
+
   it("does not repeat a long failed tool when its derived receipt is truncated", () => {
     const failure =
       "blocked by warden (not executed): POL-002 deny: write outside workspace; use a path under the workspace or declared temp root";

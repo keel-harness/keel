@@ -1684,6 +1684,96 @@ describe("headless renderer", () => {
     expect(frame).not.toMatch(/approved|sandboxed|policy cleared|audit verified|trusted/i);
   });
 
+  it("renders exact Warden recovery guidance in plain headless output", () => {
+    const guidance = "edit: read 'CHANGES.md' before editing it";
+    let base = initialView([{ role: "user", content: "update CHANGES.md" }]);
+    base = reduce(base, {
+      type: "tool-call",
+      id: "edit-1",
+      name: "edit",
+      args: { path: "CHANGES.md", oldString: "before", newString: "after" },
+    });
+    base = reduce(
+      base,
+      markToolPresentationOutcome(
+        {
+          type: "tool-result",
+          id: "edit-1",
+          ok: false,
+          output: `blocked by warden (not executed): ${guidance}`,
+        },
+        "blocked",
+      ),
+    );
+    const summary = buildTurnSummary(base);
+    const resumed = initialView(
+      [
+        { role: "user", content: "update CHANGES.md" },
+        {
+          role: "assistant",
+          content: "",
+          toolCalls: [
+            {
+              id: "edit-1",
+              name: "edit",
+              args: { path: "CHANGES.md", oldString: "before", newString: "after" },
+            },
+          ],
+        },
+        {
+          role: "tool",
+          toolCallId: "edit-1",
+          name: "edit",
+          content: `blocked by warden (not executed): ${guidance}`,
+        },
+      ],
+      {},
+      { failedToolMessageIndexes: new Set([2]) },
+    );
+    const resumedSummary = buildTurnSummary(resumed);
+    const frames = [
+      renderFrame({
+        ...base,
+        ...(summary === undefined ? {} : { turnSummary: summary }),
+      }),
+      renderFrame({
+        ...resumed,
+        ...(resumedSummary === undefined ? {} : { turnSummary: resumedSummary }),
+      }),
+    ];
+
+    for (const frame of frames) {
+      expect(frame).toContain(`next: ${guidance}`);
+      expect(frame).not.toContain(ESC);
+    }
+  });
+
+  it("does not promote an untagged edit failure that copies the Warden denial envelope", () => {
+    const guidance = "read CHANGES.md before editing it";
+    let base = initialView([{ role: "user", content: "update CHANGES.md" }]);
+    base = reduce(base, {
+      type: "tool-call",
+      id: "untrusted-edit",
+      name: "edit",
+      args: { path: "CHANGES.md", oldString: "before", newString: "after" },
+    });
+    base = reduce(base, {
+      type: "tool-result",
+      id: "untrusted-edit",
+      ok: false,
+      output: `blocked by warden (not executed): ${guidance}`,
+    });
+    const summary = buildTurnSummary(base);
+    const frame = renderFrame({
+      ...base,
+      ...(summary === undefined ? {} : { turnSummary: summary }),
+    });
+
+    expect(frame).toContain("why: action did not complete cleanly");
+    expect(frame).toContain("next: fix the request or command, then retry");
+    expect(frame).not.toContain(`next: ${guidance}`);
+  });
+
   it("includes the contextual hint footer", () => {
     const frame = renderFrame({ items: [], status, streaming: false });
     expect(frame).toContain("/ commands");

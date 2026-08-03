@@ -24,3 +24,9 @@ runway, input-history resume, and command-detail ranking remain unresolved.
 
 R0 does not change a workflow score. It freezes these eleven axes and the six scenario inputs so
 later score changes must compare like with like; the evidence-weighted aggregate remains **3.31/5**.
+
+R5a materially improves the reproduced DF-014 denial-recovery checkpoint: the before frame exposed
+only generic retry copy, while the same tagged denial now shows the exact controller-owned safe next
+action in live and resumed output. This is directional evidence for debugging recovery and Warden
+usefulness, not a score promotion: R5b containment rationale and the full R5 workflow rerun are still
+pending, so the aggregate remains **3.31/5**.
