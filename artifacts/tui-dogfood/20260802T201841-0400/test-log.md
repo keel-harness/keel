@@ -446,9 +446,23 @@
   owner exit/release, recovered exit 0, exactly one local-fixture request, and a valid audit chain.
 - E4: `screenshots/24-r6-concurrent-resume-after.png` is a visually inspected 1400x840 sanitized
   terminal-frame transcription of the exact PTY message. It is not claimed as a live-window
-  capture. SHA-256 `1bb042ed3c51f67f8478cbbddb7d16b97871512408ba929eb9458368da31d320`.
+  capture. Corrected SHA-256 `bdb193d28c9db3b38b3fa6ceab3b7b37201cb6ba41015898d9b477bd51f7eea6`.
 - E5: **NOT_RUN**; Anthropic usage and spend are zero. Cumulative spend remains **USD 2.7109** and
   the USD 2.00 final-regression reserve remains intact.
 - Final candidate gates passed: affected suites **431/431**, repository typecheck, lint, format,
   build, `git diff --check`, and real SRT denial/credential/address-guard probes **18/18** with the
   checked-in fixture CA configured before Node startup.
+
+## 2026-08-03 — R6 evidence-path correction
+
+- Post-merge verification found that the image inspected before PR #68 was an untracked raster in
+  the primary checkout, while the same relative path staged from the isolated worktree still held
+  the earlier mostly blank crop. The implementation and PTY transcript were unaffected, but the E4
+  claim and documented hash were invalid.
+- Re-rasterized directly to the exact correction-worktree path, opened that same absolute file with
+  the image inspector, and confirmed the full terminal message plus both bottom outcome lines are
+  legible. The corrected PNG is 1400x840, 84,271 bytes, SHA-256
+  `bdb193d28c9db3b38b3fa6ceab3b7b37201cb6ba41015898d9b477bd51f7eea6`.
+- This is an evidence-only correction: no runtime, test, policy, schema, audit, security claim, or
+  provider use changed. The manifest existence regression and repository format/diff checks pass;
+  exact-head CI remains required before the correction merges.

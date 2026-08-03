@@ -196,7 +196,8 @@
   100x30 PTY. The blocked run exited 1 with zero provider requests and unchanged owner lock; clean
   owner exit released it; retry exited 0 with one local-fixture request and a valid audit chain.
 - Sanitized visual evidence: `screenshots/24-r6-concurrent-resume-after.png`, SHA-256
-  `1bb042ed3c51f67f8478cbbddb7d16b97871512408ba929eb9458368da31d320`. Provider usage: zero.
+  `bdb193d28c9db3b38b3fa6ceab3b7b37201cb6ba41015898d9b477bd51f7eea6`. The exact committed
+  absolute path was visually inspected after correcting the initial bad crop. Provider usage: zero.
 
 ## External workload — validated local-only feature
 
