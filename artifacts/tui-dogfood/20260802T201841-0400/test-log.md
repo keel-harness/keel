@@ -752,3 +752,36 @@
   dependency or new authority.
 - Candidate aggregate is **3.82/5** (237/62), pending reviewed-head CI, merge, exact post-main CI,
   and cleanup.
+
+## 2026-08-03 — R11 publication and P0 PTY observer repair
+
+- R11 candidate `d371b5382df60c5ade5090f97feddd2351b77ca5` passed exact reviewed-head CI run
+  `30853223179`, including DCO, build/coverage, security, sandbox-real, package, Node-next, and the
+  egress matrix. It merged through PR #83 as `cb15763cf847ed4d404edf834793b36265f70360`.
+  Candidate and merge trees are both `f763182c43b038dcf820badcc23be0a329e45cba`; canonical main
+  was fast-forwarded cleanly and the R11 worktree/local/remote feature branches were removed.
+- Exact post-main CI run `30853723890` completed red. The only product job failure was macOS package
+  job `91819749594`; `ci-required` correctly failed downstream. The installed production renderer
+  timed out after 20s with raw SHA-256
+  `2ec55c36050786f510e75d7badcf592bed429217a57dbe7fbc4e6a8e262287ab`.
+- Raw-log and local exact-carrier diagnosis reproduced that SHA. The normal retained tail showed only
+  the blank composer; a secret-safe full projection showed the complete governed `sbx:on/net:on`
+  row immediately before a cursor-redraw boundary and incremental composer rows. `current_frame`
+  discarded the factual row when both arrived in one `os.read`, so the input probe was never sent.
+  The previous green main run `30846494256` observed the same status in 794ms.
+- The local executor sandbox initially produced a different, valid `sbx:off` negative because it
+  denied proxy binding with `listen EPERM 127.0.0.1`; that infrastructure result was not conflated
+  with the CI defect. Direct unrestricted Warden probing returned `sandbox:srt`, and all exact
+  installed-carrier validation used a secret-free loopback environment.
+- Published issue #84 before code. The new Python regression and its Vitest carrier both failed red
+  because launch-history observation did not exist. After the narrow helper and call-site change,
+  Python passes **2/2** and the Vitest carrier passes **1/1**. The positive fixture puts governed
+  truth and the following redraw in one byte buffer; the negative fixture puts a newer unavailable
+  row after an older governed row.
+- The exact installed npm carrier then passed **6/6** consecutive macOS 80x24 real-PTY samples.
+  Every sample reported `sbx:on`, `net:on`, exit 0, clean process-group teardown, readiness in
+  471–615ms, and probe render in 5–6ms. No Anthropic call was made.
+- Final local gates pass: Python **2/2**, focused Vitest/product **23/23**, unrestricted full tests
+  and coverage **6,529 passed / 20 existing opt-in skips**, all enforced thresholds at 98.00%
+  lines/statements, 93.73% branches, and 99.59% functions overall, typecheck, lint, format, build,
+  and `git diff --check`. Reviewed-head CI, merge, and exact post-main CI remain pending.

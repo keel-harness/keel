@@ -416,6 +416,27 @@ worktree were removed.
   and clean Click state. Candidate score is **3.82/5** (237/62). Exact-head CI, merge, post-main CI,
   issue closeout, and branch/worktree cleanup remain required.
 
+## Keel — P0 PTY readiness observer repair
+
+- R11 implementation commit `d371b53` passed reviewed-head CI run `30853223179` and merged through
+  PR #83 as `cb15763`; candidate and squash-merge trees are both `f763182`. Its worktree and feature
+  branches were removed.
+- Exact post-main run `30853723890` exposed a P0 flaky release observer in macOS package job
+  `91819749594`. Keel rendered the factual governed row, but a following incremental cursor redraw
+  in the same PTY read made `current_frame` discard it before the launch probe checked readiness.
+- Issue #84 scopes the repair to monotonic startup observation. The observer now checks bounded,
+  secret-sanitized render history for first paint, latest protection truth, and its owned input
+  probe. Interactive command waits and captured evidence retain current-frame behavior.
+- A deterministic Python red plus Vitest carrier failed before the helper existed. Positive coverage
+  reproduces the exact governed-row/redraw ordering; a negative control proves a later unavailable
+  row cannot reuse older governed history.
+- The exact installed npm carrier passes six consecutive governed 80x24 samples after the fix,
+  with readiness in 471–615ms, clean exit 0, and process groups reaped. No timeout, retry, security
+  assertion, test, or product behavior was weakened. Python **2/2**, focused **23/23**, unrestricted
+  full tests and coverage **6,529 passed / 20 existing opt-in skips**, all enforced thresholds at
+  98.00% lines/statements and 93.73% branches overall, typecheck, lint, format, build, and
+  `git diff --check` pass. Exact reviewed-head and post-main CI remain pending.
+
 ## External workload — validated local-only bug fix
 
 - Commit `21a08e3 fix(termui): flush buffered progress on exit`.

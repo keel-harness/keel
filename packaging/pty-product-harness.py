@@ -262,10 +262,15 @@ def assert_artifact_safe(text: str) -> None:
 def _visible_terminal_frame(
     raw: bytes | bytearray, *, allow_incomplete: bool = False
 ) -> tuple[str, bool]:
-    projected, complete = sanitize_terminal(
-        raw, mark_redraws=True, allow_incomplete=allow_incomplete
-    )
+    projected, complete = _visible_terminal_history(raw, allow_incomplete=allow_incomplete)
     return (current_frame(projected) if complete else ""), complete
+
+
+def _visible_terminal_history(
+    raw: bytes | bytearray, *, allow_incomplete: bool = False
+) -> tuple[str, bool]:
+    """Return bounded sanitized render history without discarding incremental redraw fragments."""
+    return sanitize_terminal(raw, mark_redraws=True, allow_incomplete=allow_incomplete)
 
 
 def _safe_observation_tail(raw: bytes | bytearray) -> str:
@@ -510,7 +515,7 @@ def run_launch_sample(
                 if not chunk:
                     break
                 raw.extend(chunk)
-                visible, complete = _visible_terminal_frame(raw, allow_incomplete=True)
+                visible, complete = _visible_terminal_history(raw, allow_incomplete=True)
                 if not complete:
                     continue
                 now = time.monotonic()

@@ -140,3 +140,22 @@ coverage **6,528 passed / 20 existing opt-in skips**, all enforced thresholds at
 and 93.73% branches overall, typecheck, lint, format, build, and `git diff --check`. The exact
 80x24/100x30 PTY replay was repeated after this fix and retained result SHA-256 `97e78a47…` with
 eight local-fixture requests, zero paid requests, and clean Click state.
+
+R11 implementation commit `d371b53` passed exact reviewed-head CI run `30853223179`, then
+squash-merged through [PR #83](https://github.com/keel-harness/keel/pull/83) as `cb15763` with
+byte-identical tree `f763182`. The feature worktree and local/remote branch were removed. Exact
+post-main run `30853723890` nevertheless failed, so R11 is not yet recorded as closed green: the
+macOS installed-carrier PTY observer discarded a rendered governed status row when a later cursor
+redraw arrived in the same OS read. The product rendered `sbx:on` and `net:on`; success depended on
+PTY chunk timing.
+
+The release-gate flake is tracked by [issue #84](https://github.com/keel-harness/keel/issues/84).
+Its deterministic red-first fix keeps monotonic startup milestones on the bounded sanitized render
+history while leaving interactive current-frame semantics unchanged. A newer unavailable/off row
+still overrides older governed history. The exact installed carrier now passes six consecutive
+macOS 80x24 samples with governed sandbox/egress truth and clean process-group teardown. This repair
+changes no product behavior or score and uses no Anthropic call. Python **2/2**, focused **23/23**,
+full tests and coverage **6,529 passed / 20 existing opt-in skips**, all enforced thresholds at
+98.00% lines/statements and 93.73% branches overall, typecheck, lint, format, build, and
+`git diff --check` pass locally. Exact-head and post-main CI remain required before the R11 score
+becomes official.
