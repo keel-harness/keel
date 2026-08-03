@@ -12,6 +12,8 @@ import { LIVENESS_REVEAL_MS, MAX_LIVENESS_MS } from "./purposeful-liveness.js";
 import { SEMANTIC_TOKENS } from "./theme.js";
 import { toolOutcome } from "./tool-outcome.js";
 import { truncateDisplayCells } from "./display-cells.js";
+import { oneLineText } from "../control-strip.js";
+import { visibleTerminalText } from "./visible-text.js";
 import {
   isHiddenInDensity,
   leadingSystemEnd,
@@ -209,6 +211,30 @@ interface MutableTurn {
 
 const MAX_RECEIPT_TEXT = 72;
 const MAX_EVIDENCE_TEXT = 120;
+const ACTIVE_TASK_PREFIX = "task · ";
+
+/** Source-faithful active-task copy for the mutable cockpit. This repeats only the already-visible
+ * initiating user message: it strips terminal controls/ANSI, redacts known secret shapes, makes
+ * remaining invisible scalars explicit, normalizes whitespace, and clips at a whole grapheme. */
+export function activeTaskRow(content: string, maxCells: number): string | undefined {
+  const cells = Number.isFinite(maxCells) ? Math.max(0, Math.floor(maxCells)) : 0;
+  const task = visibleTerminalText(redactText(oneLineText(content)));
+  if (task.length === 0 || cells === 0) return undefined;
+  return truncateDisplayCells(`${ACTIVE_TASK_PREFIX}${task}`, cells);
+}
+
+/** One active cockpit hierarchy: source task first, then controller-owned action/diagnostics. */
+export function activeTurnRows(
+  task: string,
+  turn: UiCurrentTurn,
+  density: UiDensity | undefined,
+  maxCells: number,
+): readonly string[] {
+  const taskRow = activeTaskRow(task, maxCells);
+  return taskRow === undefined
+    ? currentTurnRows(turn, density)
+    : [taskRow, ...currentTurnRows(turn, density)];
+}
 
 export function currentTurnRows(
   turn: UiCurrentTurn,

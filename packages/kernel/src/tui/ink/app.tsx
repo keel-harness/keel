@@ -30,7 +30,7 @@ import { approvalNoticePlan, approvalNoticeRows } from "../approval-notice.js";
 import { compactStat, effectiveDiffMode, moreHint, planDiffLayout } from "../diff.js";
 import type { DiffRender } from "../diff.js";
 import {
-  currentTurnRows,
+  activeTurnRows,
   isRoutineSuccessfulTool,
   visibleTurnItemsWithIndexes,
   type ConversationBlock,
@@ -1163,18 +1163,32 @@ function AttentionRail({
 function CurrentTurn({
   turn,
   density,
+  task,
 }: {
   turn: UiCurrentTurn;
   density: ViewModel["density"];
+  task?: string;
 }): React.JSX.Element {
+  const { stdout } = useStdout();
+  const columns = typeof stdout.columns === "number" ? stdout.columns : 80;
+  const rows = activeTurnRows(task ?? "", turn, density, responseSurfaceColumns(columns));
   return (
     <Box flexDirection="column" marginLeft={2}>
-      {currentTurnRows(turn, density).map((row, index) => (
-        <Text key={row} dimColor={index > 0}>
-          {index === 0 ? <Text color={THEME.info}>{row.slice(0, "working".length)}</Text> : null}
-          {index === 0 ? row.slice("working".length) : row}
-        </Text>
-      ))}
+      {rows.map((row) => {
+        const label = row.startsWith("task · ")
+          ? "task"
+          : row.startsWith("working · ")
+            ? "working"
+            : undefined;
+        return (
+          <Text key={row} dimColor={label === undefined}>
+            {label !== undefined ? (
+              <Text color={label === "task" ? THEME.accent : THEME.info}>{label}</Text>
+            ) : null}
+            {label === undefined ? row : row.slice(label.length)}
+          </Text>
+        );
+      })}
     </Box>
   );
 }
@@ -1256,7 +1270,7 @@ function TurnBlock({
       ))}
       {block.evidence !== undefined ? <EvidenceCard card={block.evidence} /> : null}
       {block.currentTurn !== undefined ? (
-        <CurrentTurn turn={block.currentTurn} density={view.density} />
+        <CurrentTurn turn={block.currentTurn} density={view.density} task={block.user.content} />
       ) : null}
       {block.summary !== undefined ? <FinalCard card={block.summary} /> : null}
     </Box>
@@ -1351,13 +1365,6 @@ function IncrementalLiveTurn({
   currentWrapColumns: number;
   projectionFor: AssistantProjectionFor;
 }): React.JSX.Element {
-  const tailItem = block.items.at(-1);
-  const assistantStreamOwnsActivity =
-    view.streaming &&
-    block.endIndex === view.items.length - 1 &&
-    tailItem?.kind === "message" &&
-    tailItem.role === "assistant";
-  const assistantStreamHasContent = assistantStreamOwnsActivity && tailItem.content.length > 0;
   const visible = visibleTurnItemsWithIndexes(block.items, view.density, {
     suppressFailedTools: block.suppressFailedTools === true,
     suppressEvidenceItems: block.suppressEvidenceItems === true,
@@ -1373,7 +1380,6 @@ function IncrementalLiveTurn({
       isRoutineSuccessfulTool(item)
     );
   });
-  const showCurrentTurn = block.currentTurn !== undefined && !assistantStreamHasContent;
   return (
     <Box flexDirection="column" marginBottom={1}>
       {visible.map(({ item, index, assistantRole }) => {
@@ -1421,8 +1427,8 @@ function IncrementalLiveTurn({
         );
       })}
       {block.evidence !== undefined ? <EvidenceCard card={block.evidence} /> : null}
-      {showCurrentTurn && block.currentTurn !== undefined ? (
-        <CurrentTurn turn={block.currentTurn} density={view.density} />
+      {block.currentTurn !== undefined ? (
+        <CurrentTurn turn={block.currentTurn} density={view.density} task={block.user.content} />
       ) : null}
     </Box>
   );

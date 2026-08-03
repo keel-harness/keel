@@ -125,3 +125,14 @@ They cannot allow, deny, grant, batch, remember, or reinterpret an action. The s
 was prevented before any new tool request existed, while the existing successful read receipt stayed
 visible. Policy, grantability, sandboxing, egress enforcement, audit format, and Warden RPC are
 unchanged.
+
+## R8 validation outcome
+
+R8 introduced no human review interrupt or automatic denial, so historical totals remain 6 total /
+2 necessary / 4 excessive or avoidable. The local and live product replays each used one trusted,
+bounded in-workspace `read`; both completed through the spawned Warden without asking for authority.
+
+R8 changes presentation only. It repeats the already-visible initiating user prompt in one bounded,
+sanitized active-task row and does not change a Warden verdict, grant, batching rule, policy input,
+sandbox profile, egress rule, RPC, audit record, or model-visible tool result. Focused approvals and
+foreground panels retain viewport ownership.

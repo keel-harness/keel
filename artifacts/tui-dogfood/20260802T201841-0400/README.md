@@ -18,7 +18,7 @@ Evidence classes are kept separate:
 
 - E2: automated tests and headless rendering.
 - E3: real PTY/product-path interaction.
-- E4: Kitty window captures at a fixed representative terminal size.
+- E4: fixed-size visual captures or exact-frame transcriptions, with provenance stated per slice.
 - E5: live Anthropic provider calls with ledger-derived usage.
 
 Secrets are never written to these artifacts. Captures must show neither provider
@@ -34,10 +34,10 @@ credentials nor user-home paths.
 
 ## Current gate
 
-All six requested workflow classes have live evidence. Evidence PR #53 and implementation PRs #55,
-#57, #59, and #61, plus repeatability PR #63, were owner-approved, squash-merged, and cleaned up.
-R0 reviewed-head CI run `30788707053` and exact post-merge `main` CI run `30789072222` passed;
-the reviewed and merge trees are identical.
+All six requested workflow classes have live evidence. Evidence PR #53; implementation PRs #55,
+#57, #59, #61, #65, #66, #68, and #71; repeatability PR #63; and R6 evidence correction PR #69
+were owner-approved, squash-merged, and cleaned up. Each merged slice passed its reviewed-head and
+post-merge `main` gates.
 
 R3's safe first slice is tracked by [issue #58](https://github.com/keel-harness/keel/issues/58):
 exact edit/write retries reconcile without hiding history, live and resumed receipts show
@@ -70,14 +70,15 @@ Warden audit writer before prompt/model work, so a concurrent resume fails with 
 requests, unchanged lock/ledger state, and an exact recovery command. Exact post-main CI run
 `30801280763` passed; branches/worktrees were removed.
 
-R7 is tracked by [issue #70](https://github.com/keel-harness/keel/issues/70). Its local candidate
-distinguishes gross runway from effective-cost budget, warns visibly once, and stops before a
-provider request whose estimated input cannot fit the remaining gross cap. A production source CLI,
-spawned Warden, external Click checkout, fixed 100x30 PTY, and local fixture proved exactly one
-request at stop plus successful evidence restoration through `keel --continue`. Required Anthropic
-E5 then passed with the same source CLI and external checkout: one governed read consumed 3,346
-input / 89 output tokens, the 6,500-token runway stopped before a second call, and a fresh-budget
-continuation returned `CONTINUED.` using 3,835 input / 6 output tokens. Ledger-reconciled incremental
-cost was USD 0.0168; the candidate now awaits exact-head CI and merge proof.
+R7 merged through [PR #71](https://github.com/keel-harness/keel/pull/71) as `5e6999c`. Reviewed-head
+CI run `30828066275` and post-merge `main` run `30828529420` passed; its branch/worktree were removed.
+The bounded live read/continuation cost USD 0.0168 and preserved the final-test reserve.
 
-The manifest now tracks twenty-three safe screenshot checkpoints after adding the R7 after frame.
+R8 is tracked by [issue #72](https://github.com/keel-harness/keel/issues/72). Its local candidate
+keeps one sanitized, secret-redacted, grapheme-safe `task · …` row above controller activity during
+provider wait, Warden request checking, tool execution, and assistant streaming. Routine evidence
+yields row priority at 80x24 and 100x30; approvals and foreground panels retain focus; settled and
+one-shot output omit the task chrome. E2 through E5 pass locally, including a live governed read.
+Exact-head CI and merge proof remain required.
+
+The manifest now tracks twenty-four unique safe screenshot checkpoints after adding the R8 frame.

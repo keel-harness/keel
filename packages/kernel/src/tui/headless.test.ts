@@ -15,6 +15,7 @@ import {
 } from "./view-model.js";
 import { resolveAutonomyPosture } from "../autopilot/posture.js";
 import { EGRESS_ADDRESS_GUARD_CAPABILITY, wardenStatusViewConfig } from "../warden/status.js";
+import { graphemeSpans, terminalDisplayWidth } from "./display-cells.js";
 
 const ESC = String.fromCharCode(27); // ANSI escapes start with this byte
 const BEL = String.fromCharCode(7);
@@ -58,6 +59,119 @@ function governedStatus(
 }
 
 describe("headless renderer", () => {
+  it("keeps one bounded, source-faithful task line beside active controller state only", () => {
+    const secret = "sk-ant-api03-abcDEF123456789_ghijklmnop-qrstuvwxyz0123456789AA";
+    const prompt = `Inspect\u001b[31m the repo\u001b[0m\nthen\tfix ${secret} ${"without rewriting the task ".repeat(8)}`;
+    const active: ViewModel = {
+      items: [
+        { kind: "message", role: "user", content: prompt },
+        ...Array.from({ length: 12 }, (_, index) => ({
+          kind: "tool" as const,
+          id: `read-${String(index)}`,
+          name: "read",
+          status: "ok" as const,
+          summary: `README slice ${String(index)}`,
+        })),
+        { kind: "message", role: "assistant", content: "Still inspecting." },
+      ],
+      status,
+      streaming: true,
+      currentTurn: {
+        doing: "assistant drafting",
+        why: "provider text stream is active",
+        next: "tool call or final answer",
+      },
+    };
+
+    const frame = renderFrame(active);
+    const taskRows = frame.split("\n").filter((line) => line.startsWith("task · "));
+    expect(taskRows).toHaveLength(1);
+    expect(taskRows[0]).toContain("Inspect the repo then fix [redacted:anthropic-key]");
+    expect(taskRows[0]).not.toContain(secret);
+    expect(taskRows[0]).not.toContain("[31m");
+    expect(taskRows[0]).toMatch(/…$/u);
+    expect(terminalDisplayWidth(taskRows[0] ?? "")).toBeLessThanOrEqual(78);
+    expect(frame.indexOf("task · ")).toBeLessThan(frame.indexOf("working · assistant drafting"));
+
+    const oneShot = renderFrame(active, true, false);
+    expect(oneShot).not.toContain("task · ");
+    expect(oneShot).toContain("README slice 0");
+    const { currentTurn: _activeTurn, ...withoutActiveTurn } = active;
+    void _activeTurn;
+    expect(
+      renderFrame({ ...withoutActiveTurn, streaming: false, awaitingInput: true }),
+    ).not.toContain("task · ");
+  });
+
+  it("uses additional task cells at 100 columns without exceeding either terminal width", () => {
+    const active: ViewModel = {
+      items: [
+        {
+          kind: "message",
+          role: "user",
+          content: "inspect the repository and identify the correct implementation surface ".repeat(
+            4,
+          ),
+        },
+      ],
+      status,
+      streaming: true,
+      currentTurn: {
+        doing: "waiting for assistant",
+        why: "the provider has not produced a visible event yet",
+        next: "assistant response or tool request",
+      },
+    };
+    const taskRow = (frame: string): string =>
+      frame.split("\n").find((line) => line.startsWith("task · ")) ?? "";
+    const narrow = taskRow(renderFrame(active, true, true, 80));
+    const wide = taskRow(renderFrame(active, true, true, 100));
+
+    expect(terminalDisplayWidth(narrow)).toBeLessThanOrEqual(78);
+    expect(terminalDisplayWidth(wide)).toBeLessThanOrEqual(98);
+    expect(terminalDisplayWidth(wide)).toBeGreaterThan(terminalDisplayWidth(narrow));
+  });
+
+  it.each([
+    ["CJK", "修正してください".repeat(20)],
+    ["emoji", "👩🏽‍💻".repeat(50)],
+    ["combining", "e\u0301".repeat(100)],
+    ["unbroken", "x".repeat(200)],
+  ])("clips an active %s task at whole graphemes with an explicit ellipsis", (_label, prompt) => {
+    const frame = renderFrame({
+      items: [{ kind: "message", role: "user", content: prompt }],
+      status,
+      streaming: true,
+      currentTurn: {
+        doing: "waiting for assistant",
+        why: "the provider has not produced a visible event yet",
+        next: "assistant response or tool request",
+      },
+    });
+    const row = frame.split("\n").find((line) => line.startsWith("task · ")) ?? "";
+    const clippedSource = row.slice("task · ".length, -"…".length);
+
+    expect(row).toMatch(/…$/u);
+    expect(terminalDisplayWidth(row)).toBeLessThanOrEqual(78);
+    expect(graphemeSpans(clippedSource).every((span) => prompt.includes(span.text))).toBe(true);
+  });
+
+  it("omits an empty active-task row without hiding truthful controller activity", () => {
+    const frame = renderFrame({
+      items: [{ kind: "message", role: "user", content: " \n\t\u001b[31m\u001b[0m " }],
+      status,
+      streaming: true,
+      currentTurn: {
+        doing: "waiting for assistant",
+        why: "the provider has not produced a visible event yet",
+        next: "assistant response or tool request",
+      },
+    });
+
+    expect(frame).not.toContain("task · ");
+    expect(frame).toContain("working · waiting for assistant");
+  });
+
   it("renders messages + tool activity as plain lines with no ANSI", () => {
     const view: ViewModel = {
       items: [
@@ -282,6 +396,7 @@ describe("headless renderer", () => {
 
     expect(frame).toContain("approval required");
     expect(frame).not.toContain("then deploy");
+    expect(frame).not.toContain("task · run make");
     expect(frame).not.toContain("working · running make");
     expect(frame).not.toContain("old warning");
     expect(frame).not.toContain("rail:");

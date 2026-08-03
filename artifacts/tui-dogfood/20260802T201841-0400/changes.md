@@ -229,7 +229,41 @@
   3,164-input-token second request. `--continue` restored seven messages and a new no-tool
   instruction returned exactly `CONTINUED.`. Ledger usage was 3,346 input / 89 output, then 3,835
   input / 6 output; incremental cost was USD 0.0168 and cumulative spend is USD 2.7277. No external
-  file changed, no human Warden interrupt occurred, and exact-head CI remains the merge gate.
+  file changed and no human Warden interrupt occurred. Reviewed-head CI `30828066275` and
+  post-merge `main` CI `30828529420` passed; PR #71 merged as `5e6999c` and was cleaned up.
+
+## Keel — R8 persistent active-task candidate
+
+- The mutable cockpit now pairs one source-faithful `task · …` row with the existing controller-owned
+  `working · …` state during provider wait, Warden request checking, tool execution, and assistant
+  streaming. The row is ANSI/control-safe, secret-redacted, invisible-scalar-safe, whitespace
+  normalized, and clipped at a whole grapheme to the real response width.
+- Routine evidence yields row priority at 80x24 and 100x30. Focused approvals and foreground panels
+  still own the viewport; settled turns and one-shot machine output receive no task chrome.
+- Red-first coverage produced 13 intended failures. Focused suites pass **430/430**; the final
+  unrestricted full suite passes **6,492 / 20 existing opt-in skips**. Typecheck, lint, format,
+  build, and `git diff --check` pass.
+- Whole-repository coverage is honestly **non-green** because the instrumented local process was
+  killed with exit 137 before summary. Bounded changed-file coverage passed **250/250**:
+  `conversation-block.ts` is 98.38% statements/lines and 94.94% branches; `headless.ts` is 97.83%
+  statements/lines and 93.11% branches. Both clear the kernel floor; Ink is policy-excluded and
+  covered by real-render tests.
+- Product replay: production source CLI, spawned Warden, external Click, fixed 80x24 and 100x30
+  PTYs, and a non-secret local fixture. Four fixture requests covered provider wait and assistant
+  stream at both sizes; each active frame contained exactly one task row, settlement removed it,
+  both sessions exited 0, and Click stayed clean.
+- Sanitized visual evidence: `screenshots/26-r8-active-objective-after.png`, visually inspected at
+  1400x840, SHA-256 `28f37d0d67bddd6f0733f33c7bc4c3a8ab32c38663876dacc7305bad982cf8ba`.
+- Required live Anthropic E5 passed at 100x30. The task row survived provider wait, read checking,
+  successful read, next-provider wait, and assistant streaming, then disappeared at settlement.
+  The read returned `## Version 8.5.0`; aggregate usage was 6,999 input / 110 output (4 fresh /
+  3,735 cache write / 3,260 cache hit), incremental cost USD 0.0166, cumulative USD 2.7443. No
+  Warden interrupt or external mutation occurred. Exact-head CI remains the merge gate.
+- Five-lens review found no must-fix: issue scope, sanitization/focus boundaries, narrow-terminal and
+  Unicode behavior, before/after developer utility, and implementation simplicity all pass without
+  changing authority, contracts, or dependencies.
+- Reconciled behavior/artifact tests pass **469/469**; the exact candidate passes repository
+  typecheck, lint, format, build, and `git diff --check`.
 
 ## External workload — validated local-only feature
 

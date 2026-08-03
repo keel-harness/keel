@@ -14,8 +14,8 @@ import {
 } from "./assistant-prose.js";
 import { commandGroups, commandRow } from "./commands.js";
 import {
+  activeTurnRows,
   conversationPlan,
-  currentTurnRows,
   isTerminalRunNotice,
   isRoutineSuccessfulTool,
   toolEvidenceLineForItem,
@@ -27,6 +27,7 @@ import {
   type TurnEvidencePresentation,
   type TurnSummaryPresentation,
 } from "./conversation-block.js";
+import { responseSurfaceColumns } from "./row-budget.js";
 import { compactStat, effectiveDiffMode, moreHint, visibleDiffText } from "./diff.js";
 import { hintFooter } from "./hints.js";
 import { toolCardPlan } from "./tool-card.js";
@@ -207,6 +208,7 @@ function renderConversationPlan(
   plan: ConversationPlan,
   interactive: boolean,
   retainSuccessfulTools: boolean,
+  terminalColumns: number,
 ): string {
   const blocks = plan.blocks.flatMap((block) => {
     if (block.kind === "items") {
@@ -264,7 +266,14 @@ function renderConversationPlan(
     if (!interactive && block.runControlReceipt !== undefined)
       parts.push(renderRunControlReceipt(block.runControlReceipt));
     if (interactive && block.currentTurn !== undefined)
-      parts.push(renderCurrentTurn(block.currentTurn, view.density));
+      parts.push(
+        renderCurrentTurn(
+          block.currentTurn,
+          view.density,
+          view.overlay === undefined ? block.user.content : undefined,
+          terminalColumns,
+        ),
+      );
     if (interactive && block.summary !== undefined) parts.push(renderTurnSummary(block.summary));
     return [parts.join("\n\n")];
   });
@@ -334,8 +343,15 @@ function renderQueuedInputs(inputs: readonly UiQueuedInput[]): string {
   return queuedInputLine(inputs) ?? "";
 }
 
-function renderCurrentTurn(turn: UiCurrentTurn, density: ViewModel["density"]): string {
-  return currentTurnRows(turn, density).join("\n");
+function renderCurrentTurn(
+  turn: UiCurrentTurn,
+  density: ViewModel["density"],
+  task?: string,
+  terminalColumns = 80,
+): string {
+  return activeTurnRows(task ?? "", turn, density, responseSurfaceColumns(terminalColumns)).join(
+    "\n",
+  );
 }
 
 function renderTurnEvidence(card: TurnEvidencePresentation): string {
@@ -407,7 +423,12 @@ function renderTurnSummary(card: TurnSummaryPresentation): string {
 /** Serialize a view to deterministic plain text (no ANSI) — for `keel run -p`, CI, and goldens.
  *  Messages get blank-line separation; consecutive tool lines stay tight. `verbose` defaults to `true`
  *  (every existing caller / golden unchanged); `false` hides the leading system preamble (DX bug a). */
-export function renderFrame(view: ViewModel, verbose = true, interactive = true): string {
+export function renderFrame(
+  view: ViewModel,
+  verbose = true,
+  interactive = true,
+  terminalColumns = 80,
+): string {
   const blocks: string[] = [];
   // The first-run brand banner leads the frame (plain mono here); the honest posture line follows in
   // the trailer. Rendered from the flag, not a transcript item, so it never lingers after the first turn.
@@ -422,7 +443,7 @@ export function renderFrame(view: ViewModel, verbose = true, interactive = true)
   const items =
     interactive && view.activeApproval !== undefined
       ? ""
-      : renderConversationPlan(view, plan, interactive, !interactive && verbose);
+      : renderConversationPlan(view, plan, interactive, !interactive && verbose, terminalColumns);
   if (items.length > 0) blocks.push(items);
   const trailer = renderTrailerBlocks(view, interactive, plan);
   // Foreground overlays are one compact shell surface in Ink; keep their status/composer rows
