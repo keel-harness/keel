@@ -1454,3 +1454,36 @@
 - This evidence-only closeout adds no provider calls, Warden reviews, runtime behavior, contract,
   dependency, security claim, or score change. Branch/worktree and task-root cleanup follows this
   evidence merge; the final same-commit six-workflow replay remains open.
+
+## 2026-08-04 — R23 performance and resource confidence
+
+- Started from clean exact main `864474d`, tree `d783fb6`, on isolated branch/worktree
+  `dogfood/r23-performance-resource`. Exact local tarball SHA-256 is
+  `2dcd1b25652771f93ffe9a369110631dabedd9fa64996f7f2306f6b660c8648c`; installed with lifecycle
+  scripts disabled. External Click stayed clean at `edda51f`.
+- First dense distribution passed product/oracle integrity for **20/20 launches + 10/10 active
+  runs**. Cold p95: 44.667 ms first paint, 755.808 ms governed ready, 11.131 ms idle input. Active
+  p95: 46.779 ms typing, 16.591 ms first controller state, 20.940 ms request-to-execution, and
+  2,023.361 ms liveness. Peak/settled p95: 247,152/198,992 KiB.
+- Frozen R23 diagnostic bounds before confirmation: peak <=256 MiB, absolute settled <=224 MiB,
+  settled growth <=16 MiB, returned frame <=16 rows, retained terminal stream <=32 KiB, survivors 0.
+- A sparse ten-run timing control initially failed only because the observer incorrectly required a
+  sparsely sampled peak to cover an independent idle sample. The mode was made explicit without
+  weakening dense resource evidence. Corrected control passed **10/10** with provider-to-request
+  p95 31.634 ms, settlement-to-final p95 30.414 ms, active input p95 35.468 ms, and liveness p95
+  2,020.642 ms.
+- Confirmation passed product/oracle integrity for another **20/20 launches + 10/10 active runs**.
+  Active timing, peak RSS, absolute settled RSS, rows, bytes, result retention, and teardown pass.
+  Governed-ready p95 is 1,050.430 ms and one settled-growth sample is +26,176 KiB, so the frozen
+  startup and growth confidence thresholds fail and are not raised.
+- Combined governed-ready p95 across 40 accepted launches is 1,049.076 ms; 10/40 are at or above
+  750 ms and 3/40 exceed 1,000 ms. A snapshot-disabled diagnostic (not acceptance evidence) passes
+  **20/20** at p95 631.637 ms / max 673.559 ms. Current snapshot component p95 is 199.455 ms.
+  Issue #127 owns a narrow, red-first scheduling/copy-path optimization that must preserve the
+  mandatory pre-action recovery guarantee.
+- R23 makes zero provider calls, incurs zero Warden reviews, changes no product code or score, and
+  keeps P1-007 failed. Exact report/frame hashes and all rejected calibrations are in session log 27.
+- Unchanged focused coverage passed **5 Vitest files / 99 tests** and **2/2** direct Python observer
+  tests. The first Python command incorrectly used a dotted module path for a non-package directory
+  and failed import with zero tests; direct-file invocation passed. `pnpm format` and diff checks
+  pass. `pnpm lint` and all workspace plus packaging typechecks pass.

@@ -470,3 +470,35 @@
   #123 closed automatically with the merge.
 - Boundaries: no Warden verdict, policy, sandbox, egress, grant, audit, public CLI, frozen contract,
   dependency, or security-claim change. Native Linux terminal-emulator validation is **NOT_RUN**.
+
+### DF-028 — mandatory snapshot contention pushes governed-ready tail over budget
+
+- Severity: P1 perceived-startup responsiveness.
+- Status: open under [issue #127](https://github.com/keel-harness/keel/issues/127); no product fix is
+  claimed by R23.
+- Direct evidence: exact-carrier distributions total 40 governed launches. Combined governed-ready
+  p95 is 1,049.076 ms; 10/40 samples are at or above the spec's 750 ms target and 3/40 exceed the
+  R17 1,000 ms observational bound. All samples still render honest first paint, reach governed
+  posture, accept application-owned input, exit zero, and reap their process group.
+- Diagnosis: disabling only the disposable run-start snapshot for a diagnostic 20-launch ablation
+  yields p95 631.637 ms / max 673.559 ms. The production snapshot is mandatory and remains enabled;
+  code inspection and component timing show it currently contends with parallel Warden startup.
+- Planned repair: sequence Warden readiness before the still-pre-action snapshot and use the safe
+  recursive-copy fast path only when the private destination is outside the workspace. Red-first
+  ordering/copy-path tests and exact-carrier p95 decide whether either candidate is retained.
+- Boundaries: no snapshot default/opt-out, post-action backup, timeout/retry, threshold change,
+  Warden/enforcement/audit change, dependency, telemetry, frozen contract, or public CLI change.
+
+### DF-029 — packaged full-process-group RSS remains outside generic confidence
+
+- Severity: P1 resource confidence; existing named residual P1-007.
+- Status: open/accepted only as a named pre-alpha residual; R23 does not promote it to green.
+- Direct evidence: first/confirmation dense peak p95 values are 247,152/244,432 KiB for the complete
+  Kernel + Warden group—inside the scoped 256 MiB R23 alert bound but not the separate `<150 MB`
+  generic Kernel 200-turn target. The protocols are not identical, so no cross-protocol percentage
+  claim is made.
+- Settlement evidence: absolute settled p95 passes the frozen 224 MiB R23 bound in both runs, but
+  one confirmation sample grows 26,176 KiB from its own initial idle, exceeding the frozen 16 MiB
+  allowance. It is retained as a failure rather than discarded or normalized away.
+- Boundaries: no threshold relaxation, heap/RSS conflation, compatibility claim, or optimization
+  without a separately scoped performance issue and exact measurement.
