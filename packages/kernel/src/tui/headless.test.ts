@@ -1712,6 +1712,44 @@ describe("headless renderer", () => {
     expect(frame).not.toMatch(/trusted|seatbelt|policy review/i);
   });
 
+  it("renders exact quiet pytest counts from the settled Warden envelope at completion", () => {
+    const output = JSON.stringify({
+      exitCode: 0,
+      signal: null,
+      stdout: [
+        "............................................................ [ 50%]",
+        "1901 passed, 24 skipped, 31000 deselected, 1 xfailed in 2.75s",
+      ].join("\n"),
+      stderr: "",
+    });
+    let view = initialView([{ role: "user", content: "run the Click suite" }], {
+      model: "sonnet",
+    });
+    view = reduce(view, { type: "tool-call", id: "pytest-quiet", name: "bash", args: {} });
+    view = reduce(view, {
+      type: "tool-result",
+      id: "pytest-quiet",
+      ok: true,
+      output,
+    });
+    view = reduce(view, { type: "text-delta", text: "The suite completed." });
+    const turnSummary = buildTurnSummary(view);
+    if (turnSummary === undefined) throw new Error("expected final test receipt");
+
+    const frame = renderFrame(
+      { ...view, status, streaming: false, awaitingInput: true, turnSummary },
+      false,
+      true,
+      80,
+    );
+    expect(frame).toContain(
+      "TEST SUMMARY (pytest): PASS — 1901 passed, 24 skipped, 31000 deselected, 1 xfailed",
+    );
+    expect(frame).not.toContain("............................................................");
+    expect(frame).not.toContain("checked:");
+    expect(frame).not.toContain("verified:");
+  });
+
   it("discloses standalone failure overflow without inventing what/why/next evidence", () => {
     const frame = renderFrame({
       items: [],

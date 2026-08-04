@@ -7,7 +7,13 @@ import { render as renderInk, Static, Text, type RenderOptions } from "ink";
 import { act } from "react";
 import type { ViewItem, ViewModel } from "@keel/shared";
 import { paletteCommands } from "../commands.js";
-import { ALL_OFF_POSTURE, firstRunView, initialView, reduce } from "../view-model.js";
+import {
+  ALL_OFF_POSTURE,
+  buildTurnSummary,
+  firstRunView,
+  initialView,
+  reduce,
+} from "../view-model.js";
 import { stripControl } from "../strip.js";
 import { terminalDisplayWidth } from "../display-cells.js";
 import { withOverlayPresentation } from "../overlay-presentation.js";
@@ -698,6 +704,41 @@ describe("Ink App (frame snapshots via ink-testing-library)", () => {
 
     const frame = render(<App view={view} />).lastFrame() ?? "";
     expect(frame.match(/Answer first\./g)).toHaveLength(1);
+  });
+
+  it("renders exact quiet pytest counts without promoting ran output to verified", () => {
+    const output = JSON.stringify({
+      exitCode: 0,
+      signal: null,
+      stdout:
+        "............................................................ [100%]\n1901 passed, 24 skipped, 31000 deselected, 1 xfailed in 2.75s\n",
+      stderr: "",
+    });
+    let view = initialView([{ role: "user", content: "run the Click suite" }], {
+      model: "sonnet",
+    });
+    view = reduce(view, { type: "tool-call", id: "pytest-quiet", name: "bash", args: {} });
+    view = reduce(view, {
+      type: "tool-result",
+      id: "pytest-quiet",
+      ok: true,
+      output,
+    });
+    view = reduce(view, { type: "text-delta", text: "The suite completed." });
+    const turnSummary = buildTurnSummary(view);
+    if (turnSummary === undefined) throw new Error("expected final test receipt");
+
+    const frame =
+      render(
+        <App view={{ ...view, status, streaming: false, awaitingInput: true, turnSummary }} />,
+      ).lastFrame() ?? "";
+    const normalized = frame.replace(/\s+/gu, " ");
+    expect(normalized).toContain(
+      "TEST SUMMARY (pytest): PASS — 1901 passed, 24 skipped, 31000 deselected, 1 xfailed",
+    );
+    expect(frame).not.toContain("............................................................");
+    expect(normalized).not.toContain("checked ");
+    expect(normalized).not.toContain("verified ");
   });
 
   it("renders honest file evidence and fixed recovery without promoting ran to verified", () => {

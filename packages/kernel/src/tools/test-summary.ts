@@ -19,6 +19,8 @@ export interface TestSummary {
   readonly passed?: number;
   readonly failed?: number;
   readonly errors?: number;
+  /** Producer-normalized count parts when exact order carries useful terminal context. */
+  readonly countParts?: readonly string[];
   /** Failing test ids/names, when the format exposes them (capped by the formatter). */
   readonly failures?: readonly string[];
 }
@@ -54,6 +56,55 @@ function parsePytest(output: string): TestSummary | undefined {
     ...(passed !== undefined ? { passed } : {}),
     ...(failed !== undefined ? { failed } : {}),
     ...(errors !== undefined ? { errors } : {}),
+    ...(failures.length > 0 ? { failures } : {}),
+  };
+}
+
+const PYTEST_QUIET_COUNT =
+  /^([1-9]\d*) (failed|passed|skipped|deselected|xfailed|xpassed|warnings?|errors?)$/u;
+const PYTEST_QUIET_LINE = /^(.+) in \d+\.\d{2}s(?: \([^()\r\n]+\))?$/u;
+
+/**
+ * Pytest omits its `=` separator in quiet mode and writes only a comma-joined count list plus a
+ * formatted duration. Keep this recognizer separate from `parseTestOutput`: the latter feeds the
+ * model-facing bash result and remains behaviorally unchanged, while this stricter form is used
+ * only for bounded terminal presentation of an already-complete Warden envelope.
+ */
+function parseQuietPytestForPresentation(output: string): TestSummary | undefined {
+  const candidate = lines(output)
+    .map((line) => PYTEST_QUIET_LINE.exec(line))
+    .filter((match): match is RegExpExecArray => match !== null)
+    .at(-1);
+  const rawParts = candidate?.[1]?.split(", ");
+  if (rawParts === undefined || rawParts.length === 0) return undefined;
+
+  const seen = new Set<string>();
+  const countParts: string[] = [];
+  let passed: number | undefined;
+  let failed: number | undefined;
+  let errors: number | undefined;
+  for (const rawPart of rawParts) {
+    const match = PYTEST_QUIET_COUNT.exec(rawPart);
+    if (match === null) return undefined;
+    const count = Number(match[1]);
+    if (!Number.isSafeInteger(count) || count <= 0) return undefined;
+    const rawKind = match[2]!;
+    const kind = rawKind === "warning" ? "warnings" : rawKind === "error" ? "errors" : rawKind;
+    if (seen.has(kind)) return undefined;
+    seen.add(kind);
+    countParts.push(`${String(count)} ${rawKind}`);
+    if (kind === "passed") passed = count;
+    else if (kind === "failed") failed = count;
+    else if (kind === "errors") errors = count;
+  }
+
+  const failures = [...output.matchAll(/^FAILED\s+(\S+)/gmu)].map((match) => match[1]!);
+  return {
+    framework: "pytest",
+    ...(passed !== undefined ? { passed } : {}),
+    ...(failed !== undefined ? { failed } : {}),
+    ...(errors !== undefined ? { errors } : {}),
+    countParts,
     ...(failures.length > 0 ? { failures } : {}),
   };
 }
@@ -132,6 +183,32 @@ export function parseTestOutput(output: string): TestSummary | undefined {
 
 const MAX_SHOWN_FAILURES = 5;
 
+function formatTestSummary(summary: TestSummary, exitCode: number | null): string {
+  const failedish = (summary.failed ?? 0) + (summary.errors ?? 0);
+  const verdict = failedish > 0 || (exitCode !== 0 && exitCode !== null) ? "FAIL" : "PASS";
+  const counts: string[] = summary.countParts === undefined ? [] : [...summary.countParts];
+  if (summary.countParts === undefined) {
+    if (summary.passed !== undefined) counts.push(`${String(summary.passed)} passed`);
+    if (summary.failed !== undefined) counts.push(`${String(summary.failed)} failed`);
+    if (summary.errors !== undefined)
+      counts.push(`${String(summary.errors)} error${summary.errors === 1 ? "" : "s"}`);
+  }
+  let line = `TEST SUMMARY (${summary.framework}): ${verdict}`;
+  if (counts.length > 0) line += ` — ${counts.join(", ")}`;
+  if (summary.failures && summary.failures.length > 0) {
+    line += `; failing: ${summary.failures.slice(0, MAX_SHOWN_FAILURES).join(", ")}`;
+    if (summary.failures.length > MAX_SHOWN_FAILURES) {
+      line += ` (+${String(summary.failures.length - MAX_SHOWN_FAILURES)} more)`;
+    }
+  }
+  return line;
+}
+
+export interface TestOutputPresentationAnalysis {
+  readonly summary: string;
+  readonly failed: boolean;
+}
+
 /**
  * One-line, model-facing summary of recognized test output, or undefined when nothing is recognized.
  * Verdict is FAIL if any failed/errors were parsed, or the command exited non-zero; else PASS.
@@ -139,19 +216,29 @@ const MAX_SHOWN_FAILURES = 5;
 export function summarizeTestOutput(output: string, exitCode: number | null): string | undefined {
   const s = parseTestOutput(output);
   if (s === undefined) return undefined;
-  const failedish = (s.failed ?? 0) + (s.errors ?? 0);
-  const verdict = failedish > 0 || (exitCode !== 0 && exitCode !== null) ? "FAIL" : "PASS";
-  const counts: string[] = [];
-  if (s.passed !== undefined) counts.push(`${String(s.passed)} passed`);
-  if (s.failed !== undefined) counts.push(`${String(s.failed)} failed`);
-  if (s.errors !== undefined) counts.push(`${String(s.errors)} error${s.errors === 1 ? "" : "s"}`);
-  let line = `TEST SUMMARY (${s.framework}): ${verdict}`;
-  if (counts.length > 0) line += ` — ${counts.join(", ")}`;
-  if (s.failures && s.failures.length > 0) {
-    line += `; failing: ${s.failures.slice(0, MAX_SHOWN_FAILURES).join(", ")}`;
-    if (s.failures.length > MAX_SHOWN_FAILURES) {
-      line += ` (+${String(s.failures.length - MAX_SHOWN_FAILURES)} more)`;
-    }
-  }
-  return line;
+  return formatTestSummary(s, exitCode);
+}
+
+/**
+ * Presentation-only extension for a complete Warden bash envelope. The existing model-facing
+ * summarizer remains unchanged; terminal presentation additionally accepts pytest's strict quiet
+ * producer line so progress dots cannot displace the final counts.
+ */
+export function summarizeTestOutputForPresentation(
+  output: string,
+  exitCode: number | null,
+): string | undefined {
+  return analyzeTestOutputForPresentation(output, exitCode)?.summary;
+}
+
+/** Structured companion for terminal status classification; never changes execution authority. */
+export function analyzeTestOutputForPresentation(
+  output: string,
+  exitCode: number | null,
+): TestOutputPresentationAnalysis | undefined {
+  const parsed = parseTestOutput(output) ?? parseQuietPytestForPresentation(output);
+  if (parsed === undefined) return undefined;
+  const failed =
+    (parsed.failed ?? 0) + (parsed.errors ?? 0) > 0 || (exitCode !== 0 && exitCode !== null);
+  return { summary: formatTestSummary(parsed, exitCode), failed };
 }
