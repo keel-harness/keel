@@ -442,8 +442,11 @@ worktree were removed.
   exit 137 before writing a report; it is recorded as **not green**. The identical suite rerun with
   four workers completed all 1,034 suites with zero failures. Bounded concurrency was retained for
   the coverage repeat, which also completed green.
-- Candidate `19a482a` is locally validated and produces a provisional **3.89/5** (241/62).
-  Final repository gates, reviewed-head/post-main CI, issue closure, and cleanup remain pending.
+- Candidate `19a482a` and evidence head `65ffe16` passed exact reviewed-head CI `30866891254`, then
+  squash-merged through PR #95 as `1bbe977`; candidate and merge share tree `ee7837f`. Exact
+  post-main CI `30867327223` passed, issue #94 closed, and feature cleanup passed. The
+  evidence-bound official aggregate is **3.89/5** (241/62); the strict final six-workflow gate
+  remains open.
 
 ## Keel — R14 explicit interrupted-mutation state
 

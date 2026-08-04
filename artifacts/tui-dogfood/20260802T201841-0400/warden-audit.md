@@ -251,5 +251,6 @@ already running Keel sessions were not reloaded. The exact `keel --continue` rec
 qualified to the session workspace. This copy cannot reload a provider client, grant a tool, alter
 a Warden verdict, change sandbox or egress posture, write an audit claim, or expose a credential.
 Baseline and candidate exact-carrier runs at 80x24 and 100x30 use no Warden or provider request;
-the non-secret fixture is absent from all captured evidence. Candidate `19a482a` is locally
-validated; reviewed-head and post-main publication proof remain pending.
+the non-secret fixture is absent from all captured evidence. Candidate `19a482a` and merge
+`1bbe977` share tree `ee7837f`; exact reviewed-head CI `30866891254` and post-main CI `30867327223`
+passed, issue #94 closed, and feature cleanup passed. Historical totals remain unchanged.

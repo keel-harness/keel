@@ -8,7 +8,7 @@ Scores use 1 (unusable) through 5 (excellent). `TBD` means the workflow has not 
 | Onboarding | after R8 | 4 | 3 | 4 | 3 | 3 | 4 | 3 | 4 | N/A | N/A | 2 |
 | Onboarding | after R9 (E2-E4) | 4 | 4 | 4 | 4 | 4 | 4 | 3 | 4 | N/A | N/A | 2 |
 | Onboarding | after R12 (E2-E4) | 4 | 4 | 4 | 4 | 4 | 4 | 4 | 4 | N/A | N/A | 2 |
-| Onboarding | R13 candidate (E2-E4) | 4 | 4 | 4 | 4 | 5 | 4 | 4 | 4 | N/A | N/A | 2 |
+| Onboarding | after R13 (E2-E4) | 4 | 4 | 4 | 4 | 5 | 4 | 4 | 4 | N/A | N/A | 2 |
 | Feature | before | 3 | 2 | 3 | 3 | 2 | 2 | 2 | 3 | 2 | 1 | 4 |
 | Feature | after R1+R2 | 4 | 2 | 3 | 3 | 3 | 4 | 3 | 4 | 3 | 2 | 4 |
 | Feature | after R1+R2+R6 | 4 | 3 | 3 | 3 | 4 | 4 | 3 | 4 | 3 | 2 | 4 |
@@ -122,6 +122,7 @@ baseline and candidate carriers at 80x24 and 100x30. Baseline confirms only the 
 leaves the user to infer that the active process still owns the old provider client. Candidate
 states that running sessions were not reloaded and gives the exact workspace-qualified
 `keel --continue` recovery action. The credential never appears in output or evidence. This
-directly raises only onboarding error recovery by one point, making the candidate aggregate
-**3.89/5** (241/62). It remains a candidate score until reviewed-head and post-main CI pass; the
+directly raises only onboarding error recovery by one point. Candidate `19a482a` and merge
+`1bbe977` share tree `ee7837f`; exact reviewed-head CI `30866891254` and post-main CI `30867327223`
+passed, and cleanup passed. The evidence-bound aggregate is officially **3.89/5** (241/62). The
 onboarding final-confidence floor and strict same-commit six-workflow gate remain open.

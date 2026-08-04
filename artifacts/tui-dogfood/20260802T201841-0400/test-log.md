@@ -950,6 +950,19 @@
   non-disclosure and `0600`; reliability covers success plus adjacent error/cancel/list/remove
   paths; DX gives short what/boundary/exact-action copy; simplicity changes one controller return,
   one regression, and two docs paragraphs. No local must-fix remains.
-- The directly observed onboarding recovery score rises one point, producing provisional
-  **3.89/5** (241/62). Publication, exact-head/post-main CI, issue closure, and cleanup remain
-  pending.
+- Candidate `19a482a4d6175c36374d5a3c8229ab23217fa0b3` plus evidence head
+  `65ffe16d384ecbe97f82440832a2ff484d404661` passed exact reviewed-head CI run `30866891254`,
+  including `ci-required` job `91861618047`. PR #95 squash-merged as
+  `1bbe9778d1d227f090226a3a3e07488498074d91`; candidate and merge share tree
+  `ee7837f811f492983983ed986d6a3dcda8d58530`.
+- Exact post-main CI run `30867327223` passed, including `ci-required` job `91863159620`. Issue #94
+  closed; the remote feature branch was absent and the clean local feature branch/worktree were
+  removed. The directly observed onboarding recovery score rises one point, making **3.89/5**
+  (241/62) official. The strict final same-commit six-workflow gate remains open.
+- Closeout changes evidence only, so no new red behavior test applies. The isolated worktree
+  initially had no dependencies: direct Vitest failed `Command "vitest" not found`; plain pnpm
+  9.9 failed the pnpm-10 lockfile configuration check; pinned pnpm offline install stopped on a
+  missing cached `zod` tarball; and an ESM `NODE_PATH` attempt could not resolve Vitest. Reusing the
+  synchronized main checkout's exact installed dependency tree through a worktree-local symlink
+  then passed artifact consistency **21/21**, repository format, and `git diff --check`. None of
+  the setup failures collected a test or changed source, lockfile, dependency, or product behavior.
