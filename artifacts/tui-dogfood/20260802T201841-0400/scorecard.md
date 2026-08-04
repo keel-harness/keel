@@ -134,7 +134,9 @@ of a binary preimage and produce the same authoritative summary-only observation
 `/diff review` to a generic no-diffs note. Candidate opens a focused state with the producer-safe
 path, exact limitation, `verification not run`, fixed non-destructive recovery guidance, and an Esc
 close control that returns to the preserved composer. This directly raises only feature user
-control by one point. Local E2-E4 and five-lens QC pass, so the candidate aggregate is **3.90/5**
-(242/62); it does not become official until reviewed-head and post-main CI pass. The onboarding
-final-confidence, Warden-heavy control/progress, and strict same-commit six-workflow gates remain
-open.
+control by one point. Local E2-E4 and five-lens QC pass, so the aggregate is **3.90/5**
+(242/62). Reviewed head `686bd1d` passed exact-head CI `30872462126`, merged through PR #98 as
+`76a45c3` with identical tree `93c19c1`, and passed exact post-main CI `30873064247`. Issue #97
+closed and feature cleanup passed, so **3.90/5** is now the official evidence-bound aggregate. The
+onboarding final-confidence, Warden-heavy control/progress, and strict same-commit six-workflow
+gates remain open.

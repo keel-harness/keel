@@ -277,3 +277,7 @@ producer-owned limitation and safe next action inspectable. Eighteen loopback fi
 including invalid presentation-oracle attempts, made zero Anthropic calls and no new Warden
 interrupt. Warden verdicts, grantability, approval lifecycle, batching, audit, sandbox, egress,
 RPC/shared schemas, and historical interrupt totals remain unchanged.
+
+Reviewed head `686bd1d` passed exact-head CI `30872462126`, merged through PR #98 as `76a45c3`
+with identical tree `93c19c1`, and passed exact post-main CI `30873064247`. Issue #97 and feature
+cleanup are closed. R15 therefore changes no interrupt count, approval authority, or Warden claim.

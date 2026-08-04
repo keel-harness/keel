@@ -37,8 +37,8 @@ credentials nor user-home paths.
 All six requested workflow classes have live evidence. Evidence PR #53; implementation PRs #55,
 #57, #59, #61, #65, #66, #68, #71, #73, and #75; repeatability PR #63; R6 evidence correction PR
 #69; R10 PR #80 and closeout PR #81; R11 PR #83; PTY observer repair PR #85; dependency-
-remediation PR #78; R14 PR #88; R12 PR #92; and R13 PR #95 were owner-approved, squash-merged,
-and cleaned up.
+remediation PR #78; R14 PR #88; R12 PR #92; R13 PR #95; and R15 PR #98 were owner-approved,
+squash-merged, and cleaned up.
 Each UX
 slice passed reviewed-head CI. R9's first post-merge run exposed a high `brace-expansion` advisory;
 PR #78 repaired it. Exact current-main CI run `30856149564` passes at `939b8c4` after the later
@@ -236,7 +236,7 @@ post-main CI run `30867327223` passed, including `ci-required` job `91863159620`
 passed. R13 raises only observed onboarding recovery, so the evidence-bound official score is now
 **3.89/5** (241/62). The stricter final six-workflow release gate remains open.
 
-R15 is locally validated under [issue #97](https://github.com/keel-harness/keel/issues/97). The
+R15 closed [issue #97](https://github.com/keel-harness/keel/issues/97). The
 existing `/diff review` available-comparison viewer remains intact; successful typed edit/write
 observations that settle unavailable or summary-only now open an honest focused state instead of
 the generic no-diffs note. Mixed reviews retain the selected comparison and disclose bounded
@@ -250,6 +250,9 @@ Red-first focused **57/57**, adjacent **382/382**, full TUI **1,368/1,368**, unr
 lint, format, build, all four package carriers, and diff checks pass. Exact installed baseline and
 candidate npm carriers pass the same governed typed-write scenario at 80x24 and 100x30 with zero
 paid calls. Screenshots 41–42 are visually inspected sanitized 1400x840 before/after
-transcriptions. Five-lens QC has no unresolved local must-fix. The candidate evidence-bound score is
-**3.90/5** (242/62), but publication, reviewed-head CI, merge-tree comparison, post-main CI, issue
-closure, and cleanup remain pending; the strict final six-workflow gate remains open.
+transcriptions. Five-lens QC has no unresolved local must-fix. The evidence-bound score is
+**3.90/5** (242/62). Reviewed head `686bd1d` passed exact-head CI run `30872462126`; PR #98
+squash-merged as `76a45c3`. Candidate and merge share tree `93c19c1`. Exact post-main CI run
+`30873064247` passed, including `ci-required`; issue #97 closed and feature branch/worktree cleanup
+passed. The evidence-bound score is now officially **3.90/5**. The onboarding final-confidence,
+Warden-heavy control/progress, and strict final six-workflow gates remain open.
