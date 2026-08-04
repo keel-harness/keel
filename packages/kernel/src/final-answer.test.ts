@@ -9,6 +9,7 @@ import {
   finalAnswerVisibleByteLimit,
   finalAnswerWordCount,
   finalAnswerRewriteOutputTokens,
+  finalAnswerRewritePrompt,
   validateFinalAnswer,
 } from "./final-answer.js";
 
@@ -31,6 +32,41 @@ describe("ADR-0087 final-answer contract primitives", () => {
     expect(finalAnswerRewriteOutputTokens({ version: 1, maxWords: 40 })).toBe(256);
     expect(finalAnswerRewriteOutputTokens({ version: 1, maxWords: 250 })).toBe(1_000);
     expect(finalAnswerRewriteOutputTokens({ version: 1, maxWords: 2_000 }, 1_500)).toBe(1_500);
+  });
+
+  it.each([
+    { maxWords: 40, maxBytes: 2_560, targetWords: 36 },
+    { maxWords: 250, maxBytes: 16_000, targetWords: 225 },
+    { maxWords: 2_000, maxBytes: 64_000, targetWords: 1_800 },
+  ] as const)(
+    "keeps the exact $maxWords-word hard bound while targeting $targetWords-word headroom",
+    ({ maxWords, maxBytes, targetWords }) => {
+      const prompt = finalAnswerRewritePrompt({ version: 1, maxWords });
+      expect(prompt).toContain(
+        `Hard limits: at most ${maxWords} words and at most ${maxBytes} UTF-8 bytes.`,
+      );
+      expect(prompt).toContain(`Aim for ${targetWords} words or fewer to leave counting headroom.`);
+      expect(prompt).toContain(
+        "Do not present runtime behavior as verified unless preceding tool results demonstrate it. Omit unsupported runtime specifics; if material, say only that the behavior was not probed.",
+      );
+      expect(targetWords).toBeGreaterThan(0);
+      expect(targetWords).toBeLessThan(maxWords);
+    },
+  );
+
+  it("leaves positive rewrite headroom across the complete contract range", () => {
+    fc.assert(
+      fc.property(fc.integer({ min: 40, max: 2_000 }), (maxWords) => {
+        const prompt = finalAnswerRewritePrompt({ version: 1, maxWords });
+        const match = /Aim for (\d+) words or fewer to leave counting headroom\./u.exec(prompt);
+        expect(match).not.toBeNull();
+        const targetWords = Number(match?.[1]);
+        expect(targetWords).toBe(Math.floor(maxWords * 0.9));
+        expect(targetWords).toBeGreaterThan(0);
+        expect(targetWords).toBeLessThan(maxWords);
+      }),
+      { numRuns: 200 },
+    );
   });
 
   it("counts non-whitespace runs after control stripping and newline normalization", () => {
