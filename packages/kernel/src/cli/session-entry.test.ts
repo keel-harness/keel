@@ -241,16 +241,20 @@ function delayedStartupWarden(delayMs: number): ProductionWardenStartOptions {
   };
 }
 
-function gatedStartupWarden(gatePath: string): ProductionWardenStartOptions {
+function gatedStartupWarden(
+  gatePath: string,
+  startupEnteredPath?: string,
+): ProductionWardenStartOptions {
   const activeHash = `sha256:${"c".repeat(64)}`;
   return {
     command: process.execPath,
     args: [
       "-e",
       `
-        const {existsSync}=require("node:fs");
+        const {existsSync,writeFileSync}=require("node:fs");
         const activeHash=${JSON.stringify(activeHash)};
         const gatePath=${JSON.stringify(gatePath)};
+        const startupEnteredPath=${JSON.stringify(startupEnteredPath)};
         let buffer="";
         function send(id,result){process.stdout.write(JSON.stringify({jsonrpc:"2.0",id,result})+"\\n");}
         function afterGate(callback){
@@ -265,10 +269,13 @@ function gatedStartupWarden(gatePath: string): ProductionWardenStartOptions {
             if(index===-1) break;
             const request=JSON.parse(buffer.slice(0,index));
             buffer=buffer.slice(index+1);
-            if(request.method==="warden.hello") afterGate(()=>send(request.id,{
-              wardenVersion:"test",protocolVersion:request.params.protocolVersion,capabilities:[],
-              enforcementTier:"sandbox:srt",policyPack:{name:"phase2a-starter-policy-pack",hash:activeHash}
-            }));
+            if(request.method==="warden.hello"){
+              if(startupEnteredPath!==undefined) writeFileSync(startupEnteredPath,"entered");
+              afterGate(()=>send(request.id,{
+                wardenVersion:"test",protocolVersion:request.params.protocolVersion,capabilities:[],
+                enforcementTier:"sandbox:srt",policyPack:{name:"phase2a-starter-policy-pack",hash:activeHash}
+              }));
+            }
             else if(request.method==="warden.status") send(request.id,{
               enforcementTier:"sandbox:srt",sandboxBackend:"srt:vendored",
               policyPack:{name:"phase2a-starter-policy-pack",hash:activeHash},
@@ -1993,68 +2000,99 @@ describe("runKeelCommand (bin orchestration: build runtime + store, run, dispose
     expect(earlyPainted).toBe(true);
   });
 
-  it("overlaps the trusted fresh-run backup with warden startup", async () => {
-    const cwd = mkdtempSync(join(tmpdir(), "keel-overlap-backup-cwd-"));
+  it("starts a trusted fresh-run backup only after warden readiness and blocks the task until it settles", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "keel-ordered-backup-cwd-"));
     const e: NodeJS.ProcessEnv = {
-      KEEL_HOME: mkdtempSync(join(tmpdir(), "keel-overlap-backup-home-")),
+      KEEL_HOME: mkdtempSync(join(tmpdir(), "keel-ordered-backup-home-")),
       KEEL_TRUST: "1",
     };
-    const ui = new TestUI();
     const wardenGate = join(e["KEEL_HOME"]!, "allow-warden-startup");
+    const wardenStartupEntered = join(e["KEEL_HOME"]!, "warden-startup-entered");
+    const order: string[] = [];
     let resolveBackupStarted!: () => void;
     const backupStarted = new Promise<void>((resolve) => {
       resolveBackupStarted = resolve;
     });
+    let releaseBackup!: () => void;
+    const backupBlocked = new Promise<void>((resolve) => {
+      releaseBackup = resolve;
+    });
+    const model: ModelPort = {
+      async *stream() {
+        order.push("model-start");
+        yield { type: "finish", reason: "stop", usage: { inputTokens: 0, outputTokens: 0 } };
+      },
+    };
 
-    const run = runKeelCommand(undefined, {
-      model: new ScriptedModel({ turns: [{ text: "unused" }] }),
-      ui,
+    const run = runKeelCommand("noop", {
+      model,
+      ui: new HeadlessUI(),
       cwd,
       env: e,
-      warden: gatedStartupWarden(wardenGate),
+      warden: gatedStartupWarden(wardenGate, wardenStartupEntered),
       backupWorkspace: async () => {
+        order.push("backup-start");
         resolveBackupStarted();
+        await backupBlocked;
+        order.push("backup-settled");
         return undefined;
       },
     });
-    await backupStarted;
+
+    await vi.waitFor(() => expect(existsSync(wardenStartupEntered)).toBe(true), {
+      timeout: 10_000,
+    });
+    order.push("warden-gate-opened");
     writeFileSync(wardenGate, "ready");
-    ui.queue.close();
+    await backupStarted;
+    expect(order).not.toContain("model-start");
+    releaseBackup();
     await run;
 
-    expect(ui.latest).toBeDefined();
+    expect(order.slice(0, 3)).toEqual(["warden-gate-opened", "backup-start", "backup-settled"]);
+    expect(order.filter((event) => event === "model-start").length).toBeGreaterThan(0);
+    expect(order.indexOf("model-start")).toBeGreaterThan(order.indexOf("backup-settled"));
   });
 
-  it("overlaps trusted git status with warden startup", async () => {
+  it("overlaps trusted git status with warden startup but starts backup afterward", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "keel-overlap-git-cwd-"));
     const e: NodeJS.ProcessEnv = {
       KEEL_HOME: mkdtempSync(join(tmpdir(), "keel-overlap-git-home-")),
       KEEL_TRUST: "1",
-      KEEL_NO_SNAPSHOT: "1",
     };
     const ui = new TestUI();
     const wardenGate = join(e["KEEL_HOME"]!, "allow-warden-startup");
-    let resolveGitStarted!: () => void;
-    const gitStarted = new Promise<void>((resolve) => {
-      resolveGitStarted = resolve;
-    });
+    const wardenStartupEntered = join(e["KEEL_HOME"]!, "warden-startup-entered");
+    const order: string[] = [];
 
     const run = runKeelCommand(undefined, {
       model: new ScriptedModel({ turns: [{ text: "unused" }] }),
       ui,
       cwd,
       env: e,
-      warden: gatedStartupWarden(wardenGate),
+      warden: gatedStartupWarden(wardenGate, wardenStartupEntered),
+      backupWorkspace: async () => {
+        order.push("backup-start");
+        return undefined;
+      },
       readGitStatus: async () => {
-        resolveGitStarted();
+        order.push("git-start");
         return { branch: "main", added: 0, modified: 0, deleted: 0 };
       },
     });
-    await gitStarted;
+
+    await vi.waitFor(() => expect(existsSync(wardenStartupEntered)).toBe(true), {
+      timeout: 10_000,
+    });
+    order.push("warden-gate-opened");
     writeFileSync(wardenGate, "ready");
+    await ui.awaitRender(
+      (view) => view.awaitingInput === true && view.status.startup === undefined,
+    );
     ui.queue.close();
     await run;
 
+    expect(order).toEqual(["git-start", "warden-gate-opened", "backup-start"]);
     expect(ui.latest).toBeDefined();
   });
 
@@ -2145,41 +2183,29 @@ describe("runKeelCommand (bin orchestration: build runtime + store, run, dispose
     expect(assistantSaid(ui.latest!, "queued input received")).toBe(true);
   });
 
-  it("restores the UI before joining an in-flight backup on failed startup", async () => {
+  it("restores the UI without starting a trusted backup when warden startup fails", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "keel-failed-startup-backup-cwd-"));
     const e: NodeJS.ProcessEnv = {
       KEEL_HOME: mkdtempSync(join(tmpdir(), "keel-failed-startup-backup-home-")),
       KEEL_TRUST: "1",
     };
     const ui = new TestUI();
-    let releaseBackup!: () => void;
-    const backupBlocked = new Promise<void>((resolve) => {
-      releaseBackup = resolve;
-    });
-    let settled = false;
+    const backupWorkspace = vi.fn(async () => undefined);
     const run = runKeelCommand(undefined, {
       model: new ScriptedModel({ turns: [{ text: "unused" }] }),
       ui,
       cwd,
       env: e,
       warden: failingStartupWarden(),
-      backupWorkspace: async () => {
-        await backupBlocked;
-        return undefined;
-      },
+      backupWorkspace,
     }).then(
       () => undefined,
       (error: unknown) => error,
     );
-    void run.then(() => {
-      settled = true;
-    });
 
-    await vi.waitFor(() => expect(ui.closes).toBe(1), { timeout: 1_000 });
-    expect(settled).toBe(false);
-    releaseBackup();
     expect(await run).toBeInstanceOf(Error);
     expect(ui.closes).toBe(1);
+    expect(backupWorkspace).not.toHaveBeenCalled();
   });
 
   it("closes the early-painted interactive UI exactly once when warden startup fails", async () => {

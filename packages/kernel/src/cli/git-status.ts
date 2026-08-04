@@ -100,22 +100,26 @@ export function createGitRunner(cwd: string, options: GitRunnerOptions = {}): Gi
     });
 }
 
-function gitStatusFromOutputs(
-  branchRaw: string | undefined,
-  porcelain: string | undefined,
-): UiGitStatus | undefined {
-  // Porcelain is the authority for clean/dirty state. If it failed, a branch alone must not be
-  // rendered as a false-clean tree.
+function gitStatusFromOutput(porcelain: string | undefined): UiGitStatus | undefined {
   if (porcelain === undefined) return undefined;
-
-  // `rev-parse --abbrev-ref HEAD` returns the literal "HEAD" on a detached HEAD — that is not a branch
-  // name, so treat it as "no branch" rather than rendering a confusing `git HEAD` in the cockpit (CLI-5).
-  const branchTrimmed = branchRaw?.trim();
-  const branch = branchTrimmed === "HEAD" ? undefined : branchTrimmed;
+  const lines = porcelain.split("\n");
+  const branchSummary =
+    lines[0]?.startsWith("## ") === true ? lines.shift()?.slice(3).trim() : undefined;
+  const branchCandidate = branchSummary?.startsWith("No commits yet on ")
+    ? branchSummary.slice("No commits yet on ".length)
+    : branchSummary?.split("...", 1)[0];
+  // Detached porcelain headers begin with `HEAD`; that is not a branch name, so omit it rather than
+  // rendering a confusing `git HEAD (no branch)` in the cockpit (CLI-5).
+  const branch =
+    branchCandidate === undefined ||
+    branchCandidate === "HEAD" ||
+    branchCandidate.startsWith("HEAD ")
+      ? undefined
+      : branchCandidate;
   let added = 0;
   let modified = 0;
   let deleted = 0;
-  for (const line of (porcelain ?? "").split("\n")) {
+  for (const line of lines) {
     if (line.length < 2) continue; // porcelain rows are `XY <path>`; blanks/short lines are noise
     const xy = line.slice(0, 2);
     if (xy === "??" || xy.includes("A")) added += 1;
@@ -142,19 +146,15 @@ function gitStatusFromOutputs(
  * Counts are an approximate "you have changes" indicator (file-level, dominant status per line), not an
  * exact accounting: untracked + staged-add → `added`, deletions → `deleted`, the rest → `modified`.
  */
-/** Both independent subprocesses launch before either is awaited, so the trusted-workspace cockpit
- * probe can overlap warden startup without blocking the event loop. */
+/** One bounded status process supplies both branch and change counts. Keeping this to one process
+ * avoids duplicate startup work while the trusted-workspace cockpit probe overlaps Warden startup. */
 export async function gitStatusAsync(
   cwd: string,
   run: GitRunAsync = createGitRunner(cwd),
   signal?: AbortSignal,
 ): Promise<UiGitStatus | undefined> {
   try {
-    const [branchRaw, porcelain] = await Promise.all([
-      run(["rev-parse", "--abbrev-ref", "HEAD"], signal),
-      run(["status", "--porcelain"], signal),
-    ]);
-    return gitStatusFromOutputs(branchRaw, porcelain);
+    return gitStatusFromOutput(await run(["status", "--porcelain", "--branch"], signal));
   } catch {
     return undefined;
   }

@@ -85,9 +85,25 @@ async function establishPrivateDirectory(path: string, label: string): Promise<s
   }
 }
 
+/** Establish only the owner-private Keel state root. This preflight reads no workspace bytes and
+ * creates no snapshot destination, so callers may satisfy Warden's state-root prerequisite before
+ * deferring the actual trusted fresh-run snapshot until governed readiness. */
+export async function establishSnapshotPrivateRoot(
+  privateRoot: string,
+): Promise<string | undefined> {
+  return await establishPrivateDirectory(privateRoot, "Keel state root");
+}
+
 function containsPath(container: string, candidate: string): boolean {
   const child = relative(container, candidate);
   return child === "" || (!isAbsolute(child) && child !== ".." && !child.startsWith(`..${sep}`));
+}
+
+export function snapshotCopyStrategy(
+  root: string,
+  dest: string,
+): "recursive" | "explicit-traversal" {
+  return containsPath(resolve(root), resolve(dest)) ? "explicit-traversal" : "recursive";
 }
 
 /** Resolve existing ancestors without requiring the final candidate to exist. This closes lexical
@@ -161,7 +177,7 @@ async function preparePrivateDestination(
     };
   }
 
-  const privateRootError = await establishPrivateDirectory(privateRoot, "Keel state root");
+  const privateRootError = await establishSnapshotPrivateRoot(privateRoot);
   if (privateRootError !== undefined) return { ok: false, dest, reason: privateRootError };
   const snapshotRootError = await establishPrivateDirectory(snapshotRoot, "snapshot root");
   if (snapshotRootError !== undefined) return { ok: false, dest, reason: snapshotRootError };
@@ -251,15 +267,23 @@ async function measure(
   return { bytes, files, over: null };
 }
 
-/** Copy directory contents one entry at a time so an excluded Keel state root may safely live below
- * the workspace. `fs.cp(root, dest)` rejects an in-source destination before consulting its filter;
- * this traversal checks exclusions before descending and still delegates file/symlink fidelity to cp. */
+/** Use one native recursive copy for the normal out-of-workspace destination. If Keel state is
+ * intentionally nested below the workspace, `fs.cp(root, dest)` rejects the in-source destination
+ * before consulting its filter; retain the explicit traversal so exclusions are checked first. */
 async function copyTreeContents(
   root: string,
   dest: string,
   exclude: readonly string[],
 ): Promise<void> {
   await mkdir(dest, { recursive: true, mode: PRIVATE_DIRECTORY_MODE });
+  if (snapshotCopyStrategy(root, dest) === "recursive") {
+    await cp(root, dest, {
+      recursive: true,
+      verbatimSymlinks: true,
+      filter: (source) => !isExcluded(source, exclude),
+    });
+    return;
+  }
   const copyEntry = async (src: string, target: string): Promise<void> => {
     if (isExcluded(src, exclude)) return;
     const state = await lstat(src);

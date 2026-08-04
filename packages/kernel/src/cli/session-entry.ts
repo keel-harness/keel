@@ -38,7 +38,11 @@ import { applyPendingSteeringOnResume, rebuild } from "../session/resume.js";
 import { listSessions } from "../session/list.js";
 import { keelHome, sessionPath } from "../session/paths.js";
 import { workspaceKey } from "../session/workspace-key.js";
-import { backupSystemMessage, snapshotWorkspace } from "../session/workspace-snapshot.js";
+import {
+  backupSystemMessage,
+  establishSnapshotPrivateRoot,
+  snapshotWorkspace,
+} from "../session/workspace-snapshot.js";
 import { SYSTEM_PROMPT } from "../context/system-prompt.js";
 import { resolveContextWindow, type ContextWindowSpec } from "../context/pressure.js";
 import { gatherProjectContext } from "../context/project-context.js";
@@ -1337,8 +1341,7 @@ async function backupNoteForRun(
   runId: string,
   env: NodeJS.ProcessEnv,
 ): Promise<string | undefined> {
-  if (["1", "true", "yes"].includes((env["KEEL_NO_SNAPSHOT"] ?? "").toLowerCase()))
-    return undefined;
+  if (workspaceSnapshotDisabled(env)) return undefined;
   const home = keelHome(env);
   const result = await snapshotWorkspace({
     root: cwd,
@@ -1347,6 +1350,10 @@ async function backupNoteForRun(
     exclude: [home],
   });
   return backupSystemMessage(result);
+}
+
+function workspaceSnapshotDisabled(env: NodeJS.ProcessEnv): boolean {
+  return ["1", "true", "yes"].includes((env["KEEL_NO_SNAPSHOT"] ?? "").toLowerCase());
 }
 
 export async function runKeelCommand(
@@ -1415,9 +1422,9 @@ export async function runKeelCommand(
           deps.env,
         );
   let closeOpeningUi = false;
-  let backupNotePending:
-    | Promise<{ readonly note: string | undefined } | { readonly error: unknown }>
-    | undefined;
+  let backupNotePending: Promise<
+    { readonly note: string | undefined } | { readonly error: unknown }
+  > = Promise.resolve({ note: undefined } as const);
   let gitStatusPending: Promise<UiGitStatus | undefined> | undefined;
   let gitStatusValue: UiGitStatus | undefined;
   let gitStatusAbort: AbortController | undefined;
@@ -1439,37 +1446,40 @@ export async function runKeelCommand(
       // `runKeelSession` takes over the normal one-shot/REPL lifecycle. Startup rejection must restore
       // the terminal here because neither runner has been entered yet.
     }
-    // The safety backup and warden startup are independent post-trust work. Start the backup after
-    // first paint, then await it before the model can act; this removes serialized startup latency
-    // without reading an untrusted tree or weakening the pre-action recovery guarantee.
-    backupNotePending =
-      ctx.trusted && resumeId === undefined
-        ? Promise.resolve()
-            .then(() => (deps.backupWorkspace ?? backupNoteForRun)(deps.cwd, store.id, env))
-            .then(
-              (note) => ({ note }) as const,
-              (error: unknown) => ({ error }) as const,
+    const startGitStatusProbe = (): void => {
+      // Git is cosmetic, read-only, bounded, and can read repo-local config. Start it alongside
+      // Warden startup, then consume only a result already available when the governed shell becomes
+      // ready. It is never awaited and therefore never gates input or the pre-action backup.
+      gitStatusAbort = new AbortController();
+      gitStatusPending = ctx.trusted
+        ? backupNotePending
+            .then((backup) =>
+              "error" in backup
+                ? undefined
+                : deps.readGitStatus !== undefined
+                  ? deps.readGitStatus(deps.cwd, gitStatusAbort?.signal)
+                  : gitStatusAsync(deps.cwd, undefined, gitStatusAbort?.signal),
             )
-        : Promise.resolve({ note: undefined } as const);
-    // Git is cosmetic and can read repo-local config. Start it only after the backup has finished so
-    // it cannot race the recovery snapshot, then consume only a result already available when the
-    // governed shell becomes ready. It never gates input readiness.
-    gitStatusAbort = new AbortController();
-    gitStatusPending = ctx.trusted
-      ? backupNotePending
-          .then((backup) =>
-            "error" in backup
-              ? undefined
-              : deps.readGitStatus !== undefined
-                ? deps.readGitStatus(deps.cwd, gitStatusAbort?.signal)
-                : gitStatusAsync(deps.cwd, undefined, gitStatusAbort?.signal),
-          )
-          .then((status) => {
-            gitStatusValue = status;
-            return status;
-          })
-          .catch(() => undefined)
-      : Promise.resolve(undefined);
+            .then((status) => {
+              gitStatusValue = status;
+              return status;
+            })
+            .catch(() => undefined)
+        : Promise.resolve(undefined);
+    };
+    const backupStartsAfterWarden =
+      ctx.trusted &&
+      resumeId === undefined &&
+      (deps.backupWorkspace !== undefined || !workspaceSnapshotDisabled(env));
+    if (backupStartsAfterWarden && deps.backupWorkspace === undefined) {
+      // The production Warden independently refuses a permissive KEEL_HOME. Preserve the snapshot
+      // contract's owner-only root tightening before Warden startup without beginning the workspace
+      // measurement/copy or creating a snapshot destination until after governed readiness.
+      await establishSnapshotPrivateRoot(keelHome(env));
+    }
+    // Preserve the existing non-blocking cockpit probe during Warden startup. The heavier trusted
+    // snapshot remains deferred until Warden readiness; the two no longer start at the same boundary.
+    startGitStatusProbe();
     const resumedSteeringApplied = resumeState?.pendingSteering.length ?? 0;
     const resumedUrgentSteeringApplied =
       resumeState?.pendingSteering.filter((steering) => steering.class === "urgent").length ?? 0;
@@ -1602,12 +1612,17 @@ export async function runKeelCommand(
         ...(deps.warden === undefined ? {} : { start: deps.warden }),
       });
     }
-    // Apply any still-pending queued steering from the resumed ledger before the first new turn, but
-    // only after the Warden has atomically acquired this session's authoritative audit-writer lock.
-    // A concurrent resume therefore cannot consume queued input or append steering before startup
-    // fails closed. `resumed` seeds the REPL's model context (history + the injected steering).
-    const resumed =
-      resumeState === undefined ? undefined : applyPendingSteeringOnResume(store, resumeState);
+    if (backupStartsAfterWarden) {
+      // The Warden is fully ready before trusted workspace copying begins. This removes the observed
+      // CPU/filesystem contention while preserving first paint and the pre-action recovery boundary:
+      // the task and any steering remain below the awaited result in the inner try.
+      backupNotePending = Promise.resolve()
+        .then(() => (deps.backupWorkspace ?? backupNoteForRun)(deps.cwd, store.id, env))
+        .then(
+          (note) => ({ note }) as const,
+          (error: unknown) => ({ error }) as const,
+        );
+    }
     try {
       const loopSafetyWithRuntimeAcceptance =
         loopSafety.verification === undefined || rt.activeLeases === undefined
@@ -1628,6 +1643,12 @@ export async function runKeelCommand(
       const backupResult = await backupNotePending;
       if ("error" in backupResult) throw backupResult.error;
       const backupNote = backupResult.note;
+      // Apply any still-pending queued steering from the resumed ledger before the first new turn,
+      // but only after Warden readiness and the fresh-run pre-action backup boundary. A concurrent
+      // resume therefore cannot consume queued input or append steering before startup fails closed.
+      // `resumed` seeds the REPL's model context (history + the injected steering).
+      const resumed =
+        resumeState === undefined ? undefined : applyPendingSteeringOnResume(store, resumeState);
       const compactor = compactionOn
         ? buildInLoopCompactor(
             store,
@@ -1712,14 +1733,15 @@ export async function runKeelCommand(
     }
   } finally {
     try {
-      // Restore a partially mounted terminal immediately on startup failure; a slow backup must not
-      // hold the user's TTY hostage after the governed runtime has already failed.
+      // Restore a partially mounted terminal immediately on startup failure. The trusted fresh-run
+      // backup cannot have started until governed readiness, so a failed startup has no snapshot work
+      // to join and cannot hold the user's TTY hostage.
       if (closeOpeningUi) await deps.ui.close();
     } finally {
       try {
-        // Startup may fail while the post-trust backup is still running. Join command-owned filesystem
-        // work before releasing the store; its captured error must not replace the original startup
-        // failure (the successful-runtime path above remains responsible for propagating backup errors).
+        // Join any command-owned post-readiness filesystem work before releasing the store. Its
+        // captured error must not replace an earlier runtime failure (the normal path above remains
+        // responsible for propagating backup errors before any model or tool action).
         gitStatusAbort?.abort();
         await backupNotePending;
         // The production probe is independently bounded and owns its process group. Do not join an

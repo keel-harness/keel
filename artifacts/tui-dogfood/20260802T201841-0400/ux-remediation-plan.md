@@ -736,6 +736,14 @@ growth allowance. A causal ablation localizes startup tail to contention with th
 pre-action workspace snapshot. Red-first issue #127 owns the narrow scheduling/copy-path repair;
 P1-007 remains failed and no threshold is relaxed.
 
+Issue #127's exact clean candidate now passes two independent 20-run installed-carrier
+distributions at governed-ready p95 673.149/718.369 ms, with combined p95 714.515 ms, no sample over
+1,000 ms, and full teardown. Warden readiness now precedes snapshot work while snapshot settlement
+still precedes every agent action; the normal copy uses the native recursive path, the nested-state
+fallback is retained, and one redundant cosmetic Git process is removed. Publication remains
+pending. This closes the scoped startup defect locally but does not resolve R23's separate
+settled-growth/P1-007 residual and does not rescore the six workflows.
+
 ### R24 · human cohort and longitudinal dogfood
 
 Run the fixed workflows with advanced developers who did not implement the fixes. Record success,

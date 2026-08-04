@@ -177,3 +177,11 @@ fixtures, the production local Warden, PTYs, and host process observations. Acce
 calibrations made **zero Anthropic requests**. Incremental input/output tokens and cost are all zero.
 Cumulative spend remains **USD 4.72508650**; USD 15.27491350 remains and the final USD 2 reserve is
 intact. No credential value was read, copied, printed, logged, committed, or captured.
+
+Issue #127 used only local tests/builds, exact scripts-disabled npm carriers, local Git, fresh
+owner-private Keel homes, real PTYs, the production local Warden, the clean external Click checkout,
+and loopback-only endpoints. All accepted distributions, rejected candidates, ablations, and the
+reverted metadata experiment made **zero Anthropic requests**. Incremental input/output tokens and
+cost are zero. Cumulative spend remains **USD 4.72508650**; USD 15.27491350 remains and the final USD
+2 reserve is intact. The ambient credential was never read, copied, printed, logged, committed, or
+captured.

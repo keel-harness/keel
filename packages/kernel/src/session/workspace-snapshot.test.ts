@@ -4,6 +4,7 @@ import {
   mkdir,
   readFile,
   readlink,
+  realpath,
   rm,
   stat,
   symlink,
@@ -13,7 +14,11 @@ import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, parse } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { backupSystemMessage, snapshotWorkspace } from "./workspace-snapshot.js";
+import {
+  backupSystemMessage,
+  snapshotCopyStrategy,
+  snapshotWorkspace,
+} from "./workspace-snapshot.js";
 
 /** chmod-based partial-copy tests need a POSIX FS where the current user is NOT root (root bypasses
  *  permission bits, so the EACCES we rely on never fires). */
@@ -42,6 +47,7 @@ describe("snapshotWorkspace — run-start safety backup", () => {
 
     const r = await snapshotWorkspace({ root, dest, privateRoot });
     expect(r.taken).toBe(true);
+    expect(snapshotCopyStrategy(await realpath(root), r.path)).toBe("recursive");
     expect(r.files).toBe(2);
     // The originals survive in the backup even if the agent later destroys them.
     expect(await readFile(join(dest, "main.db-wal"), "utf8")).toBe("irreplaceable-bytes");
@@ -216,6 +222,7 @@ describe("snapshotWorkspace — run-start safety backup", () => {
     const r = await snapshotWorkspace({ root, dest, privateRoot, exclude: [privateRoot] });
 
     expect(r.taken).toBe(true);
+    expect(snapshotCopyStrategy(await realpath(root), r.path)).toBe("explicit-traversal");
     expect(await readFile(join(dest, "keep.txt"), "utf8")).toBe("keep me");
     expect(existsSync(join(dest, ".keel-state"))).toBe(false);
   });

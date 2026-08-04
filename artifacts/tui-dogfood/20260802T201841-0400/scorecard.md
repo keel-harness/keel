@@ -241,3 +241,10 @@ and teardown pass their scoped bounds. Governed-ready p95 and one settled-growth
 issue #127 owns the startup defect and P1-007 remains failed. No score axis is raised or lowered from
 component timing alone. The candidate unweighted mean remains **4.04/5** and the pooled diagnostic
 remains **4.02/5 (249/62)** pending the strict same-commit replay.
+
+Issue #127 now locally passes two independent exact-carrier 20-run startup distributions at
+governed-ready p95 673.149/718.369 ms, combined p95 714.515 ms, first-paint p95 41.119 ms, and input-
+echo p95 7.762 ms. This materially resolves DF-028's scoped responsiveness defect without weakening
+snapshot or Warden truth, but it remains component evidence rather than a frozen six-workflow replay.
+The candidate unweighted mean therefore stays **4.04/5**, and the pooled diagnostic stays **4.02/5
+(249/62)** until the same-commit workflow gate. P1-007 remains independently failed.

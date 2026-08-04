@@ -823,3 +823,25 @@ worktree were removed.
   issue #127.
 - No security claim, Warden policy, sandbox, audit, frozen contract, dependency, public CLI,
   provider cost, or workflow score changes.
+
+## Issue #127 — governed-ready startup-tail repair
+
+- Sequenced trusted fresh-run snapshot measurement/copy after production Warden readiness while
+  retaining the load-bearing await before model input, queued work, resumed steering, or tools.
+- Extracted the owner-private Keel-root preflight so Warden prerequisites remain established without
+  beginning workspace reads or creating a snapshot destination.
+- Uses one native recursive `fs.cp` for the normal physically external destination and retains the
+  explicit exclusion-first traversal for a Keel state root nested inside the workspace.
+- Kept the trusted Git cockpit probe nonblocking and concurrent with Warden startup, then collapsed
+  its branch plus porcelain work from two processes to one bounded
+  `git status --porcelain --branch` process. Dirty counts, upstream branch names, unborn branches,
+  detached-head omission, fail-soft behavior, timeout, cancellation, and process-group cleanup stay
+  covered.
+- Rejected two exact clean intermediate candidates and reverted an uncommitted metadata-concurrency
+  regression. The final exact carrier `e95032b`, tarball SHA-256
+  `0798d3036ed17ff5b15c09e1cb91ff738f05dc8327f7eb6f2a3d90e0f6e69299`, passes independent 20-run
+  governed-ready p95 values 673.149/718.369 ms and combined p95 714.515 ms.
+- Focused 176/176, full coverage 6,669 passed with 20 intentional skips, lint, typecheck, format,
+  build, package, exact scripts-disabled install, diff checks, and five-lens QC pass. No dependency,
+  threshold, security claim, Warden authority, frozen contract, score, provider call, or review
+  interrupt changes. Publication remains pending.
