@@ -1388,3 +1388,27 @@
 - Candidate score: onboarding **4.11/5**, six-workflow mean **4.04/5**, pooled diagnostic **4.02/5
   (249/62)**. Exact-head CI, publication, post-main CI, cleanup, and final same-commit replay remain
   pending.
+
+## 2026-08-04 — issue #113 publication closeout
+
+- Exact reviewed head `8e8d48e` passed GitHub Actions run `30929433667`: required aggregate,
+  Ubuntu build/coverage, package, security, real sandbox, Node-next, egress-scale, and the Node
+  20/22/24 installed-product matrix were green. PR-only main lanes were intentionally skipped. DCO
+  remained `ACTION_REQUIRED` because the already carrier-validated commits lacked sign-off.
+- Rewriting those commits only to satisfy DCO would have invalidated the exact candidate identities
+  embedded in carrier and screenshot evidence. The owner-authorized admin squash therefore merged
+  PR #121 without representing DCO as green. Merge `7c8ff68` and reviewed head `8e8d48e` share exact
+  tree `99d8fda9`; issue #113 closed automatically.
+- Exact post-main run `30929922987` passed `ci-required` job `92063387464`, both Linux/macOS
+  build-and-coverage and package lanes, both real-sandbox lanes, audit, security, both native
+  cross-architecture carrier smokes, Node-next, egress-scale, and all three installed-product
+  matrices.
+- The remote and local `feat/final-answer-contract` branches and its worktree were removed. Six
+  exact task-scoped roots for carrier installs, PTY drivers/screens, fresh-home credentials,
+  untrusted-workspace state, and the failed fresh-home live attempt were permanently deleted after
+  their sanitized evidence was merged. The user's existing Keel auth store and accepted live
+  session were not deleted or copied.
+- This closeout changes evidence documents only. It adds zero provider calls, zero Warden reviews,
+  and no runtime, security, schema, policy, sandbox, egress, grant, dependency, or score change.
+  Cumulative Anthropic spend remains USD 4.72508650. The final same-commit six-workflow replay is the
+  only remaining #113-era release gate.

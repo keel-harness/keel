@@ -154,5 +154,10 @@ release gate still requires the final same-commit six-workflow replay and public
   recorder and UI consume them. There is no second word heuristic, speculative tool rerun, or new
   dependency.
 
-There is no unresolved local must-fix. Exact-head CI, PR publication, post-main CI, and branch/
-worktree/task-root cleanup remain pending at this evidence checkpoint.
+There is no unresolved local must-fix. Exact-head CI `30929433667` passed every executable PR lane;
+DCO remained explicitly non-green and was covered by the owner's authorized admin squash rather
+than a candidate-invalidating rewrite. PR #121 merged as `7c8ff68`; candidate and merge share tree
+`99d8fda9`, issue #113 closed, and exact post-main CI `30929922987` passed every applicable lane.
+Remote/local feature branches, the feature worktree, and six exact task-scoped temporary roots were
+removed after sanitized evidence merged. Only the final same-commit six-workflow replay remains
+open.

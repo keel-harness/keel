@@ -385,8 +385,10 @@
 ### DF-025 — explicit concise onboarding can end long and factually ungrounded
 
 - Severity: P1 final-result confidence, cognitive load, and trust.
-- Status: candidate implemented and validated under issue #113; exact-head CI and publication are
-  pending. R21 validation
+- Status: fixed under [issue #113](https://github.com/keel-harness/keel/issues/113), merged through
+  [PR #121](https://github.com/keel-harness/keel/pull/121) as `7c8ff68`. Exact reviewed-head CI
+  `30929433667` and exact post-main CI `30929922987` passed; candidate and merge share tree
+  `99d8fda9`; issue #113 closed and feature branch/worktree/task-root cleanup passed. R21 validation
   [issue #111](https://github.com/keel-harness/keel/issues/111) closed through merged evidence
   [PR #114](https://github.com/keel-harness/keel/pull/114).
   The prompt-only behavior issue [#112](https://github.com/keel-harness/keel/issues/112) was closed
@@ -419,8 +421,8 @@
   241-word primary, requests zero Warden reviews, and marks unprobed behavior unverified.
 - Score candidate: onboarding cognitive load and trust return from 3 to 4; final confidence rises
   from 2 to 4. The onboarding mean is **4.11/5**, the six-workflow unweighted candidate mean is
-  **4.04/5**, and the pooled diagnostic is **4.02/5 (249/62)**. The strict same-commit replay and
-  publication gates remain open.
+  **4.04/5**, and the pooled diagnostic is **4.02/5 (249/62)**. Publication gates are green; the
+  strict same-commit replay remains open.
 
 ### DF-026 — packaged-Warden startup failure is fail-closed but not recoverable by the operator
 

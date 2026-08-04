@@ -439,5 +439,5 @@ outside the model-authored primary.
 
 Issue #113 therefore adds **0 total / 0 necessary / 0 excessive** review interrupts to its
 validation matrix and does not change the frozen historical benchmark total of **6 total / 2
-necessary / 4 excessive or avoidable**. Publication actions remain pending and add no product
-authority.
+necessary / 4 excessive or avoidable**. PR #121 publication, issue closure, exact post-main CI, and
+feature/task-root cleanup passed and add no governed product interrupt or authority.
