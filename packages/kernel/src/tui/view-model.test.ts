@@ -2497,6 +2497,221 @@ describe("view-model reducer", () => {
     expect(item?.kind === "tool" ? item.summary : "").not.toContain('"exitCode"');
   });
 
+  it("makes exact quiet pytest counts scannable live, after resume, and in the final ran receipt", () => {
+    const output = JSON.stringify({
+      exitCode: 0,
+      signal: null,
+      stdout: [
+        "............................................................ [ 50%]",
+        "............................................................ [100%]",
+        "1901 passed, 24 skipped, 31000 deselected, 1 xfailed in 2.75s",
+      ].join("\n"),
+      stderr: "",
+    });
+    const exact =
+      "TEST SUMMARY (pytest): PASS — 1901 passed, 24 skipped, 31000 deselected, 1 xfailed";
+    let live = initialView(seed);
+    live = reduce(live, { type: "tool-call", id: "pytest-quiet", name: "bash", args: {} });
+    live = reduce(live, {
+      type: "tool-result",
+      id: "pytest-quiet",
+      ok: true,
+      output,
+    });
+    const resumed = initialView([
+      { role: "user", content: "run the tests" },
+      { role: "tool", content: output, toolCallId: "pytest-quiet", name: "bash" },
+    ]);
+
+    for (const candidate of [live, resumed]) {
+      expect(candidate.items.at(-1)).toMatchObject({
+        kind: "tool",
+        status: "ok",
+        summary: exact,
+      });
+      expect(buildTurnSummary(candidate)?.ran).toEqual([`bash: ${exact}`]);
+    }
+  });
+
+  it("keeps command failure dominant while retaining exact quiet pytest failure counts", () => {
+    const output = JSON.stringify({
+      exitCode: 1,
+      signal: null,
+      stdout: "1 failed, 2 passed, 3 skipped in 0.42s\n",
+      stderr: "AssertionError: expected 3, received 2\n",
+    });
+    let view = initialView(seed);
+    view = reduce(view, { type: "tool-call", id: "pytest-failed", name: "bash", args: {} });
+    view = reduce(view, {
+      type: "tool-result",
+      id: "pytest-failed",
+      ok: true,
+      output,
+    });
+
+    const item = view.items.at(-1);
+    expect(item).toMatchObject({
+      kind: "tool",
+      status: "error",
+      summary:
+        "exit 1 · TEST SUMMARY (pytest): FAIL — 1 failed, 2 passed, 3 skipped · stderr: AssertionError: expected 3, received 2",
+    });
+    if (item?.kind !== "tool") throw new Error("expected failed pytest tool item");
+    expect(toolOutcome(item)).toBe("failed");
+  });
+
+  it("never labels quiet pytest output PASS when a signal terminated the command", () => {
+    const output = JSON.stringify({
+      exitCode: null,
+      signal: "SIGTERM",
+      stdout: "5 passed in 0.42s\n",
+      stderr: "terminated\n",
+    });
+    let view = initialView(seed);
+    view = reduce(view, { type: "tool-call", id: "pytest-signal", name: "bash", args: {} });
+    view = reduce(view, {
+      type: "tool-result",
+      id: "pytest-signal",
+      ok: true,
+      output,
+    });
+
+    const item = view.items.at(-1);
+    expect(item).toMatchObject({
+      kind: "tool",
+      status: "error",
+      summary: "signal SIGTERM · TEST SUMMARY (pytest): FAIL — 5 passed · stderr: terminated",
+    });
+    expect(item?.kind === "tool" ? item.summary : "").not.toContain(": PASS");
+  });
+
+  it("makes a zero-exit pytest failure contradiction needs-attention truth live and after resume", () => {
+    const output = JSON.stringify({
+      exitCode: 0,
+      signal: null,
+      stdout: "1 failed, 4 passed in 0.42s\n",
+      stderr: "",
+    });
+    let live = initialView(seed);
+    live = reduce(live, { type: "tool-call", id: "pytest-contradiction", name: "bash", args: {} });
+    live = reduce(live, {
+      type: "tool-result",
+      id: "pytest-contradiction",
+      ok: true,
+      output,
+    });
+    const resumed = initialView([
+      { role: "user", content: "run the tests" },
+      { role: "tool", content: output, toolCallId: "pytest-contradiction", name: "bash" },
+    ]);
+
+    for (const candidate of [live, resumed]) {
+      const item = candidate.items.at(-1);
+      expect(item).toMatchObject({
+        kind: "tool",
+        status: "error",
+        summary: "exit 0 · TEST SUMMARY (pytest): FAIL — 1 failed, 4 passed",
+      });
+      if (item?.kind !== "tool") throw new Error("expected contradictory pytest tool item");
+      expect(toolOutcome(item)).toBe("failed");
+    }
+  });
+
+  it("does not show TEST SUMMARY PASS for incomplete, indeterminate, limited, or transport-failed envelopes", () => {
+    const cases = [
+      {
+        id: "incomplete",
+        event: {
+          type: "tool-result" as const,
+          id: "incomplete",
+          ok: true,
+          output: JSON.stringify({ exitCode: 0, stdout: "5 passed in 0.42s", stderr: "" }),
+        },
+      },
+      {
+        id: "indeterminate",
+        event: {
+          type: "tool-result" as const,
+          id: "indeterminate",
+          ok: true,
+          output: JSON.stringify({
+            exitCode: null,
+            signal: null,
+            stdout: "5 passed in 0.42s",
+            stderr: "",
+          }),
+        },
+      },
+      {
+        id: "limited",
+        event: markToolPresentationOutcome(
+          {
+            type: "tool-result" as const,
+            id: "limited",
+            ok: true,
+            output: JSON.stringify({
+              exitCode: 0,
+              signal: null,
+              stdout: "5 passed in 0.42s",
+              stderr: "",
+            }),
+          },
+          "limited",
+        ),
+      },
+      {
+        id: "transport-failed",
+        event: {
+          type: "tool-result" as const,
+          id: "transport-failed",
+          ok: false,
+          output: JSON.stringify({
+            exitCode: 0,
+            signal: null,
+            stdout: "5 passed in 0.42s",
+            stderr: "",
+          }),
+        },
+      },
+    ];
+
+    for (const { id, event } of cases) {
+      let view = initialView(seed);
+      view = reduce(view, { type: "tool-call", id, name: "bash", args: {} });
+      view = reduce(view, event);
+      const item = view.items.at(-1);
+      expect(item?.kind === "tool" ? item.summary : "").not.toContain("TEST SUMMARY");
+    }
+  });
+
+  it("keeps Warden warning and containment facts ahead of a successful test-output summary", () => {
+    const containment =
+      "warden containment: writes limited to workspace/temp; network egress deny-all";
+    const output = `${containment}\n\nwarden warning: dependency install may run package scripts\n\n${JSON.stringify(
+      {
+        exitCode: 0,
+        signal: null,
+        stdout: "5 passed, 1 skipped in 0.42s\n",
+        stderr: "",
+      },
+    )}`;
+    let view = initialView(seed);
+    view = reduce(view, { type: "tool-call", id: "pytest-contained", name: "bash", args: {} });
+    view = reduce(view, {
+      type: "tool-result",
+      id: "pytest-contained",
+      ok: true,
+      output,
+    });
+
+    expect(view.items.at(-1)).toMatchObject({
+      kind: "tool",
+      status: "ok",
+      summary:
+        "warden warning: dependency install may run package scripts · contained: writes workspace/temp · network deny-all · TEST SUMMARY (pytest): PASS — 5 passed, 1 skipped",
+    });
+  });
+
   it.each([
     [
       "successful",

@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { parseTestOutput, summarizeTestOutput } from "./test-summary.js";
+import * as fc from "fast-check";
+import {
+  parseTestOutput,
+  summarizeTestOutput,
+  summarizeTestOutputForPresentation,
+} from "./test-summary.js";
 
 describe("summarizeTestOutput — pytest (Epic 1.12 slice 1)", () => {
   it("summarizes a failing pytest run with the failing test ids", () => {
@@ -35,6 +40,94 @@ describe("summarizeTestOutput — pytest (Epic 1.12 slice 1)", () => {
     const s = summarizeTestOutput(out, 1);
     expect(s).toContain(
       "failing: tests/t.py::test_0, tests/t.py::test_1, tests/t.py::test_2, tests/t.py::test_3, tests/t.py::test_4 (+3 more)",
+    );
+  });
+});
+
+describe("summarizeTestOutputForPresentation — pytest quiet terminal summary", () => {
+  it("retains every exact count from the observed Click pytest -q result", () => {
+    const output = [
+      "............................................................ [ 50%]",
+      "............................................................ [100%]",
+      "1901 passed, 24 skipped, 31000 deselected, 1 xfailed in 2.75s",
+    ].join("\n");
+
+    expect(summarizeTestOutputForPresentation(output, 0)).toBe(
+      "TEST SUMMARY (pytest): PASS — 1901 passed, 24 skipped, 31000 deselected, 1 xfailed",
+    );
+  });
+
+  it("retains producer order and every supported outcome category on failure", () => {
+    const output =
+      "2 failed, 7 passed, 3 skipped, 4 deselected, 5 xfailed, 6 xpassed, 1 warning, 8 errors in 61.00s (0:01:01)";
+
+    expect(summarizeTestOutputForPresentation(output, 1)).toBe(
+      "TEST SUMMARY (pytest): FAIL — 2 failed, 7 passed, 3 skipped, 4 deselected, 5 xfailed, 6 xpassed, 1 warning, 8 errors",
+    );
+  });
+
+  it("keeps the model-facing summarizer unchanged for quiet pytest output", () => {
+    const output = "1901 passed, 24 skipped, 31000 deselected, 1 xfailed in 2.75s";
+
+    expect(summarizeTestOutput(output, 0)).toBeUndefined();
+    expect(summarizeTestOutputForPresentation(output, 0)).toContain("1901 passed");
+  });
+
+  it.each([
+    ["prose", "The final result was 5 passed in 0.42s."],
+    ["missing duration", "5 passed, 1 skipped"],
+    ["malformed separator", "5 passed,1 skipped in 0.42s"],
+    ["duplicate category", "5 passed, 2 passed in 0.42s"],
+    ["unknown category", "5 passed, 1 rerun in 0.42s"],
+    ["no tests", "no tests ran in 0.42s"],
+    ["zero-only", "0 passed in 0.42s"],
+    ["leading-zero count", "001 passed in 0.42s"],
+    ["unsafe integer", "9007199254740992 passed in 0.42s"],
+    ["control sequence", "\u001b[32m5 passed in 0.42s\u001b[0m"],
+  ])("rejects %s instead of fabricating a quiet pytest summary", (_label, output) => {
+    expect(summarizeTestOutputForPresentation(output, 0)).toBeUndefined();
+  });
+
+  it("retains the existing banner recognizer as a presentation fallback", () => {
+    expect(
+      summarizeTestOutputForPresentation("============== 5 passed in 0.42s ==============", 0),
+    ).toBe("TEST SUMMARY (pytest): PASS — 5 passed");
+  });
+
+  it("preserves generated unique pytest count lists without inventing or reordering parts", () => {
+    fc.assert(
+      fc.property(
+        fc.uniqueArray(
+          fc.record({
+            kind: fc.constantFrom(
+              "failed",
+              "passed",
+              "skipped",
+              "deselected",
+              "xfailed",
+              "xpassed",
+              "warnings",
+              "errors",
+            ),
+            count: fc.integer({ min: 1, max: 100_000 }),
+          }),
+          { minLength: 1, maxLength: 8, selector: (part) => part.kind },
+        ),
+        fc.constantFrom(0, 1),
+        (parts, exitCode) => {
+          const raw = parts.map(({ kind, count }) => {
+            if (kind === "warnings") return `${String(count)} warning${count === 1 ? "" : "s"}`;
+            if (kind === "errors") return `${String(count)} error${count === 1 ? "" : "s"}`;
+            return `${String(count)} ${kind}`;
+          });
+          const failed =
+            exitCode !== 0 ||
+            parts.some(({ kind, count }) => (kind === "failed" || kind === "errors") && count > 0);
+          expect(summarizeTestOutputForPresentation(`${raw.join(", ")} in 12.34s`, exitCode)).toBe(
+            `TEST SUMMARY (pytest): ${failed ? "FAIL" : "PASS"} — ${raw.join(", ")}`,
+          );
+        },
+      ),
     );
   });
 });

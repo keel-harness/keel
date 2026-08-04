@@ -294,3 +294,19 @@ but the final visible card reduces stdout to progress dots. The plan-defined agg
 **4.01/5** and the legacy pooled diagnostic remains **3.98/5** (247/62); strict final confidence and
 same-commit replay gates remain open. R17 used zero Anthropic calls, so cumulative spend stays USD
 2.74434625.
+
+R18 candidate `5a299c3` repairs DF-024 under
+[issue #105](https://github.com/keel-harness/keel/issues/105). A strict presentation-only quiet-
+pytest recognizer consumes only complete parsed Warden bash envelopes and puts the exact counts in
+the settled tool card plus existing `ran` receipt. Failure/error counts, nonzero exits, signals,
+typed partial/limited/failed states, warnings, containment, unknown output, raw authority, and
+model-facing summaries remain conservative or unchanged.
+
+Red-first regressions, focused **637/637**, unrestricted full coverage **6,584 / 20 existing
+opt-in skips**, typecheck, lint, format, build, all package carriers, and supply-chain checks pass.
+The clean exact npm carrier passes the same governed Click command at 80x24 and 100x30; screenshots
+46-49 show progress dots before and the full `1901 passed, 24 skipped, 31000 deselected, 1 xfailed`
+line after. Five-lens QC has no local must-fix. No Warden, frozen contract, dependency, security
+claim, or Anthropic-cost change. Publication and post-main evidence remain pending. The exact
+checkpoint improves, but the official six-workflow score stays **4.01/5** pending its final
+same-commit canonical replay.

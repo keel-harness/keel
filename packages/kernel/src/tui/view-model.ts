@@ -42,6 +42,10 @@ import type { SessionSummary } from "../session/list.js";
 import { INTERRUPTED_TOOL_RESULT } from "../session/resume.js";
 import { workspaceKey } from "../session/workspace-key.js";
 import {
+  analyzeTestOutputForPresentation,
+  type TestOutputPresentationAnalysis,
+} from "../tools/test-summary.js";
+import {
   markToolPresentationOutcome,
   toolPresentationOutcome,
 } from "../tool-presentation-outcome.js";
@@ -1213,6 +1217,16 @@ function bashEnvelopeCommandFailed(env: BashResultEnvelope): boolean {
   );
 }
 
+function bashEnvelopeTestPresentation(
+  env: BashResultEnvelope,
+): TestOutputPresentationAnalysis | undefined {
+  if (!env.complete) return undefined;
+  return analyzeTestOutputForPresentation(
+    env.stdout,
+    env.exitCode ?? (env.signal === undefined ? null : 1),
+  );
+}
+
 function firstMeaningfulLines(s: string, maxLines: number): readonly string[] {
   const out: string[] = [];
   for (const raw of s.split("\n")) {
@@ -1229,24 +1243,32 @@ function bashEnvelopeSummary(
   ok: boolean,
   contained = false,
   warning?: string,
+  testSummary?: string,
 ): string {
   const status = [
     ok ? undefined : env.exitCode !== undefined ? `exit ${env.exitCode}` : undefined,
     ok ? undefined : env.signal !== undefined ? `signal ${env.signal}` : undefined,
   ].filter((part): part is string => part !== undefined);
 
+  if (testSummary !== undefined) status.push(testSummary);
   if (ok) {
-    const stdout = firstMeaningfulLines(env.stdout, 6);
-    if (stdout.length > 0) status.push(`stdout: ${stdout.join(" · ")}`);
-    else {
-      const stderr = firstMeaningfulLines(env.stderr, 3);
-      if (stderr.length > 0) status.push(`stderr: ${stderr.join(" · ")}`);
+    if (testSummary === undefined) {
+      const stdout = firstMeaningfulLines(env.stdout, 6);
+      if (stdout.length > 0) status.push(`stdout: ${stdout.join(" · ")}`);
+      else {
+        const stderr = firstMeaningfulLines(env.stderr, 3);
+        if (stderr.length > 0) status.push(`stderr: ${stderr.join(" · ")}`);
+      }
     }
   } else {
     const stderr = stripControlLine(lastMeaningfulLine(env.stderr)).trim().replace(/\s+/g, " ");
     const stdout = stripControlLine(lastMeaningfulLine(env.stdout)).trim().replace(/\s+/g, " ");
     const detail =
-      stderr.length > 0 ? `stderr: ${stderr}` : stdout.length > 0 ? `stdout: ${stdout}` : undefined;
+      stderr.length > 0
+        ? `stderr: ${stderr}`
+        : testSummary === undefined && stdout.length > 0
+          ? `stdout: ${stdout}`
+          : undefined;
     if (detail !== undefined) status.push(detail);
   }
 
@@ -1340,8 +1362,31 @@ function toolResultSummary(
   if (name === "bash") {
     const containment = unwrapVerifiedSandboxContainment(output);
     const envelope = parseBashResultEnvelope(output);
-    if (envelope !== undefined)
-      return bashEnvelopeSummary(envelope, ok, containment.contained, containment.warning);
+    if (envelope !== undefined) {
+      const commandFailed = bashEnvelopeCommandFailed(envelope);
+      const testPresentation = bashEnvelopeTestPresentation(envelope);
+      const exactSuccessfulOutcome =
+        envelope.complete &&
+        envelope.exitCode === 0 &&
+        envelope.signal === undefined &&
+        ok &&
+        outcome === undefined;
+      const exactFailedOutcome =
+        envelope.complete &&
+        outcome === "failed" &&
+        (commandFailed || testPresentation?.failed === true);
+      const testSummary =
+        (exactSuccessfulOutcome || exactFailedOutcome) && testPresentation !== undefined
+          ? testPresentation.summary
+          : undefined;
+      return bashEnvelopeSummary(
+        envelope,
+        ok,
+        containment.contained,
+        containment.warning,
+        testSummary,
+      );
+    }
   }
   const summary = ok
     ? firstLine(output.slice(0, MAX_LIVE_OUTPUT_LEN))
@@ -2019,7 +2064,14 @@ function resumedToolOutcome(
   if (name === "bash") {
     if (!failed && resumedBashWasLimited(content)) return "limited";
     const envelope = parseBashResultEnvelope(content);
-    if (!failed && envelope !== undefined && bashEnvelopeCommandFailed(envelope)) return "failed";
+    if (
+      !failed &&
+      envelope !== undefined &&
+      (bashEnvelopeCommandFailed(envelope) ||
+        bashEnvelopeTestPresentation(envelope)?.failed === true)
+    ) {
+      return "failed";
+    }
   }
   if (!failed) return undefined;
   if (content === INTERRUPTED_TOOL_RESULT || content === KERNEL_STRINGS.toolAborted)
@@ -2912,7 +2964,9 @@ export function reduce(view: ViewModel, ev: KernelEventT | UiInputEventT): ViewM
           : undefined;
       const outcome =
         taggedOutcome ??
-        (bashEnvelope !== undefined && bashEnvelopeCommandFailed(bashEnvelope)
+        (bashEnvelope !== undefined &&
+        (bashEnvelopeCommandFailed(bashEnvelope) ||
+          bashEnvelopeTestPresentation(bashEnvelope)?.failed === true)
           ? "failed"
           : undefined);
       const presentationOk = ev.ok && outcome !== "failed";
