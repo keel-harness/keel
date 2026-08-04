@@ -344,3 +344,23 @@ R18 therefore changes presentation and final confidence only. Historical benchma
 Reviewed head `d7d6f2e` passed exact-head CI run `30883098433`; PR #106 squash-merged as `759a727`
 with byte-identical tree `a52f7a1`. Exact post-main CI run `30883516900`, issue closure, and feature
 cleanup passed. These publication events add no Warden interrupt or authority.
+
+## R19 validation outcome
+
+R19 changes no Warden policy, review semantics, grant scope, sandbox, egress guard, audit format,
+or execution path. The ten selected installed-carrier sessions required governed posture. The
+selected audit set contains four allowed bash `tool.execute` records across two active/resize
+sessions, six allowed diff-path `tool.execute` records across two diff sessions, and zero tool
+events across two active-panel interrupt sessions.
+
+The two live-review sessions each produced one `review.requested` and one denied
+`review.resolved` event for exact scope `domain example.com`. Both interrupts were necessary: the
+requested `curl https://example.com` action crossed the established network boundary. The prompt
+showed the exact command, impact, scope, once/session/deny choices, and consequence; review-focused
+paste, editor, history, and search probes remained inert. Denial restored the exact draft and the
+action did not execute.
+
+These two controlled validation prompts are not added to the frozen historical six-workflow
+benchmark total, which remains **6 total / 2 necessary / 4 excessive or avoidable**. For the R19
+matrix itself the audit is **2 total / 2 necessary / 0 excessive**, with no automatic grant or
+session reuse exercised. Publication-only actions add no Warden interrupt or authority.

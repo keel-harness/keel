@@ -1186,3 +1186,35 @@
 - R18 is published with zero Anthropic calls and no score inflation. The exact component checkpoint
   improves, while the official frozen six-workflow aggregate remains **4.01/5** pending its final
   same-commit canonical replay.
+
+## 2026-08-04 — R19 installed composer and focus usability
+
+- Started from clean exact main `fa4a818a746a72e74a5156832b77c307984362d6`, confirmed
+  `origin/main` matched, and opened validation issue #108 plus isolated branch
+  `test/tui-r19-input-usability`.
+- Built and packaged all carriers from clean main. The npm metadata records the exact commit and
+  `dirty: false`; the scripts-disabled tarball SHA-256 is
+  `7b56aeb67614ec78c8c3ac9ded61c85cce255ac287a4162b67746ec71a1f33ff`.
+- `npm pack build/npx` was **not green** because npm interpreted the operand as a Git URL; the
+  corrected `npm pack ./build/npx` passed. A restricted install then hung on unavailable DNS and
+  was interrupted with exit 130; the approved retry installed 57 packages with scripts disabled.
+- Existing input/focus/terminal coverage passes **11 files, 492/492 tests**.
+- The selected installed-carrier matrix passes **10/10** across 80x24 and 100x30 with **26**
+  loopback fixture requests: multiline paste and `Ctrl+J`, history and reverse search, native
+  scrollback, provider/tool draft retention and bidirectional resize, active-panel interruption,
+  live review denial, diff focus, keyboard closure, and exact draft restoration.
+- Every accepted session uses the spawned production Warden in the clean external Click checkout,
+  shows governed protection, and reaps its process group. The two review prompts are necessary,
+  exact-domain scoped, denied, and not executed; the two active-panel interrupts start no later
+  tool.
+- Eight rejected calibration causes are recorded separately: transient-state assumptions, a
+  reverse-search focus race, a too-fast tool, a nonempty-draft idle oracle, a burst palette race,
+  stale interrupt wording, legitimate exit-1 attention states, and teardown repaint. None is
+  counted as a product failure or accepted by weakening a safety assertion.
+- Screenshots 50-51 are sanitized, visually inspected 1400x840 renderings. Initial clipped Quick
+  Look artifacts and an SDK-incompatible Swift fallback are explicitly not green. Actual mouse
+  text selection is **NOT_RUN**.
+- Five-lens spec, security/adversarial, reliability, DX, and simplicity review passes with no local
+  must-fix. E5 is **NOT_RUN** and zero Anthropic calls leave cumulative spend at USD 2.74434625.
+  No product or score change; the official aggregate remains **4.01/5** pending final same-commit
+  six-workflow proof.

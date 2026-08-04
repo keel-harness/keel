@@ -179,3 +179,11 @@ one of the six frozen canonical workflow rows, so the official unweighted workfl
 **4.01/5** and the legacy pooled diagnostic remains **3.98/5** (247/62) until the final same-commit
 replay. This avoids converting a component regression proof into an unsupported workflow-wide
 score increase.
+
+R19 validates the existing user-interruption and input-control evidence without changing a frozen
+workflow score. The exact installed main carrier passes **10/10** selected 80x24/100x30 real-PTY
+scenarios for multiline paste, history, reverse search, editing, native scrollback, draft retention
+during provider/tool updates and resize, and exclusive active-panel/review/diff focus. No dropped
+input or focus ambiguity was reproduced. Actual mouse selection is **NOT_RUN**, so the validation
+does not claim that surface. The plan-defined aggregate remains **4.01/5** and the legacy pooled
+diagnostic remains **3.98/5** (247/62) until the frozen same-commit six-workflow replay.
