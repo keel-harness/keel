@@ -1439,4 +1439,18 @@
   overwritten/deleted, and never retained.
 - Five-lens QC has no local must-fix. R20 makes zero Anthropic calls and zero Warden reviews, changes
   no authority/security/public contract, and leaves the candidate six-workflow score at **4.04/5**
-  pending exact-head CI, publication, and the final same-commit replay.
+  pending the final same-commit replay.
+
+## 2026-08-04 — R20 publication closeout
+
+- Exact reviewed head `2401a65` passed PR CI run `30936094264`, including `ci-required`, Ubuntu
+  build/coverage, package, security, real sandbox, Node-next, egress-scale, and all three
+  installed-product matrices. DCO passed.
+- The owner-authorized admin squash resolved the required-review-only blocker and merged PR #124 as
+  `67e317d`. Candidate and merge share exact tree `2474522`; issue #123 closed automatically.
+- Exact post-main run `30936677719` passed required aggregate `92086267416`, Linux/macOS
+  build/coverage, package, and real-sandbox lanes, audit, security, both native cross-architecture
+  carrier smokes, Node-next, egress-scale, and the Node 20/22/24 installed-product matrix.
+- This evidence-only closeout adds no provider calls, Warden reviews, runtime behavior, contract,
+  dependency, security claim, or score change. Branch/worktree and task-root cleanup follows this
+  evidence merge; the final same-commit six-workflow replay remains open.

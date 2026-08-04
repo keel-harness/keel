@@ -429,5 +429,9 @@ existing narrow and unknown-width behavior, and passes **6,668 tests / 20 intent
 skips**, full coverage, static/package gates, nine governed terminal profiles, real Kitty, and real
 Apple Terminal. Screenshots 65-69 and session log 26 retain the sanitized evidence. R20 used zero
 provider calls and zero Warden interrupts; its cross-cutting confidence does not change the
-**4.04/5** candidate score. Exact-head CI/publication and the final same-commit replay remain open;
-native Linux terminal-emulator validation is explicitly **NOT_RUN**.
+**4.04/5** candidate score. Exact-head CI `30936094264` passed, and
+[PR #124](https://github.com/keel-harness/keel/pull/124) merged as `67e317d`; reviewed head and merge
+share tree `2474522`. Exact post-main CI `30936677719` passed every selected Linux/macOS,
+cross-architecture, package, security, sandbox, audit, Node-next, and installed-product lane. Only
+the final same-commit replay remains open; native Linux terminal-emulator validation is explicitly
+**NOT_RUN**.

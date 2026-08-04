@@ -802,5 +802,8 @@ worktree were removed.
   `63e50181dc46422203e4034ff6ab1bc8de7e4237a5342511f381c6062bc05306`, passes nine terminal
   profiles plus native Kitty and Apple Terminal checks. Screenshots 65-69 and session log 26 retain
   the evidence.
+- Exact reviewed head `2401a65` passed CI `30936094264`; PR #124 merged as `67e317d` with the same
+  tree `2474522`. Exact post-main CI `30936677719`, including required aggregate `92086267416`,
+  passed.
 - Zero provider calls, zero Warden interrupts, no score change, no dependency/authority/contract/
   security-claim change. Native Linux terminal-emulator coverage is **NOT_RUN**.
