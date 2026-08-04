@@ -16,8 +16,8 @@ describe("gitStatus — cockpit git segment (fail-soft, injectable runner)", () 
     const g = await gitStatusAsync(
       "/w",
       fakeRun({
-        "rev-parse --abbrev-ref HEAD": "main\n",
-        "status --porcelain": " M a.ts\nA  b.ts\n?? c.ts\n D d.ts\nR  e.ts -> f.ts\n",
+        "status --porcelain --branch":
+          "## main\n M a.ts\nA  b.ts\n?? c.ts\n D d.ts\nR  e.ts -> f.ts\n",
       }),
     );
     // ` M`→modified · `A `→added · `??`→added(untracked) · ` D`→deleted · `R `→modified(rename)
@@ -25,40 +25,48 @@ describe("gitStatus — cockpit git segment (fail-soft, injectable runner)", () 
   });
 
   it("a clean repo reports the branch with zero counts", async () => {
+    const g = await gitStatusAsync("/w", fakeRun({ "status --porcelain --branch": "## main\n" }));
+    expect(g).toEqual({ branch: "main", added: 0, modified: 0, deleted: 0 });
+  });
+
+  it("reports the branch of an unborn repository", async () => {
     const g = await gitStatusAsync(
       "/w",
-      fakeRun({ "rev-parse --abbrev-ref HEAD": "main\n", "status --porcelain": "" }),
+      fakeRun({ "status --porcelain --branch": "## No commits yet on trunk\n?? first.txt\n" }),
     );
-    expect(g).toEqual({ branch: "main", added: 0, modified: 0, deleted: 0 });
+    expect(g).toEqual({ branch: "trunk", added: 1, modified: 0, deleted: 0 });
   });
 
   it("fail-soft: not a repo / git absent (runner returns undefined for everything) → undefined, no throw", async () => {
     await expect(gitStatusAsync("/w", async () => undefined)).resolves.toBeUndefined();
   });
 
-  it("a detached HEAD (rev-parse returns the literal 'HEAD', as real git does) reports counts and omits the branch (CLI-5)", async () => {
+  it("a detached HEAD reports counts and omits the branch (CLI-5)", async () => {
     const g = await gitStatusAsync(
       "/w",
-      fakeRun({ "rev-parse --abbrev-ref HEAD": "HEAD\n", "status --porcelain": "A  x.ts\n" }),
+      fakeRun({ "status --porcelain --branch": "## HEAD (no branch)\nA  x.ts\n" }),
     );
     expect(g).toEqual({ added: 1, modified: 0, deleted: 0 });
     expect(g?.branch).toBeUndefined(); // not the confusing literal "HEAD"
   });
 
-  it("launches branch and porcelain probes concurrently", async () => {
+  it("uses one status probe for both branch and porcelain counts", async () => {
     const calls: string[] = [];
-    const releases = new Map<string, (value: string | undefined) => void>();
+    let release: ((value: string | undefined) => void) | undefined;
     const run: GitRunAsync = (args) => {
       const key = args.join(" ");
       calls.push(key);
-      return new Promise((resolve) => releases.set(key, resolve));
+      return new Promise((resolve) => {
+        release = resolve;
+      });
     };
 
     const pending = gitStatusAsync("/w", run);
 
-    expect(calls).toEqual(["rev-parse --abbrev-ref HEAD", "status --porcelain"]);
-    releases.get("status --porcelain")?.(" M a.ts\n?? b.ts\n");
-    releases.get("rev-parse --abbrev-ref HEAD")?.("feature/async-startup\n");
+    expect(calls).toEqual(["status --porcelain --branch"]);
+    release?.(
+      "## feature/async-startup...origin/feature/async-startup [ahead 1]\n M a.ts\n?? b.ts\n",
+    );
 
     await expect(pending).resolves.toEqual({
       branch: "feature/async-startup",
@@ -68,17 +76,12 @@ describe("gitStatus — cockpit git segment (fail-soft, injectable runner)", () 
     });
   });
 
-  it("fails soft when both asynchronous probes fail", async () => {
+  it("fails soft when the asynchronous probe fails", async () => {
     await expect(gitStatusAsync("/w", async () => undefined)).resolves.toBeUndefined();
   });
 
   it("omits git status when the porcelain probe fails instead of implying a clean tree", async () => {
-    await expect(
-      gitStatusAsync(
-        "/w",
-        fakeRun({ "rev-parse --abbrev-ref HEAD": "main\n", "status --porcelain": undefined }),
-      ),
-    ).resolves.toBeUndefined();
+    await expect(gitStatusAsync("/w", fakeRun({}))).resolves.toBeUndefined();
   });
 
   it("fails soft when an asynchronous runner rejects", async () => {
