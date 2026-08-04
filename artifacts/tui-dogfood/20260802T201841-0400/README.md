@@ -37,7 +37,8 @@ credentials nor user-home paths.
 All six requested workflow classes have live evidence. Evidence PR #53; implementation PRs #55,
 #57, #59, #61, #65, #66, #68, #71, #73, and #75; repeatability PR #63; R6 evidence correction PR
 #69; R10 PR #80 and closeout PR #81; R11 PR #83; PTY observer repair PR #85; dependency-
-remediation PR #78; R14 PR #88; and R12 PR #92 were owner-approved, squash-merged, and cleaned up.
+remediation PR #78; R14 PR #88; R12 PR #92; and R13 PR #95 were owner-approved, squash-merged,
+and cleaned up.
 Each UX
 slice passed reviewed-head CI. R9's first post-merge run exposed a high `brace-expansion` advisory;
 PR #78 repaired it. Exact current-main CI run `30856149564` passes at `939b8c4` after the later
@@ -214,8 +215,8 @@ transcriptions. R12 made zero Anthropic calls, so cumulative spend remains USD 2
 Issue #91 closed and feature cleanup passed, so the evidence-bound official score is now
 **3.87/5** (240/62). The stricter final six-workflow release gate remains open.
 
-R13 is in candidate validation under
-[issue #94](https://github.com/keel-harness/keel/issues/94). Successful `keel auth set` output now
+R13 closed [issue #94](https://github.com/keel-harness/keel/issues/94). Successful `keel auth set`
+output now
 separates the completed `0600` credentials-file write from the process-lifetime provider boundary:
 running sessions were not reloaded, and recovery is to restart from the session workspace with
 `keel --continue`. Secret-store precedence, permissions, errors, and provider construction are
@@ -229,6 +230,8 @@ coverage is 97.99% statements/lines and 93.72% branches overall. Clean exact ins
 and candidate npm carriers pass at 80x24 and 100x30 with file mode `0600`, clean exit, identical
 per-carrier transcript hashes, and no credential in output. Screenshots 39–40 are visually
 inspected sanitized 1400x840 comparison transcriptions. R13 makes zero Anthropic calls, so spend
-remains USD 2.74434625. Candidate `19a482a` raises only observed onboarding recovery, producing a
-provisional **3.89/5** (241/62); reviewed-head/post-main CI and cleanup remain required before
-that score is official.
+remains USD 2.74434625. Candidate `19a482a` and PR head `65ffe16` passed exact reviewed-head CI run
+`30866891254`; PR #95 squash-merged as `1bbe977`. Candidate and merge share tree `ee7837f`. Exact
+post-main CI run `30867327223` passed, including `ci-required` job `91863159620`; feature cleanup
+passed. R13 raises only observed onboarding recovery, so the evidence-bound official score is now
+**3.89/5** (241/62). The stricter final six-workflow release gate remains open.

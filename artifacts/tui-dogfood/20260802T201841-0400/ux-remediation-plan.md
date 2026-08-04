@@ -560,11 +560,14 @@ process reloaded credentials; if not, provide one exact restart/resume command b
 401. Hot reload is a separate design only if it can preserve secret handling and provider-client
 ownership cleanly. Never expose or partially display the key.
 
-Candidate status: implementation commit `19a482a` adds exact successful-set copy and matching
-getting-started/reference guidance without changing secret-store semantics or provider ownership.
-Red-first auth coverage, adjacent CLI/secrets coverage, unrestricted coverage, static/build gates,
-and exact installed-carrier 80x24/100x30 E3/E4 pass with zero provider calls. Publication,
-reviewed-head CI, post-main proof, and cleanup remain pending.
+Status: closed under [issue #94](https://github.com/keel-harness/keel/issues/94) and
+[PR #95](https://github.com/keel-harness/keel/pull/95). Implementation commit `19a482a` adds exact
+successful-set copy and matching getting-started/reference guidance without changing secret-store
+semantics or provider ownership. Red-first auth coverage, adjacent CLI/secrets coverage,
+unrestricted coverage, static/build gates, and exact installed-carrier 80x24/100x30 E3/E4 pass
+with zero provider calls. Candidate and merge `1bbe977` share tree `ee7837f`; exact reviewed-head CI
+`30866891254` and post-main CI `30867327223` passed. Cleanup passed and the evidence-bound aggregate
+is officially **3.89/5** (241/62); the final release gate remains open.
 
 ### R14 · P2 — explicit interrupted-mutation state
 

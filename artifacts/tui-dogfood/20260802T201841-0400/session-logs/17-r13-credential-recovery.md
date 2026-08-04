@@ -58,5 +58,11 @@ are absent from transcripts and screenshots.
 
 Security enforcement, secret-store semantics, Warden verdicts, frozen contracts, audit authority,
 model-visible results, and provider behavior are unchanged. Cumulative Anthropic spend remains USD
-2.74434625. The directly observed onboarding recovery cell rises from 4 to 5, making the candidate
-aggregate **3.89/5** (241/62); publication proof remains pending.
+2.74434625. Candidate `19a482a4d6175c36374d5a3c8229ab23217fa0b3` plus evidence head
+`65ffe16d384ecbe97f82440832a2ff484d404661` passed exact reviewed-head CI `30866891254`, including
+`ci-required` job `91861618047`. PR #95 squash-merged as
+`1bbe9778d1d227f090226a3a3e07488498074d91`; both trees are
+`ee7837f811f492983983ed986d6a3dcda8d58530`. Exact post-main CI `30867327223` passed, including
+`ci-required` job `91863159620`. Issue #94 closed and feature cleanup passed. The directly observed
+onboarding recovery cell rises from 4 to 5, making the evidence-bound aggregate officially
+**3.89/5** (241/62); the strict final same-commit six-workflow gate remains open.
