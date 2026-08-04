@@ -452,3 +452,18 @@ the startup tail; production snapshots remain mandatory. Red-first repair is pub
 [#127](https://github.com/keel-harness/keel/issues/127). P1-007 remains failed and no threshold,
 performance claim, or workflow score changes. R23 makes zero Anthropic calls and zero Warden review
 interrupts; cumulative spend remains USD 4.72508650 and the candidate score remains **4.04/5**.
+
+Issue #127 is now locally fixed on exact code commit `e95032b`. Warden readiness precedes trusted
+workspace snapshot work, while snapshot settlement still precedes model input, queued work,
+steering, and tools. The ordinary physically external destination uses Node's native recursive copy;
+the reviewed nested-state traversal remains. A measured follow-up keeps the nonblocking cockpit Git
+signal while replacing its two startup processes with one bounded status process.
+
+The exact scripts-disabled npm carrier has SHA-256
+`0798d3036ed17ff5b15c09e1cb91ff738f05dc8327f7eb6f2a3d90e0f6e69299` and passes two independent
+20-run governed 80x24 distributions at p95 673.149/718.369 ms. Combined p95 is 714.515 ms; first
+paint is 41.119 ms, idle input is 7.762 ms, no sample exceeds 1,000 ms, and every process group is
+reaped. Full coverage passes 6,669 tests with 20 intentional opt-in skips. No threshold, snapshot
+default, security claim, Warden authority, frozen contract, workflow score, or Anthropic spend
+changes. Session log 28 records two rejected code candidates, the reverted metadata-concurrency
+experiment, exact reports, and five-lens QC. Publication and post-main proof remain pending.

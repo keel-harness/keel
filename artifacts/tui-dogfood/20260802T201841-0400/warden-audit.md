@@ -466,3 +466,21 @@ excessive** review interrupts. The frozen historical dogfood total remains **6 t
 
 Issue #127 may change only startup/snapshot scheduling and copy mechanics. It is explicitly barred
 from changing Warden readiness truth, policy, sandbox, egress, audit, grant, or review behavior.
+
+## Issue #127 validation outcome
+
+Issue #127 changes Kernel-owned startup scheduling, snapshot copy mechanics, and the cosmetic Git
+probe only. The Warden still fully starts and reports governed posture before the UI can remove its
+startup marker. Snapshot work begins after that readiness and still settles before any model input,
+queued task, resumed steering, or tool action. No verdict, policy input, review route, grant,
+sandbox, egress, audit, protocol, schema, authority, or governed command changes.
+
+The two accepted exact-carrier startup distributions perform no governed task action and request no
+human decision. All 40 launches reach governed posture, exit zero, and reap their complete process
+groups. Failed Warden startup deterministically starts no backup. The nested-state copy path,
+whole-`KEEL_HOME` denial, path withholding, symlink fidelity, caps, cleanup, and fail-open snapshot
+semantics remain covered.
+
+Issue #127 therefore adds **0 total / 0 necessary / 0 excessive** review interrupts and leaves the
+frozen historical dogfood total at **6 total / 2 necessary / 4 excessive or avoidable**. Publication
+and post-main CI remain pending.

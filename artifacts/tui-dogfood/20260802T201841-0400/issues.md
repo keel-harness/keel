@@ -474,8 +474,9 @@
 ### DF-028 — mandatory snapshot contention pushes governed-ready tail over budget
 
 - Severity: P1 perceived-startup responsiveness.
-- Status: open under [issue #127](https://github.com/keel-harness/keel/issues/127); no product fix is
-  claimed by R23.
+- Status: locally fixed and exact-carrier validated under
+  [issue #127](https://github.com/keel-harness/keel/issues/127); publication and post-main proof are
+  pending.
 - Direct evidence: exact-carrier distributions total 40 governed launches. Combined governed-ready
   p95 is 1,049.076 ms; 10/40 samples are at or above the spec's 750 ms target and 3/40 exceed the
   R17 1,000 ms observational bound. All samples still render honest first paint, reach governed
@@ -483,9 +484,16 @@
 - Diagnosis: disabling only the disposable run-start snapshot for a diagnostic 20-launch ablation
   yields p95 631.637 ms / max 673.559 ms. The production snapshot is mandatory and remains enabled;
   code inspection and component timing show it currently contends with parallel Warden startup.
-- Planned repair: sequence Warden readiness before the still-pre-action snapshot and use the safe
-  recursive-copy fast path only when the private destination is outside the workspace. Red-first
-  ordering/copy-path tests and exact-carrier p95 decide whether either candidate is retained.
+- Retained repair: sequence Warden readiness before the still-pre-action snapshot, use the safe
+  recursive-copy fast path only when the private destination is outside the workspace, overlap the
+  cosmetic Git probe with Warden, and collapse its branch/status work to one bounded process. The
+  snapshot still settles before any model, steering, task, or tool action.
+- Validation: exact clean carrier `e95032b`, tarball SHA-256
+  `0798d3036ed17ff5b15c09e1cb91ff738f05dc8327f7eb6f2a3d90e0f6e69299`, passes two independent
+  20-run distributions at governed-ready p95 673.149/718.369 ms. Combined p95 is 714.515 ms; first
+  paint, input ownership, exit, and complete process-group teardown pass. Full coverage passes 6,669
+  tests with 20 intentional opt-in skips. Two earlier candidates and one uncommitted metadata-
+  concurrency experiment remain rejected rather than threshold-adjusted.
 - Boundaries: no snapshot default/opt-out, post-action backup, timeout/retry, threshold change,
   Warden/enforcement/audit change, dependency, telemetry, frozen contract, or public CLI change.
 

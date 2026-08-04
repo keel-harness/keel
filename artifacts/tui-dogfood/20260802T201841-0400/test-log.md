@@ -1487,3 +1487,34 @@
   tests. The first Python command incorrectly used a dotted module path for a non-package directory
   and failed import with zero tests; direct-file invocation passed. `pnpm format` and diff checks
   pass. `pnpm lint` and all workspace plus packaging typechecks pass.
+
+## 2026-08-04 — issue #127 governed-ready startup-tail repair
+
+- Began from clean exact main `4103438`, tree `26f932c`, on isolated branch/worktree. External Click
+  remained clean at `edda51f`.
+- Red-first ordering tests failed because backup began before gated Warden readiness and still began
+  when Warden startup failed. Copy-path selection and Git-before-Warden scheduling tests likewise
+  failed for their intended missing behavior before implementation.
+- Clean candidate `83e4f4c` retained snapshot safety but failed its 20-run exact-carrier gate at
+  governed-ready p95 780.438 ms. Clean candidate `abbda07` passed one distribution at 670.003 ms but
+  failed confirmation at 815.561 ms; combined p95 was 753.331 ms. Neither was promoted. A bounded-
+  parallel snapshot metadata experiment worsened component p95 from 98.947 to 141.737 ms and was
+  reverted uncommitted.
+- Final exact code commit `e95032b`, tree `2b1ad34`, sequences Warden then snapshot, preserves the
+  pre-action await, uses the normal native recursive copy and reviewed nested-state fallback,
+  overlaps cosmetic Git with Warden, and derives the cockpit Git signal from one bounded process.
+- Focused final coverage passes **3 files / 176 tests**. Full unrestricted coverage passes **365
+  files / 6,669 tests / 20 intentional opt-in skips** at 97.86% statements/lines, 93.63% branches,
+  and 99.59% functions. Lint, typecheck, format, build, package, and diff checks pass.
+- The first npm pack attempt was **not green** because npm selected an inaccessible user cache. The
+  corrected task-local-cache pack passed; 57 packages installed with lifecycle scripts disabled.
+  Tarball SHA-256 is
+  `0798d3036ed17ff5b15c09e1cb91ff738f05dc8327f7eb6f2a3d90e0f6e69299`, with exact commit metadata
+  and `dirty: false`.
+- Two independent exact-carrier distributions each pass 20/20 with zero rejects. Governed-ready p95
+  is 673.149/718.369 ms; combined p95 is 714.515 ms, first-paint p95 41.119 ms, idle-input p95
+  7.762 ms, max 828.473 ms, zero nonzero exits, and zero surviving process groups.
+- Five-lens QC has no must-fix. Security claims affected: none. ADR needed: no. E5 is **NOT_RUN**;
+  zero provider calls and zero Warden review interrupts leave spend at USD 4.72508650. The official
+  score remains 4.04/5 candidate and 4.02/5 pooled diagnostic pending the strict same-commit replay.
+  Session log 28 contains the full evidence; publication and post-main proof remain pending.
