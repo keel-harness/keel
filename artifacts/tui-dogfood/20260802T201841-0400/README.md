@@ -295,7 +295,7 @@ but the final visible card reduces stdout to progress dots. The plan-defined agg
 same-commit replay gates remain open. R17 used zero Anthropic calls, so cumulative spend stays USD
 2.74434625.
 
-R18 candidate `5a299c3` repairs DF-024 under
+R18 closes DF-024 under
 [issue #105](https://github.com/keel-harness/keel/issues/105). A strict presentation-only quiet-
 pytest recognizer consumes only complete parsed Warden bash envelopes and puts the exact counts in
 the settled tool card plus existing `ran` receipt. Failure/error counts, nonzero exits, signals,
@@ -307,6 +307,9 @@ opt-in skips**, typecheck, lint, format, build, all package carriers, and supply
 The clean exact npm carrier passes the same governed Click command at 80x24 and 100x30; screenshots
 46-49 show progress dots before and the full `1901 passed, 24 skipped, 31000 deselected, 1 xfailed`
 line after. Five-lens QC has no local must-fix. No Warden, frozen contract, dependency, security
-claim, or Anthropic-cost change. Publication and post-main evidence remain pending. The exact
-checkpoint improves, but the official six-workflow score stays **4.01/5** pending its final
-same-commit canonical replay.
+claim, or Anthropic-cost change. Reviewed head `d7d6f2e` passed exact-head CI run `30883098433`;
+[PR #106](https://github.com/keel-harness/keel/pull/106) squash-merged as `759a727`. Candidate and
+merge share tree `a52f7a1`. Exact post-main CI run `30883516900` passed, including `ci-required` job
+`91910698605`; issue #105 closed and the feature branch/worktree were removed. The exact checkpoint
+improves, but the official six-workflow score stays **4.01/5** pending its final same-commit
+canonical replay.

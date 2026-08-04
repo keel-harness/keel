@@ -138,3 +138,19 @@ workflow replay supports changing one of its frozen rows. The legacy pooled diag
 **3.98/5** (247/62). E5 is **NOT_RUN** because the behavior is deterministic controller
 presentation and the production provider boundary was exercised by the loopback fixture. Anthropic
 spend remains USD 2.74434625.
+
+## Publication closeout
+
+- Reviewed head `d7d6f2e24a5db0556170b4bfd001a249bbe1b5f0` passed exact-head CI run
+  `30883098433`, including `ci-required` job `91909436654` plus build/coverage, package, security,
+  real-sandbox, Node-next, egress-scale, and three Node egress-product jobs.
+- Owner-authorized admin squash merged PR #106 as
+  `759a727b7c4afc7702c59dd45b6aa339d555a69e`. Candidate and merge trees are both
+  `a52f7a185cb6c322e626a507f59cf9403fad8072`.
+- Exact post-main CI run `30883516900` passed, including `ci-required` job `91910698605`, both
+  Linux/macOS build-and-coverage jobs, both package jobs, both real-sandbox jobs, both cross-
+  architecture carrier smokes, audit, security, Node-next, egress-scale, and installed-product
+  matrices.
+- Issue #105 closed. Canonical `main` was fast-forwarded, the remote feature branch was absent, and
+  the clean local feature branch/worktree plus stale remote-tracking ref were removed. Only
+  canonical `main` remained before this docs-only closeout branch was created.

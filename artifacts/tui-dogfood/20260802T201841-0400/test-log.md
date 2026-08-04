@@ -1163,4 +1163,26 @@
   CLI/security-claim/dependency change; no ADR is needed.
 - The exact component checkpoint improves final confidence from 2 to 4, but the official frozen
   six-workflow aggregate remains **4.01/5** pending its same-commit replay. E5 is **NOT_RUN** and
-  Anthropic spend remains USD 2.74434625. Publication/merge/post-main/cleanup remain pending.
+  Anthropic spend remains USD 2.74434625.
+
+## 2026-08-04 — R18 publication closeout
+
+- Reviewed head `d7d6f2e24a5db0556170b4bfd001a249bbe1b5f0` passed exact-head CI run
+  `30883098433`, including `ci-required` job `91909436654`, DCO, build/coverage, package, security,
+  real sandbox, Node-next, egress-scale, and all three Node egress-product jobs.
+- Owner-authorized admin squash merged [PR #106](https://github.com/keel-harness/keel/pull/106)
+  as `759a727b7c4afc7702c59dd45b6aa339d555a69e`; candidate and merge trees are both
+  `a52f7a185cb6c322e626a507f59cf9403fad8072`.
+- Exact post-main CI run `30883516900` passed, including `ci-required` job `91910698605`, both
+  Linux/macOS build-and-coverage jobs, both package jobs, both real-sandbox jobs, cross-architecture
+  carrier smokes, audit, security, Node-next, egress-scale, and installed-product matrices.
+- Issue #105 auto-closed. Canonical `main` was fast-forwarded cleanly; the remote feature branch was
+  absent and the clean local feature branch/worktree plus stale remote-tracking ref were removed.
+  Only canonical `main` remained before this docs-only closeout branch was created.
+- The first docs-closeout format attempt was **not green** because the fresh worktree had no local
+  dependency link and could not find Prettier. A temporary task-local link to the already installed
+  canonical dependencies was added without changing source or the lockfile before rerunning the
+  docs gates, then removed before commit.
+- R18 is published with zero Anthropic calls and no score inflation. The exact component checkpoint
+  improves, while the official frozen six-workflow aggregate remains **4.01/5** pending its final
+  same-commit canonical replay.

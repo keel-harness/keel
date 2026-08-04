@@ -340,3 +340,7 @@ ordinary `ran` receipt and never claims `checked` or `verified`.
 
 R18 therefore changes presentation and final confidence only. Historical benchmark totals remain
 **6 total / 2 necessary / 4 excessive or avoidable**.
+
+Reviewed head `d7d6f2e` passed exact-head CI run `30883098433`; PR #106 squash-merged as `759a727`
+with byte-identical tree `a52f7a1`. Exact post-main CI run `30883516900`, issue closure, and feature
+cleanup passed. These publication events add no Warden interrupt or authority.
