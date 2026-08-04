@@ -483,6 +483,14 @@ async function capturedAutopilotReviewPrincipal(options: {
 }
 
 describe("resolveProductionWardenStart", () => {
+  const packagedUnavailableMessage =
+    "packaged Warden unavailable — this Keel installation is incomplete, so governed execution " +
+    "cannot start; reinstall Keel in the same package-manager scope, then rerun this command";
+  const productionUnavailableMessage =
+    "production Warden unavailable — this Keel installation is incomplete or unsupported, so " +
+    "governed execution cannot start; reinstall Keel in the same package-manager scope, then rerun " +
+    "this command";
+
   it("uses the source warden entrypoint with an absolute tsx loader when running from source", () => {
     const root = resolve("/repo");
     const sourceEntry = resolve(root, "packages/warden/src/bin-entry.ts");
@@ -570,7 +578,7 @@ describe("resolveProductionWardenStart", () => {
         exists: (path) => path === plantedEntry,
         compiledBinary: false,
       }),
-    ).toThrow(/packaged warden entry is unavailable/u);
+    ).toThrow(packagedUnavailableMessage);
   });
 
   it("ignores a warden dist entry when not running from built kernel output", () => {
@@ -588,7 +596,7 @@ describe("resolveProductionWardenStart", () => {
         exists: (path) => path === distEntry,
         compiledBinary: false,
       }),
-    ).toThrow(/warden entry is unavailable/u);
+    ).toThrow(productionUnavailableMessage);
   });
 
   it("fails closed when the packaged private Warden sibling is missing", () => {
@@ -600,7 +608,7 @@ describe("resolveProductionWardenStart", () => {
         exists: () => false,
         compiledBinary: false,
       }),
-    ).toThrow(/packaged warden entry is unavailable/u);
+    ).toThrow(packagedUnavailableMessage);
   });
 
   it("fails closed for an unknown Node bundle instead of manufacturing hidden mode", () => {
@@ -612,7 +620,7 @@ describe("resolveProductionWardenStart", () => {
         exists: () => false,
         compiledBinary: false,
       }),
-    ).toThrow(/production warden entry is unavailable/u);
+    ).toThrow(productionUnavailableMessage);
   });
 
   it("spawns argv[0] in hidden warden mode for standalone binaries with no script argv", () => {
