@@ -52,7 +52,14 @@
         "37-r12-routine-evidence-before.png",
         "38-r12-routine-evidence-after.png",
         "39-r13-credential-recovery-before.png",
-        "40-r13-credential-recovery-after.png"
+        "40-r13-credential-recovery-after.png",
+        "52-r21-startup.png",
+        "53-r21-active-onboarding.png",
+        "54-r21-live-baseline-defect.png",
+        "55-r21-live-candidate-rejected.png",
+        "56-r21-untrusted-workspace.png",
+        "57-r21-no-tests-resume.png",
+        "58-r21-auth-failure.png"
       ],
       "costCeilingUsd": 1
     },

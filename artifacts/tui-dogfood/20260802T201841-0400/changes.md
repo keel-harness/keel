@@ -688,3 +688,28 @@ worktree were removed.
   with byte-identical tree `dbb8508`; exact post-main CI `30887857950`, issue closure, and feature
   branch/worktree cleanup passed. The task-local run home and owner-only audit keys were permanently
   removed after sanitized evidence was merged.
+
+## R21 — onboarding validation, score correction, and rejected prompt-only repair
+
+- Added exact installed main E3/E4 onboarding evidence at 80x24 and 100x30 plus deterministic
+  missing-test, declined-trust, credential-failure, and zero-call resume controls.
+- Added one bounded live-main E5 result and two bounded prompt-candidate E5 comparisons. Main
+  satisfies the orientation headings but fails final-result quality: 822 words, twelve shell
+  inventory calls, zero runtime probe, and a false `pathlib.Path` claim.
+- Issue #112's red-first prompt experiment was not retained. Candidate `263f511` reaches zero bash
+  discovery and nineteen typed read/search calls, while focused 28/28, broader 828/1 skip, static,
+  build, exact package, and deterministic PTY gates pass. Its live final still violates the explicit
+  250-word/no-table/probe contract, so the branch/worktree were removed without PR or merge.
+- Opened issue #113 for an enforceable controller/output design that preserves raw evidence, cannot
+  repeat tools, bounds any rewrite cost, and requires owner approval before public-behavior work.
+- Added screenshots 52-58, session log 23, DF-025, cost accounting, Warden audit, manifest
+  checkpoints, and an evidence-bound score correction. No runtime product code changes.
+- Artifact consistency passes **21/21**. After exposing the canonical package installs only through
+  ignored worktree-local symlinks, the unchanged focused TUI regression passes **7 files / 819
+  tests**. The pre-link collection failure and the intermediate **787 passed / 32 failed** Warden
+  resolution failure are retained as non-green setup attempts, not hidden.
+- Onboarding is **3.67/5**; the six-workflow unweighted mean is **3.97/5**, and the pooled diagnostic
+  is **3.95/5** (245/62). The 3.8 target remains green; the 4.0 stretch and final same-commit gates
+  remain open.
+- Three R21 live runs cost USD 0.68968890. Cumulative spend is USD 3.43403515 with the final USD 2
+  reserve intact.

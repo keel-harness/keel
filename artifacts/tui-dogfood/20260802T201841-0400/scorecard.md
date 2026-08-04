@@ -9,6 +9,7 @@ Scores use 1 (unusable) through 5 (excellent). `TBD` means the workflow has not 
 | Onboarding | after R9 (E2-E4) | 4 | 4 | 4 | 4 | 4 | 4 | 3 | 4 | N/A | N/A | 2 |
 | Onboarding | after R12 (E2-E4) | 4 | 4 | 4 | 4 | 4 | 4 | 4 | 4 | N/A | N/A | 2 |
 | Onboarding | after R13 (E2-E4) | 4 | 4 | 4 | 4 | 5 | 4 | 4 | 4 | N/A | N/A | 2 |
+| Onboarding | R21 current main (E2-E5) | 4 | 4 | 4 | 4 | 5 | 4 | 3 | 3 | N/A | N/A | 2 |
 | Feature | before | 3 | 2 | 3 | 3 | 2 | 2 | 2 | 3 | 2 | 1 | 4 |
 | Feature | after R1+R2 | 4 | 2 | 3 | 3 | 3 | 4 | 3 | 4 | 3 | 2 | 4 |
 | Feature | after R1+R2+R6 | 4 | 3 | 3 | 3 | 4 | 4 | 3 | 4 | 3 | 2 | 4 |
@@ -187,3 +188,15 @@ during provider/tool updates and resize, and exclusive active-panel/review/diff 
 input or focus ambiguity was reproduced. Actual mouse selection is **NOT_RUN**, so the validation
 does not claim that surface. The plan-defined aggregate remains **4.01/5** and the legacy pooled
 diagnostic remains **3.98/5** (247/62) until the frozen same-commit six-workflow replay.
+
+R21 repeats the frozen canonical onboarding prompt through the exact installed main carrier at
+80x24/100x30 and a bounded 100x30 live Anthropic run. Startup, objective, progress, grouped typed
+evidence, missing-test honesty, declined trust, credential recovery, and zero-call resume are clear
+and controlled. The live main answer nevertheless uses twelve shell inventory commands, performs no
+runtime probe, emits 822 words with code blocks/tables, and falsely says a `pathlib.Path` is iterable.
+Two prompt-only candidates improve tool choice but still fail explicit concision and runtime-probe
+requirements, so they are rejected with no score credit. Onboarding cognitive load and trust each
+fall from 4 to 3; final confidence remains 2. The onboarding mean is **3.67/5**. The six-workflow
+unweighted mean is corrected from 4.01 to **3.97/5**; the legacy pooled diagnostic becomes
+**3.95/5** (245/62). The 3.8 target remains met, but the 4.0 stretch target and strict same-commit
+gate are not green. DF-025 / issue #113 remains open.

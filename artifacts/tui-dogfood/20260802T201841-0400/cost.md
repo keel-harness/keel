@@ -65,8 +65,11 @@ applicable input rate.
 | R17 local latency measurements | 0 | 0 | 0 | 0 | 0.0000 | 2.7443 | 17.2557 |
 | R18 local exact-outcome replays | 0 | 0 | 0 | 0 | 0.0000 | 2.7443 | 17.2557 |
 | R19 local input/focus replays | 0 | 0 | 0 | 0 | 0.0000 | 2.7443 | 17.2557 |
+| R21 exact-main live onboarding | 41,766 | 15,439 | 42,012 | 3,455 | 0.2476 | 2.9920 | 17.0080 |
+| R21 prompt candidate 1 | 37,906 | 15,042 | 44,710 | 3,083 | 0.2298 | 3.2218 | 16.7782 |
+| R21 prompt candidate 2 | 35,610 | 12,939 | 55,421 | 2,687 | 0.2123 | 3.4340 | 16.5660 |
 
-Anthropic provider calls: 27 successful, 4 rejected at zero reported usage. R7's two local-fixture
+Anthropic provider calls: 85 successful, 4 rejected at zero reported usage. R7's two local-fixture
 requests are not Anthropic calls and carry no Anthropic cost. The USD 2.00 final-regression
 reserve remains intact. The R1 through R6 and R0 replays were deterministic and offline; they made
 no Anthropic request. R3's displayed 175 and R4's displayed 136 replay tokens are synthetic
@@ -133,5 +136,16 @@ R19 used twenty-six loopback-only fixture requests across ten selected exact ins
 sessions. Rejected calibration attempts were also local. No Anthropic endpoint or credential was
 used or inspected. E5 and actual mouse selection are **NOT_RUN**. Cumulative spend remains USD
 2.74434625, USD 17.25565375 remains, and the final USD 2 reserve is intact.
+R21's exact-main live run reported 99,217 input tokens: 41,766 fresh, 15,439 cache write, 42,012
+cache read, and 3,455 output, costing USD 0.24762285. Prompt candidate 1 reported 37,906 fresh,
+15,042 cache write, 44,710 cache read, and 3,083 output, costing USD 0.22978350. Prompt candidate 2
+reported 35,610 fresh, 12,939 cache write, 55,421 cache read, and 2,687 output, costing USD
+0.21228255. The three completed sessions made 19, 19, and 20 provider turns respectively (58
+successful calls); the two candidates were rejected on user-outcome quality, not transport failure.
+R21's live increment is exactly USD 0.68968890. Deterministic
+positive/negative/resume fixtures made no Anthropic request. Cumulative spend is USD 3.43403515,
+USD 16.56596485 remains, and the final USD 2 reserve is intact. The task-scoped credential copy was
+never read, printed, logged, committed, or captured.
 The R0 manifest caps a future six-workflow replay at
-USD 11.00, below the currently spendable USD 15.2557 after preserving the final USD 2.00 reserve.
+USD 11.00, below the currently spendable USD 14.56596485 after preserving the final USD 2.00
+reserve.

@@ -335,3 +335,29 @@ Reviewed head `551e97a` passed exact-head CI run `30887406100`; owner-authorized
 tree `dbb8508`. Exact post-main CI run `30887857950` passed, including `ci-required` job
 `91924444645`; issue #108 closed and the feature branch/worktree were removed. Publication used
 zero Anthropic calls and changes no R19 evidence boundary or score.
+
+R21 validates unfamiliar-repository orientation under
+[issue #111](https://github.com/keel-harness/keel/issues/111). The exact installed main carrier at
+`8d451d6` passes deterministic 80x24/100x30 onboarding, missing-test-command, declined-trust,
+missing-credential, and zero-provider-call resume controls. Startup, governed posture, persistent
+objective/progress, grouped typed evidence, and recovery surfaces are strong.
+
+The bounded live-main Anthropic result exposes DF-025: all six orientation headings are present, but
+the answer is 822 words with code/tables, uses twelve shell inventory calls, performs no runtime
+probe, and falsely says `pathlib.Path` is iterable. Two red-first prompt candidates improve tool
+selection as far as zero bash + nineteen typed read/search calls but still fail the explicit
+concision/table/probe contract. Prompt issue
+[#112](https://github.com/keel-harness/keel/issues/112) therefore closed without PR or merge; its
+clean branch/worktree were removed. Enforceable controller/output design is tracked by
+[#113](https://github.com/keel-harness/keel/issues/113) and requires explicit public-behavior review.
+
+Screenshots 52-58 are sanitized, visually inspected 1400x840 transcriptions. Three live R21 runs
+cost exactly USD 0.68968890; cumulative spend is USD 3.43403515 and the final USD 2 reserve remains
+intact. No product, Warden, policy, sandbox, egress, audit, frozen contract, dependency, public CLI,
+or security-claim change is retained. Artifact consistency passes **21/21** and the unchanged focused
+TUI regression passes **7 files / 819 tests**. Two earlier setup attempts remain explicitly
+non-green: one failed collection without package-local dependencies, and one reached **787 passed /
+32 failed** because the spawned Warden lacked its package-local workspace resolution. Onboarding
+becomes **3.67/5**; the six-workflow score is corrected to **3.97/5** and the pooled diagnostic to
+**3.95/5** (245/62). The 3.8 target remains green; the 4.0 stretch and strict same-commit final gate
+remain open.

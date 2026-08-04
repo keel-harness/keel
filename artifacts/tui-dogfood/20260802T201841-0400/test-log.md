@@ -1235,3 +1235,59 @@
   deleted.
 - Publication made zero Anthropic calls and does not alter the 4.01/5 score or any product/security
   behavior.
+
+## 2026-08-04 — R21 onboarding orientation and rejected prompt experiment
+
+- Started from clean exact main `8d451d6344ddfb971c1b1a18478f6e53e56e4bfb`; local
+  `origin/main` and the live remote matched. Opened validation issue #111 and isolated branch
+  `test/tui-r21-onboarding`; froze Click at `00e592cea702e0b2caa0dee42489fdb1c22cd845`.
+- Built and packaged exact main. Npm metadata records `8d451d6`, `dirty: false`; the scripts-disabled
+  tarball SHA-256 is `83aa740cf7b6e5ae858d2d182f13a4d2f1d25d68d4be50fbb6a470bfc557fbd9`.
+  The restricted install was not green because DNS was unavailable; the approved retry installed
+  57 packages with scripts disabled.
+- Exact installed deterministic onboarding passed at 80x24 and 100x30, nine loopback requests each,
+  with governed protection, objective/activity, all eight required orientation facts, zero review,
+  clean Click, idle composer, and reaped process groups. The first 80x24 prompt-echo oracle was
+  rejected for requiring the 100x30 hidden-line count; its width-neutral rerun passed.
+- The exact main live Anthropic run exited zero with clean Click and zero reviews but is **PARTIAL**:
+  12 bash + 6 read, 12 shell inventory commands, 0 runtime probes, 822 final words, code blocks and
+  tables, and a false `pathlib.Path`-iterability claim. A direct Python probe refuted it.
+- Opened behavior issue #112. First red: 3 failed / 25 passed. First prompt candidate reached focused
+  28/28, broader 464/464, typecheck, lint, format, and build green. Its live tool mix improved to
+  2 bash + 9 read + 7 search but remained 687 words with two shell inventories and no probe.
+- Strengthened red: 3 failed / 25 passed. Second candidate focused 28/28; broader context/provider/
+  loop **44 files passed, 1 existing skip; 828 passed, 1 existing skip**; typecheck, lint, format,
+  build, and diff check passed. Prompt estimate was 1,683 tokens. Exact carrier `263f511`,
+  `dirty: false`, SHA-256 `a03aa7665d90a56f615b197a5c6b5184b5c75ecb5a49eec2560ebf6dbc65c33b`;
+  deterministic replay was byte-identical to main.
+- Second live candidate remained **PARTIAL**: 0 bash + 10 read + 9 search, correct self-corrected
+  failure description, but 568 words, a table, and zero runtime probes. Per the public stop boundary,
+  #112 closed without PR/merge and its clean branch/worktree were removed. Opened design issue #113.
+- Negative controls pass: missing test/build command (four loopback requests, no invented command),
+  declined trust (zero project context/snapshot/tool records with governed guards ready), missing
+  credential (exit 1, exact `keel auth set anthropic`, zero provider/session/audit/snapshot), and
+  resume (21 messages, zero provider calls, unchanged controller session, lifecycle-only audit,
+  governed `sbx:on`/`net:on`).
+- Three no-tests oracle calibrations and one restricted `sbx:off`/`net:off` resume sample were
+  rejected and are not green. The approved production-path resume rerun passed.
+- Screenshots 52-58 are sanitized, visually inspected 1400x840 transcriptions. The in-app browser
+  was unavailable; the native Quick Look fallback passed. Image/text scans contain no credential,
+  username, user-home path, or private run path.
+- Artifact consistency passed **1 file / 21 tests** and repository formatting passed after evidence
+  reconciliation. The first unchanged seven-suite TUI regression attempt was **NOT GREEN**: six
+  suites failed collection because the isolated docs worktree did not have package-local dependency
+  resolution; only the system-prompt suite ran (**25 passed**). After linking the canonical kernel
+  install, the second attempt was also **NOT GREEN**: **787 passed / 32 failed** with seven unhandled
+  errors because the spawned production Warden still lacked its package-local workspace resolution.
+  No product file changed for either failure.
+- After adding the matching ignored Warden install link, the isolated `session-entry.test.ts` rerun
+  passed **128/128**. The full unchanged set then passed **7 files / 819 tests**: system prompt,
+  session entry, view model, REPL, headless, conversation block, and real-Ink app coverage.
+- R21 exact live cost is USD 0.68968890 across main and two rejected candidates. Cumulative spend is
+  USD 3.43403515; USD 16.56596485 remains and the final USD 2 reserve is intact.
+- Five-lens result is partial: security, reliability, and simplicity decisions pass; the explicit
+  final-answer DX contract remains must-fix under #113. No retained product, Warden, policy, sandbox,
+  egress, audit, frozen contract, dependency, public CLI, or security-claim change.
+- Evidence correction: onboarding becomes 3.67/5; the unweighted six-workflow score becomes
+  **3.97/5**, and the pooled diagnostic becomes **3.95/5** (245/62). The 3.8 target remains green;
+  4.0 stretch and the final same-commit gate remain open.
