@@ -265,4 +265,6 @@ hard contract. Two mechanically compliant candidates were rejected for unsupport
 the accepted local candidate produces a source-verified 223-word primary, clean Click state, and
 zero Warden reviews. This is a reliability repair for the already credited #113 outcome, not a new
 axis observation, so the candidate mean remains **4.04/5** and the pooled diagnostic remains
-**4.02/5 (249/62)**. Publication and the strict same-commit replay remain open.
+**4.02/5 (249/62)**. Exact-head CI `30956020646`, tree-identical publication through PR #134 as
+`8f0363f`, issue closure, exact post-main CI `30956531938`, and feature cleanup are green. The strict
+same-commit replay remains open.

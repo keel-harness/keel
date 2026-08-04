@@ -510,5 +510,6 @@ vendored fixture CA is configured before Node starts.
 
 Issue #133 therefore adds **0 total / 0 necessary / 0 excessive** review interrupts and leaves the
 frozen historical dogfood total at **6 total / 2 necessary / 4 excessive or avoidable**. It changes
-no review timing, grouping, grant reuse, or user authority. Publication and the final canonical
-replay remain open.
+no review timing, grouping, grant reuse, or user authority. PR #134, issue closure, exact-tree merge
+`8f0363f`, exact post-main CI `30956531938`, and feature cleanup are green and add no governed
+product review. The final canonical replay remains open.

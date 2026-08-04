@@ -1593,5 +1593,25 @@
   transcription, SHA-256 `abf690d9…`), live Anthropic settlement, clean Click, and zero Warden
   reviews pass. Cumulative spend is USD 7.87313035; the final USD 2 reserve remains intact.
 - Five-lens QC: no unresolved local must-fix. Security claims affected: none. ADR needed: no;
-  ADR-0087 already governs the unchanged hard contract. Publication and exact merged-carrier replay
-  remain pending.
+  ADR-0087 already governs the unchanged hard contract. Exact merged-carrier replay remains pending.
+
+## 2026-08-04 — issue #133 publication closeout
+
+- Reviewed head `147cd75` passed exact-head CI run `30956020646`, including required aggregate job
+  `92150383482`, Linux build/coverage, package, real sandbox, security, Node-next, egress-scale, and
+  all three installed-product matrices.
+- Owner-authorized admin squash merged PR #134 as `8f0363f`; issue #133 closed. Reviewed head and
+  merge share exact tree `351d42dcbc1e8ac0165f3acf3c3896fe0d53d0dc`.
+- Exact post-main run `30956531938` passed required aggregate `92152127274`, Linux/macOS build and
+  coverage, both package lanes, both real-sandbox lanes, audit, security, both cross-architecture
+  runtime smokes, Node-next, egress-scale, and all three installed-product matrices.
+- The closeout worktree's first `pnpm exec vitest` was **NOT_RUN** because it had no local Vitest;
+  invoking the primary worktree binary still could not resolve the closeout config's package. A
+  frozen offline install stopped at preflight with `ERR_PNPM_LOCKFILE_CONFIG_MISMATCH` and changed
+  no tracked file. Reusing the primary worktree's existing ignored `node_modules` through a temporary
+  worktree symlink then ran `packages/eval/src/dogfood-evidence.test.ts`: **21/21 passed**.
+- Prettier on all eight changed evidence documents and `git diff --check` passed. The changed-byte
+  scan found no provider-key marker, username, private path, or attachment path.
+- The remote branch, clean feature worktree/local branch, and stale remote-tracking ref were removed.
+  This evidence-only closeout adds zero provider calls, Warden reviews, product behavior, security
+  claims, dependencies, or score changes. The strict all-six exact-commit replay remains open.

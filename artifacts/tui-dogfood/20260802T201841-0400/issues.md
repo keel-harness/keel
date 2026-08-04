@@ -536,9 +536,9 @@
 ### DF-031 — a near-bound rewrite falls into honest but unhelpful fallback
 
 - Severity: P1 final-result reliability and cognitive load.
-- Status: exact-main reproduction and local red-first candidate under
-  [issue #133](https://github.com/keel-harness/keel/issues/133); publication and exact merged-carrier
-  replay remain pending.
+- Status: fixed under [issue #133](https://github.com/keel-harness/keel/issues/133), merged through
+  [PR #134](https://github.com/keel-harness/keel/pull/134) as `8f0363f`; exact merged-carrier
+  all-six replay remains pending.
 - Direct evidence: exact installed `main` at `01eca273` produced a 976-word onboarding original and
   one 253-word tools-disabled rewrite against ADR-0087's 250-word hard maximum. Keel correctly
   settled `fallback-oversized`, retained the original, ran no rewrite tool, requested no Warden
@@ -556,6 +556,9 @@
   byte contract, keeps Click clean, and requests zero reviews. Focused **15/15**, final-answer
   adjacency **1,114/1,114**, full **6,673 passed / 20 intentional skips**, coverage, static,
   build/package, exact live E5, screenshot 70, and correctly configured real sandbox **18/18** pass.
+- Publication: reviewed head `147cd75` passed exact-head CI `30956020646`; candidate and merge share
+  exact tree `351d42d`; exact post-main CI `30956531938` passed required aggregate `92152127274` and
+  every selected lane. Issue closure and feature branch/worktree cleanup passed.
 - Boundaries: no retry, truncation, oversize acceptance, typed contract, schema, ModelPort, Warden,
   policy, sandbox, egress, audit, dependency, public CLI, or security-claim change. No score credit
   is added; this repairs reliability of the already credited #113 onboarding outcome.

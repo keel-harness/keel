@@ -496,5 +496,12 @@ Current-head focused **15/15**, final-answer adjacency **1,114/1,114**, full and
 passed / 20 intentional opt-in skips**, correctly configured real sandbox **18/18**, static,
 supply-chain, build/package, exact E5, screenshot 70, and five-lens QC pass. Cumulative Anthropic
 spend is USD 7.87313035 with the final USD 2 reserve intact. The candidate score remains **4.04/5**;
-this repairs reliability rather than adding axis credit. Publication and the all-six same-commit
-replay remain open.
+this repairs reliability rather than adding axis credit.
+
+Publication is now closed through [PR #134](https://github.com/keel-harness/keel/pull/134).
+Reviewed head `147cd75` passed exact-head CI `30956020646`; owner-authorized admin squash merged it
+as `8f0363f`, and candidate and merge share exact tree `351d42d`. Issue #133 closed and exact
+post-main CI `30956531938` passed required aggregate job `92152127274` plus every selected build,
+coverage, package, real-sandbox, security, audit, cross-architecture, Node-next, egress-scale, and
+installed-product lane. The stale feature worktree/branch and remote-tracking ref were removed.
+Only the all-six same-commit replay remains open.
