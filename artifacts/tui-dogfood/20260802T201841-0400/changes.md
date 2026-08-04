@@ -713,3 +713,14 @@ worktree were removed.
   remain open.
 - Three R21 live runs cost USD 0.68968890. Cumulative spend is USD 3.43403515 with the final USD 2
   reserve intact.
+- Reviewed head `4494978` passed exact-head CI `30895021455`, including `ci-required` job
+  `91947273912`. Owner-authorized PR #114 squash-merged as `15f991d`; reviewed and merged trees are
+  both `23f203f`.
+- Exact post-main CI `30895569846` passed all 18 jobs, including main-only audit, Linux/macOS build
+  and package, cross-architecture, sandbox, security, egress-scale, installed egress-product, and
+  `ci-required` job `91949010897`. Issue #111 closed.
+- The remote validation branch was absent; its clean local branch/worktree and all six task-local
+  evidence roots were removed. The deletion permanently removed every task-scoped credential-store
+  copy and audit key after sanitized evidence was merged.
+- Publication made zero additional Anthropic calls and changes no product behavior, score,
+  security claim, or #113 follow-up boundary.

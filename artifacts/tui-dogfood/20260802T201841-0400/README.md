@@ -361,3 +361,11 @@ non-green: one failed collection without package-local dependencies, and one rea
 becomes **3.67/5**; the six-workflow score is corrected to **3.97/5** and the pooled diagnostic to
 **3.95/5** (245/62). The 3.8 target remains green; the 4.0 stretch and strict same-commit final gate
 remain open.
+
+Reviewed head `4494978` passed exact-head CI run `30895021455`; owner-authorized
+[PR #114](https://github.com/keel-harness/keel/pull/114) squash-merged as `15f991d` with identical
+tree `23f203f`. Exact post-main CI run `30895569846` passed all 18 applicable or intentionally
+skipped jobs, including `ci-required` job `91949010897`; issue #111 closed. The validation
+branch/worktree and all six task-local roots, including every credential-store copy and audit key,
+were removed after sanitized evidence merged. Publication used zero additional Anthropic calls and
+does not change the R21 evidence boundary, corrected score, or open #113 must-fix.
