@@ -329,3 +329,24 @@
 - Repair: monotonic launch milestones inspect bounded sanitized history and choose the
   latest protection row. A later unavailable/off row remains negative. Six consecutive exact-carrier
   macOS samples pass after the change with clean teardown and no reduced-enforcement acceptance.
+
+### DF-023 — exact session-grant reuse is durable but absent from Ink transcript
+
+- Severity: P1 Warden trust and interruption burden.
+- Status: R16 local candidate under [issue #100](https://github.com/keel-harness/keel/issues/100);
+  publication and cleanup gates pending.
+- Direct evidence: the installed main carrier accepted one exact `domain example.com` session
+  approval, auto-resolved the second matching action, and opened a fresh review for
+  `domain example.org`. The session ledger contained one `warden_auto_resolved` event and the audit
+  contained all requested/resolved pairs, but the completed Ink transcript omitted the reuse fact.
+- Impact: the correct lack of a second prompt looked unexplained. A developer could not distinguish
+  bounded controller reuse from a skipped check or silent policy widening without reading the
+  ledger.
+- Root cause: an approval-settlement system message split the latest user turn into a trailing loose
+  block. Ink committed that turn before `run-finished` attached its authoritative automatic
+  summary, then discarded its incremental state.
+- Repair: tag only controller-owned settlement notices with the existing presentation type and keep
+  the latest incomplete turn live across that notice. No grant, equivalence, policy, or enforcement
+  behavior changes.
+- Validation: full TUI **1,372/1,372**, unrestricted full tests/coverage **6,561/20**, static/build
+  gates, exact installed 80x24/100x30 positive/negative matrix, sanitized E4, and five-lens QC pass.

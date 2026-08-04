@@ -1030,3 +1030,39 @@
   no test collected and no tracked file changed. Reusing synchronized `main`'s exact installed
   dependency tree through a worktree-local ignored symlink then passed artifact consistency
   **21/21**, repository format, and `git diff --check`.
+
+## 2026-08-04 — R16 visible exact session-grant reuse
+
+- Started from synchronized `main` at `3e6e435af81dc8ade93ca1b299445a97061e3971` under
+  [issue #100](https://github.com/keel-harness/keel/issues/100) on isolated branch
+  `fix/tui-session-grant-receipt`.
+- An exact installed main carrier through a 100x30 PTY, spawned production Warden, loopback model,
+  and real documentation egress reproduced the defect. `example.com` was approved for the session;
+  an exact reuse auto-resolved; `example.org` opened a fresh review and was denied. The ledger and
+  audit were correct, but the final Ink transcript omitted the automatic receipt.
+- The product-shaped headless test passed initially while the real Ink regression failed red. A
+  planner test then failed red at the exact mid-turn settlement boundary. A first broad fix was
+  rejected by the full TUI property suite at **1,371 passed / 1 failed**; the random blank-system-
+  message counterexample is retained and the property was not weakened.
+- The narrow retained fix tags only controller approval settlements as an existing presentation
+  notice and delays commit only for the latest incomplete turn with such a trailing notice.
+  Focused planner, reducer, Static, headless, real-Ink, and property coverage passes. Affected groups
+  pass **263/263**, **84/84**, and **15/15**; full TUI passes **1,372/1,372**.
+- The first managed coverage run is **not green**: six loopback destination-guard tests received
+  `listen EPERM 127.0.0.1`. The unrestricted rerun passes **6,561 / 20 existing opt-in skips**
+  across 1,034 suites at 97.99% statements/lines, 93.73% branches, and 99.58% functions. Full
+  typecheck, lint, format, build, four-carrier package, supply-chain check, and diff check pass.
+- The exact installed candidate tarball SHA-256 is
+  `8f40bfe461da20ad9c9c0ffbb374ff7e22c5e9600155900eb6a145468500e23d`. Equivalent-only
+  80x24/100x30 paths exit 0 with one reuse and no second prompt. Distinct-domain paths at both sizes
+  retain one reuse receipt, request a fresh decision, deny without execution, and exit 1.
+- One initial 80x24 oracle attempt is invalid evidence because it expected the wide-only
+  `a/s/d Enter` hint; the correct compact approval panel was visible. The corrected geometry-aware
+  oracle produced the four accepted runs without a product change.
+- E4 screenshots 43–44 are sanitized, visually inspected 1400x840 exact-text transcriptions with
+  SHA-256 `14e2f00210ca27d6e80cdf968165e8fd608a50dd9b9f57519ee6b21110a3c241`
+  and `08c44aa414a14e9c4b1f458d76ceb85c79c4d226401c7bc7a5c443102244e975`.
+- E5 is **NOT_RUN**. Fourteen accepted loopback requests made zero Anthropic calls. Spend remains
+  USD 2.74434625; USD 17.25565375 remains and the USD 2 reserve is intact.
+- Five-lens QC found no unresolved local must-fix. Exact reviewed-head CI, merge-tree identity,
+  post-main CI, issue closure, and cleanup remain pending.

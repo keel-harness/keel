@@ -4008,6 +4008,11 @@ describe("view-model reducer", () => {
         "detail · confirmed by warden · bash workspace deletion requires exact once-only approval: rm hello.md",
       ].join("\n"),
     );
+    expect(v.items.at(-1)).toMatchObject({
+      kind: "message",
+      role: "system",
+      presentation: "notice",
+    });
     expect(activeReviewIsActionable(v)).toBe(false);
   });
 
@@ -4084,6 +4089,11 @@ describe("view-model reducer", () => {
     expect(v.pendingReviews).toBeUndefined();
     expect(v.activeApproval).toBeUndefined();
     expect(lastMessageContent(v)).toContain("confirmed by warden");
+    expect(v.items.at(-1)).toMatchObject({
+      kind: "message",
+      role: "system",
+      presentation: "notice",
+    });
     expect(activeReviewIsActionable(v)).toBe(false);
   });
 

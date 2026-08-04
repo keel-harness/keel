@@ -281,3 +281,24 @@ RPC/shared schemas, and historical interrupt totals remain unchanged.
 Reviewed head `686bd1d` passed exact-head CI `30872462126`, merged through PR #98 as `76a45c3`
 with identical tree `93c19c1`, and passed exact post-main CI `30873064247`. Issue #97 and feature
 cleanup are closed. R15 therefore changes no interrupt count, approval authority, or Warden claim.
+
+## R16 validation outcome
+
+R16 directly exercises the live grantable-review path. In each accepted equivalent-only run, the
+human makes one necessary `domain example.com` session decision and the second exact action
+auto-resolves. In each distinct-domain run, the human makes the same initial decision and a second
+necessary decision for `domain example.org`; denying it prevents execution. Across the four
+accepted 80x24/100x30 candidate runs there are **6 human decisions, 4 exact automatic reuses, and 0
+excessive equivalent-repeat prompts**. These are validation repetitions, so the original six
+benchmark-workflow interrupt totals remain unchanged rather than being inflated by geometry runs.
+
+The production topology exposes one active review at a time. R16 does not add a concurrent queue,
+group unlike requests, infer equivalence, or expand session authority. The UI reports one pending
+review while actionable, removes the optional count on settlement, and emits one automatic receipt
+only from the controller/durable event path. `example.org` never consumes the `example.com` grant.
+
+Baseline and candidate decisions, policy, grantability, scope identity, sandbox, egress guard,
+audit requested/resolved records, and nonzero denial exit are identical. Candidate presentation
+adds the previously missing exact reuse fact. The historical audit therefore remains **6 total / 2
+necessary / 4 excessive or avoidable**, while the accepted R16 validation matrix demonstrates the
+bounded reuse behavior needed to make future equivalent reviews non-fatiguing.

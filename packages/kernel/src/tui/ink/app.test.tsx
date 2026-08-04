@@ -3158,6 +3158,87 @@ describe("Ink App (frame snapshots via ink-testing-library)", () => {
     }
   });
 
+  it("prints a late automatic receipt after a mid-run controller settlement notice exactly once", async () => {
+    const user = {
+      kind: "message",
+      role: "user",
+      content: "fetch the documentation pages",
+    } as const;
+    const first = {
+      kind: "tool",
+      id: "first",
+      name: "bash",
+      status: "ok",
+      summary: "stdout: first page",
+    } as const;
+    const settlement = {
+      kind: "message",
+      role: "system",
+      presentation: "notice",
+      content:
+        "approval settled · approved exact session scope\n" +
+        "history · earlier approval-required block is historical/resolved",
+    } as const;
+    const second = {
+      kind: "tool",
+      id: "second",
+      name: "bash",
+      status: "ok",
+      summary: "stdout: second page",
+    } as const;
+    const { stdout, rendered } = renderWithRealStatic({
+      items: [user],
+      status,
+      streaming: true,
+    });
+
+    try {
+      await rendered.waitUntilRenderFlush();
+      rendered.rerender(
+        <App
+          view={{
+            items: [user, first, settlement, second],
+            status,
+            streaming: false,
+          }}
+        />,
+      );
+      await rendered.waitUntilRenderFlush();
+      stdout.clear();
+
+      rendered.rerender(
+        <App
+          view={{
+            items: [user, first, settlement, second],
+            status,
+            streaming: false,
+            awaitingInput: true,
+            turnSummary: {
+              title: "done",
+              changed: [],
+              checked: [],
+              attention: [],
+              automatic: [
+                "session grant (until session exit) allowed bash via domain example.com " +
+                  "(review egress_review_2, audit #4)",
+              ],
+            },
+          }}
+        />,
+      );
+      await rendered.waitUntilRenderFlush();
+
+      const output = stripAnsiCsi(stdout.output()).replace(/\s+/gu, " ");
+      const receipt =
+        "automatic session grant (until session exit) allowed bash via domain example.com " +
+        "(review egress_review_2, audit #4)";
+      expect(output).toContain(receipt);
+      expect(output.split(receipt)).toHaveLength(2);
+    } finally {
+      rendered.unmount();
+    }
+  });
+
   it("appends post-turn system panels without mutating an already static turn", async () => {
     const { stdout, rendered } = renderWithRealStatic({
       items: [
