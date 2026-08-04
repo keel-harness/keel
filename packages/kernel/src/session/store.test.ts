@@ -222,6 +222,29 @@ describe("readSession — tolerant reader + honest higher-version (ADR-0072 P1-1
     expect(() => readSession(id, e)).toThrow(SessionCorruptError);
   });
 
+  it("ADR-0087: malformed optional presentation metadata cannot corrupt or hide raw content", () => {
+    const e = env();
+    const id = ledger(
+      e,
+      JSON.stringify({
+        type: "assistant",
+        v: 1,
+        ts: "2026-08-04T13:00:00.000Z",
+        content: "raw answer remains visible",
+        finalAnswer: {
+          settlementId: "fas_malformed",
+          kind: "attempt",
+          attempt: "original",
+          contract: { version: 1, maxWords: 0 },
+        },
+      }),
+    );
+
+    const [event] = readSession(id, e).events;
+    expect(event).toMatchObject({ type: "assistant", content: "raw answer remains visible" });
+    expect(event?.type === "assistant" ? event.finalAnswer : undefined).toBeUndefined();
+  });
+
   it("treats a valid-JSON but non-object line as corrupt, NOT a newer-keel version", () => {
     const e = env();
     // A bare primitive parses as JSON but has no `v`/`type` envelope — genuine corruption, and the
@@ -233,6 +256,34 @@ describe("readSession — tolerant reader + honest higher-version (ADR-0072 P1-1
 });
 
 describe("SEC-014 redaction vs schema-validated ledger fields", () => {
+  it("ADR-0087: presentation identifiers pass through the existing redaction chokepoint", () => {
+    const e = env();
+    const secret = "sk-ant-api03-supersecretvalue1234567890ABCDEF";
+    const s = SessionStore.create({ cwd: "/w" }, e);
+    s.append({
+      type: "assistant",
+      v: 1,
+      ts: "2026-08-04T13:00:00.000Z",
+      content: `answer ${secret}`,
+      finalAnswer: {
+        settlementId: secret,
+        kind: "attempt",
+        attempt: "original",
+        contract: { version: 1, maxWords: 250 },
+      },
+    });
+    s.close();
+
+    const raw = readFileSync(sessionPath(s.id, e), "utf8");
+    expect(raw).not.toContain(secret);
+    const event = readSession(s.id, e).events[0];
+    expect(event).toMatchObject({ type: "assistant" });
+    expect(event?.type === "assistant" ? event.content : "").toContain("[redacted:");
+    expect(event?.type === "assistant" ? event.finalAnswer?.settlementId : "").toContain(
+      "[redacted:",
+    );
+  });
+
   it("a goal_started event for a long /goal objective round-trips the ledger", () => {
     // Regression (2026-07-18 audit): the generated goal id crossed the entropy net's 44-char
     // floor, was redacted to `[redacted:high-entropy]` at the write chokepoint, and the ledger

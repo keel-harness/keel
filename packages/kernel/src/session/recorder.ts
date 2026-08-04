@@ -1,4 +1,10 @@
-import type { ModelMessageT, SessionEventT, ToolCallT } from "@keel/shared";
+import type {
+  FinalAnswerOccurrenceT,
+  FinalAnswerSettlementT,
+  ModelMessageT,
+  SessionEventT,
+  ToolCallT,
+} from "@keel/shared";
 import type { KernelEventT } from "../events.js";
 import { KERNEL_STRINGS, budgetWarningMessage, grossRunwayWarningMessage } from "../strings.js";
 import type { SessionStore } from "./store.js";
@@ -70,9 +76,10 @@ export async function* record(
   const loopGuidance = cfg.loopGuidance ?? KERNEL_STRINGS.loopGuidance;
   let pending: { text: string; toolCalls: ToolCallT[] } | null = null;
   let lastStop: StopStatus | undefined;
+  let finalAnswerSettlement: FinalAnswerSettlementT | undefined;
   const nameById = new Map<string, string[]>();
 
-  const flush = (): void => {
+  const flush = (finalAnswer?: FinalAnswerOccurrenceT): void => {
     if (pending !== null) {
       store.append({
         type: "assistant",
@@ -80,15 +87,22 @@ export async function* record(
         ts: now(),
         content: pending.text,
         ...(pending.toolCalls.length > 0 ? { toolCalls: pending.toolCalls } : {}),
+        ...(finalAnswer !== undefined ? { finalAnswer } : {}),
       });
       pending = null;
     }
   };
 
   // An injected nudge becomes a user message — flush the assistant turn that preceded it first.
-  const recordUser = (content: string): void => {
+  const recordUser = (content: string, finalAnswer?: FinalAnswerOccurrenceT): void => {
     flush();
-    store.append({ type: "user", v: 1, ts: now(), content });
+    store.append({
+      type: "user",
+      v: 1,
+      ts: now(),
+      content,
+      ...(finalAnswer !== undefined ? { finalAnswer } : {}),
+    });
   };
   const pushToolName = (id: string, name: string): void => {
     const names = nameById.get(id);
@@ -112,6 +126,27 @@ export async function* record(
       case "text-delta":
         pending ??= { text: "", toolCalls: [] };
         pending.text += ev.text;
+        break;
+      case "final-answer-attempt":
+        // A rejected empty rewrite still needs a durable assistant occurrence to close the exact
+        // controller prompt in provider history. Ordinary accepted original candidates are nonempty.
+        pending ??= { text: "", toolCalls: [] };
+        flush({
+          settlementId: ev.settlementId,
+          kind: "attempt",
+          attempt: ev.attempt,
+          contract: ev.contract,
+        });
+        break;
+      case "final-answer-rewrite-requested":
+        recordUser(ev.prompt, {
+          settlementId: ev.settlementId,
+          kind: "rewrite-prompt",
+          contract: ev.contract,
+        });
+        break;
+      case "final-answer-settled":
+        finalAnswerSettlement = ev.settlement;
         break;
       case "tool-call":
         pending ??= { text: "", toolCalls: [] };
@@ -161,6 +196,7 @@ export async function* record(
             ...(lastStop.code !== undefined ? { code: lastStop.code } : {}),
             ...(lastStop.message !== undefined ? { message: lastStop.message } : {}),
             usage: ev.usage,
+            ...(finalAnswerSettlement !== undefined ? { finalAnswer: finalAnswerSettlement } : {}),
           });
         }
         break;

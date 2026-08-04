@@ -17,6 +17,8 @@ import {
 const ts = "2026-06-11T14:03:22.117Z";
 
 describe("session JSONL events (Epic 1.4)", () => {
+  const finalAnswerContract = { version: 1 as const, maxWords: 250 };
+
   it("message-event taxonomy (metadata events are tracked separately)", () => {
     expect(SessionEventType.options).toEqual(["user", "assistant", "tool_result", "system"]);
     assertRoundTrips(SessionEvent);
@@ -159,6 +161,106 @@ describe("session JSONL events (Epic 1.4)", () => {
       code: "REVIEW_REQUIRED_AFTER_SYNTHESIS",
       message: "answered from prior evidence; reviewed action was not executed",
     });
+  });
+
+  it("ADR-0087: accepts strict task-scoped final-answer occurrence and settlement metadata", () => {
+    expect(
+      SessionEvent.parse({
+        type: "user",
+        v: 1,
+        ts,
+        content: "Rewrite the answer within the explicit bound.",
+        finalAnswer: {
+          settlementId: "fas_01",
+          kind: "rewrite-prompt",
+          contract: finalAnswerContract,
+        },
+      }),
+    ).toMatchObject({ finalAnswer: { kind: "rewrite-prompt", contract: finalAnswerContract } });
+
+    for (const attempt of ["original", "rewrite"] as const) {
+      expect(
+        SessionEvent.parse({
+          type: "assistant",
+          v: 1,
+          ts,
+          content: `${attempt} answer`,
+          finalAnswer: {
+            settlementId: "fas_01",
+            kind: "attempt",
+            attempt,
+            contract: finalAnswerContract,
+          },
+        }),
+      ).toMatchObject({ finalAnswer: { kind: "attempt", attempt } });
+    }
+
+    for (const outcome of [
+      "accepted-original",
+      "accepted-rewrite",
+      "fallback-budget",
+      "fallback-cancelled",
+      "fallback-length",
+      "fallback-error",
+      "fallback-tool-call",
+      "fallback-oversized",
+    ] as const) {
+      expect(
+        SessionEvent.parse({
+          type: "run_status",
+          v: 1,
+          ts,
+          reason: "model-stop",
+          usage: { inputTokens: 10, outputTokens: 4 },
+          finalAnswer: {
+            settlementId: "fas_01",
+            outcome,
+            rewriteUsage: { inputTokens: 3, outputTokens: 2 },
+          },
+        }),
+      ).toMatchObject({ finalAnswer: { settlementId: "fas_01", outcome } });
+    }
+  });
+
+  it("ADR-0087: enforces contract bounds and rejects malformed strict metadata", () => {
+    const assistant = {
+      type: "assistant",
+      v: 1,
+      ts,
+      content: "answer",
+      finalAnswer: {
+        settlementId: "fas_01",
+        kind: "attempt",
+        attempt: "original",
+        contract: finalAnswerContract,
+      },
+    };
+
+    expect(SessionEvent.parse(assistant)).toBeTruthy();
+    expect(
+      SessionEvent.parse({
+        ...assistant,
+        finalAnswer: { ...assistant.finalAnswer, contract: { version: 1, maxWords: 40 } },
+      }),
+    ).toBeTruthy();
+    expect(
+      SessionEvent.parse({
+        ...assistant,
+        finalAnswer: { ...assistant.finalAnswer, contract: { version: 1, maxWords: 2_000 } },
+      }),
+    ).toBeTruthy();
+
+    for (const finalAnswer of [
+      { ...assistant.finalAnswer, contract: { version: 1, maxWords: 39 } },
+      { ...assistant.finalAnswer, contract: { version: 1, maxWords: 2_001 } },
+      { ...assistant.finalAnswer, contract: { version: 1, maxWords: 40.5 } },
+      { ...assistant.finalAnswer, contract: { version: 2, maxWords: 250 } },
+      { ...assistant.finalAnswer, settlementId: "" },
+      { ...assistant.finalAnswer, attempt: "hidden-third-attempt" },
+      { ...assistant.finalAnswer, futureAuthority: true },
+    ]) {
+      expect(SessionEvent.safeParse({ ...assistant, finalAnswer }).success).toBe(false);
+    }
   });
 
   it("accepts session-ledger warden auto-resolution metadata for audit-linked receipts", () => {
@@ -461,5 +563,25 @@ describe("SessionEventTolerant (ADR-0072 P1-12 Slice 5 — read-tolerant variant
     expect(SessionEventTolerant.safeParse({ type: "user", v: 2, ts, content: "x" }).success).toBe(
       false,
     );
+  });
+
+  it("ADR-0087: malformed presentation metadata fails visible by being treated as absent", () => {
+    const malformed = {
+      type: "assistant",
+      v: 1,
+      ts,
+      content: "raw answer must remain visible",
+      finalAnswer: {
+        settlementId: "fas_forged",
+        kind: "attempt",
+        attempt: "original",
+        contract: { version: 1, maxWords: 0 },
+      },
+    };
+
+    expect(SessionEvent.safeParse(malformed).success).toBe(false);
+    const parsed = SessionEventTolerant.parse(malformed);
+    expect(parsed).toMatchObject({ type: "assistant", content: "raw answer must remain visible" });
+    expect("finalAnswer" in parsed ? parsed.finalAnswer : undefined).toBeUndefined();
   });
 });

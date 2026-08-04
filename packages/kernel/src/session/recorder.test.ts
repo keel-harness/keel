@@ -15,6 +15,105 @@ async function* toAsync<T>(xs: readonly T[]): AsyncIterable<T> {
 }
 
 describe("session recorder (text-only fold)", () => {
+  it("ADR-0087: records exact original/prompt/rewrite ordering and final settlement metadata", async () => {
+    const e = env();
+    const store = SessionStore.create({ cwd: "/w" }, e);
+    const contract = { version: 1 as const, maxWords: 250 };
+    const kevents = [
+      { type: "turn-started", turn: 1 },
+      { type: "text-delta", text: "original answer" },
+      {
+        type: "final-answer-attempt",
+        settlementId: "fas_record",
+        attempt: "original",
+        contract,
+        decision: "rewrite",
+        usage: { inputTokens: 8, outputTokens: 4 },
+      },
+      {
+        type: "final-answer-rewrite-requested",
+        settlementId: "fas_record",
+        contract,
+        prompt: "controller rewrite prompt",
+      },
+      { type: "turn-started", turn: 2 },
+      { type: "text-delta", text: "rewrite answer" },
+      {
+        type: "final-answer-attempt",
+        settlementId: "fas_record",
+        attempt: "rewrite",
+        contract,
+        decision: "accepted",
+        usage: { inputTokens: 4, outputTokens: 2 },
+      },
+      {
+        type: "final-answer-settled",
+        settlement: {
+          settlementId: "fas_record",
+          outcome: "accepted-rewrite",
+          rewriteUsage: { inputTokens: 4, outputTokens: 2 },
+        },
+      },
+      { type: "stop", reason: "model-stop" },
+      { type: "run-finished", usage: { inputTokens: 12, outputTokens: 6 } },
+    ] as unknown as KernelEventT[];
+
+    for await (const ev of record(store, [{ role: "user", content: "task" }], toAsync(kevents))) {
+      expect(ev).toBeDefined();
+    }
+    store.close();
+
+    const events = readSession(store.id, e).events;
+    expect(events.map((event) => event.type)).toEqual([
+      "user",
+      "assistant",
+      "user",
+      "assistant",
+      "run_status",
+    ]);
+    expect(events[1]).toMatchObject({
+      content: "original answer",
+      finalAnswer: {
+        settlementId: "fas_record",
+        kind: "attempt",
+        attempt: "original",
+        contract,
+      },
+    });
+    expect(events[2]).toMatchObject({
+      content: "controller rewrite prompt",
+      finalAnswer: {
+        settlementId: "fas_record",
+        kind: "rewrite-prompt",
+        contract,
+      },
+    });
+    expect(events[3]).toMatchObject({
+      content: "rewrite answer",
+      finalAnswer: {
+        settlementId: "fas_record",
+        kind: "attempt",
+        attempt: "rewrite",
+        contract,
+      },
+    });
+    expect(events[4]).toMatchObject({
+      usage: { inputTokens: 12, outputTokens: 6 },
+      finalAnswer: {
+        settlementId: "fas_record",
+        outcome: "accepted-rewrite",
+        rewriteUsage: { inputTokens: 4, outputTokens: 2 },
+      },
+    });
+
+    expect(rebuild(readSession(store.id, e)).messages.map((message) => message.role)).toEqual([
+      "user",
+      "assistant",
+      "user",
+      "assistant",
+    ]);
+  });
+
   it("folds a text-only run into user+assistant and tees every event", async () => {
     const e = env();
     const store = SessionStore.create({ cwd: "/w" }, e);

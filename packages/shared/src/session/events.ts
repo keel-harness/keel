@@ -38,8 +38,64 @@ export type StopReasonT = z.infer<typeof StopReason>;
  */
 const schemaVersion = z.literal(1);
 
+/** Explicit, task-scoped terminal-answer bound (ADR-0087). This is presentation authority only;
+ * it does not change provider, tool, Warden, or task-success authority. */
+export const FinalAnswerContract = z
+  .object({
+    version: z.literal(1),
+    maxWords: z.number().int().min(40).max(2_000),
+  })
+  .strict();
+export type FinalAnswerContractT = z.infer<typeof FinalAnswerContract>;
+
+/** Durable identity for one message in a controller-owned final-answer settlement transaction. */
+export const FinalAnswerOccurrence = z.discriminatedUnion("kind", [
+  z
+    .object({
+      settlementId: z.string().min(1).max(128),
+      kind: z.literal("attempt"),
+      attempt: z.enum(["original", "rewrite"]),
+      contract: FinalAnswerContract,
+    })
+    .strict(),
+  z
+    .object({
+      settlementId: z.string().min(1).max(128),
+      kind: z.literal("rewrite-prompt"),
+      contract: FinalAnswerContract,
+    })
+    .strict(),
+]);
+export type FinalAnswerOccurrenceT = z.infer<typeof FinalAnswerOccurrence>;
+
+/** Terminal presentation decision for a settlement. Cumulative run usage remains on run_status;
+ * rewriteUsage attributes only the optional second provider request. */
+export const FinalAnswerSettlement = z
+  .object({
+    settlementId: z.string().min(1).max(128),
+    outcome: z.enum([
+      "accepted-original",
+      "accepted-rewrite",
+      "fallback-budget",
+      "fallback-cancelled",
+      "fallback-length",
+      "fallback-error",
+      "fallback-tool-call",
+      "fallback-oversized",
+    ]),
+    rewriteUsage: ModelUsage.optional(),
+  })
+  .strict();
+export type FinalAnswerSettlementT = z.infer<typeof FinalAnswerSettlement>;
+
 const UserEvent = z
-  .object({ type: z.literal("user"), v: schemaVersion, ts: IsoTimestamp, content: z.string() })
+  .object({
+    type: z.literal("user"),
+    v: schemaVersion,
+    ts: IsoTimestamp,
+    content: z.string(),
+    finalAnswer: FinalAnswerOccurrence.optional(),
+  })
   .strict();
 /** An assistant turn. `toolCalls` mirrors `ModelMessage.toolCalls` (Epic 1.3 / ADR-0019)
  *  so the durable ledger reconstructs the assistant→tool-result linkage exactly — tool
@@ -51,6 +107,7 @@ const AssistantEvent = z
     ts: IsoTimestamp,
     content: z.string(),
     toolCalls: z.array(ToolCall).optional(),
+    finalAnswer: FinalAnswerOccurrence.optional(),
   })
   .strict();
 
@@ -123,6 +180,7 @@ const RunStatusEvent = z
     code: z.string().optional(),
     message: z.string().optional(),
     usage: ModelUsage,
+    finalAnswer: FinalAnswerSettlement.optional(),
   })
   .strict();
 
@@ -324,10 +382,34 @@ export const KNOWN_SESSION_EVENT_TYPES: ReadonlySet<string> = new Set(
  * higher `v` or an unknown `type` → honest upgrade) is done by the reader BEFORE this parse; a `v`
  * mismatch or a malformed known field still fails here, so genuine corruption stays caught.
  */
-export const SessionEventTolerant = z.discriminatedUnion(
+const SessionEventTolerantBase = z.discriminatedUnion(
   "type",
   SessionEvent.options.map((branch) => branch.passthrough()) as unknown as [
     (typeof SessionEvent.options)[number],
     ...(typeof SessionEvent.options)[number][],
   ],
+);
+
+/** Invalid ADR-0087 presentation extensions cannot hide or corrupt otherwise-valid message bytes.
+ * Normalize only this known optional extension before the existing tolerant base parse; arbitrary
+ * unknown additive fields remain retained by each passthrough branch. */
+function omitMalformedFinalAnswer(input: unknown): unknown {
+  if (typeof input !== "object" || input === null || !("type" in input)) return input;
+  const record = input as Record<string, unknown>;
+  if (!("finalAnswer" in record)) return input;
+  const schema =
+    record["type"] === "user" || record["type"] === "assistant"
+      ? FinalAnswerOccurrence
+      : record["type"] === "run_status"
+        ? FinalAnswerSettlement
+        : undefined;
+  if (schema === undefined || schema.safeParse(record["finalAnswer"]).success) return input;
+  const normalized = { ...record };
+  delete normalized["finalAnswer"];
+  return normalized;
+}
+
+export const SessionEventTolerant = Object.assign(
+  z.preprocess(omitMalformedFinalAnswer, SessionEventTolerantBase),
+  { options: SessionEventTolerantBase.options },
 );

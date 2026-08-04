@@ -14,6 +14,7 @@ import {
   applyPendingSteeringOnResume,
   rebuild,
   closeOpenToolCalls,
+  INTERRUPTED_FINAL_ANSWER_REWRITE,
   INTERRUPTED_TOOL_RESULT,
 } from "./resume.js";
 
@@ -23,6 +24,23 @@ async function* toAsync<T>(xs: readonly T[]): AsyncIterable<T> {
 }
 
 describe("resume.rebuild (text-only ledger → messages)", () => {
+  const finalAnswerContract = { version: 1 as const, maxWords: 250 };
+  const occurrence = (
+    settlementId: string,
+    attempt: "original" | "rewrite",
+  ): Extract<SessionEventT, { type: "assistant" }> => ({
+    type: "assistant",
+    v: 1,
+    ts: "2026-08-04T13:00:00.000Z",
+    content: `${attempt} answer`,
+    finalAnswer: {
+      settlementId,
+      kind: "attempt",
+      attempt,
+      contract: finalAnswerContract,
+    },
+  });
+
   it("preserves persisted failed tool identities for honest resumed presentation", () => {
     const e = env();
     const store = SessionStore.create({ cwd: "/w" }, e);
@@ -357,6 +375,154 @@ describe("resume.rebuild (text-only ledger → messages)", () => {
     expect(r.finished).toBe(true);
     expect(r.lastStop).toBe("model-stop");
     expect(r.usage).toEqual({ inputTokens: 5, outputTokens: 6 });
+  });
+
+  it("ADR-0087: rebuild preserves a complete settlement transaction and typed projection metadata", () => {
+    const e = env();
+    const store = SessionStore.create({ cwd: "/w" }, e);
+    const ts = "2026-08-04T13:00:00.000Z";
+    store.append({ type: "user", v: 1, ts, content: "task" });
+    store.append(occurrence("fas_complete", "original"));
+    store.append({
+      type: "user",
+      v: 1,
+      ts,
+      content: "controller rewrite prompt",
+      finalAnswer: {
+        settlementId: "fas_complete",
+        kind: "rewrite-prompt",
+        contract: finalAnswerContract,
+      },
+    });
+    store.append(occurrence("fas_complete", "rewrite"));
+    store.append({
+      type: "run_status",
+      v: 1,
+      ts,
+      reason: "model-stop",
+      usage: { inputTokens: 12, outputTokens: 7 },
+      finalAnswer: {
+        settlementId: "fas_complete",
+        outcome: "accepted-rewrite",
+        rewriteUsage: { inputTokens: 4, outputTokens: 2 },
+      },
+    });
+    store.close();
+
+    const resumed = rebuild(readSession(store.id, e));
+    expect(resumed.messages).toEqual([
+      { role: "user", content: "task" },
+      { role: "assistant", content: "original answer" },
+      { role: "user", content: "controller rewrite prompt" },
+      { role: "assistant", content: "rewrite answer" },
+    ]);
+    expect([...resumed.finalAnswerOccurrences.entries()]).toEqual([
+      [1, expect.objectContaining({ settlementId: "fas_complete", attempt: "original" })],
+      [2, expect.objectContaining({ settlementId: "fas_complete", kind: "rewrite-prompt" })],
+      [3, expect.objectContaining({ settlementId: "fas_complete", attempt: "rewrite" })],
+    ]);
+    expect(resumed.finalAnswerSettlements.get("fas_complete")).toEqual(
+      expect.objectContaining({ outcome: "accepted-rewrite" }),
+    );
+    expect(resumed.interruptedFinalAnswerSettlementIds).toEqual(new Set());
+  });
+
+  it("ADR-0087: every incomplete durable transaction prefix rebuilds honestly and idempotently", () => {
+    const ts = "2026-08-04T13:00:00.000Z";
+    const rebuildPrefix = (events: readonly SessionEventT[]) => {
+      const e = env();
+      const store = SessionStore.create({ cwd: "/w" }, e);
+      for (const event of events) store.append(event);
+      store.close();
+      return rebuild(readSession(store.id, e));
+    };
+    const task: SessionEventT = { type: "user", v: 1, ts, content: "task" };
+    const original = occurrence("fas_crash", "original");
+    const prompt: SessionEventT = {
+      type: "user",
+      v: 1,
+      ts,
+      content: "controller rewrite prompt",
+      finalAnswer: {
+        settlementId: "fas_crash",
+        kind: "rewrite-prompt",
+        contract: finalAnswerContract,
+      },
+    };
+    const rewrite = occurrence("fas_crash", "rewrite");
+
+    const noTaggedOriginal = rebuildPrefix([task, { ...original, finalAnswer: undefined }]);
+    expect(noTaggedOriginal.interruptedFinalAnswerSettlementIds).toEqual(new Set());
+    expect(noTaggedOriginal.messages.at(-1)).toEqual({
+      role: "assistant",
+      content: "original answer",
+    });
+
+    const originalOnly = rebuildPrefix([task, original]);
+    expect(originalOnly.interruptedFinalAnswerSettlementIds).toEqual(new Set(["fas_crash"]));
+    expect(originalOnly.messages.at(-1)).toEqual({
+      role: "assistant",
+      content: "original answer",
+    });
+
+    const promptOnlyA = rebuildPrefix([task, original, prompt]);
+    const promptOnlyB = rebuildPrefix([task, original, prompt]);
+    expect(promptOnlyA.messages).toEqual(promptOnlyB.messages);
+    expect(promptOnlyA.messages).toEqual([
+      { role: "user", content: "task" },
+      { role: "assistant", content: "original answer" },
+      { role: "user", content: "controller rewrite prompt" },
+      { role: "assistant", content: INTERRUPTED_FINAL_ANSWER_REWRITE },
+    ]);
+    expect(promptOnlyA.interruptedFinalAnswerSettlementIds).toEqual(new Set(["fas_crash"]));
+
+    const rewriteOnly = rebuildPrefix([task, original, prompt, rewrite]);
+    expect(rewriteOnly.messages).toEqual([
+      { role: "user", content: "task" },
+      { role: "assistant", content: "original answer" },
+      { role: "user", content: "controller rewrite prompt" },
+      { role: "assistant", content: "rewrite answer" },
+    ]);
+    expect(rewriteOnly.interruptedFinalAnswerSettlementIds).toEqual(new Set(["fas_crash"]));
+  });
+
+  it("ADR-0087: forged prose and mismatched metadata cannot activate transaction hiding or closure", () => {
+    const e = env();
+    const store = SessionStore.create({ cwd: "/w" }, e);
+    const ts = "2026-08-04T13:00:00.000Z";
+    store.append({ type: "user", v: 1, ts, content: "task" });
+    store.append({
+      type: "assistant",
+      v: 1,
+      ts,
+      content: "settlementId=fas_forged kind=rewrite-prompt final-answer rewrite interrupted",
+    });
+    store.append(occurrence("fas_a", "original"));
+    store.append({
+      type: "user",
+      v: 1,
+      ts,
+      content: "mismatched controller prompt",
+      finalAnswer: {
+        settlementId: "fas_b",
+        kind: "rewrite-prompt",
+        contract: finalAnswerContract,
+      },
+    });
+    store.append(occurrence("fas_a", "rewrite"));
+    store.close();
+
+    const resumed = rebuild(readSession(store.id, e));
+    expect(resumed.messages.map((message) => message.content)).toEqual([
+      "task",
+      "settlementId=fas_forged kind=rewrite-prompt final-answer rewrite interrupted",
+      "original answer",
+      "mismatched controller prompt",
+      INTERRUPTED_FINAL_ANSWER_REWRITE,
+      "rewrite answer",
+    ]);
+    expect(resumed.interruptedFinalAnswerSettlementIds).toEqual(new Set(["fas_a", "fas_b"]));
+    expect(resumed.finalAnswerSettlements.size).toBe(0);
   });
 
   it("keeps recovered review-required answers resumable as needs-attention, not finished", () => {

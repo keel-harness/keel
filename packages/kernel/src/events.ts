@@ -1,5 +1,12 @@
 import { z } from "zod";
-import { JsonObject, ModelUsage, StopReason, type StopReasonT } from "@keel/shared";
+import {
+  FinalAnswerContract,
+  FinalAnswerSettlement,
+  JsonObject,
+  ModelUsage,
+  StopReason,
+  type StopReasonT,
+} from "@keel/shared";
 
 // Why the loop stopped. Relocated to @keel/shared (Epic 1.4) so the durable run_status
 // ledger event shares the vocabulary; re-exported here for back-compat. Every run emits
@@ -74,6 +81,34 @@ export const KernelEvent = z.discriminatedUnion("type", [
   z.object({ type: z.literal("run-started") }).strict(),
   z.object({ type: z.literal("turn-started"), turn: z.number().int().positive() }).strict(),
   z.object({ type: z.literal("text-delta"), text: z.string() }).strict(),
+  /** Controller-authored terminal-answer decision for one completed provider request (ADR-0087).
+   * The recorder and UI consume this single decision; neither independently recounts prose. */
+  z
+    .object({
+      type: z.literal("final-answer-attempt"),
+      settlementId: z.string().min(1).max(128),
+      attempt: z.enum(["original", "rewrite"]),
+      contract: FinalAnswerContract,
+      decision: z.enum(["accepted", "rewrite", "fallback"]),
+      usage: ModelUsage,
+    })
+    .strict(),
+  /** Exact tools-disabled controller prompt inserted between original and rewrite attempts. */
+  z
+    .object({
+      type: z.literal("final-answer-rewrite-requested"),
+      settlementId: z.string().min(1).max(128),
+      contract: FinalAnswerContract,
+      prompt: z.string().min(1),
+    })
+    .strict(),
+  /** Final one-primary-answer presentation decision, persisted beside run_status usage. */
+  z
+    .object({
+      type: z.literal("final-answer-settled"),
+      settlement: FinalAnswerSettlement,
+    })
+    .strict(),
   z
     .object({
       type: z.literal("tool-call"),
