@@ -68,7 +68,9 @@ export function finalAnswerRewritePrompt(contract: FinalAnswerContractT): string
     `Hard limits: at most ${contract.maxWords} words and at most ${finalAnswerVisibleByteLimit(contract)} UTF-8 bytes.`,
     `Aim for ${targetWords} words or fewer to leave counting headroom.`,
     "Preserve uncertainty, failed or partial results, denials, unverified work, and residual risk.",
-    "Do not present runtime behavior as verified unless preceding tool results demonstrate it. Omit unsupported runtime specifics; if material, say only that the behavior was not probed.",
+    "Treat a runtime-behavior claim as unsupported unless a preceding tool result directly demonstrates it.",
+    "Source text, type annotations, the original answer, and an 'unverified' label are not runtime evidence.",
+    "Rewrite every unsupported runtime prediction as source-level control flow plus an explicit unknown; do not name a failure mechanism.",
     "Do not claim new evidence. No tools are available. Return only the rewritten final answer.",
   ].join(" ");
 }

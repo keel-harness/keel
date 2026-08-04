@@ -64,7 +64,8 @@
         "62-final-answer-complete.png",
         "63-final-answer-inspection.png",
         "64-final-answer-cancelled.png",
-        "70-final-answer-headroom-live.png"
+        "70-final-answer-headroom-live.png",
+        "71-runtime-claim-boundary-live.png"
       ],
       "costCeilingUsd": 2
     },

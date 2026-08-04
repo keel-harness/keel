@@ -513,3 +513,17 @@ frozen historical dogfood total at **6 total / 2 necessary / 4 excessive or avoi
 no review timing, grouping, grant reuse, or user authority. PR #134, issue closure, exact-tree merge
 `8f0363f`, exact post-main CI `30956531938`, and feature cleanup are green and add no governed
 product review. The final canonical replay remains open.
+
+## Issue #136 validation outcome
+
+The reproduced exact-main defect, three rejected ordinary-prompt candidates, and two accepted
+rewrite-boundary candidates all performed local read/search onboarding only. Across **68 provider
+requests**, every run requested **zero Warden reviews** and left the frozen Click workspace clean.
+The retained change affects only the tools-disabled final-answer instruction; it cannot request a
+tool and changes no Warden verdict, review eligibility, grant, grouping, timing, policy, sandbox,
+egress, audit, or user authority.
+
+Issue #136 therefore adds **0 total / 0 necessary / 0 excessive** review interrupts and leaves the
+frozen historical dogfood total at **6 total / 2 necessary / 4 excessive or avoidable**. Its UX
+value is trust in the final answer, not fewer approvals. Exact publication and the final canonical
+replay remain open at this chronology point.

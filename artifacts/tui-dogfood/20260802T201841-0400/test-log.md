@@ -1615,3 +1615,29 @@
 - The remote branch, clean feature worktree/local branch, and stale remote-tracking ref were removed.
   This evidence-only closeout adds zero provider calls, Warden reviews, product behavior, security
   claims, dependencies, or score changes. The strict all-six exact-commit replay remains open.
+
+## 2026-08-04 — #136 evidence-bound runtime claims
+
+- Rebuilt and ran the exact merged `9a9e40a` carrier from a fresh home and frozen Click worktree.
+  The runner passed, but human QC rejected the primary's false, unproved character-iteration claim.
+  Ten provider requests cost USD 0.42787605; reviews were zero and Click stayed clean.
+- Tested three ordinary-system-prompt variants as originally scoped. All three mechanically passed
+  with zero reviews but failed human semantic QC. Exact costs were USD 0.45934575, USD 0.44783460,
+  and USD 0.61852755. None was retained.
+- After owner approval of the public scope extension, added three failing focused assertions before
+  changing ADR-0087's existing tools-disabled rewrite instruction. The retained prompt requires
+  direct preceding tool evidence for runtime claims and forbids invented failure mechanisms.
+- Focused final-answer plus system-prompt coverage passes **2 files / 40 tests**. `corepack pnpm
+  test` and `corepack pnpm test:cov` each pass **365 files / 6,673 tests**, with four files and 20
+  existing opt-in tests skipped; all enforced package thresholds pass.
+- `corepack pnpm lint`, `corepack pnpm typecheck`, `corepack pnpm format`, `corepack pnpm build`,
+  `corepack pnpm package`, and `git diff --check` pass.
+- Exact signed code candidate `a944839`, scripts-disabled tarball SHA-256 `6e60e4fb…`, passes two
+  independent fresh-home/fresh-Click live validations. They make 12 and 9 provider requests, cost
+  USD 0.33683610 and USD 0.82259265, settle `accepted-rewrite`, exit zero, request zero reviews,
+  preserve the exact source-level path, and leave runtime behavior explicitly unknown.
+- Screenshot 71 is a visually inspected sanitized 1400x840 exact-text transcription. Session log
+  31 records all rejected candidates, accepted runs, costs, boundaries, and five-lens QC.
+- Cumulative spend is USD 10.98614305. The $10 threshold review confirms that the spend found and
+  repaired a high-impact trust failure; broad exploration remains stopped. USD 7.01385695 remains
+  usable before the final USD 2 reserve.

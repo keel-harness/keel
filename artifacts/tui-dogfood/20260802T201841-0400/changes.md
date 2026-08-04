@@ -892,3 +892,24 @@ worktree were removed.
 - Reviewed head `147cd75` passed exact-head CI `30956020646`. PR #134 squash-merged exact tree
   `351d42d` as `8f0363f`; issue #133 closed; exact post-main CI `30956531938` passed required
   aggregate `92152127274` and every selected lane. Feature branch/worktree cleanup passed.
+
+## Issue #136 — evidence-bound runtime claims
+
+- Reproduced the exact merged-carrier onboarding result and rejected its mechanical PASS because
+  the bounded primary invented a false, unproved runtime mechanism.
+- Rejected three fresh-home ordinary-system-prompt candidates after human semantic QC, preserving
+  their exact costs and failure modes instead of optimizing to the runner oracle.
+- After the owner-approved scope extension, changed only the existing tools-disabled final-answer
+  rewrite instruction and focused assertions. Runtime behavior now requires direct preceding tool
+  evidence; otherwise the rewrite preserves source-level control flow and states an explicit
+  unknown without naming a failure mechanism.
+- Signed candidate `a944839`, exact scripts-disabled tarball SHA-256 `6e60e4fb…`, passes two
+  independent fresh-home/fresh-Click 100x30 live runs. Both exit zero, settle `accepted-rewrite`,
+  request zero reviews, leave Click clean, and pass human semantic QC.
+- Focused **40/40**, full and coverage **6,673 passed / 20 existing opt-in skips**, lint, typecheck,
+  format, build, package, and diff checks pass. Screenshot 71 and session log 31 retain evidence.
+- Cumulative Anthropic spend is USD 10.98614305; USD 9.01385695 remains under the cap and the final
+  USD 2 reserve remains intact.
+- No second request, hard-contract change, state, dependency, ModelPort, Warden, policy, sandbox,
+  egress, audit, grant, RPC, public CLI, or security claim changes. Candidate scores return to
+  **4.11 onboarding / 4.04 mean / 4.02 pooled**, pending publication and exact merged all-six proof.
