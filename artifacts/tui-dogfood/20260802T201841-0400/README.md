@@ -467,3 +467,17 @@ reaped. Full coverage passes 6,669 tests with 20 intentional opt-in skips. No th
 default, security claim, Warden authority, frozen contract, workflow score, or Anthropic spend
 changes. Session log 28 records two rejected code candidates, the reverted metadata-concurrency
 experiment, exact reports, and five-lens QC. Publication and post-main proof remain pending.
+
+Publication advanced through [PR #129](https://github.com/keel-harness/keel/pull/129). Reviewed head
+`b7524c1` passed exact-head CI `30946864248`, then owner-authorized admin squash merged exact tree
+`ff67418c` as `be1c900`; issue #127 closed. Exact post-main run `30947409856` passed every lane
+except the macOS npm-carrier production-renderer smoke. The product had correctly returned to the
+blank composer; the release observer lost that frame when ONLCR produced `CRCRLF` in one read.
+
+Issue [#130](https://github.com/keel-harness/keel/issues/130) now has a red-first, observer-only
+candidate at `546476a`. The original observer fails 4/8 local reproductions; the repaired observer
+passes 20/20 repeated exact-carrier runs plus one fresh scripts-disabled exact package. Focused,
+static, full coverage (**6,669 passed / 20 intentional skips**), package, teardown, and five-lens QC
+are green. No product timeout, predicate, retry, Warden/security surface, score, or provider spend
+changes. Publication and clean exact post-main CI remain pending; session log 29 records the full
+lineage and both non-green attempts.

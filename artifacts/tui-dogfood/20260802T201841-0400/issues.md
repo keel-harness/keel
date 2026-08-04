@@ -474,9 +474,10 @@
 ### DF-028 — mandatory snapshot contention pushes governed-ready tail over budget
 
 - Severity: P1 perceived-startup responsiveness.
-- Status: locally fixed and exact-carrier validated under
-  [issue #127](https://github.com/keel-harness/keel/issues/127); publication and post-main proof are
-  pending.
+- Status: fixed and merged under [issue #127](https://github.com/keel-harness/keel/issues/127) and
+  [PR #129](https://github.com/keel-harness/keel/pull/129) as `be1c900`. Exact reviewed-head CI
+  `30946864248` passed and the reviewed/merge trees are identical. Exact post-main CI exposed the
+  separate release-observer DF-030; product startup evidence remains green.
 - Direct evidence: exact-carrier distributions total 40 governed launches. Combined governed-ready
   p95 is 1,049.076 ms; 10/40 samples are at or above the spec's 750 ms target and 3/40 exceed the
   R17 1,000 ms observational bound. All samples still render honest first paint, reach governed
@@ -510,3 +511,23 @@
   allowance. It is retained as a failure rather than discarded or normalized away.
 - Boundaries: no threshold relaxation, heap/RSS conflation, compatibility claim, or optimization
   without a separately scoped performance issue and exact measurement.
+
+### DF-030 — PTY release observer loses a CRCRLF-terminated current frame
+
+- Severity: P0 flaky release gate; product behavior remained correct.
+- Status: locally fixed and validated under
+  [issue #130](https://github.com/keel-harness/keel/issues/130); publication and exact post-main proof
+  are pending.
+- Direct evidence: exact post-main run `30947409856` failed only macOS package job `92120753973`.
+  The raw stream showed the palette cleared and blank composer rendered, but a `CRCRLF` sequence
+  projected to only `"\n"` when delivered in one read. The unmodified observer failed 4/8 local
+  reproductions.
+- Impact: a correct installed carrier can block release nondeterministically, destroying trust in
+  the gate and skipping dependent product matrices.
+- Repair: candidate `546476a` consumes one consecutive CR run, interprets a following LF as a
+  completed line ending, and preserves bare-CR redraw plus malformed/incomplete-control rejection.
+- Validation: red-first exact captured frame; focused 7/7 Python and 30/30 Vitest; 20/20 repeated
+  exact-carrier PTYs; unrestricted full coverage 6,669 passed with 20 intentional skips; static,
+  build, package, fresh scripts-disabled carrier, teardown, and five-lens QC green.
+- Boundaries: no retry, relaxed timeout/predicate, renderer/product behavior, Warden authority,
+  security claim, frozen contract, dependency, score, or provider spend change.

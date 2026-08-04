@@ -1523,3 +1523,27 @@
   later produced a 15-second RPC timeout. The two marker waits now use a test-only 10-second budget;
   event-order assertions and production timeouts are unchanged. Session-entry passes 137/137 and the
   unrestricted full suite passes 6,669/6,669 with 20 intentional skips after the correction.
+
+## 2026-08-04 — R23 publication and issue #130 CRCRLF observer repair
+
+- Final reviewed #127 head `b7524c1`, tree `ff67418c`, passed exact-head CI `30946864248`. PR #129
+  admin-squash-merged as `be1c900` with the same tree; issue #127 closed.
+- Exact post-main CI `30947409856` failed only macOS package job `92120753973` at the fresh npm-
+  carrier production-renderer smoke. All other executable lanes passed; `ci-required` correctly
+  failed and dependent product matrices skipped.
+- Raw byte inspection proved the product returned to the blank composer. ONLCR emitted `CRCRLF`,
+  which the chunk-sensitive observer misread as a bare-CR redraw boundary. The exact observer failed
+  **4/8** reproductions before repair.
+- Red-first captured-frame coverage failed on `input: type a task or /help not found in '\n'`.
+  Candidate `546476a` consumes a consecutive CR run once, treats a following LF as a completed line
+  ending, and retains bare-CR redraw behavior.
+- Focused Python **7/7**, focused Vitest **2 files / 30 tests**, 20/20 repeated real-sandbox exact-
+  carrier PTYs, lint, typecheck, format, build, diff checks, and package pass.
+- The first full coverage command was **not green** inside the outer sandbox: six loopback proxy
+  tests received `listen EPERM`. Unrestricted repeat passed **365 files / 6,669 tests / 20
+  intentional opt-in skips**, at 97.86% statements/lines, 93.62% branches, and 99.59% functions.
+- Fresh scripts-disabled package SHA-256
+  `51d8be350dbd231329a2fd09ce30dd9dd218fd697bbfaef1985dccf75bfe7fc5` passes the exact failing
+  macOS real-PTY smoke, governed posture, exit zero, and complete process-group teardown.
+- Five-lens QC has no local must-fix. No product/Warden/security/frozen-contract behavior, score,
+  provider call, cost, or review count changes. Publication and exact post-main proof are pending.

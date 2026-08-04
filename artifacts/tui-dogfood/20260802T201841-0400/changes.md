@@ -845,3 +845,19 @@ worktree were removed.
   build, package, exact scripts-disabled install, diff checks, and five-lens QC pass. No dependency,
   threshold, security claim, Warden authority, frozen contract, score, provider call, or review
   interrupt changes. Publication remains pending.
+
+## Issue #130 — CRCRLF-safe PTY release observer
+
+- Diagnosed the only red exact post-main lane after #127 as a chunk-sensitive terminal observer:
+  Keel had rendered the blank composer, but ONLCR's `CRCRLF` line ending became a false bare-CR
+  redraw boundary.
+- Added the exact captured-frame regression first, plus CRLF, bare-CR, incomplete-CSI, and malformed-
+  CSI controls.
+- Consume a consecutive CR run once; preserve it as a completed line ending only when immediately
+  followed by LF. Raw-byte bounds, incremental redraw, malformed-control rejection, timeouts, and
+  product acceptance predicates remain unchanged.
+- Candidate `546476a` passes focused 7/7 Python and 30/30 Vitest checks, unrestricted full coverage
+  6,669/6,669 with 20 intentional skips, static/build/package gates, 20/20 repeated exact-carrier
+  PTYs, and one fresh exact scripts-disabled package smoke.
+- No dependency, runtime product behavior, Warden/security authority, frozen contract, score,
+  provider cost, or review-interrupt change. Publication remains pending.

@@ -744,6 +744,13 @@ fallback is retained, and one redundant cosmetic Git process is removed. Publica
 pending. This closes the scoped startup defect locally but does not resolve R23's separate
 settled-growth/P1-007 residual and does not rescore the six workflows.
 
+Publication follow-through: reviewed #127 head `b7524c1` passed exact-head CI `30946864248` and
+merged through PR #129 as `be1c900` with an identical tree. Exact post-main CI found a separate
+P0 packaging observer race: ONLCR `CRCRLF` output could hide an already-rendered blank composer from
+the smoke oracle. Issue #130 has a red-first observer-only candidate at `546476a`; local focused,
+full-coverage, package, 20-run PTY, exact-carrier, and five-lens gates pass. Publication and clean
+exact post-main proof remain pending. This does not rescore R23 or resolve P1-007.
+
 ### R24 · human cohort and longitudinal dogfood
 
 Run the fixed workflows with advanced developers who did not implement the fixes. Record success,
