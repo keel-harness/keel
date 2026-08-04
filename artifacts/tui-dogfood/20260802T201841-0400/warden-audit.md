@@ -238,3 +238,18 @@ grantability, audit, model-visible results, frozen contracts, and interrupt tota
 Candidate `ea79cf5` and merge `2ca060e` share tree `8261e69`; exact reviewed-head CI `30863536934`
 and post-main CI `30863981683` passed. Issue #91 closed and feature cleanup passed. The historical
 interrupt totals remain unchanged.
+
+## R13 validation outcome
+
+R13 introduces no Warden action, human review interrupt, or automatic denial, so historical totals
+remain **6 total / 2 necessary / 4 excessive or avoidable**. `keel auth set` stays on the existing
+owner-only credentials-store path and preserves the `0600` write, provider validation, precedence,
+cancel/error behavior, list/remove behavior, and secret non-disclosure.
+
+The successful controller response now states only two process facts: storage completed, and
+already running Keel sessions were not reloaded. The exact `keel --continue` recovery command is
+qualified to the session workspace. This copy cannot reload a provider client, grant a tool, alter
+a Warden verdict, change sandbox or egress posture, write an audit claim, or expose a credential.
+Baseline and candidate exact-carrier runs at 80x24 and 100x30 use no Warden or provider request;
+the non-secret fixture is absent from all captured evidence. Candidate `19a482a` is locally
+validated; reviewed-head and post-main publication proof remain pending.

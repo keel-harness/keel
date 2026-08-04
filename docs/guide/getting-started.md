@@ -20,6 +20,9 @@ different one with `KEEL_PROVIDER`. A key in the environment
 (`ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `GOOGLE_GENERATIVE_AI_API_KEY`) is used as a
 fallback when nothing is stored.
 
+Credentials are resolved when a Keel process starts. Replacing a key does not reload an already
+running session; restart from that session's workspace with `keel --continue`.
+
 Before your first run, check your machine has the tools keel needs:
 
 ```sh

@@ -912,3 +912,44 @@
 - Closeout changes evidence only; no product behavior changed, so no new red test applies. The
   artifact consistency suite passes **21/21**, repository format check passes, and
   `git diff --check` passes in the isolated closeout worktree.
+
+## 2026-08-03 — R13 truthful credential recovery
+
+- Started from clean synchronized `main` at `d9989dead5464221ee8bd93399971c9a501da6f2`.
+  Published [issue #94](https://github.com/keel-harness/keel/issues/94) and created isolated branch
+  `fix/tui-credential-recovery-truth`.
+- Exact installed main carriers at 80x24 and 100x30 reproduced DF-007: successful
+  `keel auth set anthropic` confirmed only the durable `0600` file write. Both transcripts shared
+  SHA-256 `44b27f94e6979bd7b0de16a827891c60584cba439f2665756b43ce595beefaf0`.
+- Added an exact-output regression before implementation. The red run failed **1 test / 12 passed**
+  because reload/recovery guidance was absent. After implementation, focused auth coverage passes
+  **13/13** and adjacent auth/store/runtime/entry coverage passes **59/59**.
+- The retained implementation adds one success-only line stating that running sessions were not
+  reloaded and instructing restart from the session workspace with `keel --continue`. Public auth
+  guidance records the same process-start boundary. Store precedence, permissions, cancel/error
+  paths, list/remove behavior, provider ownership, and secret non-disclosure are unchanged.
+- Artifact consistency passes **21/21**. The first post-evidence JSON-reporter run used default
+  concurrency and was killed with exit 137 before it wrote a report; this run is **not green**.
+  Rerunning the identical full suite with four workers passes **6,546 tests / 20 existing opt-in
+  skips** across 1,034 passing suites with zero failures. Bounded-concurrency coverage repeats
+  **6,546 / 20** at 97.99% statements/lines, 93.72% branches, and 99.58% functions overall.
+  Lint, typecheck, format, build, all four package carriers, and the final diff check pass.
+- Clean candidate commit `19a482a4d6175c36374d5a3c8229ab23217fa0b3` produced exact tarball
+  SHA-256 `a0961431a8b539998e63fdd81958811515d42092f55c7aec10f25c42c701c5ab`.
+  Fixed 80x24 and 100x30 PTYs exit 0, preserve file mode `0600`, and share transcript SHA-256
+  `abf5e37f35b4054ced24bb58f46f18456eea26255ffdd868ee5d93ec4481834e`.
+- E4 screenshots 39–40 were rendered as sanitized 1400x840 comparison transcriptions and visually
+  inspected. SHA-256 values are
+  `42194b29bd32709b3a28d4de3f83f8ab3500c177cffc4af261426a263dd7b02e` and
+  `bdef1bd0c30b2a3739fd8fccac36cede6c14da93c575adfaf63367153241ab1e`.
+  Silent scans found no fixture value, credential-shaped string, username, or private path.
+- E5 is **NOT_RUN**. Four local installed-carrier invocations make zero Anthropic calls, so
+  cumulative spend remains USD 2.74434625, USD 17.25565375 remains, and the final USD 2 reserve is
+  intact.
+- Five-lens QC: spec/ADR matches process-start credential resolution; security preserves
+  non-disclosure and `0600`; reliability covers success plus adjacent error/cancel/list/remove
+  paths; DX gives short what/boundary/exact-action copy; simplicity changes one controller return,
+  one regression, and two docs paragraphs. No local must-fix remains.
+- The directly observed onboarding recovery score rises one point, producing provisional
+  **3.89/5** (241/62). Publication, exact-head/post-main CI, issue closure, and cleanup remain
+  pending.

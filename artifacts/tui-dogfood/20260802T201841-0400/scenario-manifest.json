@@ -50,7 +50,9 @@
         "27-r9-resume-history-before.png",
         "28-r9-resume-history-after.png",
         "37-r12-routine-evidence-before.png",
-        "38-r12-routine-evidence-after.png"
+        "38-r12-routine-evidence-after.png",
+        "39-r13-credential-recovery-before.png",
+        "40-r13-credential-recovery-after.png"
       ],
       "costCeilingUsd": 1
     },

@@ -81,6 +81,12 @@
 ### DF-007 — same-process credential replacement is not reloaded
 
 - Severity: P2 recovery/DX.
+- Status: R13 implementation candidate `19a482a` is validated under
+  [issue #94](https://github.com/keel-harness/keel/issues/94). Successful `keel auth set` output now
+  distinguishes the durable `0600` write from the unchanged running process and gives one exact
+  recovery action: restart from the session workspace with `keel --continue`. Exact installed
+  baseline/candidate carriers pass at 80×24 and 100×30 with the credential absent from output and
+  evidence. Publication and exact-main proof remain pending.
 - Direct evidence: `auth set` updated the isolated credential file, but retrying in the already
   running session produced another 401; clean restart loaded the key successfully.
 - Impact: the UI does not explain that credential changes require restart, causing a predictable

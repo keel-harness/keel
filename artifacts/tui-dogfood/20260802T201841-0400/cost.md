@@ -59,6 +59,7 @@ applicable input rate.
 | R11 post-main PTY observer repair | 0 | 0 | 0 | 0 | 0.0000 | 2.7443 | 17.2557 |
 | R14 local interrupted-mutation replays | 0 | 0 | 0 | 0 | 0.0000 | 2.7443 | 17.2557 |
 | R12 local evidence-density replays | 0 | 0 | 0 | 0 | 0.0000 | 2.7443 | 17.2557 |
+| R13 local credential-recovery replays | 0 | 0 | 0 | 0 | 0.0000 | 2.7443 | 17.2557 |
 
 Anthropic provider calls: 27 successful, 4 rejected at zero reported usage. R7's two local-fixture
 requests are not Anthropic calls and carry no Anthropic cost. The USD 2.00 final-regression
@@ -96,5 +97,10 @@ cumulative spend remains USD 2.74434625, USD 17.25565375 remains, and the USD 2 
 R12 used twenty-six loopback-only fixture requests: thirteen at each fixed 80x24/100x30 installed-
 carrier replay. No Anthropic endpoint or credential was used; cumulative spend remains USD
 2.74434625, USD 17.25565375 remains, and the USD 2 reserve is intact.
+R13 exercised the local `keel auth set` controller through four exact installed-carrier PTYs: a
+baseline and candidate at each of 80x24 and 100x30. It made no model or Anthropic request. A
+non-secret fixture value was absent from every transcript and screenshot; no provider credential
+was inspected. Cumulative spend remains USD 2.74434625, USD 17.25565375 remains, and the USD 2
+reserve is intact.
 The R0 manifest caps a future six-workflow replay at
 USD 11.00, below the currently spendable USD 15.2557 after preserving the final USD 2.00 reserve.

@@ -560,6 +560,12 @@ process reloaded credentials; if not, provide one exact restart/resume command b
 401. Hot reload is a separate design only if it can preserve secret handling and provider-client
 ownership cleanly. Never expose or partially display the key.
 
+Candidate status: implementation commit `19a482a` adds exact successful-set copy and matching
+getting-started/reference guidance without changing secret-store semantics or provider ownership.
+Red-first auth coverage, adjacent CLI/secrets coverage, unrestricted coverage, static/build gates,
+and exact installed-carrier 80x24/100x30 E3/E4 pass with zero provider calls. Publication,
+reviewed-head CI, post-main proof, and cleanup remain pending.
+
 ### R14 · P2 — explicit interrupted-mutation state
 
 Finding: **DF-021**. Preserve the successful `Esc` and `/before-next-edit` controls, but replace

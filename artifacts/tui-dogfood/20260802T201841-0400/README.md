@@ -213,3 +213,22 @@ transcriptions. R12 made zero Anthropic calls, so cumulative spend remains USD 2
 `8261e69`. Exact post-main CI run `30863981683` passed, including `ci-required` job `91852829645`.
 Issue #91 closed and feature cleanup passed, so the evidence-bound official score is now
 **3.87/5** (240/62). The stricter final six-workflow release gate remains open.
+
+R13 is in candidate validation under
+[issue #94](https://github.com/keel-harness/keel/issues/94). Successful `keel auth set` output now
+separates the completed `0600` credentials-file write from the process-lifetime provider boundary:
+running sessions were not reloaded, and recovery is to restart from the session workspace with
+`keel --continue`. Secret-store precedence, permissions, errors, and provider construction are
+unchanged.
+
+Red-first auth coverage failed **1 / 13** before implementation and passes **13/13** after it;
+adjacent auth/store/runtime/entry coverage passes **59/59**. Unrestricted coverage, lint,
+typecheck, format, build, and all four package carriers pass. The final bounded-concurrency full
+suite and coverage each pass **6,546 / 20 existing opt-in skips** across 1,034 passing suites;
+coverage is 97.99% statements/lines and 93.72% branches overall. Clean exact installed baseline
+and candidate npm carriers pass at 80x24 and 100x30 with file mode `0600`, clean exit, identical
+per-carrier transcript hashes, and no credential in output. Screenshots 39–40 are visually
+inspected sanitized 1400x840 comparison transcriptions. R13 makes zero Anthropic calls, so spend
+remains USD 2.74434625. Candidate `19a482a` raises only observed onboarding recovery, producing a
+provisional **3.89/5** (241/62); reviewed-head/post-main CI and cleanup remain required before
+that score is official.
