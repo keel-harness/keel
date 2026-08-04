@@ -2052,36 +2052,43 @@ describe("runKeelCommand (bin orchestration: build runtime + store, run, dispose
     expect(order.indexOf("model-start")).toBeGreaterThan(order.indexOf("backup-settled"));
   });
 
-  it("overlaps trusted git status with warden startup", async () => {
+  it("overlaps trusted git status with warden startup but starts backup afterward", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "keel-overlap-git-cwd-"));
     const e: NodeJS.ProcessEnv = {
       KEEL_HOME: mkdtempSync(join(tmpdir(), "keel-overlap-git-home-")),
       KEEL_TRUST: "1",
-      KEEL_NO_SNAPSHOT: "1",
     };
     const ui = new TestUI();
     const wardenGate = join(e["KEEL_HOME"]!, "allow-warden-startup");
-    let resolveGitStarted!: () => void;
-    const gitStarted = new Promise<void>((resolve) => {
-      resolveGitStarted = resolve;
-    });
+    const wardenStartupEntered = join(e["KEEL_HOME"]!, "warden-startup-entered");
+    const order: string[] = [];
 
     const run = runKeelCommand(undefined, {
       model: new ScriptedModel({ turns: [{ text: "unused" }] }),
       ui,
       cwd,
       env: e,
-      warden: gatedStartupWarden(wardenGate),
+      warden: gatedStartupWarden(wardenGate, wardenStartupEntered),
+      backupWorkspace: async () => {
+        order.push("backup-start");
+        return undefined;
+      },
       readGitStatus: async () => {
-        resolveGitStarted();
+        order.push("git-start");
         return { branch: "main", added: 0, modified: 0, deleted: 0 };
       },
     });
-    await gitStarted;
+
+    await vi.waitFor(() => expect(existsSync(wardenStartupEntered)).toBe(true));
+    order.push("warden-gate-opened");
     writeFileSync(wardenGate, "ready");
+    await ui.awaitRender(
+      (view) => view.awaitingInput === true && view.status.startup === undefined,
+    );
     ui.queue.close();
     await run;
 
+    expect(order).toEqual(["git-start", "warden-gate-opened", "backup-start"]);
     expect(ui.latest).toBeDefined();
   });
 

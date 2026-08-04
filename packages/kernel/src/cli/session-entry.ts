@@ -1447,9 +1447,9 @@ export async function runKeelCommand(
       // the terminal here because neither runner has been entered yet.
     }
     const startGitStatusProbe = (): void => {
-      // Git is cosmetic and can read repo-local config. Start it only after the backup has finished
-      // so it cannot race the recovery snapshot, then consume only a result already available when
-      // the governed shell becomes ready. It never gates input readiness.
+      // Git is cosmetic, read-only, bounded, and can read repo-local config. Start it alongside
+      // Warden startup, then consume only a result already available when the governed shell becomes
+      // ready. It is never awaited and therefore never gates input or the pre-action backup.
       gitStatusAbort = new AbortController();
       gitStatusPending = ctx.trusted
         ? backupNotePending
@@ -1477,10 +1477,9 @@ export async function runKeelCommand(
       // measurement/copy or creating a snapshot destination until after governed readiness.
       await establishSnapshotPrivateRoot(keelHome(env));
     }
-    // Preserve the existing non-blocking trusted git probe for runs that cannot take a snapshot
-    // (untrusted, resumed, or explicitly opted out). Snapshot-taking fresh runs defer both filesystem
-    // jobs until governed readiness so neither competes with Warden startup.
-    if (!backupStartsAfterWarden) startGitStatusProbe();
+    // Preserve the existing non-blocking cockpit probe during Warden startup. The heavier trusted
+    // snapshot remains deferred until Warden readiness; the two no longer start at the same boundary.
+    startGitStatusProbe();
     const resumedSteeringApplied = resumeState?.pendingSteering.length ?? 0;
     const resumedUrgentSteeringApplied =
       resumeState?.pendingSteering.filter((steering) => steering.class === "urgent").length ?? 0;
@@ -1623,7 +1622,6 @@ export async function runKeelCommand(
           (note) => ({ note }) as const,
           (error: unknown) => ({ error }) as const,
         );
-      startGitStatusProbe();
     }
     try {
       const loopSafetyWithRuntimeAcceptance =
