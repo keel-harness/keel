@@ -489,6 +489,9 @@ async function main(): Promise<void> {
       ...(cmd.autonomy === undefined ? {} : { autonomy: cmd.autonomy }),
       ...(cmd.kind === "run" && cmd.goal !== undefined ? { goal: cmd.goal } : {}),
       ...(cmd.kind === "run" && cmd.loop !== undefined ? { loop: cmd.loop } : {}),
+      ...(cmd.kind === "run" && cmd.finalAnswer !== undefined
+        ? { finalAnswer: cmd.finalAnswer }
+        : {}),
       ...(cmd.kind === "run" && cmd.planApproval !== undefined
         ? { planApproval: cmd.planApproval }
         : {}),

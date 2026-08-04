@@ -1,5 +1,6 @@
 import type {
   ExecutorPort,
+  FinalAnswerContractT,
   FinishReasonT,
   ModelMessageT,
   ModelPort,
@@ -9,6 +10,7 @@ import type {
   ToolResultT,
   ToolSpecT,
 } from "@keel/shared";
+import { randomUUID } from "node:crypto";
 import {
   markToolPresentationOutcome,
   toolControlFailureCode,
@@ -90,6 +92,11 @@ import {
   takeToolDeadlineReviewResult,
 } from "./warden/tool-deadline-review-result.js";
 import { transferMutationPresentationResolver } from "./warden/mutation-presentation-resolver.js";
+import {
+  finalAnswerRewriteOutputTokens,
+  finalAnswerRewritePrompt,
+  validateFinalAnswer,
+} from "./final-answer.js";
 
 /** Termination controls. `maxTurns` always applies (default below); `budget` enforces the
  *  cost-aware token triad (ADR-0044). */
@@ -165,6 +172,13 @@ export type AgentCompactor = (
 export interface AgentLoopInput {
   readonly messages: readonly ModelMessageT[];
   readonly tools?: readonly ToolSpecT[];
+  /** Explicit task-scoped final-answer settlement (ADR-0087). Absent preserves the existing byte
+   * stream and provider-call sequence. The inspection command is controller-authored human-side
+   * copy; it is never exposed to governed tools as authority. */
+  readonly finalAnswer?: {
+    readonly contract: FinalAnswerContractT;
+    readonly originalInspectionCommand: string;
+  };
   readonly stop?: AgentLoopStop;
   readonly signal?: AbortSignal;
   readonly params?: ModelTurnInput["params"];
@@ -306,6 +320,10 @@ const LOOP_REVIEW_REQUIRED_SKIP_MESSAGE =
   "not executed: an earlier tool in this turn requires review; change the task and rerun";
 const LOOP_BOUNDED_RECOVERY_SKIP_MESSAGE =
   "bounded recovery permits one tool call (model-authored); this additional call was not executed";
+const LOOP_FINAL_ANSWER_REWRITE_TOOL_SKIP_MESSAGE =
+  "not executed: final-answer rewrite tools are disabled";
+const LOOP_FINAL_ANSWER_INCOMPLETE_TOOL_SKIP_MESSAGE =
+  "not executed: final-answer attempt did not complete";
 const NONZERO_EXIT_RESULT_RE = /\[exit code:\s*[1-9]\d*\]/m;
 const UNTRUSTED_TOOL_RESULT_STEM = "[keel:untrusted-tool-result:";
 const WARDEN_DECORATED_BASH_RESULT_RE = /^warden (?:containment|warning|modified tool args):/u;
@@ -809,6 +827,7 @@ export async function* runAgentLoopWithControlState(
   const maxTokens = input.stop?.budget?.maxTokens;
   const maxGrossTokens = input.stop?.budget?.maxGrossTokens;
   const maxOutputTokens = input.stop?.budget?.maxOutputTokens;
+  const finalAnswer = input.finalAnswer;
   const progressRunwayHasCostBudget =
     maxTokens !== undefined || maxGrossTokens !== undefined || maxOutputTokens !== undefined;
   // Default 1.0 → cached counts at full price (gross-equivalent), the conservative behavior.
@@ -828,6 +847,26 @@ export async function* runAgentLoopWithControlState(
   const runUsageBaseline = usage;
   let lastRequestUsage: ModelUsageT | undefined;
   let lastRequestUsageSource: ContextUsageSource = "missing";
+  const accumulateRequestUsage = (requestUsage: ModelUsageT, source: ContextUsageSource): void => {
+    lastRequestUsage = requestUsage;
+    lastRequestUsageSource = source;
+    const cached =
+      usage.cachedInputTokens !== undefined || requestUsage.cachedInputTokens !== undefined
+        ? (usage.cachedInputTokens ?? 0) + (requestUsage.cachedInputTokens ?? 0)
+        : undefined;
+    const cacheWrite =
+      usage.cacheCreationInputTokens !== undefined ||
+      requestUsage.cacheCreationInputTokens !== undefined
+        ? (usage.cacheCreationInputTokens ?? 0) + (requestUsage.cacheCreationInputTokens ?? 0)
+        : undefined;
+    usage = {
+      inputTokens: usage.inputTokens + requestUsage.inputTokens,
+      outputTokens: usage.outputTokens + requestUsage.outputTokens,
+      ...(cached !== undefined ? { cachedInputTokens: cached } : {}),
+      ...(cacheWrite !== undefined ? { cacheCreationInputTokens: cacheWrite } : {}),
+    };
+    controlState.usage = usage;
+  };
   let turn = controlState.turn;
   let finalizeTurnsUsed = controlState.finalizeTurnsUsed;
   let progressRunwayTurnsUsed = controlState.progressRunwayTurnsUsed;
@@ -875,6 +914,12 @@ export async function* runAgentLoopWithControlState(
     const message: ModelMessageT = { role: "user", content };
     controllerOwnedUserMessages.add(message);
     messages.push(message);
+  };
+  // ADR-0087's rewrite instruction is controller-authored but DURABLE provider history. Unlike the
+  // transient guidance above, it must survive onFinalMessages and resume between the two assistant
+  // occurrences so same-process continuation and fresh-process rebuild have identical role order.
+  const pushDurableControllerPrompt = (content: string): void => {
+    messages.push({ role: "user", content });
   };
   // Human and controller prompts intentionally share the provider-compatible `user` role. Object
   // identity is therefore the local provenance carrier. A compactor may drop user messages but may
@@ -1166,6 +1211,323 @@ export async function* runAgentLoopWithControlState(
     return tailSuccessRepeats >= maxTailSuccessRepeats;
   };
 
+  const settleFinalAnswerCandidate = async function* (inputCandidate: {
+    readonly text: string;
+    readonly usage: ModelUsageT;
+    readonly textAlreadyFlushed: boolean;
+  }): AsyncGenerator<KernelEventT, StopEvent> {
+    if (finalAnswer === undefined) {
+      return modelStopEvent();
+    }
+    const settlementId = `fas_${randomUUID()}`;
+    const originalValidation = validateFinalAnswer(inputCandidate.text, finalAnswer.contract);
+    if (!inputCandidate.textAlreadyFlushed && inputCandidate.text.length > 0) {
+      yield { type: "text-delta", text: inputCandidate.text };
+    }
+
+    if (originalValidation.ok && inputCandidate.text.trim().length > 0) {
+      yield {
+        type: "final-answer-attempt",
+        settlementId,
+        attempt: "original",
+        contract: finalAnswer.contract,
+        decision: "accepted",
+        usage: inputCandidate.usage,
+      };
+      yield {
+        type: "final-answer-settled",
+        settlement: { settlementId, outcome: "accepted-original" },
+      };
+      return modelStopEvent();
+    }
+
+    const rewritePrompt = finalAnswerRewritePrompt(finalAnswer.contract);
+    const rewriteOutputTokens = finalAnswerRewriteOutputTokens(
+      finalAnswer.contract,
+      input.params?.maxOutputTokens,
+    );
+    const rewriteMessages: ModelMessageT[] = [
+      ...messages,
+      { role: "user", content: rewritePrompt },
+    ];
+    const estimatedRewriteInput = estimateTurnInputTokens({ messages: rewriteMessages });
+    const remainingEffective =
+      maxTokens === undefined ? undefined : maxTokens - effectiveTokens(usage, cacheReadWeight);
+    const remainingGross =
+      maxGrossTokens === undefined
+        ? undefined
+        : maxGrossTokens - usage.inputTokens - usage.outputTokens;
+    const remainingOutput =
+      maxOutputTokens === undefined ? undefined : maxOutputTokens - usage.outputTokens;
+    const lacksRunway =
+      (remainingEffective !== undefined &&
+        estimatedRewriteInput + rewriteOutputTokens >= remainingEffective) ||
+      (remainingGross !== undefined &&
+        estimatedRewriteInput + rewriteOutputTokens >= remainingGross) ||
+      (remainingOutput !== undefined && rewriteOutputTokens >= remainingOutput);
+    const preflightOutcome = signalAborted()
+      ? "fallback-cancelled"
+      : deadlineHit() || progressRunwayDeadlineHit()
+        ? "fallback-cancelled"
+        : input.enforcement !== undefined && !input.enforcement.available()
+          ? "fallback-error"
+          : lacksRunway
+            ? "fallback-budget"
+            : undefined;
+    if (preflightOutcome !== undefined) {
+      yield {
+        type: "final-answer-attempt",
+        settlementId,
+        attempt: "original",
+        contract: finalAnswer.contract,
+        decision: "fallback",
+        usage: inputCandidate.usage,
+      };
+      yield {
+        type: "final-answer-settled",
+        settlement: { settlementId, outcome: preflightOutcome },
+      };
+      const stop: StopEvent =
+        preflightOutcome === "fallback-budget"
+          ? { type: "stop", reason: "budget" }
+          : preflightOutcome === "fallback-error"
+            ? {
+                type: "stop",
+                reason: "error",
+                code: "WARDEN_UNAVAILABLE",
+                message: LOOP_WARDEN_UNAVAILABLE_MESSAGE,
+              }
+            : { type: "stop", reason: abortStopReason() };
+      return stop;
+    }
+
+    yield {
+      type: "final-answer-attempt",
+      settlementId,
+      attempt: "original",
+      contract: finalAnswer.contract,
+      decision: "rewrite",
+      usage: inputCandidate.usage,
+    };
+    pushDurableControllerPrompt(rewritePrompt);
+    yield {
+      type: "final-answer-rewrite-requested",
+      settlementId,
+      contract: finalAnswer.contract,
+      prompt: rewritePrompt,
+    };
+
+    const rewriteInput: ModelTurnInput = {
+      messages: [...messages],
+      ...(effectiveSignal !== undefined ? { signal: effectiveSignal } : {}),
+      params: {
+        ...(input.params ?? {}),
+        maxOutputTokens: rewriteOutputTokens,
+      },
+    };
+    let rewriteText = "";
+    const rewriteCalls: ToolInvocationT[] = [];
+    const rewriteDeltaCalls = new Map<string, ToolCallDeltaBuffer>();
+    let rewriteFinish: FinishReasonT | undefined;
+    let rewriteErrorCode: string | undefined;
+    let rewriteErrorMessage: string | undefined;
+    let rewriteUsage: ModelUsageT = { inputTokens: 0, outputTokens: 0 };
+    let hasRewriteUsage = false;
+    for await (const chunk of model.stream(rewriteInput)) {
+      if (chunk.type === "text-delta") {
+        rewriteText += chunk.text;
+      } else if (chunk.type === "tool-call") {
+        rewriteCalls.push({ id: chunk.id, name: chunk.name, args: chunk.args });
+      } else if (chunk.type === "tool-call-delta") {
+        const existing = rewriteDeltaCalls.get(chunk.id);
+        if (existing === undefined) {
+          rewriteDeltaCalls.set(chunk.id, {
+            ...(chunk.name !== undefined ? { name: chunk.name } : {}),
+            argsText: chunk.argsTextDelta,
+          });
+        } else {
+          if (existing.name === undefined && chunk.name !== undefined) existing.name = chunk.name;
+          existing.argsText += chunk.argsTextDelta;
+        }
+      } else if (chunk.type === "finish") {
+        const providerReportedInputUsage = usageHasProviderInputReport(chunk.usage);
+        rewriteUsage = usageWithFallback(
+          chunk.usage,
+          rewriteInput,
+          rewriteText,
+          rewriteCalls,
+          rewriteDeltaCalls,
+        );
+        hasRewriteUsage = true;
+        accumulateRequestUsage(
+          rewriteUsage,
+          providerReportedInputUsage ? "provider-reported" : "local-fallback",
+        );
+        rewriteFinish = chunk.reason;
+      } else if (chunk.type === "error") {
+        rewriteFinish = "error";
+        rewriteErrorCode = chunk.code;
+        rewriteErrorMessage = chunk.message;
+      }
+    }
+    if (rewriteFinish !== "error" && rewriteFinish !== "aborted" && rewriteDeltaCalls.size > 0) {
+      if (rewriteFinish === "tool-calls") {
+        for (const [id, buffer] of rewriteDeltaCalls) {
+          if (rewriteCalls.some((call) => call.id === id)) continue;
+          const assembled = assembleToolCallDelta(id, buffer);
+          if (assembled.ok) rewriteCalls.push(assembled.call);
+          else {
+            rewriteFinish = "error";
+            rewriteErrorCode = assembled.code;
+            rewriteErrorMessage = assembled.message;
+            break;
+          }
+        }
+      } else {
+        rewriteFinish = "error";
+        rewriteErrorCode = "malformed-tool-call-delta";
+        rewriteErrorMessage = "streamed rewrite tool call ended without a tool-call terminal";
+      }
+    }
+
+    messages.push({
+      role: "assistant",
+      content: rewriteText,
+      ...(rewriteCalls.length > 0 ? { toolCalls: rewriteCalls } : {}),
+    });
+    if (rewriteText.length > 0) yield { type: "text-delta", text: rewriteText };
+    for (const call of rewriteCalls) {
+      yield { type: "tool-call", id: call.id, name: call.name, args: call.args };
+    }
+
+    const validation = validateFinalAnswer(rewriteText, finalAnswer.contract);
+    const rewriteCancelled = signalAborted() || deadlineHit() || progressRunwayDeadlineHit();
+    const rewriteEnforcementUnavailable =
+      input.enforcement !== undefined && !input.enforcement.available();
+    if (rewriteEnforcementUnavailable) {
+      rewriteErrorCode = "WARDEN_UNAVAILABLE";
+      rewriteErrorMessage = LOOP_WARDEN_UNAVAILABLE_MESSAGE;
+    }
+    const outcome = rewriteCancelled
+      ? "fallback-cancelled"
+      : rewriteEnforcementUnavailable
+        ? "fallback-error"
+        : rewriteCalls.length > 0
+          ? "fallback-tool-call"
+          : rewriteFinish === "length"
+            ? "fallback-length"
+            : rewriteFinish === "aborted"
+              ? "fallback-cancelled"
+              : rewriteFinish !== "stop" || rewriteText.trim().length === 0
+                ? "fallback-error"
+                : validation.ok
+                  ? "accepted-rewrite"
+                  : "fallback-oversized";
+    yield {
+      type: "final-answer-attempt",
+      settlementId,
+      attempt: "rewrite",
+      contract: finalAnswer.contract,
+      decision: outcome === "accepted-rewrite" ? "accepted" : "fallback",
+      usage: rewriteUsage,
+    };
+    for (const call of rewriteCalls) {
+      yield presentationToolResultEvent(
+        call.id,
+        { ok: false, output: LOOP_FINAL_ANSWER_REWRITE_TOOL_SKIP_MESSAGE },
+        "skipped",
+      );
+      messages.push({
+        role: "tool",
+        content: LOOP_FINAL_ANSWER_REWRITE_TOOL_SKIP_MESSAGE,
+        toolCallId: call.id,
+        name: call.name,
+      });
+    }
+    yield {
+      type: "final-answer-settled",
+      settlement: {
+        settlementId,
+        outcome,
+        ...(hasRewriteUsage ? { rewriteUsage } : {}),
+      },
+    };
+
+    const stop: StopEvent =
+      outcome === "accepted-rewrite" || outcome === "fallback-oversized"
+        ? modelStopEvent()
+        : outcome === "fallback-cancelled"
+          ? { type: "stop", reason: abortStopReason() }
+          : outcome === "fallback-length"
+            ? { type: "stop", reason: "length" }
+            : {
+                type: "stop",
+                reason: "error",
+                ...(rewriteErrorCode !== undefined
+                  ? { code: rewriteErrorCode }
+                  : outcome === "fallback-tool-call"
+                    ? { code: "final-answer-rewrite-tool-call" }
+                    : { code: "final-answer-rewrite-error" }),
+                ...(rewriteErrorMessage !== undefined ? { message: rewriteErrorMessage } : {}),
+              };
+    return stop;
+  };
+
+  const failFinalAnswerOriginal = (failure: {
+    readonly text: string;
+    readonly calls: readonly ToolInvocationT[];
+    readonly usage: ModelUsageT;
+    readonly textAlreadyFlushed: boolean;
+    readonly outcome:
+      | "fallback-length"
+      | "fallback-error"
+      | "fallback-cancelled"
+      | "fallback-tool-call";
+  }): readonly KernelEventT[] => {
+    if (finalAnswer === undefined) return [];
+    const settlementId = `fas_${randomUUID()}`;
+    const events: KernelEventT[] = [];
+    if (!failure.textAlreadyFlushed && failure.text.length > 0) {
+      events.push({ type: "text-delta", text: failure.text });
+    }
+    for (const call of failure.calls) {
+      events.push({ type: "tool-call", id: call.id, name: call.name, args: call.args });
+    }
+    messages.push({
+      role: "assistant",
+      content: failure.text,
+      ...(failure.calls.length > 0 ? { toolCalls: [...failure.calls] } : {}),
+    });
+    events.push({
+      type: "final-answer-attempt",
+      settlementId,
+      attempt: "original",
+      contract: finalAnswer.contract,
+      decision: "fallback",
+      usage: failure.usage,
+    });
+    for (const call of failure.calls) {
+      events.push(
+        presentationToolResultEvent(
+          call.id,
+          { ok: false, output: LOOP_FINAL_ANSWER_INCOMPLETE_TOOL_SKIP_MESSAGE },
+          "skipped",
+        ),
+      );
+      messages.push({
+        role: "tool",
+        content: LOOP_FINAL_ANSWER_INCOMPLETE_TOOL_SKIP_MESSAGE,
+        toolCallId: call.id,
+        name: call.name,
+      });
+    }
+    events.push({
+      type: "final-answer-settled",
+      settlement: { settlementId, outcome: failure.outcome },
+    });
+    return events;
+  };
+
   yield { type: "run-started" };
 
   for (;;) {
@@ -1372,6 +1734,8 @@ export async function* runAgentLoopWithControlState(
     let errorMessage: string | undefined;
     let errorCode: string | undefined;
     let turnUsage: ModelUsageT = { inputTokens: 0, outputTokens: 0 };
+    let finalAnswerTextFlushed = finalAnswer === undefined;
+    let finalAnswerBufferingShown = false;
 
     const turnInput: ModelTurnInput = {
       messages,
@@ -1382,15 +1746,31 @@ export async function* runAgentLoopWithControlState(
     for await (const chunk of model.stream(turnInput)) {
       if (chunk.type === "text-delta") {
         assistantText += chunk.text;
+        if (finalAnswer !== undefined && !toolDisabledFinalActive && !finalAnswerBufferingShown) {
+          finalAnswerBufferingShown = true;
+          yield { type: "final-answer-buffering" };
+        }
         // The terminal-review synthesis turn is buffered until its terminal is known. A provider
         // that emits an unadvertised tool call cannot smuggle accompanying prose into the UI before
         // the kernel rejects that call as not executed.
-        if (!toolDisabledFinalActive) yield { type: "text-delta", text: chunk.text };
+        if (!toolDisabledFinalActive && finalAnswerTextFlushed) {
+          yield { type: "text-delta", text: chunk.text };
+        }
       } else if (chunk.type === "tool-call") {
+        if (finalAnswer === undefined && !toolDisabledFinalActive && !finalAnswerTextFlushed) {
+          if (assistantText.length > 0) yield { type: "text-delta", text: assistantText };
+          finalAnswerTextFlushed = true;
+        }
         const call: ToolInvocationT = { id: chunk.id, name: chunk.name, args: chunk.args };
         calls.push(call);
-        yield { type: "tool-call", id: call.id, name: call.name, args: call.args };
+        if (finalAnswer === undefined) {
+          yield { type: "tool-call", id: call.id, name: call.name, args: call.args };
+        }
       } else if (chunk.type === "tool-call-delta") {
+        if (finalAnswer === undefined && !toolDisabledFinalActive && !finalAnswerTextFlushed) {
+          if (assistantText.length > 0) yield { type: "text-delta", text: assistantText };
+          finalAnswerTextFlushed = true;
+        }
         const existing = deltaCalls.get(chunk.id);
         if (existing === undefined) {
           deltaCalls.set(chunk.id, {
@@ -1411,30 +1791,10 @@ export async function* runAgentLoopWithControlState(
           deltaCalls,
         );
         turnUsage = chunkUsage;
-        lastRequestUsage = chunkUsage;
-        lastRequestUsageSource = providerReportedInputUsage
-          ? "provider-reported"
-          : "local-fallback";
-        // Accumulate the cache-read subset too: once any turn reports it, the field is carried +
-        // summed (absent for non-caching providers, so the recorded shape is unchanged for them).
-        const cached =
-          usage.cachedInputTokens !== undefined || chunkUsage.cachedInputTokens !== undefined
-            ? (usage.cachedInputTokens ?? 0) + (chunkUsage.cachedInputTokens ?? 0)
-            : undefined;
-        // Same carry+sum for the cache-WRITE subset (ADR-0047) — absent for non-caching providers,
-        // so the recorded shape is unchanged for them.
-        const cacheWrite =
-          usage.cacheCreationInputTokens !== undefined ||
-          chunkUsage.cacheCreationInputTokens !== undefined
-            ? (usage.cacheCreationInputTokens ?? 0) + (chunkUsage.cacheCreationInputTokens ?? 0)
-            : undefined;
-        usage = {
-          inputTokens: usage.inputTokens + chunkUsage.inputTokens,
-          outputTokens: usage.outputTokens + chunkUsage.outputTokens,
-          ...(cached !== undefined ? { cachedInputTokens: cached } : {}),
-          ...(cacheWrite !== undefined ? { cacheCreationInputTokens: cacheWrite } : {}),
-        };
-        controlState.usage = usage;
+        accumulateRequestUsage(
+          chunkUsage,
+          providerReportedInputUsage ? "provider-reported" : "local-fallback",
+        );
         finishReason = chunk.reason;
       } else if (chunk.type === "error") {
         finishReason = "error";
@@ -1447,6 +1807,19 @@ export async function* runAgentLoopWithControlState(
     // A truncated turn is not safe to persist or execute. Discard any partial assistant text/calls and
     // ask the model to continue from the last complete state in a fresh response.
     if (finishReason === "length") {
+      if (finalAnswer !== undefined) {
+        for (const event of failFinalAnswerOriginal({
+          text: assistantText,
+          calls,
+          usage: turnUsage,
+          textAlreadyFlushed: finalAnswerTextFlushed,
+          outcome: "fallback-length",
+        })) {
+          yield event;
+        }
+        yield { type: "stop", reason: "length" };
+        break;
+      }
       if (toolDisabledFinalActive) {
         const terminalBlocked = terminalReviewOutcome === "blocked";
         yield {
@@ -1492,17 +1865,30 @@ export async function* runAgentLoopWithControlState(
             break;
           }
           calls.push(assembled.call);
-          yield {
-            type: "tool-call",
-            id: assembled.call.id,
-            name: assembled.call.name,
-            args: assembled.call.args,
-          };
+          if (finalAnswer === undefined) {
+            yield {
+              type: "tool-call",
+              id: assembled.call.id,
+              name: assembled.call.name,
+              args: assembled.call.args,
+            };
+          }
         }
       }
     }
 
     if (finishReason === "error") {
+      if (finalAnswer !== undefined) {
+        for (const event of failFinalAnswerOriginal({
+          text: assistantText,
+          calls,
+          usage: turnUsage,
+          textAlreadyFlushed: finalAnswerTextFlushed,
+          outcome: "fallback-error",
+        })) {
+          yield event;
+        }
+      }
       yield {
         type: "stop",
         reason: "error",
@@ -1512,6 +1898,17 @@ export async function* runAgentLoopWithControlState(
       break;
     }
     if (finishReason === undefined) {
+      if (finalAnswer !== undefined) {
+        for (const event of failFinalAnswerOriginal({
+          text: assistantText,
+          calls,
+          usage: turnUsage,
+          textAlreadyFlushed: finalAnswerTextFlushed,
+          outcome: "fallback-error",
+        })) {
+          yield event;
+        }
+      }
       yield {
         type: "stop",
         reason: "error",
@@ -1521,10 +1918,48 @@ export async function* runAgentLoopWithControlState(
       break;
     }
     if (finishReason === "aborted") {
+      if (finalAnswer !== undefined) {
+        for (const event of failFinalAnswerOriginal({
+          text: assistantText,
+          calls,
+          usage: turnUsage,
+          textAlreadyFlushed: finalAnswerTextFlushed,
+          outcome: "fallback-cancelled",
+        })) {
+          yield event;
+        }
+      }
+      yield { type: "stop", reason: abortStopReason() };
+      break;
+    }
+    if (
+      finalAnswer !== undefined &&
+      (signalAborted() || deadlineHit() || progressRunwayDeadlineHit())
+    ) {
+      for (const event of failFinalAnswerOriginal({
+        text: assistantText,
+        calls,
+        usage: turnUsage,
+        textAlreadyFlushed: finalAnswerTextFlushed,
+        outcome: "fallback-cancelled",
+      })) {
+        yield event;
+      }
       yield { type: "stop", reason: abortStopReason() };
       break;
     }
     if (finishReason === "tool-calls" && calls.length === 0) {
+      if (finalAnswer !== undefined) {
+        for (const event of failFinalAnswerOriginal({
+          text: assistantText,
+          calls,
+          usage: turnUsage,
+          textAlreadyFlushed: finalAnswerTextFlushed,
+          outcome: "fallback-error",
+        })) {
+          yield event;
+        }
+      }
       yield {
         type: "stop",
         reason: "error",
@@ -1534,6 +1969,17 @@ export async function* runAgentLoopWithControlState(
       break;
     }
     if (calls.length > 0 && finishReason !== "tool-calls") {
+      if (finalAnswer !== undefined) {
+        for (const event of failFinalAnswerOriginal({
+          text: assistantText,
+          calls,
+          usage: turnUsage,
+          textAlreadyFlushed: finalAnswerTextFlushed,
+          outcome: "fallback-tool-call",
+        })) {
+          yield event;
+        }
+      }
       yield {
         type: "stop",
         reason: "error",
@@ -1541,6 +1987,18 @@ export async function* runAgentLoopWithControlState(
         message: `provider emitted tool calls with finish reason '${finishReason}'`,
       };
       break;
+    }
+
+    if (finalAnswer !== undefined && finishReason === "tool-calls" && calls.length > 0) {
+      // A contract-active response is held until its terminal proves whether it is a final answer or
+      // ordinary working narration. Release only after a valid tool-call terminal is known; this lets
+      // the runner keep a bounded candidate buffer without losing or duplicating narration.
+      yield { type: "final-answer-buffer-released" };
+      if (assistantText.length > 0) yield { type: "text-delta", text: assistantText };
+      for (const call of calls) {
+        yield { type: "tool-call", id: call.id, name: call.name, args: call.args };
+      }
+      finalAnswerTextFlushed = true;
     }
 
     if (
@@ -1560,6 +2018,17 @@ export async function* runAgentLoopWithControlState(
         pushControllerPrompt(KERNEL_STRINGS.emptyAssistantStopContinuation);
         continue;
       }
+      if (finalAnswer !== undefined) {
+        for (const event of failFinalAnswerOriginal({
+          text: assistantText,
+          calls,
+          usage: turnUsage,
+          textAlreadyFlushed: finalAnswerTextFlushed,
+          outcome: "fallback-error",
+        })) {
+          yield event;
+        }
+      }
       yield {
         type: "stop",
         reason: "error",
@@ -1570,7 +2039,12 @@ export async function* runAgentLoopWithControlState(
     }
     if (assistantText.trim().length > 0 || calls.length > 0) emptyAssistantStopRetried = false;
 
-    if (toolDisabledFinalActive && calls.length === 0 && assistantText.length > 0) {
+    if (
+      toolDisabledFinalActive &&
+      finalAnswer === undefined &&
+      calls.length === 0 &&
+      assistantText.length > 0
+    ) {
       yield { type: "text-delta", text: assistantText };
     }
 
@@ -1582,11 +2056,11 @@ export async function* runAgentLoopWithControlState(
       });
     }
 
-    if (signalAborted()) {
+    if (signalAborted() && finalAnswer === undefined) {
       yield { type: "stop", reason: abortStopReason() };
       break;
     }
-    if (deadlineHit()) {
+    if (deadlineHit() && finalAnswer === undefined) {
       yield { type: "stop", reason: "deadline" };
       break;
     }
@@ -1611,6 +2085,17 @@ export async function* runAgentLoopWithControlState(
         });
       }
       if (calls.length === 0 && assistantText.trim().length > 0) {
+        if (finalAnswer !== undefined) {
+          const settlementStop = yield* settleFinalAnswerCandidate({
+            text: assistantText,
+            usage: turnUsage,
+            textAlreadyFlushed: finalAnswerTextFlushed,
+          });
+          if (settlementStop.reason !== "model-stop") {
+            yield settlementStop;
+            break;
+          }
+        }
         yield unrecoveredBlockedActions > 0
           ? blockedStopEvent()
           : {
@@ -1651,7 +2136,16 @@ export async function* runAgentLoopWithControlState(
         });
       }
       if (calls.length === 0 && assistantText.trim().length > 0) {
-        yield modelStopEvent();
+        if (finalAnswer !== undefined) {
+          const settlementStop = yield* settleFinalAnswerCandidate({
+            text: assistantText,
+            usage: turnUsage,
+            textAlreadyFlushed: finalAnswerTextFlushed,
+          });
+          yield settlementStop;
+        } else {
+          yield modelStopEvent();
+        }
         break;
       }
       yield {
@@ -1682,7 +2176,16 @@ export async function* runAgentLoopWithControlState(
     if (calls.length === 0) {
       if (terminalReviewRecoveryActive) {
         terminalReviewRecoveryActive = false;
-        yield modelStopEvent();
+        if (finalAnswer !== undefined) {
+          const settlementStop = yield* settleFinalAnswerCandidate({
+            text: assistantText,
+            usage: turnUsage,
+            textAlreadyFlushed: finalAnswerTextFlushed,
+          });
+          yield settlementStop;
+        } else {
+          yield modelStopEvent();
+        }
         break;
       }
       const knownRed = findKnownRedCompletionEvidence(messages);
@@ -1694,9 +2197,19 @@ export async function* runAgentLoopWithControlState(
         });
         if (!knownRedRetryKeys.has(retryKey)) {
           knownRedRetryKeys.add(retryKey);
+          if (!finalAnswerTextFlushed && assistantText.length > 0) {
+            yield { type: "final-answer-buffer-released" };
+            yield { type: "text-delta", text: assistantText };
+            finalAnswerTextFlushed = true;
+          }
           pushControllerPrompt(prompt);
           yield { type: "verification-requested", prompt };
           continue;
+        }
+        if (!finalAnswerTextFlushed && assistantText.length > 0) {
+          yield { type: "final-answer-buffer-released" };
+          yield { type: "text-delta", text: assistantText };
+          finalAnswerTextFlushed = true;
         }
         yield {
           type: "stop",
@@ -1717,16 +2230,35 @@ export async function* runAgentLoopWithControlState(
       ) {
         const decision = await runCompletionChecksDecision();
         if (decision.kind === "stop") {
+          if (!finalAnswerTextFlushed && assistantText.length > 0) {
+            yield { type: "final-answer-buffer-released" };
+            yield { type: "text-delta", text: assistantText };
+            finalAnswerTextFlushed = true;
+          }
           yield decision.event;
           break;
         }
         if (decision.kind === "prompt") {
+          if (!finalAnswerTextFlushed && assistantText.length > 0) {
+            yield { type: "final-answer-buffer-released" };
+            yield { type: "text-delta", text: assistantText };
+            finalAnswerTextFlushed = true;
+          }
           pushControllerPrompt(decision.prompt);
           yield { type: "verification-requested", prompt: decision.prompt };
           continue;
         }
         if (decision.shouldStop) {
-          yield modelStopEvent();
+          if (finalAnswer !== undefined) {
+            const settlementStop = yield* settleFinalAnswerCandidate({
+              text: assistantText,
+              usage: turnUsage,
+              textAlreadyFlushed: finalAnswerTextFlushed,
+            });
+            yield settlementStop;
+          } else {
+            yield modelStopEvent();
+          }
           break;
         }
       }
@@ -1747,13 +2279,27 @@ export async function* runAgentLoopWithControlState(
             (verdict === "sharpen"
               ? KERNEL_STRINGS.verificationPromptUnverified
               : KERNEL_STRINGS.verificationPrompt);
+          if (!finalAnswerTextFlushed && assistantText.length > 0) {
+            yield { type: "final-answer-buffer-released" };
+            yield { type: "text-delta", text: assistantText };
+            finalAnswerTextFlushed = true;
+          }
           pushControllerPrompt(prompt);
           yield { type: "verification-requested", prompt };
           continue;
         }
         // verdict === "skip": a recent test PASS with nothing after it — accept the stop, don't nag.
       }
-      yield modelStopEvent();
+      if (finalAnswer !== undefined) {
+        const settlementStop = yield* settleFinalAnswerCandidate({
+          text: assistantText,
+          usage: turnUsage,
+          textAlreadyFlushed: finalAnswerTextFlushed,
+        });
+        yield settlementStop;
+      } else {
+        yield modelStopEvent();
+      }
       break;
     }
 

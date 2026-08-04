@@ -15,6 +15,7 @@ import { SessionStore, readSession } from "../session/store.js";
 import { rebuild } from "../session/resume.js";
 import { HeadlessUI } from "./headless.js";
 import { runSession } from "./runner.js";
+import { R21_OVERSIZED_FINAL_ANSWER } from "../fixtures/r21-oversized-final-answer.js";
 
 const env = (): NodeJS.ProcessEnv => ({ KEEL_HOME: mkdtempSync(join(tmpdir(), "keel-")) });
 
@@ -169,5 +170,99 @@ describe("Epic 1.5 walking skeleton (text-only, headless)", () => {
       reason: "budget",
       code: "GROSS_RUNWAY_PREFLIGHT",
     });
+  });
+
+  it("projects one bounded primary rewrite while retaining the complete controller transaction", async () => {
+    const e = env();
+    const seed: ModelMessageT[] = [{ role: "user", content: "explain the architecture" }];
+    const store = SessionStore.create({ cwd: "/w" }, e);
+    const ui = new HeadlessUI();
+    let request = 0;
+    const model: ModelPort = {
+      async *stream() {
+        request += 1;
+        const text = request === 1 ? R21_OVERSIZED_FINAL_ANSWER : "A bounded architecture answer.";
+        yield { type: "text-delta", text };
+        yield {
+          type: "finish",
+          reason: "stop",
+          usage: { inputTokens: 12, outputTokens: request === 1 ? 568 : 5 },
+        };
+      },
+    };
+
+    await runSession({
+      model,
+      executor: new LocalExecutor({}),
+      ui,
+      store,
+      seed,
+      finalAnswer: { contract: { version: 1, maxWords: 40 } },
+    });
+
+    expect(request).toBe(2);
+    expect(ui.frame()).toContain("rewriting once · tools off");
+    expect(ui.frame()).toContain("A bounded architecture answer.");
+    expect(ui.frame()).not.toContain("Repository Onboarding: Architecture & Execution Plan");
+    const rebuilt = rebuild(readSession(store.id, e));
+    expect(rebuilt.messages.map((message) => message.role)).toEqual([
+      "user",
+      "assistant",
+      "user",
+      "assistant",
+    ]);
+    expect(rebuilt.messages[1]?.content).toBe(R21_OVERSIZED_FINAL_ANSWER);
+    expect(rebuilt.finalAnswerSettlements.values().next().value).toMatchObject({
+      outcome: "accepted-rewrite",
+    });
+  });
+
+  it("keeps failed-tool evidence prominent beside an honest bounded settlement fallback", async () => {
+    const e = env();
+    const seed: ModelMessageT[] = [{ role: "user", content: "fix and verify the failure" }];
+    const store = SessionStore.create({ cwd: "/w" }, e);
+    const ui = new HeadlessUI();
+    let request = 0;
+    const model: ModelPort = {
+      async *stream() {
+        request += 1;
+        if (request === 1) {
+          yield { type: "tool-call", id: "test-1", name: "bash", args: { command: "pnpm test" } };
+          yield {
+            type: "finish",
+            reason: "tool-calls",
+            usage: { inputTokens: 5, outputTokens: 4 },
+          };
+          return;
+        }
+        if (request === 2) {
+          yield { type: "text-delta", text: R21_OVERSIZED_FINAL_ANSWER };
+          yield { type: "finish", reason: "stop", usage: { inputTokens: 9, outputTokens: 568 } };
+          return;
+        }
+        yield { type: "text-delta", text: "partial rewrite" };
+        yield { type: "finish", reason: "length", usage: { inputTokens: 10, outputTokens: 4 } };
+      },
+    };
+    const executor: ExecutorPort = {
+      async execute() {
+        return { ok: false, output: "focused tests failed" };
+      },
+    };
+
+    await runSession({
+      model,
+      executor,
+      ui,
+      store,
+      seed,
+      finalAnswer: { contract: { version: 1, maxWords: 40 } },
+    });
+
+    expect(ui.frame()).toContain("focused tests failed");
+    expect(ui.frame()).toContain("provider length");
+    expect(ui.frame()).toContain(`keel sessions answer ${store.id} --original`);
+    expect(ui.frame()).not.toContain("Repository Onboarding: Architecture & Execution Plan");
+    expect(ui.frame()).not.toContain("partial rewrite");
   });
 });

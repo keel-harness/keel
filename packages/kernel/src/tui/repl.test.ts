@@ -29,6 +29,7 @@ import { appendWardenAutoResolvedEvent } from "../warden/receipt.js";
 import { ScopedEgressApprovals } from "../warden/approval.js";
 import { WardenExecutor, type WardenExecuteClient } from "../warden/executor.js";
 import { createInteractiveReviewDecisionController } from "./review-decision.js";
+import { R21_OVERSIZED_FINAL_ANSWER } from "../fixtures/r21-oversized-final-answer.js";
 
 const env = (): NodeJS.ProcessEnv => ({ KEEL_HOME: mkdtempSync(join(tmpdir(), "keel-")) });
 
@@ -160,6 +161,174 @@ const hasAssistant = (v: ViewModel, content: string): boolean =>
   v.items.some((it) => it.kind === "message" && it.role === "assistant" && it.content === content);
 
 describe("runRepl — multi-turn REPL (Epic 1.23 slice 0, walking skeleton)", () => {
+  it("arms one ordinary task, consumes it before provider work, and opens the retained original", async () => {
+    const e = env();
+    const store = SessionStore.create({ cwd: "/w" }, e);
+    const ui = new ReplUI();
+    let request = 0;
+    const model: ModelPort = {
+      async *stream() {
+        request += 1;
+        const text =
+          request === 1
+            ? R21_OVERSIZED_FINAL_ANSWER
+            : request === 2
+              ? "bounded rewrite"
+              : "ordinary unconstrained follow-up answer";
+        yield { type: "text-delta", text };
+        yield { type: "finish", reason: "stop", usage: { inputTokens: 4, outputTokens: 5 } };
+      },
+    };
+    const done = runRepl({
+      model,
+      executor: { execute: async () => ({ ok: true, output: "" }) },
+      ui,
+      store,
+      env: e,
+    });
+    const waitFor = async (label: string, pred: (view: ViewModel) => boolean): Promise<void> => {
+      await new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error(`timed out waiting for ${label}`)), 2_000);
+        void ui.awaitRender(pred).then(() => {
+          clearTimeout(timer);
+          resolve();
+        });
+      });
+    };
+
+    ui.push({ kind: "command", name: "/answer", args: "40" });
+    await waitFor("answer arm", (view) => view.nextFinalAnswerMaxWords === 40);
+    expect(renderFrame(ui.latest!)).toContain("final answer ≤40 words · next task only");
+
+    ui.push({ kind: "line", text: "inspect" });
+    await waitFor(
+      "bounded rewrite",
+      (view) => view.awaitingInput === true && hasAssistant(view, "bounded rewrite"),
+    );
+    expect(ui.latest?.nextFinalAnswerMaxWords).toBeUndefined();
+    expect(JSON.stringify(ui.latest?.items)).not.toContain(
+      "Repository Onboarding: Architecture & Execution Plan",
+    );
+    const settled = rebuild(readSession(store.id, e));
+    expect([...settled.finalAnswerSettlements.values()]).toHaveLength(1);
+    expect([...settled.finalAnswerOccurrences.values()].map((value) => value.kind)).toEqual([
+      "attempt",
+      "rewrite-prompt",
+      "attempt",
+    ]);
+
+    ui.push({ kind: "command", name: "/answer", args: "full" });
+    await waitFor(
+      "original overlay",
+      (view) =>
+        view.overlay?.kind === "panel" && view.overlay.content.includes("# Repository onboarding"),
+    );
+    expect(ui.latest?.overlay).toMatchObject({ kind: "panel" });
+
+    ui.push({ kind: "interrupt" });
+    await waitFor("overlay dismissal", (view) => view.overlay === undefined);
+    ui.push({ kind: "line", text: "follow up" });
+    await waitFor(
+      "unconstrained follow-up",
+      (view) =>
+        view.awaitingInput === true &&
+        hasAssistant(view, "ordinary unconstrained follow-up answer"),
+    );
+    expect(request).toBe(3);
+    ui.endInput();
+    await done;
+  });
+
+  it("validates and clears the next-task answer arm without consuming it on local commands", async () => {
+    const e = env();
+    const store = SessionStore.create({ cwd: "/w" }, e);
+    const ui = new ReplUI();
+    const done = runRepl({
+      model: new ScriptedModel({ turns: [] }),
+      executor: { execute: async () => ({ ok: true, output: "" }) },
+      ui,
+      store,
+      env: e,
+    });
+
+    ui.push({ kind: "command", name: "/answer", args: "39" });
+    await ui.awaitRender((view) =>
+      view.items.some(
+        (item) =>
+          item.kind === "message" && item.role === "system" && item.content.includes("40..2000"),
+      ),
+    );
+    expect(ui.latest?.nextFinalAnswerMaxWords).toBeUndefined();
+
+    ui.push({ kind: "command", name: "/answer", args: "80" });
+    await ui.awaitRender((view) => view.nextFinalAnswerMaxWords === 80);
+    ui.push({ kind: "command", name: "/context" });
+    await ui.awaitRender((view) => view.overlay?.kind === "panel");
+    expect(ui.latest?.nextFinalAnswerMaxWords).toBe(80);
+    ui.push({ kind: "interrupt" });
+    await ui.awaitRender((view) => view.overlay === undefined);
+
+    ui.push({ kind: "command", name: "/answer", args: "clear" });
+    await ui.awaitRender(
+      (view) =>
+        view.nextFinalAnswerMaxWords === undefined &&
+        view.items.some(
+          (item) =>
+            item.kind === "message" &&
+            item.role === "system" &&
+            item.content.includes("answer bound cleared"),
+        ),
+    );
+    ui.endInput();
+    await done;
+  });
+
+  it("preserves the next-task answer arm across a valid bounded /loop", async () => {
+    const e = env();
+    const store = SessionStore.create({ cwd: "/w" }, e);
+    const ui = new ReplUI();
+    let request = 0;
+    const model: ModelPort = {
+      async *stream() {
+        request += 1;
+        const text =
+          request === 1
+            ? "loop turn"
+            : request === 2
+              ? "oversized ".repeat(50).trim()
+              : "Bounded ordinary answer.";
+        yield { type: "text-delta", text };
+        yield { type: "finish", reason: "stop", usage: { inputTokens: 5, outputTokens: 7 } };
+      },
+    };
+    const done = runRepl({
+      model,
+      executor: { execute: async () => ({ ok: true, output: "TEST SUMMARY: PASS" }) },
+      ui,
+      store,
+      env: e,
+    });
+
+    ui.push({ kind: "command", name: "/answer", args: "40" });
+    await ui.awaitRender((view) => view.nextFinalAnswerMaxWords === 40);
+    ui.push({ kind: "command", name: "/loop", args: 'Check once --until "pnpm test"' });
+    await ui.awaitRender(
+      (view) =>
+        view.awaitingInput === true &&
+        view.nextFinalAnswerMaxWords === 40 &&
+        (view.turnSummary?.receipt ?? []).some((line) => /loop succeeded/i.test(line)),
+    );
+
+    ui.push({ kind: "line", text: "ordinary bounded task" });
+    await ui.awaitRender(
+      (view) => view.awaitingInput === true && hasAssistant(view, "Bounded ordinary answer."),
+    );
+    expect(ui.latest?.nextFinalAnswerMaxWords).toBeUndefined();
+    expect(request).toBe(3);
+    ui.endInput();
+    await done;
+    store.close();
+  });
   it("keeps an exact session-grant reuse receipt visible after a later distinct denial", async () => {
     const e = env();
     const store = SessionStore.create({ cwd: "/w" }, e);

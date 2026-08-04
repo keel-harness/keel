@@ -416,3 +416,28 @@ R22 therefore adds **0 total / 0 necessary / 0 excessive** review interrupts to 
 matrix and does not change the frozen historical benchmark total of **6 total / 2 necessary / 4
 excessive or avoidable**. Screenshots 59-60 compare only recovery presentation. PR #118, issue
 closure, and feature cleanup add no governed product interrupt or authority.
+
+## Issue #113 validation outcome
+
+Issue #113 changes no Warden verdict, policy input, review/grant semantics, sandbox, egress guard,
+audit schema, or execution authority. The final-answer controller observes only model terminal bytes
+and existing controller state. Its optional rewrite request advertises zero tools; an adversarial
+fixture-emitted `read` call is recorded as skipped and never reaches the executor or Warden.
+
+The exact installed candidate's positive 80x24/100x30 sessions use ordinary read-only task requests
+followed by one tools-disabled rewrite. Cancellation makes one ordinary request and no rewrite. A
+completed resume and interactive trust decline make zero provider/tool requests. The existing
+installed-carrier symlink/outside-write control still denies both typed and Bash canaries before
+execution, retains `POL-002` attribution for Bash, creates no review route, and reaps the process
+group.
+
+The one live Anthropic onboarding session records 32 tool results (22 read, 9 search, and 1 shell
+inventory) with governed sandbox and egress protection and requests **zero human reviews**. No file
+is edited, dependency installed, or network tool requested. The rewrite cannot hide Warden outcome
+evidence because no rewrite tool can run and existing controller-owned warnings/evidence remain
+outside the model-authored primary.
+
+Issue #113 therefore adds **0 total / 0 necessary / 0 excessive** review interrupts to its
+validation matrix and does not change the frozen historical benchmark total of **6 total / 2
+necessary / 4 excessive or avoidable**. Publication actions remain pending and add no product
+authority.

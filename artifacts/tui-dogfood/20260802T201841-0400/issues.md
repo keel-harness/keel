@@ -385,7 +385,8 @@
 ### DF-025 — explicit concise onboarding can end long and factually ungrounded
 
 - Severity: P1 final-result confidence, cognitive load, and trust.
-- Status: open under issue #113. R21 validation
+- Status: candidate implemented and validated under issue #113; exact-head CI and publication are
+  pending. R21 validation
   [issue #111](https://github.com/keel-harness/keel/issues/111) closed through merged evidence
   [PR #114](https://github.com/keel-harness/keel/pull/114).
   The prompt-only behavior issue [#112](https://github.com/keel-harness/keel/issues/112) was closed
@@ -407,9 +408,19 @@
 - Constraint: do not add more prompt prose, silently truncate output, hide failure/Warden evidence,
   re-execute tools, or add an unbounded rewrite call. Preserve the raw redacted transcript and
   controller-owned outcome truth. Any controller/public-output change needs explicit owner review.
-- Score correction: onboarding cognitive load and trust each fall from 4 to 3; final confidence
-  remains 2. The evidence-bound aggregate is **3.97/5**, still above 3.8 but below the 4.0 stretch
-  target and strict same-commit gate.
+- Repair candidate: accepted ADR-0087 adds an explicit task-scoped 40–2,000-word contract, at most
+  one tools-disabled bounded rewrite, durable original/rewrite/settlement metadata, deterministic
+  fallbacks, `/answer N|clear|full`, one-shot `--final-max-words`, and explicit original inspection.
+  It neither silently truncates nor repeats a tool. An exact-carrier PTY exposed and fixed a generic
+  overlong-single-line panel defect before the candidate was accepted.
+- Validation: full coverage passes **6,665 / 20 intentional opt-in skips**; static/package gates,
+  exact installed accept/length/error/tool/cancel/resume/trust/auth/Warden-denial controls, and
+  80x24/100x30 real PTY pass. One live exact-carrier run rewrites a 1,273-word original to a
+  241-word primary, requests zero Warden reviews, and marks unprobed behavior unverified.
+- Score candidate: onboarding cognitive load and trust return from 3 to 4; final confidence rises
+  from 2 to 4. The onboarding mean is **4.11/5**, the six-workflow unweighted candidate mean is
+  **4.04/5**, and the pooled diagnostic is **4.02/5 (249/62)**. The strict same-commit replay and
+  publication gates remain open.
 
 ### DF-026 — packaged-Warden startup failure is fail-closed but not recoverable by the operator
 

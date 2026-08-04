@@ -1343,3 +1343,48 @@
 - R22 made zero Anthropic calls, adds zero Warden interrupts, and does not raise the frozen
   workflow score. Cumulative spend remains USD 3.43403515; the official score remains **3.97/5**
   and #113/final same-commit gates remain open.
+
+## 2026-08-04 — issue #113 controller-enforced final answers
+
+- Started from accepted ADR-0087 at exact main `073fb2c`; issue #113 scope came from merged design
+  PR #120. Opened isolated branch/worktree `feat/final-answer-contract` without changing Warden,
+  policy, sandbox, egress, audit schema, frozen ModelPort/RPC interfaces, dependencies, or claims.
+- Wrote the typed durable settlement slice, then controller enforcement and UI/CLI projection in
+  separate commits. Focused implementation coverage passed **19 files / 925 tests**. Terminal-
+  review and known-red synthesis paths initially lacked settlement and failed red before their
+  controller repair; palette row-budget snapshots were updated only after measured rendering.
+- First repository-wide coverage passed **365 files / 6,664 tests / 20 intentional opt-in skips**.
+  The first exact installed 80x24 PTY then exposed a real P1: `/answer full` could never render an
+  overlong single-line original. A regression failed red before grapheme-safe physical-row wrapping
+  was added to the generic panel viewport. Focused post-fix coverage passed **244/244**.
+- Final `pnpm test:cov` passed **365 files / 6,665 tests / 20 intentional opt-in skips** with 97.85%
+  statements/lines, 93.63% branches, and 99.59% functions. `pnpm format`, `pnpm lint`,
+  `pnpm typecheck`, `pnpm package`, and diff checks passed.
+- Clean exact carrier `b1c5f70`, `dirty: false`, tarball SHA-256
+  `75c7d366d0ddae96e4d3e1b267d11a6f6b59236b7abc4eec51d06bc39786274c` installed 57 packages with
+  scripts disabled. Headless accept/length/error/tool-call settlement passed; the attempted rewrite
+  `read` never executed. Explicit original inspection passed.
+- Final exact PTY passed at **80x24 and 100x30**: one visible bounded primary, tools-disabled rewrite
+  state, first retained physical row, scroll, idle return, and clean exit. Ordinary requests expose
+  five tools; rewrites expose zero. Held-candidate cancel, zero-call resume, interactive trust
+  decline, missing credential, and installed Warden outside-write denial controls passed.
+- One exact-carrier live Anthropic onboarding run completed with 18 provider turns, 32 tool results
+  (22 read, 9 search, 1 shell inventory), zero reviews, a 1,273-word original, and a 241-word primary.
+  Ledger-derived cost was USD
+  1.29105135; cumulative spend is USD 4.72508650.
+- Screenshots 61-64 are sanitized, visually inspected 1400x840 renderings of exact 100x30 frames.
+  Session log 25 records hashes, carrier provenance, cost, score, and five-lens review.
+- Explicit non-green setup/oracle attempts: the first restricted npm install hung on unavailable
+  network and was interrupted (130) before the approved scripts-disabled retry; a verifier lacked
+  its empty fixture cwd; a reused PTY driver initially pointed at the old fixture root; two regexes
+  assumed phrases would not wrap at 100 columns; a terminal-history count treated legitimate Ink
+  repaints as duplicate primary output; cancel expected exit 0 instead of the documented attention
+  exit 1; and trust-decline expected guards off even though the safer governed untrusted state was
+  rendered. Each temporary oracle was narrowed to controller/product truth; no security or outcome
+  assertion was removed.
+- The first fresh-home live attempt failed before provider/session/audit work because credentials
+  are correctly scoped to the existing Keel store. `keel auth list` reported only non-secret set/
+  unset state; the accepted live run reused the store without reading or copying the key.
+- Candidate score: onboarding **4.11/5**, six-workflow mean **4.04/5**, pooled diagnostic **4.02/5
+  (249/62)**. Exact-head CI, publication, post-main CI, cleanup, and final same-commit replay remain
+  pending.

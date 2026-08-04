@@ -88,6 +88,7 @@ Type `/` at the prompt to open the command palette. The everyday commands:
 | `/quiet`, `/verbose` | Less / more tool detail. |
 | `/goal <objective>` | Set what keel keeps working toward. |
 | `/loop <check>` | Continue under current protections with a bounded check. |
+| `/answer <40..2000>` | Bound only the next ordinary task's final answer; use `clear` or `full` to disarm or inspect the original. |
 | `/about` | Product basics. |
 | `/exit` | End the session. |
 
@@ -120,7 +121,7 @@ Standard Emacs line editing (`Ctrl-A/E/U/K/W/Y`, `Alt-B/F`) works at the prompt.
 | `keel egress exception add\|list\|remove …` | Manage exact private-address exceptions for one workspace. |
 | `keel audit export <session>` | Export a signed evidence bundle. |
 | `keel audit verify <bundle>` | Verify a bundle offline. |
-| `keel sessions <list\|resume\|branch>` | Inspect session ledgers. |
+| `keel sessions <list\|resume\|answer\|branch>` | Inspect session ledgers and retained bounded-answer originals. |
 | `keel mcp review <server>` | Review and pin a local-stdio MCP server. |
 | `keel auth <set\|list\|remove>` | Manage provider keys. |
 | `keel doctor` | Check required local tools. |

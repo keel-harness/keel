@@ -229,6 +229,14 @@ export const COMMANDS: readonly Command[] = [
     route: "starts-turn",
   },
   {
+    name: "/answer",
+    description: "bounds next answer; opens original",
+    group: "work",
+    availability: "idle · 40..2000, clear, full",
+    result: "arms next task or opens original",
+    route: "local-action",
+  },
+  {
     name: "/compact",
     description: "previews a shorter session summary",
     group: "advanced",
@@ -436,6 +444,7 @@ const COMMAND_NOTICE: Readonly<Record<string, string>> = {
   "/policy": "↻ /policy shows active protections; it is read-only and changes nothing",
   "/plan":
     "↻ /plan is idle-only: preview, approve, or clear listed resources for the next plain task line",
+  "/answer": "↻ /answer is idle-only; use /answer 40..2000, /answer clear, or /answer full",
   "/approve": "↻ /approve works only while a review is waiting",
   "/deny": "↻ /deny works only while a review is waiting",
   "/why": "↻ /why works only while a review is waiting",

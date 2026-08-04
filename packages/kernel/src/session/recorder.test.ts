@@ -2,12 +2,14 @@ import { describe, expect, it } from "vitest";
 import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { ModelMessageT } from "@keel/shared";
+import type { ModelMessageT, ModelPort } from "@keel/shared";
 import type { KernelEventT } from "../events.js";
 import { KERNEL_STRINGS, budgetWarningMessage } from "../strings.js";
 import { SessionStore, readSession } from "./store.js";
 import { record } from "./recorder.js";
 import { rebuild } from "./resume.js";
+import { runAgentLoop } from "../loop.js";
+import { R21_OVERSIZED_FINAL_ANSWER } from "../fixtures/r21-oversized-final-answer.js";
 
 const env = (): NodeJS.ProcessEnv => ({ KEEL_HOME: mkdtempSync(join(tmpdir(), "keel-")) });
 async function* toAsync<T>(xs: readonly T[]): AsyncIterable<T> {
@@ -15,6 +17,159 @@ async function* toAsync<T>(xs: readonly T[]): AsyncIterable<T> {
 }
 
 describe("session recorder (text-only fold)", () => {
+  it("ADR-0087: records exact original/prompt/rewrite ordering and final settlement metadata", async () => {
+    const e = env();
+    const store = SessionStore.create({ cwd: "/w" }, e);
+    const contract = { version: 1 as const, maxWords: 250 };
+    const kevents = [
+      { type: "turn-started", turn: 1 },
+      { type: "text-delta", text: "original answer" },
+      {
+        type: "final-answer-attempt",
+        settlementId: "fas_record",
+        attempt: "original",
+        contract,
+        decision: "rewrite",
+        usage: { inputTokens: 8, outputTokens: 4 },
+      },
+      {
+        type: "final-answer-rewrite-requested",
+        settlementId: "fas_record",
+        contract,
+        prompt: "controller rewrite prompt",
+      },
+      { type: "turn-started", turn: 2 },
+      { type: "text-delta", text: "rewrite answer" },
+      {
+        type: "final-answer-attempt",
+        settlementId: "fas_record",
+        attempt: "rewrite",
+        contract,
+        decision: "accepted",
+        usage: { inputTokens: 4, outputTokens: 2 },
+      },
+      {
+        type: "final-answer-settled",
+        settlement: {
+          settlementId: "fas_record",
+          outcome: "accepted-rewrite",
+          rewriteUsage: { inputTokens: 4, outputTokens: 2 },
+        },
+      },
+      { type: "stop", reason: "model-stop" },
+      { type: "run-finished", usage: { inputTokens: 12, outputTokens: 6 } },
+    ] as unknown as KernelEventT[];
+
+    for await (const ev of record(store, [{ role: "user", content: "task" }], toAsync(kevents))) {
+      expect(ev).toBeDefined();
+    }
+    store.close();
+
+    const events = readSession(store.id, e).events;
+    expect(events.map((event) => event.type)).toEqual([
+      "user",
+      "assistant",
+      "user",
+      "assistant",
+      "run_status",
+    ]);
+    expect(events[1]).toMatchObject({
+      content: "original answer",
+      finalAnswer: {
+        settlementId: "fas_record",
+        kind: "attempt",
+        attempt: "original",
+        contract,
+      },
+    });
+    expect(events[2]).toMatchObject({
+      content: "controller rewrite prompt",
+      finalAnswer: {
+        settlementId: "fas_record",
+        kind: "rewrite-prompt",
+        contract,
+      },
+    });
+    expect(events[3]).toMatchObject({
+      content: "rewrite answer",
+      finalAnswer: {
+        settlementId: "fas_record",
+        kind: "attempt",
+        attempt: "rewrite",
+        contract,
+      },
+    });
+    expect(events[4]).toMatchObject({
+      usage: { inputTokens: 12, outputTokens: 6 },
+      finalAnswer: {
+        settlementId: "fas_record",
+        outcome: "accepted-rewrite",
+        rewriteUsage: { inputTokens: 4, outputTokens: 2 },
+      },
+    });
+
+    expect(rebuild(readSession(store.id, e)).messages.map((message) => message.role)).toEqual([
+      "user",
+      "assistant",
+      "user",
+      "assistant",
+    ]);
+  });
+
+  it("ADR-0087: same-process final carry and fresh-process rebuild retain the exact transaction", async () => {
+    const e = env();
+    const store = SessionStore.create({ cwd: "/w" }, e);
+    let request = 0;
+    let finalMessages: readonly ModelMessageT[] = [];
+    const model: ModelPort = {
+      async *stream() {
+        request += 1;
+        if (request === 1) {
+          yield { type: "text-delta", text: R21_OVERSIZED_FINAL_ANSWER };
+          yield { type: "finish", reason: "stop", usage: { inputTokens: 80, outputTokens: 568 } };
+          return;
+        }
+        yield { type: "text-delta", text: "Bounded architecture and test plan." };
+        yield { type: "finish", reason: "stop", usage: { inputTokens: 90, outputTokens: 8 } };
+      },
+    };
+    const stream = runAgentLoop(
+      model,
+      { execute: async () => ({ ok: false, output: "must not execute" }) },
+      {
+        messages: [{ role: "user", content: "task" }],
+        finalAnswer: {
+          contract: { version: 1, maxWords: 250 },
+          originalInspectionCommand: `keel sessions answer ${store.id} --original`,
+        },
+        onFinalMessages: (messages) => {
+          finalMessages = messages;
+        },
+      },
+    );
+    for await (const event of record(store, [{ role: "user", content: "task" }], stream)) {
+      expect(event).toBeDefined();
+    }
+    store.close();
+
+    const resumed = rebuild(readSession(store.id, e));
+    expect(resumed.messages).toEqual(finalMessages);
+    expect(resumed.messages.map((message) => message.role)).toEqual([
+      "user",
+      "assistant",
+      "user",
+      "assistant",
+    ]);
+    expect([...resumed.finalAnswerOccurrences.values()].map((value) => value.kind)).toEqual([
+      "attempt",
+      "rewrite-prompt",
+      "attempt",
+    ]);
+    expect([...resumed.finalAnswerSettlements.values()]).toEqual([
+      expect.objectContaining({ outcome: "accepted-rewrite" }),
+    ]);
+  });
+
   it("folds a text-only run into user+assistant and tees every event", async () => {
     const e = env();
     const store = SessionStore.create({ cwd: "/w" }, e);
@@ -61,6 +216,30 @@ describe("session recorder (text-only fold)", () => {
       "run_status",
     ]);
     expect(JSON.stringify(file.events)).not.toContain("compiling foo.ts"); // never reaches disk
+  });
+
+  it("ADR-0087: tees final-answer drafting liveness without persisting a synthetic message", async () => {
+    const e = env();
+    const store = SessionStore.create({ cwd: "/w" }, e);
+    const seed: ModelMessageT[] = [{ role: "user", content: "summarize" }];
+    const kevents: KernelEventT[] = [
+      { type: "run-started" },
+      { type: "turn-started", turn: 1 },
+      { type: "final-answer-buffering" },
+      { type: "text-delta", text: "bounded answer" },
+      { type: "stop", reason: "model-stop" },
+      { type: "run-finished", usage: { inputTokens: 1, outputTokens: 2 } },
+    ];
+    const seen: string[] = [];
+
+    for await (const ev of record(store, seed, toAsync(kevents))) seen.push(ev.type);
+    store.close();
+
+    expect(seen).toEqual(kevents.map((event) => event.type));
+    const file = readSession(store.id, e);
+    expect(file.events.map((event) => event.type)).toEqual(["user", "assistant", "run_status"]);
+    expect(file.events[1]).toMatchObject({ content: "bounded answer" });
+    expect(JSON.stringify(file.events)).not.toContain("final-answer-buffering");
   });
 
   it("records system and assistant seed messages in order", async () => {

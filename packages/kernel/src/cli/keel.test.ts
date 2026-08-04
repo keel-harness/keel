@@ -112,6 +112,57 @@ describe("runKeelCli — sessions", () => {
     expect(out).not.toMatch(/arrives with/i);
   });
 
+  it("answer --original prints the latest retained redacted original without terminal controls", () => {
+    const e = env();
+    const s = SessionStore.create({ cwd: "/w" }, e);
+    const contract = { version: 1 as const, maxWords: 40 };
+    const settlementId = "fas_inspect";
+    s.append({ type: "user", v: 1, ts, content: "inspect" });
+    s.append({
+      type: "assistant",
+      v: 1,
+      ts,
+      content:
+        "raw\u001b[2J original\nsecret sk-ant-api03-abcDEF123456789_ghijklmnop-qrstuvwxyz0123456789AA",
+      finalAnswer: { settlementId, kind: "attempt", attempt: "original", contract },
+    });
+    s.append({
+      type: "run_status",
+      v: 1,
+      ts,
+      reason: "budget",
+      usage: { inputTokens: 2, outputTokens: 3 },
+      finalAnswer: { settlementId, outcome: "fallback-budget" },
+    });
+    s.close();
+
+    const result = runKeelCliResult(["sessions", "answer", s.id, "--original"], e);
+    expect(result.ok).toBe(true);
+    expect(result.output).toContain(`original final answer · ${s.id}`);
+    expect(result.output).toContain("raw[2J original");
+    expect(result.output).toContain("[redacted:anthropic-key]");
+    expect(result.output).not.toContain("\u001b");
+    expect(result.output).not.toContain("sk-ant-api03-");
+  });
+
+  it("answer inspection rejects missing flags, unknown settlements, and traversal ids", () => {
+    const e = env();
+    const s = SessionStore.create({ cwd: "/w" }, e);
+    s.append({ type: "assistant", v: 1, ts, content: "ordinary answer" });
+    s.close();
+
+    expect(runKeelCliResult(["sessions", "answer", s.id], e)).toMatchObject({ ok: false });
+    expect(runKeelCliResult(["sessions", "answer", s.id, "--original", "extra"], e)).toMatchObject({
+      ok: false,
+    });
+    const missing = runKeelCliResult(["sessions", "answer", s.id, "--original"], e);
+    expect(missing.ok).toBe(false);
+    expect(missing.output).toMatch(/no settled final-answer original/i);
+    expect(
+      runKeelCliResult(["sessions", "answer", "../../etc/passwd", "--original"], e),
+    ).toMatchObject({ ok: false });
+  });
+
   it("resume does not collapse recovered review-required answers into finished status", () => {
     const e = env();
     const s = SessionStore.create({ cwd: "/w" }, e);

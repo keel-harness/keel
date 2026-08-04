@@ -64,7 +64,7 @@ import {
   welcomeResumeLine,
 } from "../view-model.js";
 import { responseSurfaceColumns, terminalDisplayWidth } from "../row-budget.js";
-import { truncateDisplayCells } from "../display-cells.js";
+import { truncateDisplayCells, wrapDisplayLine } from "../display-cells.js";
 import { overlayPresentation } from "../overlay-presentation.js";
 import {
   commitIncrementalTranscriptCandidate,
@@ -1519,26 +1519,26 @@ function PaletteOverlay({
   const ordered = paletteCommands(query);
   const selectedCommand = ordered[Math.min(Math.max(0, selected), Math.max(0, ordered.length - 1))];
   const innerColumns = Math.max(1, columns - 2);
-  const groupedRows =
-    1 +
-    groups.reduce(
-      (total, group) =>
-        total +
-        1 +
-        group.commands.reduce(
-          (rows, command) =>
-            rows +
-            Math.max(
-              1,
-              Math.ceil(
-                terminalDisplayWidth(`  ${commandRow(command)}${command.danger ? " ⚠" : ""}`) /
-                  innerColumns,
-              ),
+  // The first group shares the title row. This retains workflow grouping while reserving one row
+  // for the task-scoped `/answer` control at a representative 80x24 terminal.
+  const groupedRows = groups.reduce(
+    (total, group) =>
+      total +
+      1 +
+      group.commands.reduce(
+        (rows, command) =>
+          rows +
+          Math.max(
+            1,
+            Math.ceil(
+              terminalDisplayWidth(`  ${commandRow(command)}${command.danger ? " ⚠" : ""}`) /
+                innerColumns,
             ),
-          0,
-        ),
-      0,
-    );
+          ),
+        0,
+      ),
+    0,
+  );
   const compact = groupedRows > maxRows;
   if (compact) {
     const commands = ordered;
@@ -1587,10 +1587,9 @@ function PaletteOverlay({
   }
   return (
     <Box flexDirection="column" paddingX={1}>
-      <Text dimColor>commands</Text>
-      {groups.map((g) => (
+      {groups.map((g, groupIndex) => (
         <Box key={g.id} flexDirection="column">
-          <Text dimColor>{g.label}</Text>
+          <Text dimColor>{groupIndex === 0 ? `commands · ${g.label}` : g.label}</Text>
           {g.commands.map((c) => {
             const isSelected = c === selectedCommand;
             return (
@@ -1662,15 +1661,20 @@ function panelViewport(
   readonly bodyRows: number;
   readonly rowCost: (line: string) => number;
 } {
-  const [title = "panel", ...lines] = stripControl(content).split("\n");
+  const [title = "panel", ...logicalLines] = stripControl(content).split("\n");
   const innerColumns = Math.max(1, columns - 4);
   const contentRows = Math.max(2, maxRows - 2);
-  const rowCost = (line: string): number =>
-    Math.max(1, Math.ceil(terminalDisplayWidth(stripControlLine(line)) / innerColumns));
+  // Navigation offsets address physical rows. Pre-wrap each logical line so one long paragraph can
+  // never consume more than the viewport and disappear behind a permanent "more lines" disclosure.
+  const lines = logicalLines.flatMap((line) =>
+    wrapDisplayLine(stripControlLine(line), innerColumns).map((row) => row.text),
+  );
+  const titleRows = wrapDisplayLine(stripControlLine(title), innerColumns).length;
+  const rowCost = (): number => 1;
   return {
     title,
     lines,
-    bodyRows: Math.max(1, contentRows - rowCost(title)),
+    bodyRows: Math.max(1, contentRows - titleRows),
     rowCost,
   };
 }

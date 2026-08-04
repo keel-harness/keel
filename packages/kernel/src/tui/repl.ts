@@ -1,4 +1,5 @@
 import type {
+  FinalAnswerContractT,
   LoopConfigT,
   ModelMessageT,
   StopReasonT,
@@ -26,12 +27,13 @@ import { runBoundedLoopSession } from "../run/loop-session.js";
 import { parseGoalArgs, parseLoopArgs, shellJoin, shellWords } from "../run/run-control-parser.js";
 import { isReadOnlyCommand } from "../verify-gate.js";
 import { modelRouteStatusFromDecision } from "../model-routing/controller.js";
-import { oneLineText, stripControlLine } from "../control-strip.js";
+import { oneLineText, stripControl, stripControlLine } from "../control-strip.js";
 import { connectOverlayDismiss } from "./overlay-dismiss.js";
 import { connectLocalInputActivity } from "./input-activity.js";
 import { requestDiffViewer } from "./diff-viewer-control.js";
 import { visibleTerminalText } from "./visible-text.js";
 import { seedInputHistory } from "./input-history.js";
+import { latestFinalAnswerOriginal } from "../session/final-answer-inspection.js";
 
 export interface InteractivePlanApprovalResult {
   readonly ok: boolean;
@@ -78,6 +80,15 @@ export interface RunReplOpts extends Omit<RunSessionOpts, "seed" | "recordSeed" 
   readonly resumedFailedToolCallIds?: ReadonlySet<string>;
   /** Occurrence-precise durable outcome metadata paired with `resumed`. */
   readonly resumedFailedToolMessageIndexes?: ReadonlySet<number>;
+  readonly resumedFinalAnswerOccurrences?: NonNullable<
+    RunSessionOpts["seedPresentation"]
+  >["finalAnswerOccurrences"];
+  readonly resumedFinalAnswerSettlements?: NonNullable<
+    RunSessionOpts["seedPresentation"]
+  >["finalAnswerSettlements"];
+  readonly resumedInterruptedFinalAnswerSettlementIds?: NonNullable<
+    RunSessionOpts["seedPresentation"]
+  >["interruptedFinalAnswerSettlementIds"];
   /** How many still-pending steering inputs (queued/urgent) were re-applied while rebuilding the
    *  resumed context (P1-3). Surfaced in the resume header so the carry-over is acknowledged, not
    *  silently folded into the message count (ADR-0034 "visibly acknowledge · no silent absorption").
@@ -120,6 +131,24 @@ function planCommandArgs(
     return { ok: false, error: "usage: /plan clear" };
   }
   return { ok: true, action, args: shellJoin(rest) };
+}
+
+type AnswerCommand =
+  | { readonly ok: true; readonly action: "clear" | "full" }
+  | { readonly ok: true; readonly action: "arm"; readonly contract: FinalAnswerContractT }
+  | { readonly ok: false; readonly error: string };
+
+function answerCommand(raw: string | undefined): AnswerCommand {
+  const value = (raw ?? "").trim();
+  if (value === "clear" || value === "full") return { ok: true, action: value };
+  if (!/^[1-9]\d*$/u.test(value)) {
+    return { ok: false, error: "usage: /answer <40..2000|clear|full>" };
+  }
+  const maxWords = Number(value);
+  if (!Number.isSafeInteger(maxWords) || maxWords < 40 || maxWords > 2_000) {
+    return { ok: false, error: "word bound must be a base-10 integer in 40..2000" };
+  }
+  return { ok: true, action: "arm", contract: { version: 1, maxWords } };
 }
 
 export function statusAfterPlanTurn(status: UiStatus, baseView: ViewConfig | undefined): UiStatus {
@@ -206,6 +235,9 @@ export async function runRepl(opts: RunReplOpts): Promise<RunOutcome> {
     resumedInputHistory = [],
     resumedFailedToolCallIds,
     resumedFailedToolMessageIndexes,
+    resumedFinalAnswerOccurrences,
+    resumedFinalAnswerSettlements,
+    resumedInterruptedFinalAnswerSettlementIds,
     resumedSteeringApplied = 0,
     resumedUrgentSteeringApplied = 0,
     historicOnceApprovalReceipt,
@@ -218,6 +250,7 @@ export async function runRepl(opts: RunReplOpts): Promise<RunOutcome> {
   let lastGoalFailure: GoalFailureReason | undefined;
   let firstTurn = true;
   let nextTurnPlanView: ViewConfig | undefined;
+  let nextFinalAnswerContract: FinalAnswerContractT | undefined;
   const it = opts.ui.inputs()[Symbol.asyncIterator]();
 
   // The opening view. On RESUME (`--continue`/`--resume`), open ON the rebuilt conversation with a
@@ -233,6 +266,16 @@ export async function runRepl(opts: RunReplOpts): Promise<RunOutcome> {
       ...(resumedFailedToolCallIds !== undefined
         ? { failedToolCallIds: resumedFailedToolCallIds }
         : {}),
+      ...(resumedFinalAnswerOccurrences !== undefined
+        ? { finalAnswerOccurrences: resumedFinalAnswerOccurrences }
+        : {}),
+      ...(resumedFinalAnswerSettlements !== undefined
+        ? { finalAnswerSettlements: resumedFinalAnswerSettlements }
+        : {}),
+      ...(resumedInterruptedFinalAnswerSettlementIds !== undefined
+        ? { interruptedFinalAnswerSettlementIds: resumedInterruptedFinalAnswerSettlementIds }
+        : {}),
+      originalInspectionCommand: `keel sessions answer ${opts.store.id} --original`,
     });
     // Acknowledge any re-applied pending steering explicitly (ADR-0034 · P1-3) so a carried-over
     // mid-run comment is not silently folded into the message count.
@@ -294,10 +337,19 @@ export async function runRepl(opts: RunReplOpts): Promise<RunOutcome> {
     runControl: {
       readonly goal?: NonNullable<RunSessionOpts["goal"]>;
       readonly loop?: LoopConfigT;
+      readonly finalAnswer?: FinalAnswerContractT;
     } = {},
   ): Promise<void> => {
     const pendingState = rebuild(readSession(base.store.id, base.env ?? process.env));
     const pendingBeforeTurn = pendingState.pendingSteering;
+    const seedPresentation = {
+      failedToolCallIds: pendingState.failedToolCallIds,
+      failedToolMessageIndexes: pendingState.failedToolMessageIndexes,
+      finalAnswerOccurrences: pendingState.finalAnswerOccurrences,
+      finalAnswerSettlements: pendingState.finalAnswerSettlements,
+      interruptedFinalAnswerSettlementIds: pendingState.interruptedFinalAnswerSettlementIds,
+      originalInspectionCommand: `keel sessions answer ${base.store.id} --original`,
+    };
     const carriedUrgent = [...pendingBeforeTurn]
       .reverse()
       .find((steering) => steering.class === "urgent");
@@ -351,6 +403,10 @@ export async function runRepl(opts: RunReplOpts): Promise<RunOutcome> {
               seed,
               recordSeed,
               ownsUi: false,
+              seedPresentation,
+              ...(runControl.finalAnswer !== undefined
+                ? { finalAnswer: { contract: runControl.finalAnswer } }
+                : {}),
               loop: runControl.loop,
             })
           : await runSession({
@@ -359,6 +415,10 @@ export async function runRepl(opts: RunReplOpts): Promise<RunOutcome> {
               seed,
               recordSeed,
               ownsUi: false,
+              seedPresentation,
+              ...(runControl.finalAnswer !== undefined
+                ? { finalAnswer: { contract: runControl.finalAnswer } }
+                : {}),
               ...(runControl.goal !== undefined ? { goal: runControl.goal } : {}),
             });
     } finally {
@@ -376,6 +436,9 @@ export async function runRepl(opts: RunReplOpts): Promise<RunOutcome> {
       withHistoricOnceApprovalReceipt(
         {
           ...outcome.finalView,
+          ...(nextFinalAnswerContract === undefined
+            ? {}
+            : { nextFinalAnswerMaxWords: nextFinalAnswerContract.maxWords }),
           status: {
             ...(planView === undefined
               ? outcome.finalView.status
@@ -475,6 +538,53 @@ export async function runRepl(opts: RunReplOpts): Promise<RunOutcome> {
         // `/help` is a read-only idle panel: it surfaces the key reference as the `?` overlay so a
         // palette pick is never a silent no-op. The session stays open.
         idleView = { ...idleView, overlay: { kind: "help" } };
+        opts.ui.render(idleView);
+        continue;
+      }
+      if (input.kind === "command" && input.name === "/answer") {
+        const parsed = answerCommand(input.args);
+        if (!parsed.ok) {
+          renderNotice(`/answer: ${parsed.error}`);
+          continue;
+        }
+        if (parsed.action === "clear") {
+          nextFinalAnswerContract = undefined;
+          const { nextFinalAnswerMaxWords: _arm, ...cleared } = idleView;
+          void _arm;
+          idleView = reduce(cleared, {
+            type: "system-notice",
+            content: "final answer bound cleared; no next task is armed",
+          });
+          opts.ui.render(idleView);
+          continue;
+        }
+        if (parsed.action === "full") {
+          const original = latestFinalAnswerOriginal(
+            rebuild(readSession(base.store.id, base.env ?? process.env)),
+          );
+          if (original === undefined) {
+            renderNotice("No settled final-answer original is available in this session.");
+            continue;
+          }
+          idleView = {
+            ...idleView,
+            overlay: {
+              kind: "panel",
+              content: `original final answer · ${base.store.id}\n\n${stripControl(original.message.content)}`,
+            },
+          };
+          opts.ui.render(idleView);
+          continue;
+        }
+        if (parsed.action !== "arm") continue;
+        nextFinalAnswerContract = parsed.contract;
+        idleView = {
+          ...reduce(idleView, {
+            type: "system-notice",
+            content: `final answer ≤${parsed.contract.maxWords} words armed for the next ordinary task only`,
+          }),
+          nextFinalAnswerMaxWords: parsed.contract.maxWords,
+        };
         opts.ui.render(idleView);
         continue;
       }
@@ -651,7 +761,17 @@ export async function runRepl(opts: RunReplOpts): Promise<RunOutcome> {
         opts.ui.render(idleView);
         continue;
       }
-      await driveTurn({ role: "user", content: input.text });
+      const finalAnswer = nextFinalAnswerContract;
+      nextFinalAnswerContract = undefined;
+      if (idleView.nextFinalAnswerMaxWords !== undefined) {
+        const { nextFinalAnswerMaxWords: _consumedArm, ...consumedView } = idleView;
+        void _consumedArm;
+        idleView = consumedView;
+      }
+      await driveTurn(
+        { role: "user", content: input.text },
+        finalAnswer === undefined ? {} : { finalAnswer },
+      );
     }
   } finally {
     try {

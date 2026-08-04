@@ -497,11 +497,12 @@ function renderOverlay(o: Overlay): string {
     const matches = (o.matches ?? []).map((m) => `  ${stripControlLine(m)}`);
     return matches.length > 0 ? [head, ...matches].join("\n") : `${head}  (no matches)`;
   }
-  const groups = commandGroups(o.query).flatMap((g) => [
-    g.label,
-    ...g.commands.map((c) => `  ${commandRow(c)}${c.danger ? " ⚠" : ""}`),
+  const commandGroupList = commandGroups(o.query);
+  const groups = commandGroupList.flatMap((group, index) => [
+    index === 0 ? `commands · ${group.label}` : group.label,
+    ...group.commands.map((command) => `  ${commandRow(command)}${command.danger ? " ⚠" : ""}`),
   ]);
-  return ["commands", ...groups].join("\n");
+  return groups.length > 0 ? groups.join("\n") : "commands";
 }
 
 /** A completed-immediately async iterable (no mid-run input in non-interactive mode). A plain

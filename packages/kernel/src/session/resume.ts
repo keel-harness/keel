@@ -1,4 +1,11 @@
-import type { ModelMessageT, ModelUsageT, SteeringEventT, StopReasonT } from "@keel/shared";
+import type {
+  FinalAnswerOccurrenceT,
+  FinalAnswerSettlementT,
+  ModelMessageT,
+  ModelUsageT,
+  SteeringEventT,
+  StopReasonT,
+} from "@keel/shared";
 import {
   shouldPreserveStopDetailAfterLoopStopped,
   stopCodeNeedsAttention,
@@ -12,6 +19,9 @@ import { applySteering } from "./steering.js";
  *  Re-fed to the model on resume so the assistant→tool-result linkage stays valid. */
 export const INTERRUPTED_TOOL_RESULT =
   "[interrupted: the tool did not complete before the session ended]";
+/** Process-local closure for an exactly tagged durable rewrite prompt whose provider response was
+ * never recorded (ADR-0087). It is not provider output and is never appended to the ledger. */
+export const INTERRUPTED_FINAL_ANSWER_REWRITE = "[interrupted: final-answer rewrite interrupted]";
 
 /**
  * The resumable view of a session, rebuilt from the ledger (the inverse of the
@@ -32,6 +42,12 @@ export interface ResumeState {
   /** Exact indexes in `messages` whose tool results failed. Unlike provider call ids, indexes remain
    * unique when a provider reuses an id in a later turn. */
   readonly failedToolMessageIndexes: ReadonlySet<number>;
+  /** Presentation-only occurrence tags parallel to provider messages. These tags are never sent to
+   * the provider; the messages themselves retain their exact bytes and roles. */
+  readonly finalAnswerOccurrences: ReadonlyMap<number, FinalAnswerOccurrenceT>;
+  readonly finalAnswerSettlements: ReadonlyMap<string, FinalAnswerSettlementT>;
+  /** Settlements with a durable attempt/prompt but no matching terminal settlement record. */
+  readonly interruptedFinalAnswerSettlementIds: ReadonlySet<string>;
   readonly pendingSteering: readonly SteeringEventT[];
   readonly finished: boolean;
   readonly lastStop?: StopReasonT;
@@ -101,6 +117,10 @@ export function rebuild(file: SessionFile): ResumeState {
   const inputHistory: string[] = [];
   const failedToolCallIds = new Set<string>();
   const failedToolMessageIndexes = new Set<number>();
+  const finalAnswerOccurrences = new Map<number, FinalAnswerOccurrenceT>();
+  const finalAnswerSettlements = new Map<string, FinalAnswerSettlementT>();
+  const interruptedFinalAnswerSettlementIds = new Set<string>();
+  const observedFinalAnswerSettlementIds = new Set<string>();
   // §4.10: a steering input may be recorded PENDING then later superseded by an APPLIED marker
   // (slice 7) carrying the same inputId. Track the LAST event per inputId so an applied marker
   // overrides its pending event; the injected message itself rides a separate `user` event (the
@@ -118,6 +138,7 @@ export function rebuild(file: SessionFile): ResumeState {
   // continuations, verification nudges, budget notices, loop guidance, or structured steering—not
   // composer history. `run_status` is the durable boundary that makes the next user event eligible.
   let awaitingHumanPrompt = true;
+  let openFinalAnswerRewritePrompt: string | undefined;
 
   // The current assistant's tool calls not yet matched by a tool_result.
   let open: { id: string; name: string }[] = [];
@@ -134,11 +155,18 @@ export function rebuild(file: SessionFile): ResumeState {
     }
     open = [];
   };
+  const closeInterruptedFinalAnswerRewrite = (): void => {
+    if (openFinalAnswerRewritePrompt === undefined) return;
+    messages.push({ role: "assistant", content: INTERRUPTED_FINAL_ANSWER_REWRITE });
+    interruptedFinalAnswerSettlementIds.add(openFinalAnswerRewritePrompt);
+    openFinalAnswerRewritePrompt = undefined;
+  };
 
   for (const ev of file.events) {
     switch (ev.type) {
       case "user":
         expectedLegacyLoopController = undefined;
+        closeInterruptedFinalAnswerRewrite();
         closeOpen();
         {
           const index = messages.length;
@@ -146,26 +174,55 @@ export function rebuild(file: SessionFile): ResumeState {
           // exact content. Index-only matching lets a torn marker suppress an unrelated prompt if a
           // later run legitimately reuses the promised index.
           const structuredSteering = steeringMessagesByIndex.get(index)?.has(ev.content) === true;
-          const ordinaryPrompt = awaitingHumanPrompt && !structuredSteering;
+          const finalAnswerRewritePrompt = ev.finalAnswer?.kind === "rewrite-prompt";
+          const ordinaryPrompt =
+            awaitingHumanPrompt && !structuredSteering && !finalAnswerRewritePrompt;
           if (ordinaryPrompt && ev.content.trim() !== "") inputHistory.push(ev.content);
           // Even an excluded steering/blank at the boundary owns this run; later controller user-role
           // messages must not be promoted merely because the first one was not recallable.
           if (awaitingHumanPrompt) awaitingHumanPrompt = false;
         }
         messages.push({ role: "user", content: ev.content });
+        if (ev.finalAnswer !== undefined) {
+          const index = messages.length - 1;
+          finalAnswerOccurrences.set(index, ev.finalAnswer);
+          observedFinalAnswerSettlementIds.add(ev.finalAnswer.settlementId);
+          if (ev.finalAnswer.kind === "rewrite-prompt") {
+            openFinalAnswerRewritePrompt = ev.finalAnswer.settlementId;
+          }
+        }
         break;
       case "assistant":
         expectedLegacyLoopController = undefined;
+        if (
+          ev.finalAnswer?.kind !== "attempt" ||
+          ev.finalAnswer.attempt !== "rewrite" ||
+          ev.finalAnswer.settlementId !== openFinalAnswerRewritePrompt
+        ) {
+          closeInterruptedFinalAnswerRewrite();
+        }
         closeOpen();
         messages.push({
           role: "assistant",
           content: ev.content,
           ...(ev.toolCalls !== undefined ? { toolCalls: ev.toolCalls } : {}),
         });
+        if (ev.finalAnswer !== undefined) {
+          finalAnswerOccurrences.set(messages.length - 1, ev.finalAnswer);
+          observedFinalAnswerSettlementIds.add(ev.finalAnswer.settlementId);
+          if (
+            ev.finalAnswer.kind === "attempt" &&
+            ev.finalAnswer.attempt === "rewrite" &&
+            ev.finalAnswer.settlementId === openFinalAnswerRewritePrompt
+          ) {
+            openFinalAnswerRewritePrompt = undefined;
+          }
+        }
         open = (ev.toolCalls ?? []).map((c) => ({ id: c.id, name: c.name }));
         break;
       case "tool_result":
         expectedLegacyLoopController = undefined;
+        closeInterruptedFinalAnswerRewrite();
         // Only keep a result that matches an open assistant tool call. Matching is
         // occurrence-ordered so historical duplicate ids remain replayable.
         {
@@ -187,6 +244,7 @@ export function rebuild(file: SessionFile): ResumeState {
         }
         break;
       case "system":
+        closeInterruptedFinalAnswerRewrite();
         closeOpen();
         // Sessions written before Epic 3.15 recorded this exact controller continuation as a tail
         // system event. A preceding structured running-iteration marker has already reconstructed
@@ -206,6 +264,9 @@ export function rebuild(file: SessionFile): ResumeState {
         lastStopMessage = ev.message;
         lastGoalFailure = undefined;
         usage = ev.usage;
+        if (ev.finalAnswer !== undefined) {
+          finalAnswerSettlements.set(ev.finalAnswer.settlementId, ev.finalAnswer);
+        }
         awaitingHumanPrompt = true;
         break;
       case "loop_iteration":
@@ -267,7 +328,14 @@ export function rebuild(file: SessionFile): ResumeState {
         break; // session_meta is not a conversation message
     }
   }
+  closeInterruptedFinalAnswerRewrite();
   closeOpen(); // synthesize results for any tool calls left open by an aborted final turn
+
+  for (const settlementId of observedFinalAnswerSettlementIds) {
+    if (!finalAnswerSettlements.has(settlementId)) {
+      interruptedFinalAnswerSettlementIds.add(settlementId);
+    }
+  }
 
   // §4.10 / ADR-0034 ("survive resume · no silent drop"): any still-pending steering — a queued
   // comment OR an urgent instruction the run ended before applying (e.g. an abnormal exit between
@@ -283,6 +351,9 @@ export function rebuild(file: SessionFile): ResumeState {
     inputHistory,
     failedToolCallIds,
     failedToolMessageIndexes,
+    finalAnswerOccurrences,
+    finalAnswerSettlements,
+    interruptedFinalAnswerSettlementIds,
     pendingSteering,
     finished:
       lastGoalFailure === undefined &&

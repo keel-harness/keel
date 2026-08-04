@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import type { ModelMessageT, ViewItem, ViewModel } from "@keel/shared";
+import type {
+  FinalAnswerOccurrenceT,
+  FinalAnswerSettlementT,
+  ModelMessageT,
+  ViewItem,
+  ViewModel,
+} from "@keel/shared";
 import {
   BLOCKED_AFTER_SYNTHESIS_CODE,
   REVIEW_REQUIRED_AFTER_SYNTHESIS_CODE,
@@ -4538,5 +4544,115 @@ describe("view-model reducer", () => {
     expect(panel).not.toMatch(/sandbox on|network on|audit on|phase 1/i);
     expect(context).toContain("enforcement: unavailable — tools halted");
     expect(capabilities).toContain("controls: unavailable — tools halted");
+  });
+});
+
+describe("ADR-0087 resumed final-answer projection", () => {
+  const contract = { version: 1 as const, maxWords: 40 };
+  const command = "keel sessions answer ses_01ARZ3NDEKTSV4RRFFQ69G5FAV --original";
+
+  it("shows only the accepted rewrite while preserving provider history outside the view", () => {
+    const messages: ModelMessageT[] = [
+      { role: "user", content: "inspect" },
+      { role: "assistant", content: "raw oversized original" },
+      { role: "user", content: "controller rewrite prompt" },
+      { role: "assistant", content: "bounded rewrite" },
+    ];
+    const occurrences = new Map<number, FinalAnswerOccurrenceT>([
+      [1, { settlementId: "fas_1", kind: "attempt", attempt: "original", contract }],
+      [2, { settlementId: "fas_1", kind: "rewrite-prompt", contract }],
+      [3, { settlementId: "fas_1", kind: "attempt", attempt: "rewrite", contract }],
+    ]);
+    const settlements = new Map<string, FinalAnswerSettlementT>([
+      ["fas_1", { settlementId: "fas_1", outcome: "accepted-rewrite" }],
+    ]);
+
+    const view = initialView(
+      messages,
+      {},
+      {
+        finalAnswerOccurrences: occurrences,
+        finalAnswerSettlements: settlements,
+        originalInspectionCommand: command,
+      },
+    );
+    const text = view.items.map((item) => (item.kind === "message" ? item.content : item.summary));
+    expect(text).toEqual(["inspect", "bounded rewrite"]);
+    expect(messages.map((message) => message.content)).toEqual([
+      "inspect",
+      "raw oversized original",
+      "controller rewrite prompt",
+      "bounded rewrite",
+    ]);
+  });
+
+  it("places an honest fallback after related failed-tool evidence", () => {
+    const messages: ModelMessageT[] = [
+      { role: "user", content: "verify" },
+      {
+        role: "assistant",
+        content: "partial original",
+        toolCalls: [{ id: "call-1", name: "bash", args: { command: "pnpm test" } }],
+      },
+      { role: "tool", content: "focused tests failed", toolCallId: "call-1", name: "bash" },
+    ];
+    const occurrences = new Map<number, FinalAnswerOccurrenceT>([
+      [1, { settlementId: "fas_2", kind: "attempt", attempt: "original", contract }],
+    ]);
+    const settlements = new Map<string, FinalAnswerSettlementT>([
+      ["fas_2", { settlementId: "fas_2", outcome: "fallback-length" }],
+    ]);
+
+    const view = initialView(
+      messages,
+      {},
+      {
+        failedToolMessageIndexes: new Set([2]),
+        finalAnswerOccurrences: occurrences,
+        finalAnswerSettlements: settlements,
+        originalInspectionCommand: command,
+      },
+    );
+
+    expect(view.items.map((item) => item.kind)).toEqual(["message", "tool", "message"]);
+    expect(view.items[1]).toMatchObject({ kind: "tool", status: "error" });
+    expect(view.items[2]).toMatchObject({ kind: "message", role: "assistant" });
+    expect(view.items[2]?.kind === "message" ? view.items[2].content : "").toContain(
+      "provider length",
+    );
+    expect(JSON.stringify(view.items)).not.toContain("partial original");
+  });
+
+  it("fails visible for malformed semantic correlation instead of hiding raw messages", () => {
+    const messages: ModelMessageT[] = [
+      { role: "user", content: "inspect" },
+      { role: "assistant", content: "raw original" },
+    ];
+    const view = initialView(
+      messages,
+      {},
+      {
+        finalAnswerOccurrences: new Map([
+          [
+            1,
+            {
+              settlementId: "fas_wrong",
+              kind: "attempt" as const,
+              attempt: "rewrite" as const,
+              contract,
+            },
+          ],
+        ]),
+        finalAnswerSettlements: new Map([
+          ["fas_other", { settlementId: "fas_other", outcome: "accepted-original" as const }],
+        ]),
+        originalInspectionCommand: command,
+      },
+    );
+
+    expect(view.items).toEqual([
+      { kind: "message", role: "user", content: "inspect" },
+      { kind: "message", role: "assistant", content: "raw original" },
+    ]);
   });
 });

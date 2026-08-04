@@ -51,6 +51,13 @@ describe("command registry", () => {
     expect(loop?.promoted).not.toBe(false);
   });
 
+  it("includes the task-scoped final-answer control and its inspection actions", () => {
+    const answer = COMMANDS.find((c) => c.name === "/answer");
+    expect(answer).toMatchObject({ route: "local-action", group: "work" });
+    expect(answer?.availability).toMatch(/40\.\.2000.*clear.*full/i);
+    expect(answer?.description).toMatch(/next answer.*original/i);
+  });
+
   it("includes /model as a model selection inspection command", () => {
     expect(COMMANDS.find((c) => c.name === "/model")?.description).toMatch(/model/i);
     expect(noticeForCommand("/model")).not.toMatch(/not wired/i);
@@ -127,6 +134,7 @@ describe("command registry", () => {
     expect(groups.find((g) => g.label === "work controls")?.commands.map((c) => c.name)).toEqual([
       "/goal",
       "/loop",
+      "/answer",
     ]);
     expect(groups.find((g) => g.label === "protections")?.commands.map((c) => c.name)).toEqual([
       "/policies",
@@ -150,6 +158,7 @@ describe("command registry", () => {
       expect.arrayContaining([
         "/goal",
         "/loop",
+        "/answer",
         "/policies",
         "/reviews",
         "/diff",

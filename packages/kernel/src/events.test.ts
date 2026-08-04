@@ -15,7 +15,9 @@ describe("KernelEvent vocabulary", () => {
     const variants = [
       { type: "run-started" },
       { type: "turn-started", turn: 1 },
+      { type: "final-answer-buffering" },
       { type: "text-delta", text: "hi" },
+      { type: "final-answer-buffer-released" },
       { type: "tool-call", id: "call_0_0", name: "echo", args: { text: "x" } },
       { type: "tool-output-delta", id: "call_0_0", chunk: "compiling…" },
       { type: "tool-result", id: "call_0_0", ok: true, output: "x" },

@@ -10,6 +10,7 @@ Scores use 1 (unusable) through 5 (excellent). `TBD` means the workflow has not 
 | Onboarding | after R12 (E2-E4) | 4 | 4 | 4 | 4 | 4 | 4 | 4 | 4 | N/A | N/A | 2 |
 | Onboarding | after R13 (E2-E4) | 4 | 4 | 4 | 4 | 5 | 4 | 4 | 4 | N/A | N/A | 2 |
 | Onboarding | R21 current main (E2-E5) | 4 | 4 | 4 | 4 | 5 | 4 | 3 | 3 | N/A | N/A | 2 |
+| Onboarding | #113 candidate (E2-E5) | 4 | 4 | 4 | 4 | 5 | 4 | 4 | 4 | N/A | N/A | 4 |
 | Feature | before | 3 | 2 | 3 | 3 | 2 | 2 | 2 | 3 | 2 | 1 | 4 |
 | Feature | after R1+R2 | 4 | 2 | 3 | 3 | 3 | 4 | 3 | 4 | 3 | 2 | 4 |
 | Feature | after R1+R2+R6 | 4 | 3 | 3 | 3 | 4 | 4 | 3 | 4 | 3 | 2 | 4 |
@@ -210,3 +211,14 @@ The official unweighted workflow mean remains **3.97/5** and the legacy pooled d
 **3.95/5** (245/62). This avoids converting a component diagnostic into an unsupported workflow-
 wide score increase. The 3.8 target remains met; issue #113, the 4.0 stretch target, and the strict
 same-commit six-workflow gate remain open.
+
+Issue #113 repeats the unfamiliar-repository onboarding outcome through a clean exact installed
+candidate at 80x24/100x30 and one bounded live Anthropic run. The 1,273-word live original becomes
+one 241-word primary rewrite; the result names verified architecture/build/test facts and explicitly
+marks its unprobed runtime inference. Rewrite tools are structurally absent, attempted fixture tool
+calls do not execute, cancellation is prompt, the retained original is opt-in inspectable, and
+completed resume makes zero provider calls. This directly raises onboarding cognitive load and trust
+from 3 to 4 and final confidence from 2 to 4. The onboarding mean becomes **4.11/5**; the official
+six-workflow unweighted candidate mean becomes **4.04/5**, and the historical pooled diagnostic
+becomes **4.02/5 (249/62)**. The 4.0 stretch checkpoint is green for this candidate. Exact-head CI,
+publication, post-main CI, and the strict same-commit six-workflow replay remain open.

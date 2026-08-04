@@ -59,9 +59,13 @@
         "55-r21-live-candidate-rejected.png",
         "56-r21-untrusted-workspace.png",
         "57-r21-no-tests-resume.png",
-        "58-r21-auth-failure.png"
+        "58-r21-auth-failure.png",
+        "61-final-answer-rewrite.png",
+        "62-final-answer-complete.png",
+        "63-final-answer-inspection.png",
+        "64-final-answer-cancelled.png"
       ],
-      "costCeilingUsd": 1
+      "costCeilingUsd": 2
     },
     {
       "id": "feature",

@@ -750,3 +750,30 @@ worktree were removed.
   with identical tree `06f2769c`. Issue #117 closed and the remote/local feature branches plus
   feature worktree were removed. Exact post-main CI `30900575475`, including `ci-required` job
   `91965181411` and all applicable main-only lanes, passed.
+
+## Issue #113 — controller-enforced final-answer contracts
+
+- Implemented accepted ADR-0087 as an explicit next-task/one-shot 40–2,000-word contract with one
+  tools-disabled bounded rewrite, deterministic fallback, durable settlement metadata, and explicit
+  original inspection. Ordinary tasks remain byte-behavior neutral when the contract is absent.
+- Added `/answer N`, `/answer clear`, `/answer full`, `--final-max-words N`, and
+  `keel sessions answer <id> --original`; slash commands do not accidentally consume the next-task
+  setting, and resume never reruns a completed settlement.
+- Added contract, loop, event, recorder, crash-prefix, resume, CLI, headless, Ink, palette, geometry,
+  terminal-review, known-red, and adversarial tool-call coverage. Full coverage passes **365 files /
+  6,665 tests / 20 intentional opt-in skips** at 97.85% statements/lines and 93.63% branches.
+- Exact PTY validation found a generic panel defect after the first implementation: a single
+  overlong logical line could be omitted at every scroll offset. A separate red-first fix wraps
+  control-stripped content into grapheme-safe physical rows before viewport navigation. Focused
+  Ink/geometry coverage passes **244/244**.
+- Exact clean installed carrier `b1c5f70`, `dirty: false`, tarball SHA-256
+  `75c7d366d0ddae96e4d3e1b267d11a6f6b59236b7abc4eec51d06bc39786274c` passes headless settlement,
+  80x24/100x30 PTY, cancellation, resume, trust-decline, missing-credential, and Warden outside-
+  write denial controls. Screenshots 61-64 and session log 25 record the result.
+- One live candidate run turns a 1,273-word original into a 241-word primary with zero Warden
+  reviews. Exact incremental cost is USD 1.29105135; cumulative spend is USD 4.72508650.
+- Onboarding becomes **4.11/5**; the six-workflow candidate mean becomes **4.04/5** and the pooled
+  diagnostic **4.02/5 (249/62)**. Exact-head CI, publication, post-main CI, and final same-commit
+  six-workflow proof remain pending.
+- No Warden verdict/policy, sandbox, egress, grant, audit schema, frozen ModelPort/RPC interface,
+  dependency, or security claim changed.

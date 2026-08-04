@@ -1,5 +1,6 @@
 import type {
   ExecutorPort,
+  FinalAnswerContractT,
   GoalT,
   LifecycleManifestT,
   LoopConfigT,
@@ -158,6 +159,7 @@ export const HELP_TEXT = [
   '    --plan-confirm             preview exact plan resources and require typing "approve" before execution',
   "    --goal <objective> --goal-check <cmd>   audit completion from explicit evidence",
   "    --loop-until <cmd> [--loop-max-iterations <n>]   bounded in-session loop",
+  "    --final-max-words <40..2000>   enforce one bounded final answer or show an honest fallback",
   "  keel autopilot mode status",
   "  keel autopilot mode set <guided|autopilot|project-autopilot>",
   "  keel autopilot mode clear",
@@ -280,6 +282,7 @@ export type KeelCommand =
       readonly verbose?: boolean;
       readonly goal?: GoalT;
       readonly loop?: LoopConfigT;
+      readonly finalAnswer?: FinalAnswerContractT;
       readonly planApproval?: PlanApprovalRunRequest;
     }
   | { readonly kind: "audit-export"; readonly sessionId: string; readonly outPath?: string }
@@ -492,6 +495,27 @@ export function parseKeelArgs(argv: readonly string[]): KeelCommand {
     }
     const unsupported = unsupportedRunArg(rest);
     if (unsupported !== undefined) return unsupported;
+    const finalAnswerValue = singleFlagValue(rest, "--final-max-words");
+    if (typeof finalAnswerValue === "object") {
+      return { kind: "usage", message: finalAnswerValue.error };
+    }
+    let finalAnswer: FinalAnswerContractT | undefined;
+    if (finalAnswerValue !== undefined) {
+      if (!/^(?:[1-9]\d*)$/u.test(finalAnswerValue)) {
+        return {
+          kind: "usage",
+          message: "--final-max-words must be a base-10 integer in 40..2000",
+        };
+      }
+      const maxWords = Number(finalAnswerValue);
+      if (!Number.isSafeInteger(maxWords) || maxWords < 40 || maxWords > 2_000) {
+        return {
+          kind: "usage",
+          message: "--final-max-words must be a base-10 integer in 40..2000",
+        };
+      }
+      finalAnswer = { version: 1, maxWords };
+    }
     const planApproval = parseRunPlanApprovalArgs(planApprovalArgsFromRunArgs(rest), autopilot);
     if (planApproval.kind === "usage") {
       return { kind: "usage", message: planApproval.message, exitCode: 1 };
@@ -525,6 +549,7 @@ export function parseKeelArgs(argv: readonly string[]): KeelCommand {
         ...(verbose ? { verbose: true } : {}),
         ...(runControl.goal !== undefined ? { goal: runControl.goal } : {}),
         ...(runControl.loop !== undefined ? { loop: runControl.loop } : {}),
+        ...(finalAnswer !== undefined ? { finalAnswer } : {}),
       };
     }
     return {
@@ -535,6 +560,7 @@ export function parseKeelArgs(argv: readonly string[]): KeelCommand {
       ...(verbose ? { verbose: true } : {}),
       ...(runControl.goal !== undefined ? { goal: runControl.goal } : {}),
       ...(runControl.loop !== undefined ? { loop: runControl.loop } : {}),
+      ...(finalAnswer !== undefined ? { finalAnswer } : {}),
       ...(planApproval.request !== undefined ? { planApproval: planApproval.request } : {}),
     };
   }
@@ -560,6 +586,7 @@ const RUN_FLAGS_WITH_SPLIT_VALUES = new Set([
   "--loop-until",
   "--loop-max-iterations",
   "--loop-max-wall-ms",
+  "--final-max-words",
 ]);
 
 const RUN_PLAN_FLAGS = new Set(["--plan-id", "--plan-domain", "--plan-command-key"]);
@@ -576,6 +603,7 @@ const RUN_FLAGS_WITH_EQUALS_VALUES = new Set([
   "--loop-until",
   "--loop-max-iterations",
   "--loop-max-wall-ms",
+  "--final-max-words",
 ]);
 
 function unsupportedRunArg(args: readonly string[]): KeelCommand | undefined {
@@ -1086,6 +1114,7 @@ export interface KeelSessionOpts {
    *  from the warden runtime's liveness; omitted for the local/eval runtime (no warden to lose). */
   readonly enforcement?: RunSessionOpts["enforcement"];
   readonly params?: RunSessionOpts["params"];
+  readonly finalAnswer?: NonNullable<RunSessionOpts["finalAnswer"]>;
   /** Opt-in pre-completion verification (Epic 1.1b) — wired + tested but **default OFF** in
    *  `runKeelCommand`; enable with `KEEL_VERIFY=1`. A 2026-06-18 measurement found default-on
    *  net-negative (amplifies over-editing); see `productionLoopSafety` + the claim-ledger. */
@@ -1108,6 +1137,15 @@ export interface KeelSessionOpts {
   readonly resumedFailedToolCallIds?: ReadonlySet<string>;
   /** Occurrence-precise ledger-derived tool outcomes for honest resumed presentation. */
   readonly resumedFailedToolMessageIndexes?: ReadonlySet<number>;
+  readonly resumedFinalAnswerOccurrences?: NonNullable<
+    RunSessionOpts["seedPresentation"]
+  >["finalAnswerOccurrences"];
+  readonly resumedFinalAnswerSettlements?: NonNullable<
+    RunSessionOpts["seedPresentation"]
+  >["finalAnswerSettlements"];
+  readonly resumedInterruptedFinalAnswerSettlementIds?: NonNullable<
+    RunSessionOpts["seedPresentation"]
+  >["interruptedFinalAnswerSettlementIds"];
   /** Number of pending steering comments applied during resume, surfaced in the resume notice. */
   readonly resumedSteeringApplied?: number;
   /** Subset of resumed steering whose durable class is urgent; presentation-only. */
@@ -1185,6 +1223,7 @@ export async function runKeelSession(opts: KeelSessionOpts): Promise<RunOutcome>
       ...runnerBase,
       seed,
       ...(opts.goal !== undefined ? { goal: opts.goal } : {}),
+      ...(opts.finalAnswer !== undefined ? { finalAnswer: opts.finalAnswer } : {}),
     });
   }
 
@@ -1205,6 +1244,18 @@ export async function runKeelSession(opts: KeelSessionOpts): Promise<RunOutcome>
       : {}),
     ...(opts.resumedFailedToolMessageIndexes !== undefined
       ? { resumedFailedToolMessageIndexes: opts.resumedFailedToolMessageIndexes }
+      : {}),
+    ...(opts.resumedFinalAnswerOccurrences !== undefined
+      ? { resumedFinalAnswerOccurrences: opts.resumedFinalAnswerOccurrences }
+      : {}),
+    ...(opts.resumedFinalAnswerSettlements !== undefined
+      ? { resumedFinalAnswerSettlements: opts.resumedFinalAnswerSettlements }
+      : {}),
+    ...(opts.resumedInterruptedFinalAnswerSettlementIds !== undefined
+      ? {
+          resumedInterruptedFinalAnswerSettlementIds:
+            opts.resumedInterruptedFinalAnswerSettlementIds,
+        }
       : {}),
     ...(opts.resumedSteeringApplied !== undefined
       ? { resumedSteeringApplied: opts.resumedSteeringApplied }
@@ -1258,6 +1309,7 @@ export interface KeelCommandDeps {
    *  neither grants authority, changes policy, nor affects workspace trust. */
   readonly goal?: GoalT;
   readonly loop?: LoopConfigT;
+  readonly finalAnswer?: FinalAnswerContractT;
 }
 
 /**
@@ -1632,6 +1684,7 @@ export async function runKeelCommand(
         ...(prompt !== undefined ? { prompt } : {}),
         ...(deps.goal !== undefined ? { goal: deps.goal } : {}),
         ...(deps.loop !== undefined ? { loop: deps.loop } : {}),
+        ...(deps.finalAnswer !== undefined ? { finalAnswer: { contract: deps.finalAnswer } } : {}),
         ...(rt.lifecycleManifest !== undefined ? { lifecycleManifest: rt.lifecycleManifest } : {}),
         ...(compactor !== undefined ? { compactor } : {}),
         contextWindow: contextWindowSpec,
@@ -1641,6 +1694,10 @@ export async function runKeelCommand(
               resumedInputHistory: resumeState.inputHistory,
               resumedFailedToolCallIds: resumeState.failedToolCallIds,
               resumedFailedToolMessageIndexes: resumeState.failedToolMessageIndexes,
+              resumedFinalAnswerOccurrences: resumeState.finalAnswerOccurrences,
+              resumedFinalAnswerSettlements: resumeState.finalAnswerSettlements,
+              resumedInterruptedFinalAnswerSettlementIds:
+                resumeState.interruptedFinalAnswerSettlementIds,
             }
           : {}),
         ...(resumedSteeringApplied > 0 ? { resumedSteeringApplied } : {}),
