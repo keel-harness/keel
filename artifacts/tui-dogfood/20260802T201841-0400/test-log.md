@@ -897,4 +897,18 @@
   nonroutine evidence, long/repeated examples, densities, NO_COLOR, Static rerender, and two terminal
   sizes; DX preserves counts and `/verbose` inspection while removing ten rows; simplicity adds one
   bounded grouping helper and no panel, dependency, protocol, or parallel evidence system. No local
-  must-fix remains. Publication commit and CI are pending.
+  must-fix remains.
+- Candidate `ea79cf59486212ef4e818e35b94c54c13ae239fd` with tree
+  `8261e69c8a0ee206da2806bc84016431e8193dc1` passed exact reviewed-head CI run `30863536934`,
+  including `ci-required` job `91851489863`.
+- Owner-authorized admin squash merged PR #92 as
+  `2ca060e796291c5ef3cfe9608c2b7c5f53c75771`; merge tree
+  `8261e69c8a0ee206da2806bc84016431e8193dc1` exactly matches the candidate. Exact post-main CI run
+  `30863981683` passed, including `ci-required` job `91852829645`. Issue #91 auto-closed. The
+  feature worktree, local branch, remote branch, and stale remote-tracking ref were removed/pruned;
+  only canonical `main` remained before this docs-only closeout branch was created. The
+  evidence-bound score is officially **3.87/5** (240/62); the strict final six-workflow gate
+  remains open.
+- Closeout changes evidence only; no product behavior changed, so no new red test applies. The
+  artifact consistency suite passes **21/21**, repository format check passes, and
+  `git diff --check` passes in the isolated closeout worktree.

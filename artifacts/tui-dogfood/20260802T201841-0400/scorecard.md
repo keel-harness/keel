@@ -7,7 +7,7 @@ Scores use 1 (unusable) through 5 (excellent). `TBD` means the workflow has not 
 | Onboarding | before | 3 | 3 | 4 | 3 | 3 | 3 | 2 | 3 | N/A | N/A | 2 |
 | Onboarding | after R8 | 4 | 3 | 4 | 3 | 3 | 4 | 3 | 4 | N/A | N/A | 2 |
 | Onboarding | after R9 (E2-E4) | 4 | 4 | 4 | 4 | 4 | 4 | 3 | 4 | N/A | N/A | 2 |
-| Onboarding | R12 candidate (E2-E4) | 4 | 4 | 4 | 4 | 4 | 4 | 4 | 4 | N/A | N/A | 2 |
+| Onboarding | after R12 (E2-E4) | 4 | 4 | 4 | 4 | 4 | 4 | 4 | 4 | N/A | N/A | 2 |
 | Feature | before | 3 | 2 | 3 | 3 | 2 | 2 | 2 | 3 | 2 | 1 | 4 |
 | Feature | after R1+R2 | 4 | 2 | 3 | 3 | 3 | 4 | 3 | 4 | 3 | 2 | 4 |
 | Feature | after R1+R2+R6 | 4 | 3 | 3 | 3 | 4 | 4 | 3 | 4 | 3 | 2 | 4 |
@@ -110,7 +110,8 @@ npm carrier at 80x24 and 100x30. Baseline emits eight individual read rows and f
 search rows. The candidate emits one count-preserving read group and one count-preserving search
 group, with the same thirteen provider-fixture requests, final answer, clean exit, governed posture,
 and returned composer. Verbose/debug retain the twelve exact rows and quiet retains the established
-omission behavior. This directly raises only onboarding cognitive load by one point. The local
-candidate aggregate is **3.87/5** (240/62); it is not official until exact reviewed-head and
-post-main CI pass. Onboarding final-result confidence and the strict final six-workflow gate remain
-open.
+omission behavior. This directly raises only onboarding cognitive load by one point. Candidate
+`ea79cf5` passed exact reviewed-head CI `30863536934`, merged through PR #92 as `2ca060e` with
+identical tree `8261e69`, and passed exact post-main CI `30863981683`. Cleanup passed, so the
+evidence-bound aggregate is officially **3.87/5** (240/62). Onboarding final-result confidence and
+the strict final six-workflow gate remain open.

@@ -41,3 +41,8 @@ identifier. SHA-256 values are
 
 Security enforcement, Warden verdicts, frozen contracts, audit authority, model-visible results,
 and provider behavior are unchanged.
+
+Candidate `ea79cf5` passed exact reviewed-head CI `30863536934` and merged through PR #92 as
+`2ca060e` with identical tree `8261e69`. Exact post-main CI `30863981683` passed, including
+`ci-required` job `91852829645`; issue #91 closed and feature cleanup passed. The evidence-bound
+aggregate is officially **3.87/5** (240/62), while the strict final six-workflow gate remains open.

@@ -36,8 +36,9 @@ credentials nor user-home paths.
 
 All six requested workflow classes have live evidence. Evidence PR #53; implementation PRs #55,
 #57, #59, #61, #65, #66, #68, #71, #73, and #75; repeatability PR #63; R6 evidence correction PR
-#69; R10 PR #80 and closeout PR #81; R11 PR #83; PTY observer repair PR #85; and dependency-
-remediation PR #78; and R14 PR #88 were owner-approved, squash-merged, and cleaned up. Each UX
+#69; R10 PR #80 and closeout PR #81; R11 PR #83; PTY observer repair PR #85; dependency-
+remediation PR #78; R14 PR #88; and R12 PR #92 were owner-approved, squash-merged, and cleaned up.
+Each UX
 slice passed reviewed-head CI. R9's first post-merge run exposed a high `brace-expansion` advisory;
 PR #78 repaired it. Exact current-main CI run `30856149564` passes at `939b8c4` after the later
 validated slices and PTY observer repair. R14 then passed exact current-main CI run `30859848006`
@@ -195,7 +196,7 @@ confidence by two observed points. Candidate `03a6ad2` passed exact reviewed-hea
 evidence-bound official score is now **3.85/5** (239/62). The stricter final six-workflow release
 gate remains open.
 
-R12 is locally validated under [issue #91](https://github.com/keel-harness/keel/issues/91). The same
+R12 closed [issue #91](https://github.com/keel-harness/keel/issues/91). The same
 installed-carrier unfamiliar-repository fixture made thirteen deterministic loopback requests at
 80x24 and 100x30. Baseline rendered eight individual reads plus four individual searches; the
 candidate renders one read group and one search group with exact counts and bounded examples. The
@@ -206,7 +207,9 @@ groups.
 Focused **411/411**, full TUI **1,357/1,357**, unrestricted full coverage and final full suite
 **6,545 / 20 existing opt-in skips**, lint, typecheck, format, build, package, and
 `git diff --check` pass. Screenshots 37–38 are visually inspected sanitized 1400x840 comparison
-transcriptions. R12 made zero Anthropic calls, so cumulative spend remains USD 2.74434625. The
-directly observed onboarding cognitive-load change makes the local candidate score **3.87/5**
-(240/62); publication CI remains pending and the official score remains **3.85/5** until merge
-closeout.
+transcriptions. R12 made zero Anthropic calls, so cumulative spend remains USD 2.74434625. Candidate
+`ea79cf5` passed exact reviewed-head CI run `30863536934` and squash-merged through
+[PR #92](https://github.com/keel-harness/keel/pull/92) as `2ca060e`; both commits have tree
+`8261e69`. Exact post-main CI run `30863981683` passed, including `ci-required` job `91852829645`.
+Issue #91 closed and feature cleanup passed, so the evidence-bound official score is now
+**3.87/5** (240/62). The stricter final six-workflow release gate remains open.

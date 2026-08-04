@@ -235,3 +235,6 @@ deny a tool, grant or batch a review, alter policy input, change sandbox or egre
 audit record, or synthesize a result. Reviews, blocked/limited/partial outcomes, failures, mutations,
 and nonroutine tools are excluded. Verbose/debug preserve every exact observation. Warden verdicts,
 grantability, audit, model-visible results, frozen contracts, and interrupt totals are unchanged.
+Candidate `ea79cf5` and merge `2ca060e` share tree `8261e69`; exact reviewed-head CI `30863536934`
+and post-main CI `30863981683` passed. Issue #91 closed and feature cleanup passed. The historical
+interrupt totals remain unchanged.
