@@ -905,3 +905,16 @@ This remediation program is complete only when:
 
 The 4.0 stretch gate is a second milestone. It should be pursued only after the 3.8 candidate is
 truthful, recoverable, and stable; polish cannot compensate for dead ends or false state.
+
+## 2026-08-04 evidence-bound score status
+
+The 4.0 candidate score is not self-validating. Exact merged replay invalidated onboarding when the
+final primary invented a runtime mechanism, temporarily returning the evidence-bound mean to
+3.97/5. Issue #136's first three global-prompt candidates also failed semantic QC despite
+mechanical PASS. The approved narrow rewrite-boundary repair now passes twice and restores the
+provisional 4.04/5 mean, but promotion still requires exact-head CI, tree-identical merge proof,
+post-main CI, and two complete fresh-home all-six replays from one merged carrier.
+
+This adds an explicit release rule: **human semantic QC of load-bearing final-answer claims is a
+required gate; mechanical answer length, exit status, and settlement success cannot substitute for
+truth.**

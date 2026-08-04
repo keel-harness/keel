@@ -505,3 +505,23 @@ post-main CI `30956531938` passed required aggregate job `92152127274` plus ever
 coverage, package, real-sandbox, security, audit, cross-architecture, Node-next, egress-scale, and
 installed-product lane. The stale feature worktree/branch and remote-tracking ref were removed.
 Only the all-six same-commit replay remains open.
+
+The exact merged-carrier replay then exposed DF-032: onboarding mechanically passed, but its
+bounded primary asserted a false character-by-character `pathlib.Path` runtime mechanism that no
+preceding tool result demonstrated. Three ordinary-system-prompt candidates also passed the
+mechanical harness but failed human semantic QC. The owner therefore approved the narrow
+[issue #136](https://github.com/keel-harness/keel/issues/136) extension to ADR-0087's existing
+tools-disabled rewrite instruction.
+
+Retained candidate `a944839` changes only that instruction and focused assertions. It preserves one
+request, absent tools, hard limits, fallback, and every authority boundary while requiring
+unsupported runtime predictions to become source-level control flow plus an explicit unknown. Two
+fresh-home exact-carrier live runs independently pass human QC, exit zero, request zero reviews,
+and leave frozen Click clean. Screenshot 71 and session log 31 retain sanitized evidence. Full
+tests and coverage pass **6,673 tests / 20 intentional opt-in skips**; static/build/package gates
+are green. Cumulative spend is **USD 10.98614305**, leaving USD 9.01385695 under the hard cap and
+USD 7.01385695 before the final USD 2 reserve.
+
+The accepted candidate evidence restores onboarding to **4.11/5**, the provisional six-workflow
+mean to **4.04/5**, and the pooled diagnostic to **4.02/5 (249/62)**. These remain candidate values:
+publication and the exact merged all-six replay are still required before final promotion.

@@ -75,8 +75,14 @@ applicable input rate.
 | #133 live candidate 1 (rejected) | 222,838 | 85,442 | 63,153 | 4,287 | 1.0722 | 6.6541 | 13.3459 |
 | #133 live candidate 2 (rejected) | 60,938 | 42,267 | 224,613 | 5,993 | 0.4986 | 7.1527 | 12.8473 |
 | #133 live candidate 3 (accepted locally) | 80,129 | 106,534 | 92,106 | 3,526 | 0.7204 | 7.8731 | 12.1269 |
+| Exact merged onboarding (semantic reject) | 66,446 | 39,521 | 57,381 | 4,208 | 0.4279 | 8.3010 | 11.6990 |
+| #136 ordinary prompt 1 (rejected) | 69,211 | 43,473 | 80,980 | 4,293 | 0.4593 | 8.7604 | 11.2396 |
+| #136 ordinary prompt 2 (rejected) | 62,943 | 45,126 | 88,977 | 4,206 | 0.4478 | 9.2082 | 10.7918 |
+| #136 ordinary prompt 3 (rejected) | 102,371 | 57,151 | 128,311 | 3,907 | 0.6185 | 9.8267 | 10.1733 |
+| #136 rewrite boundary live 1 (accepted) | 46,995 | 29,356 | 55,437 | 4,609 | 0.3368 | 10.1636 | 9.8364 |
+| #136 rewrite boundary live 2 (accepted) | 165,754 | 67,193 | 53,073 | 3,829 | 0.8226 | 10.9861 | 9.0139 |
 
-Anthropic provider calls: 157 successful, 4 rejected at zero reported usage. R7's two local-fixture
+Anthropic provider calls: 225 successful, 4 rejected at zero reported usage. R7's two local-fixture
 requests are not Anthropic calls and carry no Anthropic cost. The USD 2.00 final-regression
 reserve remains intact. The R1 through R6 and R0 replays were deterministic and offline; they made
 no Anthropic request. R3's displayed 175 and R4's displayed 136 replay tokens are synthetic
@@ -221,3 +227,24 @@ USD 10.12686965 remains available before preserving the final USD 2.00 reserve.
 PR #134 publication, issue closure, exact-tree comparison, exact post-main CI, and this evidence-
 only closeout made **zero Anthropic requests** and add zero cost. Cumulative spend remains **USD
 7.87313035**; USD 12.12686965 remains under the hard cap and the final USD 2.00 reserve is intact.
+
+The exact merged `9a9e40a` onboarding run made ten requests and reported 163,348 input tokens:
+66,446 fresh, 39,521 cache write, and 57,381 cache read, plus 4,208 output. Its exact increment is
+USD 0.42787605. It mechanically passed, but human semantic QC rejected its false unproved runtime
+mechanism; no score credit is assigned.
+
+Issue #136 ordinary-system-prompt candidates made 12, 12, and 13 requests. Their exact costs are
+USD 0.45934575, USD 0.44783460, and USD 0.61852755. All settled `accepted-rewrite` with zero reviews
+but failed human semantic QC, so they remain rejected evidence.
+
+After the owner-approved rewrite-boundary extension, two independent fresh-home runs made 12 and
+nine requests. Live 1 reported 46,995 fresh, 29,356 cache-write, 55,437 cache-read, and 4,609 output
+tokens for USD 0.33683610. Live 2 reported 165,754 fresh, 67,193 cache-write, 53,073 cache-read, and
+3,829 output tokens for USD 0.82259265. Both passed human semantic QC, requested zero reviews, and
+left the frozen Click worktrees clean.
+
+Cumulative dogfood spend is now **USD 10.98614305**. USD 9.01385695 remains under the hard cap;
+USD 7.01385695 remains usable before preserving the final USD 2.00 reserve. The $10 threshold
+review found continued value in closing this high-impact trust defect. Broad exploration remains
+stopped; the remaining budget is prioritized for exact merged regression and final evidence. No
+credential value was read, copied, printed, logged, committed, or captured.

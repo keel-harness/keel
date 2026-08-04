@@ -268,3 +268,17 @@ axis observation, so the candidate mean remains **4.04/5** and the pooled diagno
 **4.02/5 (249/62)**. Exact-head CI `30956020646`, tree-identical publication through PR #134 as
 `8f0363f`, issue closure, exact post-main CI `30956531938`, and feature cleanup are green. The strict
 same-commit replay remains open.
+
+The exact merged replay then invalidated that provisional onboarding score: despite mechanical
+PASS, the final primary asserted a false runtime failure mechanism without direct evidence. Human
+QC therefore held onboarding at **3.67/5**, the six-workflow mean at **3.97/5**, and the pooled
+diagnostic at **3.95/5 (245/62)** while #136 remained open. Three global-prompt candidates did not
+earn credit because each retained or replaced the unsupported runtime prediction.
+
+After the owner-approved rewrite-boundary extension, two independent fresh-home candidate runs
+state only the source-observed branch/list flow and explicitly leave runtime behavior unknown
+without execution. Both have zero reviews, clean completion, and factual concise plans. This
+restores the candidate onboarding row to **4.11/5**, candidate unweighted mean to **4.04/5**, and
+pooled diagnostic to **4.02/5 (249/62)**. No new axis points are added; #136 restores the validity
+of the already credited #113 result. Publication and the exact merged all-six replay remain the
+strict promotion gate.

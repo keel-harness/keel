@@ -562,3 +562,27 @@
 - Boundaries: no retry, truncation, oversize acceptance, typed contract, schema, ModelPort, Warden,
   policy, sandbox, egress, audit, dependency, public CLI, or security-claim change. No score credit
   is added; this repairs reliability of the already credited #113 onboarding outcome.
+
+### DF-032 — bounded final answer invents an unsupported runtime mechanism
+
+- Severity: P0 trust/final-result confidence for repository onboarding.
+- Status: fixed locally under [issue #136](https://github.com/keel-harness/keel/issues/136);
+  publication and exact merged replay pending.
+- Direct evidence: exact merged carrier `9a9e40a` passed its mechanical oracle but claimed that a
+  bare `pathlib.Path` iterates character by character. The run had inspected only source; no
+  preceding tool result demonstrated a runtime mechanism. The statement is also false on the
+  measured runtime.
+- Failed approaches: three ordinary-system-prompt candidates exited zero and met the hard answer
+  contract, but human QC rejected false character iteration, an unproved list/type failure, and a
+  return to the original false mechanism. A harness PASS is not treated as semantic truth.
+- Repair: with explicit owner approval, retain one tools-disabled rewrite but require direct
+  preceding tool evidence for runtime claims; source, types, original prose, and an `unverified`
+  label do not count. Unsupported predictions become source-level control flow plus an explicit
+  unknown without a named failure mechanism.
+- Validation: red-first 3-case failure; focused 40/40; full and coverage 6,673 passed / 20 existing
+  opt-in skips; static/build/package; exact candidate tarball; two independent live runs with zero
+  reviews, clean Click, exit zero, factual primary answers, and exact costs USD 0.33683610 and USD
+  0.82259265. Screenshot 71 and session log 31 retain sanitized evidence.
+- Boundaries: no second model call, retry, semantic grader/classifier, phrase filter, forced
+  execution, hard-limit change, new state, dependency, schema, ModelPort, Warden, policy, sandbox,
+  egress, audit, grant, RPC, public CLI, or security-claim change.
