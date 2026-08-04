@@ -1012,3 +1012,21 @@
   unavailability now defeats contradictory request-derived activity bytes. Spec/ADR, security,
   reliability, TUI/DX, and simplicity passes have no unresolved local must-fix. The candidate score
   is **3.90/5** (242/62); publication and immutable reviewed-head/main evidence remain pending.
+
+## 2026-08-04 — R15 publication closeout
+
+- Evidence head `686bd1d4adb3188f69c92da4051afc753d433246` passed exact reviewed-head CI run
+  `30872462126`. PR #98 squash-merged as `76a45c3bec8dff17306ace5474df42992060c57d`.
+- Reviewed-head and merge trees are identical at
+  `93c19c163106adcd49d992751d0ff11e017e9877`; no unreviewed runtime byte entered `main`.
+- Exact post-merge `main` CI run `30873064247` passed every selected gate, including Linux/macOS
+  build and test lanes, Node-next, package and cross-architecture carrier smokes, security, audit,
+  real-sandbox probes, egress scale/product matrices, and `ci-required`.
+- Issue #97 closed. The remote feature branch was absent, and the clean local feature
+  branch/worktree were removed. R15 is officially **3.90/5** (242/62); the strict same-commit
+  six-workflow release gate remains open.
+- This closeout changes evidence only, so no new red behavior test applies. The isolated worktree's
+  first artifact and format invocations were **NOT_RUN** because `vitest` and `prettier` were absent;
+  no test collected and no tracked file changed. Reusing synchronized `main`'s exact installed
+  dependency tree through a worktree-local ignored symlink then passed artifact consistency
+  **21/21**, repository format, and `git diff --check`.

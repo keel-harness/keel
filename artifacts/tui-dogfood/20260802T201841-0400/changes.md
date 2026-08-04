@@ -556,7 +556,7 @@ worktree were removed.
   passed, 23 skipped`. The immediately preceding implementation run also had progress `39 passed`.
 - Static checks: ruff/mypy/pyright **NOT_RUN** because unavailable.
 
-## Keel — R15 availability-aware focused diff review candidate
+## Keel — R15 availability-aware focused diff review
 
 - `/diff review` keeps the existing bounded available-comparison viewer and now retains successful
   typed `edit`/`write` observations whose producer presentation has no review rows.
@@ -586,5 +586,9 @@ worktree were removed.
 - No persistence, preimage, rollback, automatic undo, workspace reread, Git inference, Warden
   verdict, policy, sandbox, egress, audit, provider, dependency, frozen contract, or security claim
   changes. Five-lens QC has no unresolved local must-fix.
-- The locally validated candidate raises only observed feature user control, producing a candidate
-  aggregate of **3.90/5** (242/62). PR/CI/merge/cleanup proof remains pending.
+- The retained change raises only observed feature user control. Reviewed head
+  `686bd1d4adb3188f69c92da4051afc753d433246` passed exact-head CI `30872462126`; PR #98
+  squash-merged as `76a45c3bec8dff17306ace5474df42992060c57d`. Candidate and merge share tree
+  `93c19c163106adcd49d992751d0ff11e017e9877`. Exact post-main CI `30873064247`, issue #97
+  closure, and feature branch/worktree cleanup passed. The evidence-bound aggregate is officially
+  **3.90/5** (242/62); the strict final gate remains open.
