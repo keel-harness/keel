@@ -2439,7 +2439,12 @@ export function reduce(view: ViewModel, ev: KernelEventT | UiInputEventT): ViewM
         ...resumedView,
         items: [
           ...resumedView.items,
-          { kind: "message", role: "system", content: settlementReceipt },
+          {
+            kind: "message",
+            role: "system",
+            content: settlementReceipt,
+            presentation: "notice",
+          },
         ],
       }),
       ev,
@@ -2727,7 +2732,12 @@ export function reduce(view: ViewModel, ev: KernelEventT | UiInputEventT): ViewM
       return withDerived({
         ...closedBase,
         ...(content !== undefined && content.length > 0
-          ? { items: [...view.items, { kind: "message", role: "system", content }] }
+          ? {
+              items: [
+                ...view.items,
+                { kind: "message", role: "system", content, presentation: "notice" },
+              ],
+            }
           : {}),
       });
     }

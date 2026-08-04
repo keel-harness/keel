@@ -1678,8 +1678,27 @@ function blockContainsStreamingTail(block: ConversationBlock, view: ViewModel): 
   return block.startIndex <= tailIndex && tailIndex <= block.endIndex;
 }
 
-function isCommitEligible(block: ConversationBlock, view: ViewModel): boolean {
+function isCommitEligible(
+  block: ConversationBlock,
+  view: ViewModel,
+  latestTurnId: string | undefined,
+  latestTurnHasTrailingControllerNotice: boolean,
+): boolean {
   if (block.kind === "turn" && block.currentTurn !== undefined) return false;
+  // A controller-authored notice can follow a settled tool while the same model turn continues.
+  // `run-finished` still owns the authoritative summary for the latest user turn, so a trailing
+  // loose notice is not by itself an immutable boundary. Keep that turn live until either its
+  // summary arrives or the controller explicitly returns to input; an earlier user turn remains
+  // safe to commit once a later user turn establishes the real continuation boundary.
+  if (
+    block.kind === "turn" &&
+    block.id === latestTurnId &&
+    latestTurnHasTrailingControllerNotice &&
+    view.turnSummary === undefined &&
+    view.awaitingInput !== true
+  ) {
+    return false;
+  }
   if (
     block.kind === "items" &&
     block.endIndex === view.items.length - 1 &&
@@ -1707,9 +1726,30 @@ export function transcriptCommitPlan(
   const staticBlocks: ConversationBlock[] = [];
   const liveBlocks: ConversationBlock[] = [];
   let foundLive = false;
+  let latestTurnId: string | undefined;
+  let latestTurnIndex = -1;
+  for (const [index, block] of plan.blocks.entries()) {
+    if (block.kind === "turn") {
+      latestTurnId = block.id;
+      latestTurnIndex = index;
+    }
+  }
+  const latestTurnHasTrailingControllerNotice = plan.blocks
+    .slice(latestTurnIndex + 1)
+    .some(
+      (block) =>
+        block.kind === "items" &&
+        block.items.some(
+          (item) =>
+            item.kind === "message" && item.role === "system" && item.presentation === "notice",
+        ),
+    );
 
   for (const block of plan.blocks) {
-    if (!foundLive && isCommitEligible(block, view)) {
+    if (
+      !foundLive &&
+      isCommitEligible(block, view, latestTurnId, latestTurnHasTrailingControllerNotice)
+    ) {
       staticBlocks.push(block);
       continue;
     }

@@ -25,6 +25,10 @@ import { terminalReviewResult } from "../warden/terminal-review.js";
 import { LOCAL_INPUT_ACTIVITY, LocalInputActivityRegistry } from "./input-activity.js";
 import { DIFF_VIEWER_CONTROL, type DiffViewerOpenResult } from "./diff-viewer-control.js";
 import { INPUT_HISTORY_SEED } from "./input-history.js";
+import { appendWardenAutoResolvedEvent } from "../warden/receipt.js";
+import { ScopedEgressApprovals } from "../warden/approval.js";
+import { WardenExecutor, type WardenExecuteClient } from "../warden/executor.js";
+import { createInteractiveReviewDecisionController } from "./review-decision.js";
 
 const env = (): NodeJS.ProcessEnv => ({ KEEL_HOME: mkdtempSync(join(tmpdir(), "keel-")) });
 
@@ -156,6 +160,133 @@ const hasAssistant = (v: ViewModel, content: string): boolean =>
   v.items.some((it) => it.kind === "message" && it.role === "assistant" && it.content === content);
 
 describe("runRepl — multi-turn REPL (Epic 1.23 slice 0, walking skeleton)", () => {
+  it("keeps an exact session-grant reuse receipt visible after a later distinct denial", async () => {
+    const e = env();
+    const store = SessionStore.create({ cwd: "/w" }, e);
+    const ui = new ReplUI();
+    const reviews = [
+      {
+        reviewId: "egress_review_1",
+        summary: "egress to example.com requires review: curl https://example.com/first",
+        allowCommand: "keel approve egress_review_1 --scope once --domain example.com",
+      },
+      {
+        reviewId: "egress_review_2",
+        summary: "egress to example.com requires review: curl https://example.com/second",
+        allowCommand: "keel approve egress_review_2 --scope once --domain example.com",
+      },
+      {
+        reviewId: "egress_review_3",
+        summary: "egress to example.org requires review: curl https://example.org/distinct",
+        allowCommand: "keel approve egress_review_3 --scope once --domain example.org",
+      },
+    ] as const;
+    const resolved = [
+      {
+        verdict: "allow" as const,
+        result: { exitCode: 0, signal: null, stdout: "first page\n", stderr: "" },
+        auditSeq: 2,
+      },
+      {
+        verdict: "allow" as const,
+        result: { exitCode: 0, signal: null, stdout: "second page\n", stderr: "" },
+        auditSeq: 4,
+      },
+      { verdict: "deny" as const, result: "human denied review", auditSeq: 6 },
+    ];
+    const resolveCalls: { readonly reviewId: string; readonly approved: boolean }[] = [];
+    let execution = 0;
+    let resolution = 0;
+    const client = {
+      async call(method: string, params: unknown) {
+        if (method === "warden.execute") {
+          const review = reviews[execution];
+          if (review === undefined) throw new Error("unexpected warden.execute call");
+          execution += 1;
+          return { verdict: "review", review, auditSeq: execution * 2 - 1 };
+        }
+        if (method === "warden.resolveReview") {
+          const request = params as { readonly reviewId: string; readonly approved: boolean };
+          resolveCalls.push({ reviewId: request.reviewId, approved: request.approved });
+          const result = resolved[resolution];
+          if (result === undefined) throw new Error("unexpected warden.resolveReview call");
+          resolution += 1;
+          return result;
+        }
+        throw new Error(`unexpected Warden method: ${method}`);
+      },
+    } as unknown as WardenExecuteClient;
+    const reviewDecisions = createInteractiveReviewDecisionController();
+    const executor = new WardenExecutor({
+      client,
+      sessionId: store.id,
+      egressApprovals: new ScopedEgressApprovals(),
+      principal: {
+        osUser: "tester",
+        configuredId: null,
+        authProvider: "local",
+        assurance: "local-os-user",
+      },
+      onReviewAutoResolved: (event) => appendWardenAutoResolvedEvent(store, event),
+      onReviewRequired: reviewDecisions.onReviewRequired,
+    });
+    const done = runRepl({
+      model: new ScriptedModel({
+        turns: [
+          { toolCalls: [{ name: "bash", args: { command: "curl https://example.com/first" } }] },
+          { toolCalls: [{ name: "bash", args: { command: "curl https://example.com/second" } }] },
+          { toolCalls: [{ name: "bash", args: { command: "curl https://example.org/distinct" } }] },
+          { text: "Equivalent scope reused; distinct scope denied." },
+        ],
+      }),
+      executor,
+      ui,
+      store,
+      head: [],
+      env: e,
+      reviewDecisions,
+    });
+
+    ui.push({ kind: "line", text: "fetch the documentation pages" });
+    await ui.awaitRender(
+      (view) =>
+        view.activeApproval?.state === "pending" &&
+        view.activeApproval.detail.includes("example.com"),
+    );
+    ui.push({ kind: "line", text: "s" });
+    await ui.awaitRender(
+      (view) =>
+        view.activeApproval?.state === "pending" &&
+        view.activeApproval.detail.includes("example.org"),
+    );
+    expect(resolveCalls).toEqual([
+      { reviewId: "egress_review_1", approved: true },
+      { reviewId: "egress_review_2", approved: true },
+    ]);
+    ui.push({ kind: "line", text: "d" });
+    await ui.awaitRender(
+      (view) =>
+        view.awaitingInput === true &&
+        hasAssistant(view, "Equivalent scope reused; distinct scope denied."),
+    );
+
+    const frame = renderFrame(ui.latest!);
+    expect(frame).toContain(
+      "automatic: session grant (until session exit) allowed bash via domain example.com " +
+        "(review egress_review_2, audit #4)",
+    );
+    expect(frame).toContain("blocked by warden");
+    expect(resolveCalls).toEqual([
+      { reviewId: "egress_review_1", approved: true },
+      { reviewId: "egress_review_2", approved: true },
+      { reviewId: "egress_review_3", approved: false },
+    ]);
+
+    ui.endInput();
+    await done;
+    store.close();
+  });
+
   it("returns terminal attention detail from an interactive recovered review-required answer", async () => {
     const e = env();
     const store = SessionStore.create({ cwd: "/w" }, e);

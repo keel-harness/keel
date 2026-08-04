@@ -592,3 +592,24 @@ worktree were removed.
   `93c19c163106adcd49d992751d0ff11e017e9877`. Exact post-main CI `30873064247`, issue #97
   closure, and feature branch/worktree cleanup passed. The evidence-bound aggregate is officially
   **3.90/5** (242/62); the strict final gate remains open.
+
+## R16 candidate — retain automatic approval receipts across Ink history commit
+
+- Added a production-shaped Warden/review/session-grant sequence to both headless and real Ink REPL
+  coverage. One human session approval covers the later exact domain; a distinct domain remains a
+  fresh deniable review. Tests assert the exact resolve calls, single pending topology, settled
+  count removal, lifecycle copy, automatic receipt, and truthful final attention.
+- Tagged the two controller-owned approval-settlement message constructors with the existing
+  `presentation: notice` value. The transcript commit planner keeps only the latest incomplete user
+  turn live when such a tagged notice trails it, allowing the later authoritative summary to enter
+  append-only Ink history exactly once.
+- A broader any-system-message version failed the full streaming property and was discarded. The
+  retained structural tag preserves arbitrary system-message parity and lets earlier turns commit
+  as soon as a later user turn proves the boundary.
+- Full TUI **1,372/1,372**, full tests/coverage **6,561/20**, all enforced coverage thresholds,
+  typecheck, lint, format, build, four-carrier package, supply-chain check, and diff check pass.
+- Exact installed 80x24/100x30 positive and negative PTY paths pass. Screenshots 43–44 show the
+  missing baseline fact and the single candidate receipt. No Warden, policy, grant, sandbox,
+  egress, audit, RPC/schema, dependency, public CLI, or security claim changes.
+- The local candidate reaches **4.01/5** under the plan's unweighted workflow-mean formula and
+  **3.98/5** under the legacy pooled-cell diagnostic. Publication and cleanup gates remain pending.

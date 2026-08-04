@@ -30,6 +30,7 @@ Scores use 1 (unusable) through 5 (excellent). `TBD` means the workflow has not 
 | Warden-heavy | after R1 | 4 | 2 | 2 | 2 | 4 | 3 | 3 | 4 | 3 | 2 | 4 |
 | Warden-heavy | after R1+R5 | 4 | 2 | 2 | 2 | 4 | 4 | 4 | 4 | 4 | 2 | 4 |
 | Warden-heavy | after R11 (E2-E4) | 4 | 3 | 2 | 2 | 5 | 4 | 4 | 4 | 4 | 3 | 4 |
+| Warden-heavy | R16 candidate (E2-E4) | 4 | 3 | 4 | 4 | 5 | 4 | 4 | 4 | 4 | 4 | 4 |
 
 The evidence-weighted baseline across applicable cells was **2.77/5**. Applying the validated R1
 Warden-heavy, R2 feature-workflow, R3 debugging-recovery, and R4 bounded mutation-review changes
@@ -140,3 +141,20 @@ control by one point. Local E2-E4 and five-lens QC pass, so the aggregate is **3
 closed and feature cleanup passed, so **3.90/5** is now the official evidence-bound aggregate. The
 onboarding final-confidence, Warden-heavy control/progress, and strict same-commit six-workflow
 gates remain open.
+
+R16 repeats a genuinely grantable external-documentation sequence through the exact installed npm
+carrier at 80x24 and 100x30. One exact `domain example.com` session approval covers the second
+equivalent action without another prompt and now emits one controller-owned automatic receipt. A
+later `domain example.org` action opens a fresh review and remains independently deniable. The
+production controller proves one active review at a time, so no unsupported concurrent queue or
+text-similarity batch surface was added. This directly raises Warden-heavy progress and control from
+2 to 4 and interruption burden from 3 to 4. Local E2-E4, the exact installed-carrier matrix, and
+five-lens QC pass.
+
+The remediation plan defines the overall score as the unweighted mean of six workflow means. On
+that formula the R16 candidate is **4.01/5**. The scorecard's historical pooled-cell diagnostic is
+**3.98/5** (247/62). Both are recorded to expose the pre-existing formula mismatch rather than
+silently switching the series. Neither value is official until exact reviewed-head CI, merge-tree
+identity, post-main CI, and cleanup pass. The strict release gate also remains open: onboarding
+final confidence, debugging control, the same-commit six-workflow replay, and required final E5
+evidence are not yet green.

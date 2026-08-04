@@ -2294,6 +2294,63 @@ describe("transcriptCommitPlan", () => {
     expect(plan.livePlan.blocks[1]?.kind).toBe("items");
   });
 
+  it("keeps the latest turn live across a mid-run controller notice until its summary arrives", () => {
+    const items: ViewItem[] = [
+      user("fetch the documentation pages"),
+      bash("first", "stdout: first page"),
+      {
+        kind: "message",
+        role: "system",
+        presentation: "notice",
+        content:
+          "approval settled · approved exact session scope\n" +
+          "history · earlier approval-required block is historical/resolved",
+      },
+      bash("second", "stdout: second page"),
+    ];
+
+    const betweenProviderTurns = transcriptCommitPlan(view(items));
+
+    expect(betweenProviderTurns.staticBlocks).toHaveLength(0);
+    expect(betweenProviderTurns.livePlan.blocks.map((block) => block.kind)).toEqual([
+      "turn",
+      "items",
+    ]);
+
+    const settled = transcriptCommitPlan(
+      view(items, {
+        awaitingInput: true,
+        turnSummary: {
+          title: "done",
+          changed: [],
+          checked: [],
+          attention: [],
+          automatic: [
+            "session grant (until session exit) allowed bash via domain example.com " +
+              "(review egress_review_2, audit #4)",
+          ],
+        },
+      }),
+    );
+    const settledTurn = settled.staticBlocks.find((block) => block.kind === "turn");
+
+    expect(settledTurn?.kind).toBe("turn");
+    if (settledTurn?.kind !== "turn") return;
+    expect(settledTurn.summary?.automatic).toEqual([
+      "session grant (until session exit) allowed bash via domain example.com " +
+        "(review egress_review_2, audit #4)",
+    ]);
+
+    const continued = transcriptCommitPlan(
+      view([...items, user("start a distinct turn"), assistant("working")], {
+        streaming: true,
+      }),
+    );
+    expect(continued.staticBlocks.map((block) => block.kind)).toEqual(["turn", "items"]);
+    expect(continued.livePlan.blocks).toHaveLength(1);
+    expect(continued.livePlan.blocks[0]?.kind).toBe("turn");
+  });
+
   it("keeps the current idle system panel live, then commits it after the next turn starts", () => {
     const complete = transcriptCommitPlan(
       view([user("inspect"), assistant("done")], { awaitingInput: true }),

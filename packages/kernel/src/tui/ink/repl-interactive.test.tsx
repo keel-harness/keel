@@ -25,6 +25,10 @@ import {
 } from "../diff-viewer-control.js";
 import type { DiffViewerState } from "../diff-viewer.js";
 import { toolPresentationOutcome } from "../../tool-presentation-outcome.js";
+import { appendWardenAutoResolvedEvent } from "../../warden/receipt.js";
+import { ScopedEgressApprovals } from "../../warden/approval.js";
+import { WardenExecutor, type WardenExecuteClient } from "../../warden/executor.js";
+import { createInteractiveReviewDecisionController } from "../review-decision.js";
 import { Interactive } from "./interactive.js";
 
 const env = (): NodeJS.ProcessEnv => ({ KEEL_HOME: mkdtempSync(join(tmpdir(), "keel-")) });
@@ -114,6 +118,10 @@ class InkReplUI implements UIPort {
     return this.#app?.lastFrame();
   }
 
+  output(): string {
+    return this.#app?.frames.join("\n") ?? "";
+  }
+
   awaitRender(pred: (v: ViewModel) => boolean): Promise<void> {
     if (this.latest !== undefined && pred(this.latest)) return Promise.resolve();
     return new Promise((resolve, reject) => {
@@ -165,6 +173,144 @@ class InkReplUI implements UIPort {
 }
 
 describe("runRepl through the REAL Ink stack (Epic 1.23 slice 0 — interactive validation)", () => {
+  it("prints an exact session-grant reuse receipt before a later distinct denial", async () => {
+    const e = env();
+    const store = SessionStore.create({ cwd: "/w" }, e);
+    const ui = new InkReplUI();
+    const reviews = [
+      {
+        reviewId: "egress_review_1",
+        summary: "egress to example.com requires review: curl https://example.com/first",
+        allowCommand: "keel approve egress_review_1 --scope once --domain example.com",
+      },
+      {
+        reviewId: "egress_review_2",
+        summary: "egress to example.com requires review: curl https://example.com/second",
+        allowCommand: "keel approve egress_review_2 --scope once --domain example.com",
+      },
+      {
+        reviewId: "egress_review_3",
+        summary: "egress to example.org requires review: curl https://example.org/distinct",
+        allowCommand: "keel approve egress_review_3 --scope once --domain example.org",
+      },
+    ] as const;
+    const resolved = [
+      {
+        verdict: "allow" as const,
+        result: { exitCode: 0, signal: null, stdout: "first page\n", stderr: "" },
+        auditSeq: 2,
+      },
+      {
+        verdict: "allow" as const,
+        result: { exitCode: 0, signal: null, stdout: "second page\n", stderr: "" },
+        auditSeq: 4,
+      },
+      { verdict: "deny" as const, result: "human denied review", auditSeq: 6 },
+    ];
+    let execution = 0;
+    let resolution = 0;
+    const client = {
+      async call(method: string) {
+        if (method === "warden.execute") {
+          const review = reviews[execution];
+          if (review === undefined) throw new Error("unexpected warden.execute call");
+          execution += 1;
+          return { verdict: "review", review, auditSeq: execution * 2 - 1 };
+        }
+        if (method === "warden.resolveReview") {
+          const result = resolved[resolution];
+          if (result === undefined) throw new Error("unexpected warden.resolveReview call");
+          resolution += 1;
+          return result;
+        }
+        throw new Error(`unexpected Warden method: ${method}`);
+      },
+    } as unknown as WardenExecuteClient;
+    const reviewDecisions = createInteractiveReviewDecisionController();
+    const executor = new WardenExecutor({
+      client,
+      sessionId: store.id,
+      egressApprovals: new ScopedEgressApprovals(),
+      principal: {
+        osUser: "tester",
+        configuredId: null,
+        authProvider: "local",
+        assurance: "local-os-user",
+      },
+      onReviewAutoResolved: (event) => appendWardenAutoResolvedEvent(store, event),
+      onReviewRequired: reviewDecisions.onReviewRequired,
+    });
+    const done = runRepl({
+      model: new ScriptedModel({
+        turns: [
+          { toolCalls: [{ name: "bash", args: { command: "curl https://example.com/first" } }] },
+          { toolCalls: [{ name: "bash", args: { command: "curl https://example.com/second" } }] },
+          { toolCalls: [{ name: "bash", args: { command: "curl https://example.org/distinct" } }] },
+          { text: "Equivalent scope reused; distinct scope denied." },
+        ],
+      }),
+      executor,
+      ui,
+      store,
+      env: e,
+      reviewDecisions,
+    });
+
+    try {
+      await ui.awaitRender((view) => view.awaitingInput === true);
+      ui.stdin.write("fetch the documentation pages");
+      await tick();
+      ui.stdin.write(ENTER);
+      await ui.awaitRender(
+        (view) =>
+          view.activeApproval?.state === "pending" &&
+          view.activeApproval.detail.includes("example.com"),
+      );
+      expect(ui.latest?.pendingReviews).toBe(1);
+      ui.stdin.write("s");
+      await tick();
+      ui.stdin.write(ENTER);
+      await ui.awaitRender(
+        (view) =>
+          view.activeApproval?.state === "pending" &&
+          view.activeApproval.detail.includes("example.org"),
+      );
+      expect(ui.latest?.pendingReviews).toBe(1);
+      ui.stdin.write("d");
+      await tick();
+      ui.stdin.write(ENTER);
+      await ui.awaitRender(
+        (view) =>
+          view.awaitingInput === true &&
+          assistantSaid(view, "Equivalent scope reused; distinct scope denied."),
+      );
+      await tick();
+
+      expect(ui.latest?.turnSummary?.automatic).toContain(
+        "session grant (until session exit) allowed bash via domain example.com " +
+          "(review egress_review_2, audit #4)",
+      );
+      // Settled approval state canonically removes the optional count; zero is rendered from its
+      // absence, matching the reducer's approval-confirmed/denied contract.
+      expect(ui.latest?.pendingReviews).toBeUndefined();
+      const output = ui.output().replace(/\s+/gu, " ");
+      expect(output).toContain("decision sent");
+      expect(output).toContain("approval confirmed");
+      expect(output).toContain("request denied");
+      expect(output).not.toContain("2 review items pending");
+      expect(output).toContain(
+        "automatic session grant (until session exit) allowed bash via domain example.com " +
+          "(review egress_review_2, audit #4)",
+      );
+    } finally {
+      ui.stdin.write("/exit");
+      await tick();
+      ui.stdin.write(ENTER);
+      await done;
+      store.close();
+    }
+  });
+
   it("drives /diff review through the real InputBar, REPL sidecar, viewer, and back to composer", async () => {
     const e = env();
     const store = SessionStore.create({ cwd: "/w" }, e);
