@@ -263,6 +263,27 @@ describe("production Ink shell row budgets", () => {
     expect(frames[2][1]).toContain("/answer");
   });
 
+  it("keeps the complete 80x24 command palette visible with production-length identity metadata", async () => {
+    const base = initialView([], {
+      model: "openai-compatible/r20-no-provider",
+      cwd: "/private/tmp/keel-dogfood-click-20260802",
+      workspaceTrust: "trusted",
+      protectionRoute: "governed",
+      policy: { active: true, label: "Guided · starter@abc123" },
+      posture: { sandbox: true, egress: true, audit: true },
+    });
+    const frame = await renderShell({ ...base, overlay: { kind: "palette", query: "" } });
+    const budget = summarizeRowBudget(frame, 80);
+
+    expect(budget.physicalRows, `${JSON.stringify(budget)}\n${frame}`).toBeLessThanOrEqual(24);
+    expect(frame).toContain("openai-compatible/r20-no-provider");
+    expect(frame).toContain("workspace trusted");
+    expect(frame).toContain("/goal");
+    expect(frame).toContain("/reviews");
+    expect(frame).toContain("/answer");
+    expect(frame).toContain("›");
+  });
+
   it.each([
     [80, 24, { TERM: "xterm-256color", FORCE_COLOR: "1" }, "basic-color"],
     [80, 24, { TERM: "xterm-256color", NO_COLOR: "1" }, "no-color"],
