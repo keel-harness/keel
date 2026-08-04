@@ -47,7 +47,13 @@ describe("ADR-0087 final-answer contract primitives", () => {
       );
       expect(prompt).toContain(`Aim for ${targetWords} words or fewer to leave counting headroom.`);
       expect(prompt).toContain(
-        "Do not present runtime behavior as verified unless preceding tool results demonstrate it. Omit unsupported runtime specifics; if material, say only that the behavior was not probed.",
+        "Treat a runtime-behavior claim as unsupported unless a preceding tool result directly demonstrates it.",
+      );
+      expect(prompt).toContain(
+        "Source text, type annotations, the original answer, and an 'unverified' label are not runtime evidence.",
+      );
+      expect(prompt).toContain(
+        "Rewrite every unsupported runtime prediction as source-level control flow plus an explicit unknown; do not name a failure mechanism.",
       );
       expect(targetWords).toBeGreaterThan(0);
       expect(targetWords).toBeLessThan(maxWords);
