@@ -380,7 +380,7 @@ worktree were removed.
 - Green evidence: focused `2 passed, 244 deselected`; full termui `223 passed, 23 skipped`.
 - Static checks: ruff/mypy/pyright **NOT_RUN** because unavailable.
 
-## Keel — R12 calm routine evidence density candidate
+## Keel — R12 calm routine evidence density
 
 - Published [issue #91](https://github.com/keel-harness/keel/issues/91) before implementation and
   reproduced the current installed carrier at 80x24 and 100x30: eight reads plus four searches
@@ -402,7 +402,10 @@ worktree were removed.
   `eaeec91b18e84f02240d8e39e063dd87799fa425c1da2516cc6f8561ea57d60d`.
 - E4 screenshots 37–38 are sanitized 1400x840 comparison transcriptions; E5 is **NOT_RUN** because
   grouping is deterministic controller presentation and the production provider boundary was
-  exercised by the loopback fixture. Publication commit and CI remain pending.
+  exercised by the loopback fixture.
+- Candidate `ea79cf5` passed exact reviewed-head CI `30863536934` and squash-merged through PR #92
+  as `2ca060e`; both commits have tree `8261e69`. Exact post-main CI `30863981683` passed, issue
+  #91 closed, feature cleanup passed, and the official aggregate is **3.87/5** (240/62).
 
 ## Keel — R14 explicit interrupted-mutation state
 
