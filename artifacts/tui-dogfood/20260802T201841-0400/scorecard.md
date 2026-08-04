@@ -220,5 +220,7 @@ calls do not execute, cancellation is prompt, the retained original is opt-in in
 completed resume makes zero provider calls. This directly raises onboarding cognitive load and trust
 from 3 to 4 and final confidence from 2 to 4. The onboarding mean becomes **4.11/5**; the official
 six-workflow unweighted candidate mean becomes **4.04/5**, and the historical pooled diagnostic
-becomes **4.02/5 (249/62)**. The 4.0 stretch checkpoint is green for this candidate. Exact-head CI,
-publication, post-main CI, and the strict same-commit six-workflow replay remain open.
+becomes **4.02/5 (249/62)**. The 4.0 stretch checkpoint is green for this candidate. Exact-head CI
+`30929433667`, publication through PR #121 as merge `7c8ff68` with identical tree `99d8fda9`, exact
+post-main CI `30929922987`, issue closure, and branch/worktree/task-root cleanup are green. The strict
+same-commit six-workflow replay remains open.

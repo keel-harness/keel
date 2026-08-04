@@ -773,7 +773,16 @@ worktree were removed.
 - One live candidate run turns a 1,273-word original into a 241-word primary with zero Warden
   reviews. Exact incremental cost is USD 1.29105135; cumulative spend is USD 4.72508650.
 - Onboarding becomes **4.11/5**; the six-workflow candidate mean becomes **4.04/5** and the pooled
-  diagnostic **4.02/5 (249/62)**. Exact-head CI, publication, post-main CI, and final same-commit
-  six-workflow proof remain pending.
+  diagnostic **4.02/5 (249/62)**. The final same-commit six-workflow proof remains pending.
+- Exact-head CI `30929433667` passed every executable PR lane, including `ci-required` job
+  `92061417603`. DCO remained explicitly non-green; rewriting the already carrier-validated commits
+  only for sign-off would have invalidated their recorded identities. The owner-authorized admin
+  squash merged PR #121 as `7c8ff68`; reviewed candidate and merge share tree `99d8fda9`, and issue
+  #113 closed.
+- Exact post-main CI `30929922987` passed, including `ci-required` job `92063387464`, Linux/macOS
+  build/coverage and package lanes, both real-sandbox lanes, audit, security, both cross-architecture
+  carrier smokes, Node-next, egress-scale, and the Node 20/22/24 installed-product matrix. Remote and
+  local feature branches, the feature worktree, and all six exact task-scoped temporary roots were
+  removed.
 - No Warden verdict/policy, sandbox, egress, grant, audit schema, frozen ModelPort/RPC interface,
   dependency, or security claim changed.

@@ -410,5 +410,13 @@ cancel, resume, trust-decline, missing-credential, and Warden-denial controls. O
 onboarding run turns a 1,273-word original into a 241-word primary, requests zero Warden reviews,
 and costs USD 1.29105135. Screenshots 61-64 and session log 25 are sanitized and visually
 inspected. The candidate score is **4.04/5** under the plan formula and **4.02/5 (249/62)** under
-the pooled diagnostic. Exact-head CI, publication, post-main CI, cleanup, and the final same-commit
-six-workflow replay remain open.
+the pooled diagnostic. Exact-head CI `30929433667` passed every executable PR lane, including
+`ci-required` job `92061417603`; DCO remained explicitly non-green because the already-validated
+commits lacked sign-off. The owner-authorized admin squash preserved those bytes and merged
+[PR #121](https://github.com/keel-harness/keel/pull/121) as `7c8ff68`; candidate and merge share tree
+`99d8fda9`. Issue #113 closed, the remote/local feature branches and feature worktree were removed,
+and all six exact task-scoped temporary roots were permanently deleted. Exact post-main CI
+`30929922987` passed, including `ci-required` job `92063387464`, both Linux/macOS build-and-coverage
+and package lanes, both real-sandbox lanes, audit, security, both cross-architecture carrier smokes,
+Node-next, egress-scale, and all three installed-product matrices. Only the final same-commit
+six-workflow replay remains open.
