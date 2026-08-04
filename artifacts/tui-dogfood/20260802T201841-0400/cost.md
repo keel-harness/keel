@@ -62,6 +62,7 @@ applicable input rate.
 | R13 local credential-recovery replays | 0 | 0 | 0 | 0 | 0.0000 | 2.7443 | 17.2557 |
 | R15 local diff-review replays | 0 | 0 | 0 | 0 | 0.0000 | 2.7443 | 17.2557 |
 | R16 local session-grant replays | 0 | 0 | 0 | 0 | 0.0000 | 2.7443 | 17.2557 |
+| R17 local latency measurements | 0 | 0 | 0 | 0 | 0.0000 | 2.7443 | 17.2557 |
 
 Anthropic provider calls: 27 successful, 4 rejected at zero reported usage. R7's two local-fixture
 requests are not Anthropic calls and carry no Anthropic cost. The USD 2.00 final-regression
@@ -115,5 +116,11 @@ The baseline and one invalid geometry-oracle attempt were also local and reporte
 usage. No Anthropic endpoint or credential was used. E5 is intentionally **NOT_RUN** because the
 changed behavior is deterministic controller-to-Ink presentation. Cumulative spend remains USD
 2.74434625, USD 17.25565375 remains, and the final USD 2 reserve is intact.
+R17 used twenty governed launch/input samples and five accepted full phase samples against the
+exact installed npm carrier. The phase fixture made ten loopback requests with controlled delays;
+rejected calibration attempts were also local. No Anthropic endpoint or credential was used. E5 is
+**NOT_RUN** because startup, input, fixture delay, Warden presentation, and tool liveness are
+deterministic controller/renderer measurements. Cumulative spend remains USD 2.74434625, USD
+17.25565375 remains, and the final USD 2 reserve is intact.
 The R0 manifest caps a future six-workflow replay at
 USD 11.00, below the currently spendable USD 15.2557 after preserving the final USD 2.00 reserve.

@@ -307,3 +307,19 @@ Reviewed head `6f4660c` passed exact-head CI `30877328734`, merged through PR #1
 with identical tree `0a916c1`, and passed exact post-main CI `30877686690`. Issue #100 and feature
 cleanup are closed. R16 changes presentation and observed burden, not interrupt authority or the
 historical benchmark total.
+
+## R17 validation outcome
+
+R17 introduces no decision surface, human review, automatic grant, denial, or policy change. Five
+accepted exact installed-carrier phase samples each asked the production Warden to run one ordinary
+local Click test command. Every audit recorded the same `allow` verdict, one requested occurrence,
+one zero-exit result, sandbox on, egress guard on, and **zero review interrupts**. A representative
+audit spans `04:56:08.772Z` request to `04:56:11.904Z` result and retains the exact 1,901-pass
+summary.
+
+The TUI measured only controller presentation around that authority: visible tool request to
+visible execution p95 was 16.333 ms, then the existing two-second liveness path reported quiet
+execution without inventing progress. The user could type and clear a draft during the controlled
+provider wait. R17 does not infer policy timing from model prose, persist a performance claim,
+reinterpret the allow, or widen sandbox/egress access. Historical benchmark totals remain **6 total
+/ 2 necessary / 4 excessive or avoidable**.

@@ -1079,3 +1079,50 @@
   or changed. Reusing synchronized `main`'s exact installed dependency tree through a worktree-local
   ignored symlink then passed artifact consistency **21/21**, repository format, and
   `git diff --check`.
+
+## 2026-08-04 — R17 useful waiting and latency budgets
+
+- Started from clean synchronized `main` at
+  `98d8dd72536c9a5cfd8539459c9f847984388890`, published issue #103, and created isolated branch
+  `docs/tui-r17-latency-budgets`. Existing code inspection found interactive-only purposeful
+  liveness with a two-second reveal, coarse monotonic buckets, elapsed/quiet/timeout rows, no fake
+  percentage, and an existing packaged PTY launch/input observer.
+- `pnpm build && pnpm package` passed. The first `npm pack` was **not green** because npm attempted
+  the sandbox-inaccessible user cache and returned `EPERM`. A task-scoped `/private/tmp` cache then
+  packed the exact npm carrier; SHA-256
+  `6dfdd0fc711dbe17fb96c7d35e57d76b8a407742bed506972ca468fe844da622`. The local tarball installed
+  57 packages into an isolated prefix with lifecycle scripts disabled.
+- The first launch measurement was **not accepted**: the outer managed sandbox rendered
+  `sandbox off · egress guard off`, so the governed-ready assertion failed and the remaining loop
+  was stopped. The unrestricted production-boundary repeat passed **20/20** samples: first-paint
+  p95 40.666 ms, governed-ready p95 592.349 ms, idle-input p95 7.102 ms, all exits/teardown clean.
+- Direct external baseline `python3 -m pytest -q -o pythonpath=src` was **not green**: one known
+  subprocess interpreter case imported host Click and failed after 1,944 passes. The bounded command
+  used for R17, `python3 -m pytest -q -o pythonpath=src --ignore=tests/test_types.py`, passed **1,901
+  / 24 skipped / 1 xfailed** in 2.75 seconds directly and in every governed sample.
+- Three calibration paths were rejected: input sent before task-Enter settlement appended to the
+  prompt; `Ctrl+C` correctly interrupted instead of clearing; and one product-valid run was
+  excluded after driver expectations falsely required exact completion counts and missed the
+  indented quiet row. The retained driver waits for the first application-rendered response and
+  uses `Ctrl+U` to clear input without steering.
+- Five repeated exact installed 100x30 sessions passed through the spawned production Warden, a
+  controlled loopback provider, and real external Click tests. p95 values: active input 34.923 ms,
+  first controller response 10.754 ms, submit-to-tool-request 3,098.336 ms against a 3,004 ms
+  fixture delay, visible request-to-execution 16.333 ms, liveness reveal 2,002.541 ms, controlled
+  settlement 1,003 ms, and full task-to-idle 7,454.398 ms. All transcript hashes were identical at
+  `2bf8bcf68741f2643849a166f54f8208c1915364a552e6afee78477822a4b429`.
+- Every accepted frame showed `working · checking bash execution · 2s`, `quiet · 2s without
+  output`, timeout, next event, and no fake percentage. Audit recorded `allow`, one requested/result
+  occurrence, exact zero-exit counts, and zero review interrupts. Click remained clean.
+- Screenshot 45 was rendered from an accepted sanitized frame after the in-app browser proved
+  unavailable, then visually inspected at 1400x840. SHA-256
+  `d790030311036f0b2c8f1d514911efb1852ec947f7cfa918afd40dd45a5bce5c`.
+- Artifact consistency passes **21/21**. The first optional targeted liveness invocation was **not
+  green** because the isolated docs worktree's root dependency link did not provide the package-
+  local `@keel/shared` link: the pure liveness suite passed 2/2 and two integration suites failed
+  collection with no tests. Adding the matching ignored package-local dependency link and changing
+  no source made the identical command pass **162/162** across purposeful liveness, conversation,
+  and runner steering. Repository format and `git diff --check` pass.
+- DF-024 records the separate R18 finding: the authoritative exact pytest summary is not scannable
+  in the final card. R17 makes no product or score change. E5 is **NOT_RUN**; all fixture traffic was
+  loopback-only and cumulative Anthropic spend remains USD 2.74434625.
