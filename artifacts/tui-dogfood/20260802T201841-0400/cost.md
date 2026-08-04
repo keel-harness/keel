@@ -71,8 +71,12 @@ applicable input rate.
 | R22 local operator-diagnostic matrix | 0 | 0 | 0 | 0 | 0.0000 | 3.4340 | 16.5660 |
 | #113 exact-carrier live onboarding | 214,531 | 112,387 | 450,457 | 6,058 | 1.2911 | 4.7251 | 15.2749 |
 | R20 accessibility/responsive matrix | 0 | 0 | 0 | 0 | 0.0000 | 4.7251 | 15.2749 |
+| Final replay exact-main onboarding | 145,772 | 83,572 | 131,800 | 4,441 | 0.8569 | 5.5820 | 14.4180 |
+| #133 live candidate 1 (rejected) | 222,838 | 85,442 | 63,153 | 4,287 | 1.0722 | 6.6541 | 13.3459 |
+| #133 live candidate 2 (rejected) | 60,938 | 42,267 | 224,613 | 5,993 | 0.4986 | 7.1527 | 12.8473 |
+| #133 live candidate 3 (accepted locally) | 80,129 | 106,534 | 92,106 | 3,526 | 0.7204 | 7.8731 | 12.1269 |
 
-Anthropic provider calls: 103 successful, 4 rejected at zero reported usage. R7's two local-fixture
+Anthropic provider calls: 157 successful, 4 rejected at zero reported usage. R7's two local-fixture
 requests are not Anthropic calls and carry no Anthropic cost. The USD 2.00 final-regression
 reserve remains intact. The R1 through R6 and R0 replays were deterministic and offline; they made
 no Anthropic request. R3's displayed 175 and R4's displayed 136 replay tokens are synthetic
@@ -196,3 +200,20 @@ captured.
 PR #131 publication, issue closure, exact-tree comparison, exact post-main CI, and this evidence-
 only closeout made **zero Anthropic requests** and add zero cost. Cumulative spend remains **USD
 4.72508650**; USD 15.27491350 remains and the final USD 2 reserve is intact.
+
+The first strict same-commit exact-main onboarding run made 12 provider requests and reported
+361,144 input tokens: 145,772 fresh, 83,572 cache write, and 131,800 cache read, plus 4,441 output.
+Its exact increment is USD 0.85686600. The 976-word original's single rewrite contained 253 words
+against the 250-word hard maximum, so the honest `fallback-oversized` remained primary. Three
+runner-preflight failures made zero provider calls and add no cost.
+
+Issue #133 candidate 1 made 12 requests and cost USD 1.07217240; candidate 2 made 21 requests and
+cost USD 0.49859415. Both were mechanically compliant but rejected during human final-answer QC for
+unsupported runtime prose. Candidate 3 made nine requests and reported 278,769 input tokens: 80,129
+fresh, 106,534 cache write, and 92,106 cache read, plus 3,526 output. Its exact increment is USD
+0.72041130. The 223-word factual rewrite was accepted locally. All four runs used fresh private
+homes, clean frozen Click worktrees, bounded per-run cost rails, and zero Warden review interrupts.
+No credential value was read, printed, logged, committed, or captured.
+
+Cumulative dogfood spend is now **USD 7.87313035**. USD 12.12686965 remains under the hard cap;
+USD 10.12686965 remains available before preserving the final USD 2.00 reserve.

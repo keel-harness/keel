@@ -14,6 +14,9 @@ export interface FinalAnswerValidation {
   readonly reason?: "words" | "bytes";
 }
 
+/** Prompt-only preferred target. The typed contract and controller validation remain authoritative. */
+const FINAL_ANSWER_REWRITE_TARGET_RATIO = 0.9;
+
 /** Normalize only presentation-hostile control/newline forms. Markdown punctuation remains data. */
 export function normalizeFinalAnswerText(value: string): string {
   return stripControl(value)
@@ -56,10 +59,16 @@ export function finalAnswerRewriteOutputTokens(
 }
 
 export function finalAnswerRewritePrompt(contract: FinalAnswerContractT): string {
+  const targetWords = Math.max(
+    1,
+    Math.floor(contract.maxWords * FINAL_ANSWER_REWRITE_TARGET_RATIO),
+  );
   return [
     "Rewrite the immediately preceding assistant answer as one complete final answer.",
-    `Use at most ${contract.maxWords} words and at most ${finalAnswerVisibleByteLimit(contract)} UTF-8 bytes.`,
+    `Hard limits: at most ${contract.maxWords} words and at most ${finalAnswerVisibleByteLimit(contract)} UTF-8 bytes.`,
+    `Aim for ${targetWords} words or fewer to leave counting headroom.`,
     "Preserve uncertainty, failed or partial results, denials, unverified work, and residual risk.",
+    "Do not present runtime behavior as verified unless preceding tool results demonstrate it. Omit unsupported runtime specifics; if material, say only that the behavior was not probed.",
     "Do not claim new evidence. No tools are available. Return only the rewritten final answer.",
   ].join(" ");
 }

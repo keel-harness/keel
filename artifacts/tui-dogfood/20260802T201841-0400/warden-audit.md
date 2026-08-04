@@ -495,3 +495,20 @@ and request no human decision.
 Issue #130 therefore adds **0 total / 0 necessary / 0 excessive** review interrupts and leaves the
 frozen historical dogfood total at **6 total / 2 necessary / 4 excessive or avoidable**. PR #131,
 issue closure, and exact post-main CI `30950106016` are green and add no governed product review.
+
+## Issue #133 validation outcome
+
+Issue #133 changes only the controller-owned tools-disabled rewrite instruction. The typed hard
+contract, rewrite count, validation, fallback, ModelPort call shape, tool omission, Warden verdicts,
+policy, grants, sandbox, egress guard, audit, and execution authority are unchanged.
+
+The exact-main reproduction and all three live candidates used read-only Click onboarding. Each
+reached governed sandbox/egress/audit posture, requested zero human decisions, executed no mutation,
+and left its frozen Click worktree clean. The accepted v3 carrier records nine provider routes and
+zero reviews. The opt-in real-sandbox denial/TLS/address suite passes 18/18 after its required
+vendored fixture CA is configured before Node starts.
+
+Issue #133 therefore adds **0 total / 0 necessary / 0 excessive** review interrupts and leaves the
+frozen historical dogfood total at **6 total / 2 necessary / 4 excessive or avoidable**. It changes
+no review timing, grouping, grant reuse, or user authority. Publication and the final canonical
+replay remain open.

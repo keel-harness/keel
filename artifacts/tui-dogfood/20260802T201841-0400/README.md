@@ -483,3 +483,18 @@ changes. Exact head `259fdfc` passed CI `30949551544`; PR #131 merged as `32f334
 tree `03fd2f69`; issue #130 closed. Exact post-main CI `30950106016` passed every required lane,
 including the original macOS package surface. Session log 29 records the full lineage, both non-
 green attempts, and publication proof. The final same-commit six-workflow replay remains open.
+
+The strict replay's first exact-main onboarding run exposed DF-031: a 976-word original received one
+253-word rewrite against the 250-word hard maximum and correctly settled to `fallback-oversized`.
+Issue [#133](https://github.com/keel-harness/keel/issues/133) keeps every ADR-0087 hard boundary and
+adds a red-first 90% preferred rewrite target. Two exact live candidates were rejected despite
+mechanical compliance because their primaries repeated unsupported runtime prose. Retained local
+candidate `305b8b1` produces a source-verified 223-word primary, exits zero, keeps frozen Click clean,
+and requests zero Warden reviews.
+
+Current-head focused **15/15**, final-answer adjacency **1,114/1,114**, full and coverage **6,673
+passed / 20 intentional opt-in skips**, correctly configured real sandbox **18/18**, static,
+supply-chain, build/package, exact E5, screenshot 70, and five-lens QC pass. Cumulative Anthropic
+spend is USD 7.87313035 with the final USD 2 reserve intact. The candidate score remains **4.04/5**;
+this repairs reliability rather than adding axis credit. Publication and the all-six same-commit
+replay remain open.

@@ -220,7 +220,10 @@ calls do not execute, cancellation is prompt, the retained original is opt-in in
 completed resume makes zero provider calls. This directly raises onboarding cognitive load and trust
 from 3 to 4 and final confidence from 2 to 4. The onboarding mean becomes **4.11/5**; the official
 six-workflow unweighted candidate mean becomes **4.04/5**, and the historical pooled diagnostic
-becomes **4.02/5 (249/62)**. The 4.0 stretch checkpoint is green for this candidate. Exact-head CI
+becomes **4.02/5 (249/62)**. This clears the aggregate 4.0 numerical checkpoint only. It does not
+pass the complete stretch gate: the latest directly evidenced debugging and refactor workflow means
+remain below 3.8, the cross-workflow axis floors and independent human cohort remain open, and two
+fresh-home all-six passes have not run at one commit. Exact-head CI
 `30929433667`, publication through PR #121 as merge `7c8ff68` with identical tree `99d8fda9`, exact
 post-main CI `30929922987`, issue closure, and branch/worktree/task-root cleanup are green. The strict
 same-commit six-workflow replay remains open.
@@ -254,3 +257,12 @@ an already-rendered blank composer. The exact product behavior, six canonical wo
 and all score axes are unchanged. The candidate unweighted mean remains **4.04/5** and the pooled
 diagnostic remains **4.02/5 (249/62)**. PR #131 and exact post-main CI are green; the strict same-
 commit replay remains open.
+
+The first strict exact-main onboarding replay then exposed DF-031: the 976-word original's single
+rewrite contained 253 words against the 250-word hard maximum and correctly settled to honest
+fallback. Issue #133's retained local candidate asks for 225 words while preserving the 250-word
+hard contract. Two mechanically compliant candidates were rejected for unsupported runtime prose;
+the accepted local candidate produces a source-verified 223-word primary, clean Click state, and
+zero Warden reviews. This is a reliability repair for the already credited #113 outcome, not a new
+axis observation, so the candidate mean remains **4.04/5** and the pooled diagnostic remains
+**4.02/5 (249/62)**. Publication and the strict same-commit replay remain open.
