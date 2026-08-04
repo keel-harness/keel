@@ -381,3 +381,30 @@
   100x30 before/after matrix pass. Screenshots 46-49 show progress dots before and the full
   `1901 passed, 24 skipped, 31000 deselected, 1 xfailed` line after. No Warden or frozen contract
   changes; five-lens QC has no unresolved local must-fix.
+
+### DF-025 — explicit concise onboarding can end long and factually ungrounded
+
+- Severity: P1 final-result confidence, cognitive load, and trust.
+- Status: open. Reproduced by R21 under [issue #111](https://github.com/keel-harness/keel/issues/111).
+  The prompt-only behavior issue [#112](https://github.com/keel-harness/keel/issues/112) was closed
+  without merge after two live candidates failed its acceptance gate. Enforceable public-output
+  design is tracked by [issue #113](https://github.com/keel-harness/keel/issues/113).
+- Direct evidence: the exact installed main carrier completed the frozen Click onboarding prompt
+  with zero review, clean exit, and all six orientation headings, but used 12 shell `find`/`grep`
+  calls, no typed search, no runtime probe, and an 822-word answer with code blocks and tables. It
+  falsely said `pathlib.Path` is iterable and yields path parts; the direct Python probe shows no
+  `__iter__` and `list(Path(...))` raises `TypeError`.
+- Impact: the user can follow activity and find architecture/build/test sections, but cannot trust
+  the proposed compatibility plan without independently validating runtime claims, and must scan
+  several screens despite asking for concise output.
+- Failed repair evidence: red-first prompt candidate `263f511` reduced discovery to 0 bash + 10
+  read + 9 search and correctly self-corrected the failure description. It still emitted 568 words
+  plus a table and ran zero probes. Focused 28/28, broader 828/1 existing skip, static/build, exact
+  package, deterministic PTY, and live E5 evidence passed around the prompt change, but the actual
+  user contract did not.
+- Constraint: do not add more prompt prose, silently truncate output, hide failure/Warden evidence,
+  re-execute tools, or add an unbounded rewrite call. Preserve the raw redacted transcript and
+  controller-owned outcome truth. Any controller/public-output change needs explicit owner review.
+- Score correction: onboarding cognitive load and trust each fall from 4 to 3; final confidence
+  remains 2. The evidence-bound aggregate is **3.97/5**, still above 3.8 but below the 4.0 stretch
+  target and strict same-commit gate.

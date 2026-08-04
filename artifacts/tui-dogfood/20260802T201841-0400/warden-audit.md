@@ -368,3 +368,27 @@ session reuse exercised. Publication-only actions add no Warden interrupt or aut
 Reviewed head `551e97a` passed exact-head CI `30887406100`; PR #109 merged as `03de790` with
 byte-identical tree `dbb8508`; exact post-main CI `30887857950`, issue closure, and feature cleanup
 passed. These publication and cleanup actions add no governed product interrupt or authority.
+
+## R21 validation outcome
+
+R21 changes no Warden policy, review/grant semantics, sandbox, egress guard, audit format, or
+execution authority. The accepted exact-main deterministic onboarding sessions use eight ordinary
+typed read/search actions each. The live main session records 18 logical tool results and 30 audit
+`tool.execute` rows (bash request/result pairs account for the higher audit count); all are routine
+read-only discovery, with sandbox and egress guards on and **zero review interrupts**.
+
+The two rejected prompt candidates likewise request zero reviews. Candidate 1 records 18 logical
+tools and 20 audit tool rows; candidate 2 records 19 logical typed read/search tools and 19 audit
+tool rows. Their failure is model-output quality, not Warden classification. No action edits a file,
+installs a dependency, or requests network access; frozen Click remains clean.
+
+The no-tests control records one search and two reads with no review. The declined-workspace control
+records zero project-context events, zero snapshots, and zero tool audit rows while governed
+protection reaches ready state. The missing-credential control fails before provider, session,
+audit, or workspace activity. The retained resume control makes zero provider/tool calls, leaves the
+controller ledger unchanged, and adds only `session.start` plus `checkpoint` lifecycle audit rows.
+
+R21 therefore adds **0 total / 0 necessary / 0 excessive** review interrupts to its validation
+matrix and does not change the frozen historical benchmark total of **6 total / 2 necessary / 4
+excessive or avoidable**. Issue #113 is constrained from hiding Warden outcomes or repeating tools;
+any future output-controller implementation remains a separate public-behavior review boundary.

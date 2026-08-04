@@ -698,6 +698,16 @@ protection posture, current objective, plan, build/test commands found, and what
 Avoid a tutorial wall. Test unfamiliar repository, missing tests, untrusted workspace, auth failure,
 and resume.
 
+Validation outcome under [issue #111](https://github.com/keel-harness/keel/issues/111): current main
+passes exact installed 80x24/100x30 deterministic onboarding plus missing-test, declined-trust,
+missing-credential, and zero-call resume controls. A bounded live Anthropic run reproduces DF-025:
+the answer includes all six orientation headings but is 822 words, uses twelve shell inventory calls,
+runs no runtime probe, and falsely calls `pathlib.Path` iterable. Two red-first prompt candidates
+improve tool selection as far as zero bash but still ignore explicit word/table/probe constraints.
+Issue #112 therefore closed without merge; #113 owns the required controller/output design and must
+receive explicit public-behavior approval before implementation. The corrected aggregate is
+**3.97/5**: above the 3.8 target, below the 4.0 stretch target, with the strict final gate open.
+
 ### R22 · operator diagnostics and safe recovery commands
 
 Consolidate recurring actionable failures into one short `what · why · exact command` pattern.
