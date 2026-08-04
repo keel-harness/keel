@@ -397,3 +397,18 @@ Exact post-main CI run `30900575475` passed, including `ci-required` job `919651
 Linux/macOS build-and-coverage and package lanes, both real-sandbox lanes, audit, security,
 cross-architecture carrier smokes, Node-next, egress-scale, and all three installed-product
 matrices.
+
+Issue #113 is now implemented and locally validated on candidate `b1c5f70` after owner acceptance of
+ADR-0087 through [PR #120](https://github.com/keel-harness/keel/pull/120). The explicit task-scoped
+final-answer contract makes at most one tools-disabled bounded rewrite, retains typed original and
+settlement evidence, provides explicit inspection, and falls back honestly on cancellation, budget,
+provider, length, enforcement, empty, or attempted-tool-call failure.
+
+Full coverage passes **365 files / 6,665 tests / 20 intentional opt-in skips**; static and package
+gates pass. The clean exact installed npm carrier passes 80x24/100x30 accept, inspect, scroll,
+cancel, resume, trust-decline, missing-credential, and Warden-denial controls. One live Anthropic
+onboarding run turns a 1,273-word original into a 241-word primary, requests zero Warden reviews,
+and costs USD 1.29105135. Screenshots 61-64 and session log 25 are sanitized and visually
+inspected. The candidate score is **4.04/5** under the plan formula and **4.02/5 (249/62)** under
+the pooled diagnostic. Exact-head CI, publication, post-main CI, cleanup, and the final same-commit
+six-workflow replay remain open.

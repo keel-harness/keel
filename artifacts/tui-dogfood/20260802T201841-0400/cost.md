@@ -69,8 +69,9 @@ applicable input rate.
 | R21 prompt candidate 1 | 37,906 | 15,042 | 44,710 | 3,083 | 0.2298 | 3.2218 | 16.7782 |
 | R21 prompt candidate 2 | 35,610 | 12,939 | 55,421 | 2,687 | 0.2123 | 3.4340 | 16.5660 |
 | R22 local operator-diagnostic matrix | 0 | 0 | 0 | 0 | 0.0000 | 3.4340 | 16.5660 |
+| #113 exact-carrier live onboarding | 214,531 | 112,387 | 450,457 | 6,058 | 1.2911 | 4.7251 | 15.2749 |
 
-Anthropic provider calls: 85 successful, 4 rejected at zero reported usage. R7's two local-fixture
+Anthropic provider calls: 103 successful, 4 rejected at zero reported usage. R7's two local-fixture
 requests are not Anthropic calls and carry no Anthropic cost. The USD 2.00 final-regression
 reserve remains intact. The R1 through R6 and R0 replays were deterministic and offline; they made
 no Anthropic request. R3's displayed 175 and R4's displayed 136 replay tokens are synthetic
@@ -153,6 +154,13 @@ candidate comparison, build/package validation, screenshots, and publication mad
 calls. Cumulative spend remains USD 3.43403515, USD 16.56596485 remains, and the final USD 2 reserve
 is intact. The ambient provider credential was never read, copied into a child, printed, logged,
 committed, or captured.
+Issue #113 used deterministic replay, loopback fixtures, and local Warden controls before one exact-
+carrier `anthropic/claude-sonnet-4-6` onboarding run. The live session made 18 provider requests and
+reported 777,375 total input tokens: 214,531 fresh, 112,387 cache write, and 450,457 cache read,
+plus 6,058 output. The exact increment is USD 1.29105135. Cumulative spend is **USD 4.72508650**;
+USD 15.27491350 remains and the final USD 2 reserve is intact. The credential value was never read,
+copied, printed, logged, committed, or captured. All rejected fixture/oracle/install attempts were
+local and add no Anthropic usage.
 The R0 manifest caps a future six-workflow replay at
-USD 11.00, below the currently spendable USD 14.56596485 after preserving the final USD 2.00
+USD 12.00, below the currently spendable USD 13.27491350 after preserving the final USD 2.00
 reserve.

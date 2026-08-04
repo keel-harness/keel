@@ -708,6 +708,14 @@ Issue #112 therefore closed without merge; #113 owns the required controller/out
 receive explicit public-behavior approval before implementation. The corrected aggregate is
 **3.97/5**: above the 3.8 target, below the 4.0 stretch target, with the strict final gate open.
 
+Follow-through: the owner accepted ADR-0087 and authorized #113 as scoped by merged PR #120. The
+candidate implements one explicit task-scoped bound, at most one tools-disabled rewrite, durable
+inspection/settlement, and deterministic fallbacks. Exact installed E2-E4 plus one E5 onboarding
+run pass; a 1,273-word original becomes a 241-word primary and unprobed behavior is labeled
+unverified. Onboarding is **4.11/5**; the six-workflow candidate mean is **4.04/5**. Publication and
+the final same-commit six-workflow gate remain open. Evidence is in
+`session-logs/25-final-answer-contract.md` and screenshots 61-64.
+
 ### R22 · operator diagnostics and safe recovery commands
 
 Consolidate recurring actionable failures into one short `what · why · exact command` pattern.
