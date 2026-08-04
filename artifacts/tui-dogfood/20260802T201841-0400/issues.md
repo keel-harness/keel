@@ -352,3 +352,20 @@
   behavior changes.
 - Validation: full TUI **1,372/1,372**, unrestricted full tests/coverage **6,561/20**, static/build
   gates, exact installed 80x24/100x30 positive/negative matrix, sanitized E4, and five-lens QC pass.
+
+### DF-024 — exact test outcome is not scannable in the completion state
+
+- Severity: P1 final-result confidence; routed to R18 under issue #103's evidence boundary.
+- Status: directly observed, unresolved. R17 itself passes and makes no product change.
+- Direct evidence: five exact installed-carrier sessions ran the same Click command successfully.
+  The authoritative Warden result retained `1901 passed, 24 skipped, 31000 deselected, 1 xfailed`
+  with exit zero. The final bash card showed a success state but reduced visible stdout to progress
+  dots, while the deterministic model fixture said only that the suite completed. The exact counts
+  were absent from every byte-identical visible transcript.
+- Impact: the user can tell the command succeeded, but cannot verify the test total, skips, or
+  expected failure from the one-screen completion state. This weakens the existing onboarding
+  final-confidence floor and supports R18's requirement for concise controller-owned
+  `changed / verified / risk / next` evidence.
+- Constraint: R18 must derive test truth from the existing authoritative tool/controller result,
+  preserve failed/partial prominence, and build on R3 rather than treating model prose as proof or
+  creating a second summary authority.

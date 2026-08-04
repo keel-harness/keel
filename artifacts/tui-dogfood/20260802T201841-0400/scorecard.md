@@ -159,3 +159,12 @@ through PR #101 as `be4fb5e` with identical tree `0a916c1`, and passed exact pos
 `30877686690`. Issue closure and feature cleanup passed. The strict release gate remains open:
 onboarding final confidence, debugging control, the same-commit six-workflow replay, and required
 final E5 evidence are not yet green.
+
+R17 validates rather than changes the current product. Twenty exact installed-carrier launch/input
+samples and five deterministic 100x30 provider/Warden/Click samples meet the measured initial
+budgets for first paint, governed readiness, first controller response, active input, routine
+Warden request-to-execution, and two-second liveness reveal. Every accepted long-tool frame shows
+explicit elapsed/quiet/timeout/next truth and no fake percentage. Existing progress and
+responsiveness scores therefore remain supported but are not raised. The plan-defined aggregate
+stays **4.01/5** and the legacy pooled diagnostic stays **3.98/5** (247/62). DF-024—the exact pytest
+summary missing from the final visible card—keeps onboarding final confidence and R18 open.

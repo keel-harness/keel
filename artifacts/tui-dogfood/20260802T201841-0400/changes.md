@@ -615,3 +615,27 @@ worktree were removed.
   **3.98/5** under the legacy pooled-cell diagnostic. Candidate `6f4660c` passed exact-head CI
   `30877328734`; PR #101 merged as `be4fb5e` with identical tree `0a916c1`; exact post-main CI
   `30877686690`, issue closure, and feature branch/worktree cleanup passed.
+
+## R17 — measured useful waiting and latency budgets
+
+- Validation-only under issue #103: no product code, dependency, policy, security claim, frozen
+  contract, public CLI, score, or Warden behavior change.
+- Exact main `98d8dd7` built and packaged all carriers. Its scripts-disabled local npm tarball has
+  SHA-256 `6dfdd0fc711dbe17fb96c7d35e57d76b8a407742bed506972ca468fe844da622`.
+- Twenty exact installed-carrier startup samples passed governed posture, first paint, input echo,
+  clean exit, and process-group teardown. Measured p95: first paint 40.666 ms, governed ready
+  592.349 ms, idle input 7.102 ms.
+- Five 100x30 provider/Warden/Click samples passed with controlled 3-second initial and 1-second
+  settlement provider delays. Measured p95: first visible controller response 10.754 ms, active
+  input 34.923 ms, visible Warden request-to-execution 16.333 ms, liveness reveal 2,002.541 ms.
+- Every accepted frame shows elapsed, explicit quiet truth, timeout, and next event without a fake
+  percentage. The ordinary local test command received one allow, zero review interrupts, and an
+  authoritative zero-exit `1901 passed, 24 skipped, 1 xfailed` result. Click stayed clean.
+- Rejected outer-sandbox and driver-race/control samples are explicitly excluded. Screenshot 45 is
+  a sanitized, visually inspected 1400x840 accepted frame with SHA-256
+  `d790030311036f0b2c8f1d514911efb1852ec947f7cfa918afd40dd45a5bce5c`.
+- Artifact evidence passes 21/21; unchanged purposeful-liveness, conversation, and runner-steering
+  coverage passes 162/162; format and diff checks pass. The first integration collection attempt
+  lacked the isolated worktree's package-local dependency link and is explicitly not green.
+- DF-024 routes the exact test-summary visibility gap to R18. R17 raises no score; the official
+  plan aggregate remains 4.01/5. E5 is NOT_RUN and Anthropic spend remains USD 2.74434625.

@@ -633,6 +633,17 @@ output, and input latency. Show elapsed time and last meaningful output for quie
 tools. Define budgets from measurements before optimizing. Never display a fake percentage for
 unbounded inference or tests.
 
+Validation outcome under [issue #103](https://github.com/keel-harness/keel/issues/103): the exact
+installed carrier passes without a product change. Twenty governed launch samples measured first-
+paint p95 **40.666 ms**, governed-ready p95 **592.349 ms**, and idle-input p95 **7.102 ms**. Five
+100x30 provider/Warden/Click samples measured active-input p95 **34.923 ms**, first controller
+response p95 **10.754 ms**, visible request-to-execution p95 **16.333 ms**, and liveness reveal p95
+**2,002.541 ms**. Every accepted long-tool frame showed coarse `2s` elapsed, explicit quiet truth,
+timeout, and next event with no fabricated percentage. Initial observational budgets and rejected
+sample boundaries are in `session-logs/20-r17-waiting-latency.md`; R23 owns cross-host confidence
+and any future hard gate. The exact pytest count missing from the final card is DF-024 and belongs to
+R18. R17 changes no score or runtime behavior.
+
 ### R18 · high-value completion — concise changed/verified/risk/next receipt
 
 Build on R3 rather than creating a second summary system. The terminal completion state should make

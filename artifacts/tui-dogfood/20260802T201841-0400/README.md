@@ -280,3 +280,17 @@ tree `0a916c1`. Exact post-main CI run `30877686690` passed, including `ci-requi
 unweighted workflow-mean formula is now officially **4.01/5**; the historical pooled-cell
 diagnostic is **3.98/5** (247/62). This formula mismatch is explicit rather than silently hidden.
 The strict final gate remains open on per-axis and same-commit six-workflow evidence.
+
+R17 is a validation-only measurement under [issue #103](https://github.com/keel-harness/keel/issues/103).
+The exact installed main carrier passed **20/20** governed launch/input samples and **5/5** full
+100x30 provider/Warden/Click samples. First paint p95 was 40.666 ms, governed-ready p95 592.349 ms,
+idle input p95 7.102 ms, active input p95 34.923 ms, first controller response p95 10.754 ms, and
+routine visible Warden request-to-execution p95 16.333 ms. Long quiet execution revealed at
+2,002.541 ms p95 with elapsed/quiet/timeout/next truth and no fake percentage. Screenshot 45 is the
+sanitized visually inspected frame. No runtime code or score changes.
+
+The same replay directly observed DF-024 for R18: the Warden result retains exact pytest counts,
+but the final visible card reduces stdout to progress dots. The plan-defined aggregate remains
+**4.01/5** and the legacy pooled diagnostic remains **3.98/5** (247/62); strict final confidence and
+same-commit replay gates remain open. R17 used zero Anthropic calls, so cumulative spend stays USD
+2.74434625.
