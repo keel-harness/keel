@@ -135,3 +135,12 @@ terminal-capability slice is fully controller/renderer-owned and intentionally m
 requests. R20 adds **0 Warden interrupts** and **USD 0.00 Anthropic spend**. The candidate six-
 workflow score remains **4.04/5** pending the final same-commit replay; this cross-cutting matrix
 adds confidence but does not manufacture another score increase.
+
+## Publication closeout
+
+Exact reviewed head `2401a65ea0aa46c5b231e6ab5216f4ba32d0abb8` passed PR CI run
+`30936094264`. PR #124 merged as `67e317d03067579bf4ea4a3b0a3a0caaf365d26d`; both commits have
+tree `2474522380d539320485b8971b62f7e2d8549437`. Exact post-main run `30936677719` passed required
+aggregate `92086267416`, Linux/macOS build and coverage, Linux/macOS package and real-sandbox lanes,
+audit, security, both native cross-architecture carrier smokes, Node-next, egress-scale, and the
+Node 20/22/24 installed-product matrix. Issue #123 is closed.

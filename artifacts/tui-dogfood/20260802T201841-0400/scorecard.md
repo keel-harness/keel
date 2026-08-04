@@ -231,4 +231,6 @@ It directly fixes an 80x24 palette overflow that hid the composer, while preserv
 fact priority and protection truth. This strengthens visual-hierarchy, cognitive-load, control, and
 trust evidence, but it is a cross-cutting matrix rather than a new frozen six-workflow replay. The
 candidate unweighted mean therefore remains **4.04/5** and the pooled diagnostic remains **4.02/5
-(249/62)**. Native Linux terminal-emulator coverage and the strict same-commit replay remain open.
+(249/62)**. Exact-head CI `30936094264`, tree-identical publication through PR #124 as `67e317d`,
+issue closure, and exact post-main CI `30936677719` are green. Native Linux terminal-emulator
+coverage and the strict same-commit replay remain open.

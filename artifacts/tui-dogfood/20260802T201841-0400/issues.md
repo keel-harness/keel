@@ -451,8 +451,9 @@
 ### DF-027 — production-length identity metadata hides the 80x24 composer
 
 - Severity: P1 responsive usability and command discoverability.
-- Status: fixed locally under [issue #123](https://github.com/keel-harness/keel/issues/123) on
-  candidate `1a46d01`; publication/CI remain pending.
+- Status: closed through [issue #123](https://github.com/keel-harness/keel/issues/123) and
+  [PR #124](https://github.com/keel-harness/keel/pull/124). Candidate `1a46d01` and merge `67e317d`
+  share reviewed tree `2474522`; exact-head and post-main CI are green.
 - Direct evidence: exact installed main rendered the complete command palette as 25 physical rows
   at an 80x24 terminal. Its 83-cell model/workspace/trust identity wrapped `trusted` onto a second
   line and pushed the composer outside the viewport. The existing row-budget fixture used a short
@@ -465,5 +466,7 @@
   nine-profile installed matrix; real Kitty 100x30; real Apple Terminal 100x30 to 80x24 resize;
   screenshots 65-69; five-lens QC. The repaired palette is 24 rows and retains model identity,
   workspace trust, protection truth, keyboard guidance, and composer.
+- Publication: exact-head run `30936094264` and exact post-main run `30936677719` passed. Issue
+  #123 closed automatically with the merge.
 - Boundaries: no Warden verdict, policy, sandbox, egress, grant, audit, public CLI, frozen contract,
   dependency, or security-claim change. Native Linux terminal-emulator validation is **NOT_RUN**.
