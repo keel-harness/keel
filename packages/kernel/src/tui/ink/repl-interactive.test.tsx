@@ -212,6 +212,55 @@ describe("runRepl through the REAL Ink stack (Epic 1.23 slice 0 — interactive 
     store.close();
   });
 
+  it("opens authoritative unavailable observations instead of falling back to a generic no-diffs notice", async () => {
+    const e = env();
+    const store = SessionStore.create({ cwd: "/w" }, e);
+    const ui = new InkReplUI((view) => ({
+      ...view,
+      items: [
+        ...view.items,
+        { kind: "message", role: "user", content: "inspect the generated file" },
+        {
+          kind: "tool",
+          id: "unavailable-edit",
+          name: "edit",
+          status: "ok",
+          summary: "request-only/private/generated.ts",
+          mutationPresentation: { status: "unavailable", reason: "capture-budget" },
+        },
+      ],
+      turnSummary: { title: "done", changed: [], checked: [], attention: [] },
+    }));
+    const done = runRepl({
+      model: new ScriptedModel({ turns: [] }),
+      executor: { execute: () => Promise.resolve({ ok: true, output: "ok" }) },
+      ui,
+      store,
+      env: e,
+    });
+
+    await ui.awaitRender((view) => view.awaitingInput === true);
+    ui.stdin.write("/diff review");
+    await tick();
+    ui.stdin.write(ENTER);
+    await ui.awaitFrame(
+      (frame) =>
+        frame.includes("review evidence unavailable") &&
+        frame.replace(/\s+/gu, " ").includes("observation exceeded presentation limits"),
+    );
+
+    expect(ui.lastFrame() ?? "").toContain("automatic undo unavailable");
+    expect(ui.lastFrame() ?? "").not.toContain("No settled diffs available to review");
+    ui.stdin.write(ESCAPE);
+    await ui.awaitFrame((frame) => !frame.includes("review evidence unavailable"));
+
+    ui.stdin.write("/exit");
+    await tick();
+    ui.stdin.write(ENTER);
+    await done;
+    store.close();
+  });
+
   it("keeps the first idle Ctrl-C warning visible in the real Ink frame", async () => {
     const e = env();
     const store = SessionStore.create({ cwd: "/w" }, e);

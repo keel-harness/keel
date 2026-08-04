@@ -594,6 +594,17 @@ verification relation, and deliberate recovery guidance. Add keyboard navigation
 fallback, and large-diff performance limits. Syntax color is secondary to structure and no-color
 meaning.
 
+Candidate status: scoped under [issue #97](https://github.com/keel-harness/keel/issues/97). The
+pre-existing `/diff review` viewer already shipped the available-comparison navigation and bounded
+layout skeleton. R15 retains successful edit/write observations whose producer presentation has no
+review rows, makes explicit non-available settlement outrank contradictory activity diff bytes,
+binds verification/recovery only to the selected latest-turn comparison, and opens an honest
+all-unavailable focused state. Focused **57/57**, adjacent **382/382**, full TUI **1,368/1,368**,
+unrestricted coverage **6,557 / 20 existing opt-in skips**, static/build/package gates, exact
+installed-carrier 80x24/100x30 E3, sanitized E4, and five-lens QC pass locally. Candidate publication,
+reviewed-head CI, merge proof, post-main CI, issue closure, and cleanup remain pending. The current
+evidence-bound candidate aggregate is **3.90/5** (242/62); the strict release gate remains open.
+
 ### R16 · high-value control — grantable-review queue and bounded batching
 
 The live approval machinery exists; validate its human ergonomics with several genuinely grantable

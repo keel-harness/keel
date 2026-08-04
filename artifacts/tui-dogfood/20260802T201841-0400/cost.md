@@ -60,6 +60,7 @@ applicable input rate.
 | R14 local interrupted-mutation replays | 0 | 0 | 0 | 0 | 0.0000 | 2.7443 | 17.2557 |
 | R12 local evidence-density replays | 0 | 0 | 0 | 0 | 0.0000 | 2.7443 | 17.2557 |
 | R13 local credential-recovery replays | 0 | 0 | 0 | 0 | 0.0000 | 2.7443 | 17.2557 |
+| R15 local diff-review replays | 0 | 0 | 0 | 0 | 0.0000 | 2.7443 | 17.2557 |
 
 Anthropic provider calls: 27 successful, 4 rejected at zero reported usage. R7's two local-fixture
 requests are not Anthropic calls and carry no Anthropic cost. The USD 2.00 final-regression
@@ -102,5 +103,11 @@ baseline and candidate at each of 80x24 and 100x30. It made no model or Anthropi
 non-secret fixture value was absent from every transcript and screenshot; no provider credential
 was inspected. Cumulative spend remains USD 2.74434625, USD 17.25565375 remains, and the USD 2
 reserve is intact.
+R15 used eighteen loopback-only fixture requests across four successful installed-carrier evidence
+runs and invalid wrap-sensitive oracle attempts. Each request stayed on 127.0.0.1 and no Anthropic
+endpoint or credential was used. The four accepted 80x24/100x30 baseline/candidate runs account for
+eight of those requests. E5 is intentionally **NOT_RUN** because the changed behavior is
+deterministic controller presentation. Cumulative spend remains USD 2.74434625, USD 17.25565375
+remains, and the USD 2 reserve is intact.
 The R0 manifest caps a future six-workflow replay at
 USD 11.00, below the currently spendable USD 15.2557 after preserving the final USD 2.00 reserve.

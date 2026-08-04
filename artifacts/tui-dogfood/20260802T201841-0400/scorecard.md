@@ -15,6 +15,7 @@ Scores use 1 (unusable) through 5 (excellent). `TBD` means the workflow has not 
 | Feature | R7 candidate (E2-E5) | 4 | 3 | 4 | 4 | 4 | 4 | 3 | 4 | 3 | 2 | 4 |
 | Feature | after R8 | 4 | 3 | 4 | 4 | 4 | 4 | 4 | 4 | 3 | 2 | 4 |
 | Feature | after R11 (E2-E4) | 4 | 4 | 4 | 4 | 5 | 4 | 4 | 4 | 3 | 3 | 4 |
+| Feature | R15 candidate (E2-E4) | 4 | 4 | 4 | 5 | 5 | 4 | 4 | 4 | 3 | 3 | 4 |
 | Debugging | before | 3 | 2 | 4 | 2 | 3 | 2 | 2 | 3 | 2 | 3 | 4 |
 | Debugging | after R3 | 4 | 2 | 4 | 2 | 4 | 4 | 3 | 4 | 3 | 3 | 4 |
 | Debugging | after R3+R5 | 4 | 2 | 4 | 2 | 4 | 4 | 4 | 4 | 4 | 3 | 4 |
@@ -126,3 +127,14 @@ directly raises only onboarding error recovery by one point. Candidate `19a482a`
 `1bbe977` share tree `ee7837f`; exact reviewed-head CI `30866891254` and post-main CI `30867327223`
 passed, and cleanup passed. The evidence-bound aggregate is officially **3.89/5** (241/62). The
 onboarding final-confidence floor and strict same-commit six-workflow gate remain open.
+
+R15 repeats the missing-review-row mutation path through clean exact installed baseline and
+candidate carriers at 80x24 and 100x30. Both perform the same successful governed typed overwrite
+of a binary preimage and produce the same authoritative summary-only observation. Baseline reduces
+`/diff review` to a generic no-diffs note. Candidate opens a focused state with the producer-safe
+path, exact limitation, `verification not run`, fixed non-destructive recovery guidance, and an Esc
+close control that returns to the preserved composer. This directly raises only feature user
+control by one point. Local E2-E4 and five-lens QC pass, so the candidate aggregate is **3.90/5**
+(242/62); it does not become official until reviewed-head and post-main CI pass. The onboarding
+final-confidence, Warden-heavy control/progress, and strict same-commit six-workflow gates remain
+open.

@@ -115,7 +115,12 @@
   `01de241`. A 68,669-byte, 1,634-line mostly unchanged edit now retains bounded live evidence under
   unchanged ADR-0078 limits. Exact post-merge `main` CI run `30786694570` passed. Resume still
   truthfully says that live observations were not persisted; durable review is a separate
-  frozen-contract decision, not part of this fix.
+  frozen-contract decision, not part of this fix. R15 candidate issue
+  [#97](https://github.com/keel-harness/keel/issues/97) closes the remaining process-local dead end:
+  `/diff review` retains authoritative unavailable or summary-only observations, shows the exact
+  producer-safe reason/path plus non-destructive recovery, and discloses mixed missing rows without
+  displacing an available comparison. Local E2-E4 and five-lens QC pass; reviewed-head/main proof is
+  pending.
 - Direct evidence: every edit card showed `review unavailable — observation exceeded presentation
   limits`; after resume, it changed to `live mutation observations were not persisted`.
 - Impact: files can change successfully while the operator sees neither a bounded diff nor durable
@@ -302,7 +307,9 @@
   existing opt-in skips**; the installed carrier passes all three urgent verbs and fixed
   80x24/100x30 replays with the file unchanged, no edit result, and zero paid requests. Screenshot
   36 is the sanitized after frame; R10 screenshot 29 is the before comparison. The official
-  evidence-bound aggregate is **3.85/5** (239/62).
+  evidence-bound aggregate is **3.85/5** (239/62). R15 separately makes a later authoritative
+  unavailable/summary-only observation inspectable through `/diff review` rather than falling into
+  the generic no-diffs note; exact candidate E3/E4 passes locally under issue #97.
 
 ### DF-022 — installed-renderer readiness smoke depends on PTY read chunking
 

@@ -17,6 +17,8 @@ import { withOverlayPresentation } from "../overlay-presentation.js";
 import type { DiffViewerOpenResult } from "../diff-viewer-control.js";
 import {
   collectDiffViewerFiles,
+  EMPTY_DIFF_VIEWER_COLLECTION,
+  hasDiffViewerEvidence,
   initialDiffViewerState,
   normalizeDiffViewerState,
   reduceDiffViewer,
@@ -163,25 +165,29 @@ export function Interactive({
     view.activeApproval === undefined &&
     view.overlay === undefined;
   const viewerCollection = useMemo(
-    () => (viewerMayOwnFocus ? collectDiffViewerFiles(view.items) : { files: [], hiddenFiles: 0 }),
-    [view.items, viewerMayOwnFocus],
+    () =>
+      viewerMayOwnFocus
+        ? collectDiffViewerFiles(view.items, view.turnSummary)
+        : EMPTY_DIFF_VIEWER_COLLECTION,
+    [view.items, view.turnSummary, viewerMayOwnFocus],
   );
+  const viewerEvidenceAvailable = hasDiffViewerEvidence(viewerCollection);
   const [diffViewerState, setDiffViewerState] = useState<DiffViewerState | undefined>(() =>
-    restoredDiffViewerState === undefined || viewerCollection.files.length === 0
+    restoredDiffViewerState === undefined || !viewerEvidenceAvailable
       ? undefined
       : normalizeDiffViewerState(viewerCollection.files, restoredDiffViewerState),
   );
   // Authority-bearing or controller-owned focus wins in the render that introduces it. The effect
   // below settles stored viewer state, but raw keys must not spend even one commit on stale focus.
   const diffViewerActive =
-    diffViewerState !== undefined && viewerMayOwnFocus && viewerCollection.files.length > 0;
+    diffViewerState !== undefined && viewerMayOwnFocus && viewerEvidenceAvailable;
   const closeDiffViewer = useCallback((): void => {
     setDiffViewerState(undefined);
     onDiffViewerState?.(undefined);
   }, [onDiffViewerState]);
   const openDiffViewer = useCallback((): Exclude<DiffViewerOpenResult, "unsupported"> => {
     if (!viewerMayOwnFocus) return "not-settled";
-    if (viewerCollection.files.length === 0) return "no-diffs";
+    if (!viewerEvidenceAvailable) return "no-diffs";
     const next = normalizeDiffViewerState(
       viewerCollection.files,
       diffViewerState ?? initialDiffViewerState(viewerCollection.files),
@@ -193,12 +199,19 @@ export function Interactive({
     setDiffViewerState(next);
     onDiffViewerState?.(next);
     return "opened";
-  }, [diffViewerState, generation, onDiffViewerState, viewerCollection.files, viewerMayOwnFocus]);
+  }, [
+    diffViewerState,
+    generation,
+    onDiffViewerState,
+    viewerCollection.files,
+    viewerEvidenceAvailable,
+    viewerMayOwnFocus,
+  ]);
   useEffect(() => connectDiffViewer?.(openDiffViewer), [connectDiffViewer, openDiffViewer]);
   useEffect(() => {
     if (diffViewerState === undefined) return;
-    if (!viewerMayOwnFocus || viewerCollection.files.length === 0) closeDiffViewer();
-  }, [closeDiffViewer, diffViewerState, viewerCollection.files.length, viewerMayOwnFocus]);
+    if (!viewerMayOwnFocus || !viewerEvidenceAvailable) closeDiffViewer();
+  }, [closeDiffViewer, diffViewerState, viewerEvidenceAvailable, viewerMayOwnFocus]);
   useEffect(() => {
     if (!running) setStopping(false);
   }, [running]);

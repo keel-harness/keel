@@ -51,3 +51,8 @@ export const TUI_TERMINAL_REVIEW_TRUTH = {
   reason: "no live decision is available; this result was not executed",
   recovery: "no live decision · simplify the request, then rerun",
 } as const;
+
+/** ADR-0079's fixed, non-destructive recovery boundary. Shared by the completion receipt and the
+ * focused diff surface so neither renderer invents a stronger undo claim. */
+export const TUI_MANUAL_RECOVERY_GUIDANCE =
+  "automatic undo unavailable — review file evidence and recover deliberately from version control or a backup";

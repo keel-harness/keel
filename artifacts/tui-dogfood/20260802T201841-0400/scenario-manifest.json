@@ -86,7 +86,9 @@
         "24-r6-concurrent-resume-after.png",
         "33-r11-command-recovery-before.png",
         "34-r11-command-recovery-active.png",
-        "35-r11-command-recovery-after.png"
+        "35-r11-command-recovery-after.png",
+        "41-r15-diff-review-before.png",
+        "42-r15-diff-review-after.png"
       ],
       "costCeilingUsd": 2
     },

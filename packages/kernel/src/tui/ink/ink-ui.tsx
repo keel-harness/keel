@@ -18,7 +18,11 @@ import {
   DiffViewerControlRegistry,
   type DiffViewerOpenResult,
 } from "../diff-viewer-control.js";
-import { collectDiffViewerFiles, type DiffViewerState } from "../diff-viewer.js";
+import {
+  collectDiffViewerFiles,
+  hasDiffViewerEvidence,
+  type DiffViewerState,
+} from "../diff-viewer.js";
 import { PURPOSEFUL_LIVENESS } from "../purposeful-liveness.js";
 import { INPUT_HISTORY_SEED } from "../input-history.js";
 
@@ -105,6 +109,7 @@ export class InkUI implements UIPort {
   render(view: ViewModel): void {
     if (this.#closed) return;
     if (view.activeApproval === undefined) this.#approvalState = undefined;
+    const diffViewerCollection = collectDiffViewerFiles(view.items, view.turnSummary);
     if (
       this.#diffViewerState !== undefined &&
       (view.awaitingInput !== true ||
@@ -113,7 +118,7 @@ export class InkUI implements UIPort {
         view.items.some((item) => item.kind === "tool" && item.status === "running") ||
         view.activeApproval !== undefined ||
         view.overlay !== undefined ||
-        collectDiffViewerFiles(view.items).files.length === 0)
+        !hasDiffViewerEvidence(diffViewerCollection))
     ) {
       this.#diffViewerState = undefined;
     }

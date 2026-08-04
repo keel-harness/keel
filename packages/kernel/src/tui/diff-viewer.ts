@@ -1,10 +1,13 @@
-import type { DiffLine, UiToolActivity, ViewItem } from "@keel/shared";
+import type { DiffLine, UiToolActivity, UiTurnSummary, ViewItem } from "@keel/shared";
 import { diffTriage, planDiffLayout, summarizeDiff, type DiffLayoutRow } from "./diff.js";
-import { terminalDisplayWidth, wrapDisplayLine } from "./display-cells.js";
+import { terminalDisplayWidth, truncateDisplayCells, wrapDisplayLine } from "./display-cells.js";
 import { stripControlLine } from "./strip.js";
+import { TUI_MANUAL_RECOVERY_GUIDANCE } from "./strings.js";
+import { mutationReviewCoverageCopy, mutationReviewUnavailableCopy } from "./tool-card.js";
 
 export const MAX_DIFF_VIEWER_FILES = 32;
 export const MAX_DIFF_VIEWER_ROWS = 24;
+export const MAX_DIFF_VIEWER_UNAVAILABLE = 3;
 
 export interface DiffViewerHunk {
   readonly start: number;
@@ -28,15 +31,44 @@ export interface DiffViewerFile {
   readonly changes: readonly DiffViewerChange[];
   readonly summary: { readonly added: number; readonly deleted: number; readonly rows: number };
   readonly defaultCollapsedHunks: readonly number[];
+  readonly latestTurn: boolean;
   readonly evidence?: {
     readonly transitionBinding: "not-atomic";
     readonly concurrentMutation: "not-excluded";
+    readonly coverageLine?: string;
   };
+}
+
+export interface DiffViewerUnavailable {
+  readonly occurrenceKey: string;
+  readonly text: string;
+  readonly latestTurn: boolean;
+}
+
+export interface DiffViewerLatestTurnContext {
+  readonly verificationLines: readonly string[];
+  readonly recoveryLine: string;
 }
 
 export interface DiffViewerCollection {
   readonly files: readonly DiffViewerFile[];
   readonly hiddenFiles: number;
+  readonly unavailable: readonly DiffViewerUnavailable[];
+  readonly hiddenUnavailable: number;
+  readonly latestTurnUnavailable: number;
+  readonly latestTurnContext?: DiffViewerLatestTurnContext;
+}
+
+export const EMPTY_DIFF_VIEWER_COLLECTION: DiffViewerCollection = {
+  files: [],
+  hiddenFiles: 0,
+  unavailable: [],
+  hiddenUnavailable: 0,
+  latestTurnUnavailable: 0,
+};
+
+export function hasDiffViewerEvidence(collection: DiffViewerCollection): boolean {
+  return collection.files.length > 0 || collection.unavailable.length > 0;
 }
 
 export interface DiffViewerFileState {
@@ -94,6 +126,18 @@ export interface DiffViewerPlan {
   readonly hiddenAfter: number;
   readonly evidenceLine?: string;
   readonly evidenceLines: readonly string[];
+  readonly coverageLines: readonly string[];
+  readonly availabilityLines: readonly string[];
+  readonly verificationLines: readonly string[];
+  readonly recoveryLines: readonly string[];
+  readonly footerLines: readonly string[];
+}
+
+export interface UnavailableDiffViewerPlan {
+  readonly titleLines: readonly string[];
+  readonly availabilityLines: readonly string[];
+  readonly verificationLines: readonly string[];
+  readonly recoveryLines: readonly string[];
   readonly footerLines: readonly string[];
 }
 
@@ -138,8 +182,17 @@ function changesFor(
   return changes;
 }
 
-function viewerFile(item: UiToolActivity, itemIndex: number): DiffViewerFile | undefined {
+function viewerFile(
+  item: UiToolActivity,
+  itemIndex: number,
+  latestTurnStart: number,
+): DiffViewerFile | undefined {
   if (item.status !== "ok" || item.diff === undefined || item.diff.length === 0) return undefined;
+  // An explicit producer settlement outranks any contradictory/stale request-side comparison
+  // bytes. In particular, never recover a path or line from the activity after redaction failed.
+  if (item.mutationPresentation !== undefined && item.mutationPresentation.status !== "available") {
+    return undefined;
+  }
   if (!item.diff.some((line) => line.kind === "add" || line.kind === "del")) return undefined;
   const path = pathFor(item);
   const hunks = hunksFor(item.diff);
@@ -147,6 +200,8 @@ function viewerFile(item: UiToolActivity, itemIndex: number): DiffViewerFile | u
   if (changes.length === 0) return undefined;
   const triage = diffTriage(path);
   const presentation = item.mutationPresentation;
+  const coverage =
+    presentation?.status === "available" ? mutationReviewCoverageCopy(presentation) : undefined;
   return {
     id: item.id,
     occurrenceKey: `${String(itemIndex)}:${item.id}`,
@@ -156,26 +211,106 @@ function viewerFile(item: UiToolActivity, itemIndex: number): DiffViewerFile | u
     changes,
     summary: { ...summarizeDiff(item.diff), rows: item.diff.length },
     defaultCollapsedHunks: triage.defaultCollapsed ? hunks.map((_, index) => index) : [],
+    latestTurn: itemIndex >= latestTurnStart,
     ...(presentation?.status === "available"
       ? {
           evidence: {
             transitionBinding: presentation.transitionBinding,
             concurrentMutation: presentation.concurrentMutation,
+            ...(coverage === undefined ? {} : { coverageLine: coverage }),
           },
         }
       : {}),
   };
 }
 
-/** Select recent, already-settled comparison artifacts without reading the workspace or copying bytes. */
-export function collectDiffViewerFiles(items: readonly ViewItem[]): DiffViewerCollection {
-  const all = items.flatMap((item, itemIndex) => {
-    if (item.kind !== "tool") return [];
-    const file = viewerFile(item, itemIndex);
-    return file === undefined ? [] : [file];
-  });
-  const hiddenFiles = Math.max(0, all.length - MAX_DIFF_VIEWER_FILES);
-  return { files: all.slice(hiddenFiles), hiddenFiles };
+function latestTurnStart(items: readonly ViewItem[]): number {
+  for (let index = items.length - 1; index >= 0; index -= 1) {
+    const item = items[index]!;
+    if (item.kind === "message" && item.role === "user") return index;
+  }
+  return 0;
+}
+
+function oneBoundedLine(value: string): string {
+  const clean = stripControlLine(value).trim().replace(/\s+/gu, " ");
+  return truncateDisplayCells(clean, 160, { tailCells: 32 });
+}
+
+function latestTurnContext(
+  summary: UiTurnSummary | undefined,
+): DiffViewerLatestTurnContext | undefined {
+  if (summary === undefined) return undefined;
+  const checked = summary.checked
+    .map(oneBoundedLine)
+    .filter((line) => line.length > 0)
+    .map((line) => `latest turn · verified · ${line}`);
+  const receipt = (summary.receipt ?? [])
+    .map(oneBoundedLine)
+    .filter((line) => /^verification\s*·/iu.test(line))
+    .map((line) => `latest turn · ${line}`);
+  const verificationLines = [...new Set([...receipt, ...checked])].slice(0, 2);
+  return {
+    verificationLines: verificationLines.length > 0 ? verificationLines : ["verification not run"],
+    recoveryLine: TUI_MANUAL_RECOVERY_GUIDANCE,
+  };
+}
+
+function unavailableFile(
+  item: UiToolActivity,
+  itemIndex: number,
+  latestStart: number,
+): DiffViewerUnavailable | undefined {
+  if (item.status !== "ok" || (item.name !== "edit" && item.name !== "write")) return undefined;
+  const presentation = item.mutationPresentation;
+  let text: string;
+  if (presentation?.status === "available") {
+    const path = oneBoundedLine(presentation.displayPath) || "comparison";
+    const coverage = mutationReviewCoverageCopy(presentation);
+    text = `${path} · ${oneBoundedLine(coverage ?? "comparison rows unavailable")}`;
+  } else if (presentation?.status === "unavailable") {
+    text = `${item.name} observation unavailable · ${mutationReviewUnavailableCopy(presentation.reason)}`;
+  } else if (presentation?.status === "pending") {
+    text = `${item.name} observation unavailable · presentation did not settle`;
+  } else {
+    text = `${item.name} observation unavailable · governed observation capture was unavailable`;
+  }
+  return {
+    occurrenceKey: `${String(itemIndex)}:${item.id}`,
+    text: oneBoundedLine(text),
+    latestTurn: itemIndex >= latestStart,
+  };
+}
+
+/** Select recent settled comparison and availability facts without reading the workspace or copying bytes. */
+export function collectDiffViewerFiles(
+  items: readonly ViewItem[],
+  summary?: UiTurnSummary,
+): DiffViewerCollection {
+  const latestStart = latestTurnStart(items);
+  const allFiles: DiffViewerFile[] = [];
+  const allUnavailable: DiffViewerUnavailable[] = [];
+  for (const [itemIndex, item] of items.entries()) {
+    if (item.kind !== "tool") continue;
+    const file = viewerFile(item, itemIndex, latestStart);
+    if (file !== undefined) {
+      allFiles.push(file);
+      continue;
+    }
+    const unavailable = unavailableFile(item, itemIndex, latestStart);
+    if (unavailable !== undefined) allUnavailable.push(unavailable);
+  }
+  const hiddenFiles = Math.max(0, allFiles.length - MAX_DIFF_VIEWER_FILES);
+  const hiddenUnavailable = Math.max(0, allUnavailable.length - MAX_DIFF_VIEWER_UNAVAILABLE);
+  const context = latestTurnContext(summary);
+  return {
+    files: allFiles.slice(hiddenFiles),
+    hiddenFiles,
+    unavailable: allUnavailable.slice(hiddenUnavailable),
+    hiddenUnavailable,
+    latestTurnUnavailable: allUnavailable.filter((item) => item.latestTurn).length,
+    ...(context === undefined ? {} : { latestTurnContext: context }),
+  };
 }
 
 function initialFileState(file: DiffViewerFile): DiffViewerFileState {
@@ -389,9 +524,33 @@ function selectWholeLineGroups(
 const EVIDENCE_LINE =
   "observed before → verified installed after · transition not atomic · concurrent mutation not excluded";
 const FOOTER_LINE = "j/k rows · n/p changes · tab files · enter/space fold · esc close";
+const UNAVAILABLE_FOOTER_LINE = "esc close";
 
 function hardRows(value: string, columns: number): readonly string[] {
   return wrapDisplayLine(value, columns).map((row) => row.text);
+}
+
+function wordRows(value: string, columns: number): readonly string[] {
+  if (terminalDisplayWidth(value) <= columns) return [value];
+  const rows: string[] = [];
+  let current = "";
+  for (const word of value.split(" ")) {
+    const candidate = current.length === 0 ? word : `${current} ${word}`;
+    if (terminalDisplayWidth(candidate) <= columns) {
+      current = candidate;
+      continue;
+    }
+    if (current.length > 0) rows.push(current);
+    if (terminalDisplayWidth(word) <= columns) {
+      current = word;
+    } else {
+      const pieces = hardRows(word, columns);
+      rows.push(...pieces.slice(0, -1));
+      current = pieces.at(-1) ?? "";
+    }
+  }
+  if (current.length > 0) rows.push(current);
+  return rows;
 }
 
 function titleRows(
@@ -449,18 +608,97 @@ function metadataRows(value: string | undefined, columns: number): number {
   return value === undefined ? 0 : hardRows(value, columns).length;
 }
 
-/** Build one bounded dynamic viewport around the selected source row. */
-export function planDiffViewer(
+function availabilityRows(
   collection: DiffViewerCollection,
-  state: DiffViewerState,
-  geometry: { readonly columns: number; readonly rows: number },
-): DiffViewerPlan {
+  turn: boolean | "all",
+  columns: number,
+): readonly string[] {
+  const overall = collection.unavailable.length + collection.hiddenUnavailable;
+  const total =
+    turn === "all"
+      ? overall
+      : turn
+        ? collection.latestTurnUnavailable
+        : overall - collection.latestTurnUnavailable;
+  if (total <= 0) return [];
+  const retained =
+    turn === "all"
+      ? collection.unavailable
+      : collection.unavailable.filter((item) => item.latestTurn === turn);
+  const reason = retained.at(-1)?.text ?? "reason outside the retained review window";
+  const noun =
+    total === 1 ? "file observation without review rows" : "file observations without review rows";
+  const additional = total > 1 ? ` · ${String(total - 1)} more` : "";
+  return wordRows(oneBoundedLine(`${String(total)} ${noun} · ${reason}${additional}`), columns);
+}
+
+function contextRows(
+  context: DiffViewerLatestTurnContext | undefined,
+  columns: number,
+): {
+  readonly verificationLines: readonly string[];
+  readonly recoveryLines: readonly string[];
+} {
+  if (context === undefined) return { verificationLines: [], recoveryLines: [] };
+  return {
+    verificationLines: context.verificationLines.flatMap((line) =>
+      wordRows(oneBoundedLine(line), columns),
+    ),
+    recoveryLines: wordRows(oneBoundedLine(context.recoveryLine), columns),
+  };
+}
+
+function validateGeometry(geometry: { readonly columns: number; readonly rows: number }): void {
   if (!Number.isInteger(geometry.columns) || geometry.columns < 20) {
     throw new RangeError("diff viewer columns must be an integer of at least 20");
   }
   if (!Number.isInteger(geometry.rows) || geometry.rows < 6) {
     throw new RangeError("diff viewer rows must be an integer of at least 6");
   }
+}
+
+/** Plan the honest focused fallback when mutation evidence settled unavailable. */
+export function planUnavailableDiffViewer(
+  collection: DiffViewerCollection,
+  geometry: { readonly columns: number; readonly rows: number },
+): UnavailableDiffViewerPlan {
+  validateGeometry(geometry);
+  if (collection.files.length > 0 || collection.unavailable.length === 0) {
+    throw new RangeError("unavailable diff viewer needs only unavailable observations");
+  }
+  const latestTurn = collection.latestTurnUnavailable > 0;
+  const titleLines = hardRows("review evidence unavailable", geometry.columns);
+  const availabilityLines = availabilityRows(collection, "all", geometry.columns);
+  const context = contextRows(
+    latestTurn ? collection.latestTurnContext : undefined,
+    geometry.columns,
+  );
+  const footerLines = hardRows(UNAVAILABLE_FOOTER_LINE, geometry.columns);
+  const totalRows =
+    titleLines.length +
+    availabilityLines.length +
+    context.verificationLines.length +
+    context.recoveryLines.length +
+    footerLines.length;
+  if (totalRows > geometry.rows) {
+    throw new RangeError("diff viewer geometry cannot fit unavailable evidence and recovery");
+  }
+  return {
+    titleLines,
+    availabilityLines,
+    verificationLines: context.verificationLines,
+    recoveryLines: context.recoveryLines,
+    footerLines,
+  };
+}
+
+/** Build one bounded dynamic viewport around the selected source row. */
+export function planDiffViewer(
+  collection: DiffViewerCollection,
+  state: DiffViewerState,
+  geometry: { readonly columns: number; readonly rows: number },
+): DiffViewerPlan {
+  validateGeometry(geometry);
   if (collection.files.length === 0) throw new RangeError("diff viewer needs a settled comparison");
   state = normalizeDiffViewerState(collection.files, state);
   const fileIndex = clamp(state.fileIndex, collection.files.length - 1);
@@ -480,6 +718,15 @@ export function planDiffViewer(
   const changePosition = { current: selectedChange + 1, total: file.changes.length };
   const titleLines = titleRows(filePosition, hunkPosition, changePosition, geometry.columns);
   const evidenceLines = file.evidence === undefined ? [] : evidenceRows(geometry.columns);
+  const coverageLines =
+    file.evidence?.coverageLine === undefined
+      ? []
+      : hardRows(oneBoundedLine(file.evidence.coverageLine), geometry.columns);
+  const availabilityLines = availabilityRows(collection, file.latestTurn, geometry.columns);
+  const context = contextRows(
+    file.latestTurn ? collection.latestTurnContext : undefined,
+    geometry.columns,
+  );
   const footerLines = footerRows(geometry.columns);
   const fileSummaryLines = fileSummaryRows(file.summary, geometry.columns);
   const earlierFilesLine =
@@ -499,6 +746,10 @@ export function planDiffViewer(
     metadataRows(earlierFilesLine, geometry.columns) +
     metadataRows(hiddenPathLine, geometry.columns) +
     evidenceLines.length +
+    coverageLines.length +
+    availabilityLines.length +
+    context.verificationLines.length +
+    context.recoveryLines.length +
     footerLines.length;
   const omissionRows =
     metadataRows(`↑ ${String(file.lines.length)} earlier source rows`, geometry.columns) +
@@ -524,6 +775,10 @@ export function planDiffViewer(
           evidenceLine: EVIDENCE_LINE,
         }),
     evidenceLines,
+    coverageLines,
+    availabilityLines,
+    verificationLines: context.verificationLines,
+    recoveryLines: context.recoveryLines,
     footerLines,
   };
 
