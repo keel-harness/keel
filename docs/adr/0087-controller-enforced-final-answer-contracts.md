@@ -1,10 +1,10 @@
 # ADR-0087 — Controller-enforced final-answer contracts and inspectable settlement
 
-- **Status:** **Proposed — explicit maintainer decision required before implementation.** This ADR
-  changes public agent-output behavior, adds opt-in CLI/TUI controls, and adds optional,
-  syntactically forward-compatible metadata to the non-frozen session ledger, including a fixed
-  process-local closure for an exactly tagged interrupted rewrite prompt. The design and tests may
-  be reviewed before acceptance; no behavior implementation is authorized by this proposed record.
+- **Status:** **Accepted (2026-08-04).** The maintainer explicitly accepted ADR-0087 and authorized
+  implementation of issue #113 as scoped in PR #120 after reviewing the hardened crash/resume
+  design. This decision authorizes the opt-in CLI/TUI controls and optional, syntactically
+  forward-compatible metadata described below, including a fixed process-local closure for an
+  exactly tagged interrupted rewrite prompt.
 - **Date:** 2026-08-04.
 - **Decider:** keel maintainer.
 - **Governs:** explicit operator-requested bounds on the terminal model answer. Relates to ADR-0002
@@ -541,9 +541,9 @@ spec-issue. Every must-fix is resolved or explicitly escalated.
 - no Warden/policy/sandbox/egress/grant/RPC/audit change; and
 - no score increase from component tests or a docs-only accepted ADR.
 
-## Owner decision requested
+## Accepted authorization boundary
 
-Accepting this ADR authorizes red-first implementation of the scoped controller, the public
+The maintainer's acceptance authorizes red-first implementation of the scoped controller, the public
 `--final-max-words` and `/answer` surfaces, the local full-answer inspection surface, and the
 additive optional session metadata above, including the exact orphan-prompt closure and documented
 behavioral-downgrade boundary. It does **not** authorize a frozen contract, Warden/security authority,
