@@ -1547,3 +1547,17 @@
   macOS real-PTY smoke, governed posture, exit zero, and complete process-group teardown.
 - Five-lens QC has no local must-fix. No product/Warden/security/frozen-contract behavior, score,
   provider call, cost, or review count changes. Publication and exact post-main proof are pending.
+
+## 2026-08-04 — issue #130 publication closeout
+
+- Exact reviewed head `259fdfc`, tree `03fd2f69`, passed PR CI `30949551544`, including DCO,
+  required aggregate `92129530917`, full build/coverage, package, security, real sandbox, Node-next,
+  egress-scale, and the Node 20/22/24 installed-product matrices.
+- The owner-authorized admin squash merged PR #131 as `32f3346`; the reviewed and merge trees are
+  identical. Issue #130 closed and the remote feature branch was deleted.
+- Exact post-main run `30950106016` passed required aggregate `92131701270`, Linux/macOS build and
+  coverage, both package lanes, both real-sandbox lanes, audit, security, both cross-architecture
+  runtime smokes, Node-next, egress-scale, and all three installed-product matrices. macOS package
+  job `92129805024` is the direct green replay of the originally failing lane.
+- Publication and product-path proof are closed. This evidence-only closeout adds zero provider
+  calls, Warden reviews, product behavior, security claims, dependencies, or score changes.

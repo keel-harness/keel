@@ -482,8 +482,8 @@ whole-`KEEL_HOME` denial, path withholding, symlink fidelity, caps, cleanup, and
 semantics remain covered.
 
 Issue #127 therefore adds **0 total / 0 necessary / 0 excessive** review interrupts and leaves the
-frozen historical dogfood total at **6 total / 2 necessary / 4 excessive or avoidable**. Publication
-and post-main CI remain pending.
+frozen historical dogfood total at **6 total / 2 necessary / 4 excessive or avoidable**. PR #129
+merged; the separate post-main observer failure is closed by #130 below.
 
 ## Issue #130 validation outcome
 
@@ -493,4 +493,5 @@ record, or authority boundary. The repeated and fresh exact-carrier smokes submi
 and request no human decision.
 
 Issue #130 therefore adds **0 total / 0 necessary / 0 excessive** review interrupts and leaves the
-frozen historical dogfood total at **6 total / 2 necessary / 4 excessive or avoidable**.
+frozen historical dogfood total at **6 total / 2 necessary / 4 excessive or avoidable**. PR #131,
+issue closure, and exact post-main CI `30950106016` are green and add no governed product review.
