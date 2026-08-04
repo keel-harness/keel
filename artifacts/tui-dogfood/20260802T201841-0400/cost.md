@@ -185,3 +185,10 @@ reverted metadata experiment made **zero Anthropic requests**. Incremental input
 cost are zero. Cumulative spend remains **USD 4.72508650**; USD 15.27491350 remains and the final USD
 2 reserve is intact. The ambient credential was never read, copied, printed, logged, committed, or
 captured.
+
+Issue #130 used captured terminal bytes, local parser/unit tests, full local coverage, exact locally
+built scripts-disabled npm carriers, real PTYs, and the production local Warden startup path. It
+submitted no provider task and made **zero Anthropic requests**. Incremental input/output tokens and
+cost are zero. Cumulative spend remains **USD 4.72508650**; USD 15.27491350 remains and the final
+USD 2 reserve is intact. No credential value was read, copied, printed, logged, committed, or
+captured.

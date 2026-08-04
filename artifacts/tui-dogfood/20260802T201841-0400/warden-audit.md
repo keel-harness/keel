@@ -484,3 +484,13 @@ semantics remain covered.
 Issue #127 therefore adds **0 total / 0 necessary / 0 excessive** review interrupts and leaves the
 frozen historical dogfood total at **6 total / 2 necessary / 4 excessive or avoidable**. Publication
 and post-main CI remain pending.
+
+## Issue #130 validation outcome
+
+Issue #130 changes only how a bounded packaging observer projects PTY carriage-return runs. It does
+not change a product command, verdict, review, grant, policy input, sandbox, egress path, audit
+record, or authority boundary. The repeated and fresh exact-carrier smokes submit no provider task
+and request no human decision.
+
+Issue #130 therefore adds **0 total / 0 necessary / 0 excessive** review interrupts and leaves the
+frozen historical dogfood total at **6 total / 2 necessary / 4 excessive or avoidable**.

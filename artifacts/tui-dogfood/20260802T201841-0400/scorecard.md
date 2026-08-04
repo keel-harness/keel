@@ -248,3 +248,8 @@ echo p95 7.762 ms. This materially resolves DF-028's scoped responsiveness defec
 snapshot or Warden truth, but it remains component evidence rather than a frozen six-workflow replay.
 The candidate unweighted mean therefore stays **4.04/5**, and the pooled diagnostic stays **4.02/5
 (249/62)** until the same-commit workflow gate. P1-007 remains independently failed.
+
+Issue #130 repairs a release observer after #127's exact post-main macOS package lane falsely missed
+an already-rendered blank composer. The exact product behavior, six canonical workflow outcomes,
+and all score axes are unchanged. The candidate unweighted mean remains **4.04/5** and the pooled
+diagnostic remains **4.02/5 (249/62)** pending publication and the strict same-commit replay.
