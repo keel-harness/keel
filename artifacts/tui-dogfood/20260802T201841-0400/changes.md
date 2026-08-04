@@ -555,3 +555,36 @@ worktree were removed.
 - Final Keel-run checks: editor normalization `16 passed`; PathLike `2 passed`; full termui `227
   passed, 23 skipped`. The immediately preceding implementation run also had progress `39 passed`.
 - Static checks: ruff/mypy/pyright **NOT_RUN** because unavailable.
+
+## Keel — R15 availability-aware focused diff review candidate
+
+- `/diff review` keeps the existing bounded available-comparison viewer and now retains successful
+  typed `edit`/`write` observations whose producer presentation has no review rows.
+- An all-unavailable review opens one focused state with exact producer-safe path/reason, explicit
+  verification truth, ADR-0079's fixed non-destructive recovery, and Esc close. Mixed reviews retain
+  the selected comparison and disclose bounded missing-row counts/reasons.
+- Explicit non-available producer settlement outranks contradictory/stale activity diff bytes.
+  Request paths, summaries, output, and assistant prose cannot manufacture a path, comparison,
+  verification, or recovery fact.
+- Latest-turn verification/recovery is shown only for a selected latest-turn comparison. Earlier
+  selected files receive neither. Text is control-stripped, display-bounded, and word-wrapped
+  without breaking grapheme clusters.
+- Unavailable observations are capped at three with an exact hidden count. Existing 32-file and
+  24-review-row caps, folds/navigation, narrow fallback, NO_COLOR/dumb semantics, dormant composer,
+  and approval/active-turn focus priority remain intact.
+- Red-first selected coverage failed **9 / 55** before implementation and passes **57 / 57** after
+  the final producer-precedence adversarial repair. Adjacent **382 / 382**, full TUI
+  **1,368 / 1,368**, unrestricted coverage **6,557 / 20 existing skips**, typecheck, lint, format,
+  build, package, and diff checks pass.
+- Exact installed baseline and candidate npm carriers pass at 80x24 and 100x30 through a real PTY,
+  spawned Warden, and loopback provider. The same successful summary-only typed write yields a
+  generic no-diffs note before and the focused availability/recovery state after. Accepted runs use
+  eight fixture requests total and zero paid calls.
+- E4 screenshots 41–42 are sanitized, visually inspected 1400x840 comparison transcriptions with
+  SHA-256 `941d259467d387cf4d64755877e6057c0264f6d059a12078541819de953ab2db` and
+  `2814b23ea8fb720fbb62c01f47bbb14c60a9e34ee0ce4fca5ff647548026308f`.
+- No persistence, preimage, rollback, automatic undo, workspace reread, Git inference, Warden
+  verdict, policy, sandbox, egress, audit, provider, dependency, frozen contract, or security claim
+  changes. Five-lens QC has no unresolved local must-fix.
+- The locally validated candidate raises only observed feature user control, producing a candidate
+  aggregate of **3.90/5** (242/62). PR/CI/merge/cleanup proof remains pending.

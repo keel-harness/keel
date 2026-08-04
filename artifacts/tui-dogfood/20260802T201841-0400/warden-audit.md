@@ -254,3 +254,26 @@ Baseline and candidate exact-carrier runs at 80x24 and 100x30 use no Warden or p
 the non-secret fixture is absent from all captured evidence. Candidate `19a482a` and merge
 `1bbe977` share tree `ee7837f`; exact reviewed-head CI `30866891254` and post-main CI `30867327223`
 passed, issue #94 closed, and feature cleanup passed. Historical totals remain unchanged.
+
+## R15 validation outcome
+
+R15 introduces no human review interrupt or automatic denial, so historical totals remain **6
+total / 2 necessary / 4 excessive or avoidable**. Each accepted installed-carrier replay performs
+one ordinary governed typed `write` over a four-byte binary preimage. The spawned production Warden
+settles the action once; no grantable review, terminal review, denial, reusable scope, or additional
+authority is requested.
+
+The focused diff surface consumes only process-local mutation-presentation facts after settlement.
+It cannot execute or retry a tool, approve or batch a review, reinterpret a verdict, change policy
+input, widen the sandbox or egress profile, write an audit record, or synthesize a model-visible
+result. Explicit producer unavailability outranks contradictory activity diff bytes; request paths,
+output, summaries, and assistant prose cannot become comparison evidence. Unavailable observations
+are display-bounded, control-stripped, and paired only with the fixed non-destructive recovery
+guidance already accepted by ADR-0079.
+
+Baseline and candidate use the same governed action at 80x24 and 100x30. The difference is
+presentation after settlement: baseline reports no settled diff, while candidate makes the
+producer-owned limitation and safe next action inspectable. Eighteen loopback fixture requests,
+including invalid presentation-oracle attempts, made zero Anthropic calls and no new Warden
+interrupt. Warden verdicts, grantability, approval lifecycle, batching, audit, sandbox, egress,
+RPC/shared schemas, and historical interrupt totals remain unchanged.

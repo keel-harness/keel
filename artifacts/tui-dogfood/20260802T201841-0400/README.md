@@ -235,3 +235,21 @@ remains USD 2.74434625. Candidate `19a482a` and PR head `65ffe16` passed exact r
 post-main CI run `30867327223` passed, including `ci-required` job `91863159620`; feature cleanup
 passed. R13 raises only observed onboarding recovery, so the evidence-bound official score is now
 **3.89/5** (241/62). The stricter final six-workflow release gate remains open.
+
+R15 is locally validated under [issue #97](https://github.com/keel-harness/keel/issues/97). The
+existing `/diff review` available-comparison viewer remains intact; successful typed edit/write
+observations that settle unavailable or summary-only now open an honest focused state instead of
+the generic no-diffs note. Mixed reviews retain the selected comparison and disclose bounded
+missing rows. Verification and recovery context appears only for the selected latest-turn
+comparison and comes from existing controller facts. Explicit non-available producer settlement
+outranks contradictory activity diff bytes, so request paths and assistant prose cannot become
+review evidence.
+
+Red-first focused **57/57**, adjacent **382/382**, full TUI **1,368/1,368**, unrestricted coverage
+**6,557 / 20 existing opt-in skips** at 97.98% statements/lines and 93.70% branches, typecheck,
+lint, format, build, all four package carriers, and diff checks pass. Exact installed baseline and
+candidate npm carriers pass the same governed typed-write scenario at 80x24 and 100x30 with zero
+paid calls. Screenshots 41–42 are visually inspected sanitized 1400x840 before/after
+transcriptions. Five-lens QC has no unresolved local must-fix. The candidate evidence-bound score is
+**3.90/5** (242/62), but publication, reviewed-head CI, merge-tree comparison, post-main CI, issue
+closure, and cleanup remain pending; the strict final six-workflow gate remains open.

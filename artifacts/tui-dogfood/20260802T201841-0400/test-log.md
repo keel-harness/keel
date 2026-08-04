@@ -966,3 +966,49 @@
   synchronized main checkout's exact installed dependency tree through a worktree-local symlink
   then passed artifact consistency **21/21**, repository format, and `git diff --check`. None of
   the setup failures collected a test or changed source, lockfile, dependency, or product behavior.
+
+## 2026-08-03 — R15 availability-aware focused diff review
+
+- Started from clean synchronized `main` at `9755816d5a8b9f4b9a797ef880430df1b06e134b` under
+  [issue #97](https://github.com/keel-harness/keel/issues/97) on isolated branch
+  `fix/tui-diff-review-availability`.
+- Baseline `/diff review` omitted a successful summary-only typed-write observation and displayed
+  only `No settled diffs available to review.` The retained slice keeps authoritative unavailable
+  observations and opens a focused state containing the producer-safe path/reason, verification
+  truth, ADR-0079 recovery guidance, and Esc control. Available comparisons keep the existing
+  bounded viewer; mixed missing rows remain secondary to the selected comparison.
+- Explicit non-available producer settlement outranks contradictory activity diff bytes. Request
+  arguments, summaries, output, and assistant prose cannot manufacture review evidence. No
+  persistence, preimage, rollback, Warden, policy, audit, provider, dependency, or frozen-contract
+  behavior changes.
+- The red-first selected run passed **46/55** and failed the expected **9** new behavior tests.
+  Final focused coverage passes **57/57** and adjacent TUI coverage passes **382/382**.
+- A full TUI run forced into thread workers was **not green** at **1,367/1,368** because its real
+  Warden fixture invokes `process.chdir`, which Node worker threads forbid. The same failure
+  reproduces on clean exact `main`. The repository-compatible fork-pool run passes **1,368/1,368**
+  across 48 files; no test was weakened or changed to hide the thread-worker limitation.
+- The first coverage run executed **6,557 tests / 20 existing opt-in skips** without a test failure
+  but failed attribution thresholds because worktree dependency symlinks resolved package imports
+  to canonical `main`. After an exact frozen worktree-local install with scripts disabled,
+  unrestricted coverage passes **6,557/20** at 97.98% statements/lines, 93.70% branches, and
+  99.58% functions. Typecheck, lint, format, build, all four package carriers, and
+  `git diff --check` pass.
+- Exact installed baseline and candidate npm carriers run through real PTYs, a spawned production
+  Warden, and a loopback provider at 80x24 and 100x30. Each accepted run makes two fixture requests,
+  performs one legitimate summary-only typed write, records one result, exits 0 at `model-stop`,
+  and returns focus after Esc. Baseline/candidate tarball SHA-256 values are
+  `e87205ccaba47726b2dcbfccbccd9232a22f6859965b63c8b20cc9256783d29b` and
+  `c71a66c4314584483197544ccb1470939ddabccc9ae54b85d16169cd6fdf9140`.
+- Two initial candidate evidence oracles were invalid because raw substring matching did not
+  normalize Ink rail wrapping. The product frame already contained the expected text; the corrected
+  oracle normalizes only visible line-prefix rails and retains exact raw-frame hashes. All eighteen
+  requests, including invalid attempts, stayed on loopback and made zero Anthropic calls.
+- E4 screenshots 41–42 are sanitized, visually inspected 1400x840 transcriptions with SHA-256
+  `941d259467d387cf4d64755877e6057c0264f6d059a12078541819de953ab2db` and
+  `2814b23ea8fb720fbb62c01f47bbb14c60a9e34ee0ce4fca5ff647548026308f`.
+  E5 is **NOT_RUN** because the changed state is deterministic controller presentation. Cumulative
+  Anthropic spend remains USD 2.74434625, USD 17.25565375 remains, and the USD 2 reserve is intact.
+- Five-lens QC repaired one adversarial must-fix before final green: explicit producer
+  unavailability now defeats contradictory request-derived activity bytes. Spec/ADR, security,
+  reliability, TUI/DX, and simplicity passes have no unresolved local must-fix. The candidate score
+  is **3.90/5** (242/62); publication and immutable reviewed-head/main evidence remain pending.
