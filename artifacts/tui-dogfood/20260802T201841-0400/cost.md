@@ -68,6 +68,7 @@ applicable input rate.
 | R21 exact-main live onboarding | 41,766 | 15,439 | 42,012 | 3,455 | 0.2476 | 2.9920 | 17.0080 |
 | R21 prompt candidate 1 | 37,906 | 15,042 | 44,710 | 3,083 | 0.2298 | 3.2218 | 16.7782 |
 | R21 prompt candidate 2 | 35,610 | 12,939 | 55,421 | 2,687 | 0.2123 | 3.4340 | 16.5660 |
+| R22 local operator-diagnostic matrix | 0 | 0 | 0 | 0 | 0.0000 | 3.4340 | 16.5660 |
 
 Anthropic provider calls: 85 successful, 4 rejected at zero reported usage. R7's two local-fixture
 requests are not Anthropic calls and carry no Anthropic cost. The USD 2.00 final-regression
@@ -146,6 +147,12 @@ R21's live increment is exactly USD 0.68968890. Deterministic
 positive/negative/resume fixtures made no Anthropic request. Cumulative spend is USD 3.43403515,
 USD 16.56596485 remains, and the final USD 2 reserve is intact. The task-scoped credential copy was
 never read, printed, logged, committed, or captured.
+R22 used only missing-credential preflight, local doctor, installed-carrier startup, loopback
+provider fixtures, and a spawned local Warden. The seven-path matrix, two-geometries replay,
+candidate comparison, build/package validation, screenshots, and publication made zero Anthropic
+calls. Cumulative spend remains USD 3.43403515, USD 16.56596485 remains, and the final USD 2 reserve
+is intact. The ambient provider credential was never read, copied into a child, printed, logged,
+committed, or captured.
 The R0 manifest caps a future six-workflow replay at
 USD 11.00, below the currently spendable USD 14.56596485 after preserving the final USD 2.00
 reserve.
