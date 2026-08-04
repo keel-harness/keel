@@ -593,7 +593,7 @@ worktree were removed.
   closure, and feature branch/worktree cleanup passed. The evidence-bound aggregate is officially
   **3.90/5** (242/62); the strict final gate remains open.
 
-## R16 candidate — retain automatic approval receipts across Ink history commit
+## R16 — retain automatic approval receipts across Ink history commit
 
 - Added a production-shaped Warden/review/session-grant sequence to both headless and real Ink REPL
   coverage. One human session approval covers the later exact domain; a distinct domain remains a
@@ -611,5 +611,7 @@ worktree were removed.
 - Exact installed 80x24/100x30 positive and negative PTY paths pass. Screenshots 43–44 show the
   missing baseline fact and the single candidate receipt. No Warden, policy, grant, sandbox,
   egress, audit, RPC/schema, dependency, public CLI, or security claim changes.
-- The local candidate reaches **4.01/5** under the plan's unweighted workflow-mean formula and
-  **3.98/5** under the legacy pooled-cell diagnostic. Publication and cleanup gates remain pending.
+- The official score reaches **4.01/5** under the plan's unweighted workflow-mean formula and
+  **3.98/5** under the legacy pooled-cell diagnostic. Candidate `6f4660c` passed exact-head CI
+  `30877328734`; PR #101 merged as `be4fb5e` with identical tree `0a916c1`; exact post-main CI
+  `30877686690`, issue closure, and feature branch/worktree cleanup passed.

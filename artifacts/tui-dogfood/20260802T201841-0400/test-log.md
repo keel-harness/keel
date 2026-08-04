@@ -1064,5 +1064,18 @@
   and `08c44aa414a14e9c4b1f458d76ceb85c79c4d226401c7bc7a5c443102244e975`.
 - E5 is **NOT_RUN**. Fourteen accepted loopback requests made zero Anthropic calls. Spend remains
   USD 2.74434625; USD 17.25565375 remains and the USD 2 reserve is intact.
-- Five-lens QC found no unresolved local must-fix. Exact reviewed-head CI, merge-tree identity,
-  post-main CI, issue closure, and cleanup remain pending.
+- Five-lens QC found no unresolved local must-fix. Candidate
+  `6f4660c8c75b6fab893726eeb80b795d1b929b7f` passed exact-head CI run `30877328734`, including
+  `ci-required` job `91892229133`. Owner-authorized admin squash merged PR #101 as
+  `be4fb5e4497ab26dfe898c5918f6ed77195b658a`; candidate and merge share tree
+  `0a916c1ff5a3e5a7703dcd7b9481d65bebf5ea1f`.
+- Exact post-main CI run `30877686690` passed, including Linux/macOS full coverage, audit, real
+  sandbox, cross-architecture carrier, installed-package, security, egress, and `ci-required` job
+  `91893411037`. Issue #100 closed; the remote branch was absent and the clean local feature branch
+  and worktree were removed. The plan-defined score is officially **4.01/5**; the legacy pooled
+  diagnostic is **3.98/5** (247/62). The strict same-commit final gate remains open.
+- This closeout changes evidence only, so no new red behavior test applies. Its first format
+  invocation was **NOT_RUN** because the isolated worktree had no `prettier`; no file was formatted
+  or changed. Reusing synchronized `main`'s exact installed dependency tree through a worktree-local
+  ignored symlink then passed artifact consistency **21/21**, repository format, and
+  `git diff --check`.

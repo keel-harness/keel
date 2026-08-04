@@ -614,15 +614,17 @@ equivalent actions. Show queue count, exact reusable scope, once/session/deny/wh
 and resolution. Batch only equivalent non-urgent reviews whose controller-provided scope proves the
 same risk. Never group by text similarity or model intent.
 
-Candidate status: implementation and local E2-E4 complete under
-[issue #100](https://github.com/keel-harness/keel/issues/100). Production evidence proves one active
+Status: closed under [issue #100](https://github.com/keel-harness/keel/issues/100) and
+[PR #101](https://github.com/keel-harness/keel/pull/101). Production evidence proves one active
 review at a time, so the retained slice validates the existing exact session-scope grant as the
 bounded equivalent-action mechanism instead of adding a fictional concurrent queue. The completed
 Ink transcript now emits one controller-owned automatic receipt for the exact reuse; an unlike
 domain still receives a fresh review and denial remains non-executing. Full TUI, unrestricted full
 tests/coverage, static/build/package/supply-chain gates, exact installed 80x24/100x30 positive and
 negative replays, sanitized E4, and five-lens QC pass with zero Anthropic calls. Exact reviewed-head
-CI, merge identity, post-main CI, issue closure, and cleanup remain pending.
+CI run `30877328734`, identical candidate/merge tree `0a916c1`, post-main CI run `30877686690`,
+issue closure, and feature cleanup passed. The plan-defined score is officially **4.01/5**; the
+strict same-commit final gate remains open.
 
 ### R17 · high-value progress — useful waiting and latency budgets
 

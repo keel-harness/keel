@@ -113,5 +113,7 @@ USD 2.74434625; USD 17.25565375 remains and the final USD 2 reserve is intact.
   one planner condition consumes it. There is no new state machine, persistence, protocol,
   dependency, or UI surface.
 
-No unresolved local must-fix remains. Exact reviewed-head CI, merge-tree comparison, post-main CI,
-issue closure, and branch/worktree cleanup remain pending.
+No unresolved local must-fix remains. Candidate `6f4660c` passed exact reviewed-head CI
+`30877328734`; PR #101 squash-merged as `be4fb5e`, and both trees are `0a916c1`. Exact post-main CI
+`30877686690` passed, including `ci-required` job `91893411037`. Issue #100 closed, the remote
+branch was absent, and the clean local feature branch/worktree were removed.

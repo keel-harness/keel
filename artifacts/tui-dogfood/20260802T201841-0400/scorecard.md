@@ -30,7 +30,7 @@ Scores use 1 (unusable) through 5 (excellent). `TBD` means the workflow has not 
 | Warden-heavy | after R1 | 4 | 2 | 2 | 2 | 4 | 3 | 3 | 4 | 3 | 2 | 4 |
 | Warden-heavy | after R1+R5 | 4 | 2 | 2 | 2 | 4 | 4 | 4 | 4 | 4 | 2 | 4 |
 | Warden-heavy | after R11 (E2-E4) | 4 | 3 | 2 | 2 | 5 | 4 | 4 | 4 | 4 | 3 | 4 |
-| Warden-heavy | R16 candidate (E2-E4) | 4 | 3 | 4 | 4 | 5 | 4 | 4 | 4 | 4 | 4 | 4 |
+| Warden-heavy | after R16 (E2-E4) | 4 | 3 | 4 | 4 | 5 | 4 | 4 | 4 | 4 | 4 | 4 |
 
 The evidence-weighted baseline across applicable cells was **2.77/5**. Applying the validated R1
 Warden-heavy, R2 feature-workflow, R3 debugging-recovery, and R4 bounded mutation-review changes
@@ -152,9 +152,10 @@ text-similarity batch surface was added. This directly raises Warden-heavy progr
 five-lens QC pass.
 
 The remediation plan defines the overall score as the unweighted mean of six workflow means. On
-that formula the R16 candidate is **4.01/5**. The scorecard's historical pooled-cell diagnostic is
+that formula R16 is officially **4.01/5**. The scorecard's historical pooled-cell diagnostic is
 **3.98/5** (247/62). Both are recorded to expose the pre-existing formula mismatch rather than
-silently switching the series. Neither value is official until exact reviewed-head CI, merge-tree
-identity, post-main CI, and cleanup pass. The strict release gate also remains open: onboarding
-final confidence, debugging control, the same-commit six-workflow replay, and required final E5
-evidence are not yet green.
+silently switching the series. Reviewed head `6f4660c` passed exact-head CI `30877328734`, merged
+through PR #101 as `be4fb5e` with identical tree `0a916c1`, and passed exact post-main CI
+`30877686690`. Issue closure and feature cleanup passed. The strict release gate remains open:
+onboarding final confidence, debugging control, the same-commit six-workflow replay, and required
+final E5 evidence are not yet green.

@@ -37,7 +37,7 @@ credentials nor user-home paths.
 All six requested workflow classes have live evidence. Evidence PR #53; implementation PRs #55,
 #57, #59, #61, #65, #66, #68, #71, #73, and #75; repeatability PR #63; R6 evidence correction PR
 #69; R10 PR #80 and closeout PR #81; R11 PR #83; PTY observer repair PR #85; dependency-
-remediation PR #78; R14 PR #88; R12 PR #92; R13 PR #95; and R15 PR #98 were owner-approved,
+remediation PR #78; R14 PR #88; R12 PR #92; R13 PR #95; R15 PR #98; and R16 PR #101 were owner-approved,
 squash-merged, and cleaned up.
 Each UX
 slice passed reviewed-head CI. R9's first post-merge run exposed a high `brace-expansion` advisory;
@@ -257,7 +257,7 @@ squash-merged as `76a45c3`. Candidate and merge share tree `93c19c1`. Exact post
 passed. The evidence-bound score is now officially **3.90/5**. The onboarding final-confidence,
 Warden-heavy control/progress, and strict final six-workflow gates remain open.
 
-R16 is the local candidate under [issue #100](https://github.com/keel-harness/keel/issues/100).
+R16 closed [issue #100](https://github.com/keel-harness/keel/issues/100).
 The exact installed main carrier proved a controller-correct but presentation-incomplete sequence:
 one exact `example.com` session approval auto-resolved the next matching action, yet the final Ink
 transcript omitted the durable automatic receipt. The retained fix marks only controller-owned
@@ -273,8 +273,10 @@ at 80x24 and 100x30: exact reuse never prompts twice, a different domain always 
 decision, and the automatic receipt is visible in every accepted transcript. Screenshots 43–44 are
 sanitized, visually inspected 1400x840 before/after transcriptions. Zero Anthropic calls were made.
 
-R16 raises only Warden-heavy progress, control, and interruption burden. The remediation plan's
-unweighted workflow-mean formula yields a local **4.01/5** candidate; the historical pooled-cell
+R16 raises only Warden-heavy progress, control, and interruption burden. Reviewed head `6f4660c`
+passed exact-head CI run `30877328734`; PR #101 squash-merged as `be4fb5e`. Candidate and merge share
+tree `0a916c1`. Exact post-main CI run `30877686690` passed, including `ci-required` job
+`91893411037`; issue #100 closed and feature branch/worktree cleanup passed. The remediation plan's
+unweighted workflow-mean formula is now officially **4.01/5**; the historical pooled-cell
 diagnostic is **3.98/5** (247/62). This formula mismatch is explicit rather than silently hidden.
-Exact reviewed-head CI, merge-tree identity, post-main CI, issue closure, and feature cleanup remain
-pending, so neither score is official and the strict final gate remains open.
+The strict final gate remains open on per-axis and same-commit six-workflow evidence.
