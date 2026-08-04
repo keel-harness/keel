@@ -218,9 +218,13 @@ def sanitize_terminal(
             continue
 
         if character == "\r":
-            if cursor + 1 >= len(text) or text[cursor + 1] != "\n":
+            # A PTY with ONLCR may expand an application's CRLF into CR CR LF. Consume the whole
+            # carriage-return run once so that completed line ending remains part of the current
+            # frame; a run not followed by LF is still an incremental redraw boundary.
+            while cursor < len(text) and text[cursor] == "\r":
+                cursor += 1
+            if cursor >= len(text) or text[cursor] != "\n":
                 append_redraw_boundary()
-            cursor += 1
             continue
 
         if code < 0x20 or 0x7F <= code <= 0x9F:
