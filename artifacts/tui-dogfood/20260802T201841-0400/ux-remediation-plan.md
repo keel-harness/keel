@@ -721,8 +721,9 @@ maximum by three and correctly fell back. Issue #133's local red-first candidate
 preferred target below the unchanged hard limit. Two bounded candidates were rejected for
 unsupported runtime prose; retained `305b8b1` produces a source-verified 223-word primary, passes
 full/coverage/static/real-sandbox/live gates, and changes no Warden or contract authority. Evidence
-is in `session-logs/30-final-answer-headroom.md` and screenshot 70. Publication and the final same-
-commit six-workflow gate remain open.
+is in `session-logs/30-final-answer-headroom.md` and screenshot 70. PR #134, exact-tree merge
+`8f0363f`, issue closure, exact post-main CI `30956531938`, and feature cleanup are green. The final
+same-commit six-workflow gate remains open.
 
 ### R22 · operator diagnostics and safe recovery commands
 

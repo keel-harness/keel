@@ -888,4 +888,7 @@ worktree were removed.
   Anthropic spend is USD 7.87313035 with the final USD 2 reserve intact.
 - No typed contract, retry count, truncation, oversize acceptance, ModelPort, Warden, policy,
   sandbox, egress, audit, dependency, public CLI, or security claim changes. The score stays
-  **4.04/5 candidate / 4.02 pooled** pending publication and the strict all-six exact-commit replay.
+  **4.04/5 candidate / 4.02 pooled** pending the strict all-six exact-commit replay.
+- Reviewed head `147cd75` passed exact-head CI `30956020646`. PR #134 squash-merged exact tree
+  `351d42d` as `8f0363f`; issue #133 closed; exact post-main CI `30956531938` passed required
+  aggregate `92152127274` and every selected lane. Feature branch/worktree cleanup passed.

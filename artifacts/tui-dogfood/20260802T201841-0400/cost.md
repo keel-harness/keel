@@ -217,3 +217,7 @@ No credential value was read, printed, logged, committed, or captured.
 
 Cumulative dogfood spend is now **USD 7.87313035**. USD 12.12686965 remains under the hard cap;
 USD 10.12686965 remains available before preserving the final USD 2.00 reserve.
+
+PR #134 publication, issue closure, exact-tree comparison, exact post-main CI, and this evidence-
+only closeout made **zero Anthropic requests** and add zero cost. Cumulative spend remains **USD
+7.87313035**; USD 12.12686965 remains under the hard cap and the final USD 2.00 reserve is intact.
