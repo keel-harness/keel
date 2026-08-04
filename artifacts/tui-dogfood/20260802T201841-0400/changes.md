@@ -407,6 +407,44 @@ worktree were removed.
   as `2ca060e`; both commits have tree `8261e69`. Exact post-main CI `30863981683` passed, issue
   #91 closed, feature cleanup passed, and the official aggregate is **3.87/5** (240/62).
 
+## Keel — R13 truthful credential recovery
+
+- Published [issue #94](https://github.com/keel-harness/keel/issues/94) before implementation and
+  reproduced the successful `keel auth set anthropic` path through the exact installed main
+  carrier at 80x24 and 100x30. Baseline confirmed the `0600` store only and gave no reload or
+  recovery boundary.
+- Added one exact controller-owned success line: already running sessions were not reloaded, and
+  recovery is to restart from the session workspace with `keel --continue`. Getting-started and
+  reference guidance state the same process-start resolution boundary.
+- No hot reload, provider-client replacement, precedence change, key validation, retry, Warden
+  decision, policy, sandbox, audit, schema, dependency, or security claim is added.
+- Red-first exact-output coverage failed **1 / 13** before implementation and passes **13/13**.
+  Adjacent auth/store/runtime/entry tests pass **59/59**; unrestricted coverage, lint, typecheck,
+  format, build, and all four package carriers pass. Final full tests and coverage each pass
+  **6,546 / 20 existing opt-in skips**; coverage is 97.99% statements/lines and 93.72% branches.
+- Exact installed baseline tarball SHA-256 is
+  `40bd8bee1097d4be947f48ba070b965e3c9f667cedca21def80116f832921598`; its 80x24 and
+  100x30 transcripts share SHA-256
+  `44b27f94e6979bd7b0de16a827891c60584cba439f2665756b43ce595beefaf0`.
+- Exact installed candidate tarball SHA-256 is
+  `a0961431a8b539998e63fdd81958811515d42092f55c7aec10f25c42c701c5ab`; its 80x24 and
+  100x30 transcripts share SHA-256
+  `abf5e37f35b4054ced24bb58f46f18456eea26255ffdd868ee5d93ec4481834e`.
+- Both terminal sizes exit 0 and preserve credentials-file mode `0600`. Silent scans prove the
+  non-secret fixture, credential-shaped strings, username, and private paths are absent from all
+  transcripts and screenshots.
+- E4 screenshots 39–40 are sanitized, visually inspected 1400x840 comparison transcriptions with
+  SHA-256 `42194b29bd32709b3a28d4de3f83f8ab3500c177cffc4af261426a263dd7b02e` and
+  `bdef1bd0c30b2a3739fd8fccac36cede6c14da93c575adfaf63367153241ab1e`.
+- E5 is **NOT_RUN** because successful-set copy is deterministic local controller behavior. Four
+  exact-carrier PTYs make zero provider calls; cumulative spend remains USD 2.74434625.
+- The first post-evidence JSON-reporter run used repository-default concurrency and was killed with
+  exit 137 before writing a report; it is recorded as **not green**. The identical suite rerun with
+  four workers completed all 1,034 suites with zero failures. Bounded concurrency was retained for
+  the coverage repeat, which also completed green.
+- Candidate `19a482a` is locally validated and produces a provisional **3.89/5** (241/62).
+  Final repository gates, reviewed-head/post-main CI, issue closure, and cleanup remain pending.
+
 ## Keel — R14 explicit interrupted-mutation state
 
 - Missing-result activities now distinguish exact process-local controller observation:

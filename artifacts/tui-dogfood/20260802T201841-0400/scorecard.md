@@ -8,6 +8,7 @@ Scores use 1 (unusable) through 5 (excellent). `TBD` means the workflow has not 
 | Onboarding | after R8 | 4 | 3 | 4 | 3 | 3 | 4 | 3 | 4 | N/A | N/A | 2 |
 | Onboarding | after R9 (E2-E4) | 4 | 4 | 4 | 4 | 4 | 4 | 3 | 4 | N/A | N/A | 2 |
 | Onboarding | after R12 (E2-E4) | 4 | 4 | 4 | 4 | 4 | 4 | 4 | 4 | N/A | N/A | 2 |
+| Onboarding | R13 candidate (E2-E4) | 4 | 4 | 4 | 4 | 5 | 4 | 4 | 4 | N/A | N/A | 2 |
 | Feature | before | 3 | 2 | 3 | 3 | 2 | 2 | 2 | 3 | 2 | 1 | 4 |
 | Feature | after R1+R2 | 4 | 2 | 3 | 3 | 3 | 4 | 3 | 4 | 3 | 2 | 4 |
 | Feature | after R1+R2+R6 | 4 | 3 | 3 | 3 | 4 | 4 | 3 | 4 | 3 | 2 | 4 |
@@ -115,3 +116,12 @@ omission behavior. This directly raises only onboarding cognitive load by one po
 identical tree `8261e69`, and passed exact post-main CI `30863981683`. Cleanup passed, so the
 evidence-bound aggregate is officially **3.87/5** (240/62). Onboarding final-result confidence and
 the strict final six-workflow gate remain open.
+
+R13 repeats the observed successful credential-replacement command through clean exact installed
+baseline and candidate carriers at 80x24 and 100x30. Baseline confirms only the durable store and
+leaves the user to infer that the active process still owns the old provider client. Candidate
+states that running sessions were not reloaded and gives the exact workspace-qualified
+`keel --continue` recovery action. The credential never appears in output or evidence. This
+directly raises only onboarding error recovery by one point, making the candidate aggregate
+**3.89/5** (241/62). It remains a candidate score until reviewed-head and post-main CI pass; the
+onboarding final-confidence floor and strict same-commit six-workflow gate remain open.
