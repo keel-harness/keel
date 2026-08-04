@@ -333,8 +333,10 @@
 ### DF-023 — exact session-grant reuse is durable but absent from Ink transcript
 
 - Severity: P1 Warden trust and interruption burden.
-- Status: R16 local candidate under [issue #100](https://github.com/keel-harness/keel/issues/100);
-  publication and cleanup gates pending.
+- Status: fixed by R16 under [issue #100](https://github.com/keel-harness/keel/issues/100), merged
+  through [PR #101](https://github.com/keel-harness/keel/pull/101) as `be4fb5e`. Exact reviewed-head
+  CI `30877328734` and post-main CI `30877686690` passed; candidate and merge trees are identical,
+  and feature cleanup passed.
 - Direct evidence: the installed main carrier accepted one exact `domain example.com` session
   approval, auto-resolved the second matching action, and opened a fresh review for
   `domain example.org`. The session ledger contained one `warden_auto_resolved` event and the audit

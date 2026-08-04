@@ -302,3 +302,8 @@ audit requested/resolved records, and nonzero denial exit are identical. Candida
 adds the previously missing exact reuse fact. The historical audit therefore remains **6 total / 2
 necessary / 4 excessive or avoidable**, while the accepted R16 validation matrix demonstrates the
 bounded reuse behavior needed to make future equivalent reviews non-fatiguing.
+
+Reviewed head `6f4660c` passed exact-head CI `30877328734`, merged through PR #101 as `be4fb5e`
+with identical tree `0a916c1`, and passed exact post-main CI `30877686690`. Issue #100 and feature
+cleanup are closed. R16 changes presentation and observed burden, not interrupt authority or the
+historical benchmark total.
