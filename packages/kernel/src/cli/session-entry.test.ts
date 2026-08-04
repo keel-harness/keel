@@ -1023,6 +1023,51 @@ describe("parseKeelArgs", () => {
   it("run without --replay has no replay field", () => {
     expect(parseKeelArgs(["run", "-p", "go"])).toEqual({ kind: "run", prompt: "go", trust: false });
   });
+  it("parses the explicit task-scoped final answer word contract", () => {
+    expect(parseKeelArgs(["run", "-p", "go", "--final-max-words", "40"])).toEqual({
+      kind: "run",
+      prompt: "go",
+      trust: false,
+      finalAnswer: { version: 1, maxWords: 40 },
+    });
+    expect(parseKeelArgs(["run", "--final-max-words=2000", "-p", "go"])).toEqual({
+      kind: "run",
+      prompt: "go",
+      trust: false,
+      finalAnswer: { version: 1, maxWords: 2000 },
+    });
+  });
+  it.each(["39", "2001", "40.5", "nope", "01", "+40"])(
+    "rejects invalid --final-max-words value %j before provider setup",
+    (value) => {
+      const token = `--final-max-words=${value}`;
+      const result = parseKeelArgs(["run", "-p", "go", token]);
+      expect(result.kind).toBe("usage");
+      expect(result.kind === "usage" ? result.message : "").toMatch(
+        /--final-max-words.*integer.*40\.\.2000/i,
+      );
+    },
+  );
+  it("rejects a missing or duplicate final answer contract", () => {
+    const missing = parseKeelArgs(["run", "-p", "go", "--final-max-words"]);
+    expect(missing.kind).toBe("usage");
+    expect(missing.kind === "usage" ? missing.message : "").toMatch(/--final-max-words.*value/i);
+
+    const empty = parseKeelArgs(["run", "-p", "go", "--final-max-words="]);
+    expect(empty.kind).toBe("usage");
+    expect(empty.kind === "usage" ? empty.message : "").toMatch(/--final-max-words.*value/i);
+
+    const duplicate = parseKeelArgs([
+      "run",
+      "-p",
+      "go",
+      "--final-max-words",
+      "40",
+      "--final-max-words=80",
+    ]);
+    expect(duplicate.kind).toBe("usage");
+    expect(duplicate.kind === "usage" ? duplicate.message : "").toMatch(/--final-max-words.*once/i);
+  });
   it("run --verbose sets verbose:true (show the -p system preamble); absent → no verbose flag (default hidden, DX bug a)", () => {
     expect(parseKeelArgs(["run", "-p", "go", "--verbose"])).toEqual({
       kind: "run",
@@ -1132,6 +1177,7 @@ describe("parseKeelArgs", () => {
     expect(HELP_TEXT).not.toMatch(/phase\s*2\.5|Phase-2B/i);
     expect(HELP_TEXT).toContain("--goal <objective> --goal-check <cmd>");
     expect(HELP_TEXT).toContain("--loop-until <cmd>");
+    expect(HELP_TEXT).toContain("--final-max-words <40..2000>");
     expect(HELP_TEXT).toContain(
       "[--plan-id <id>] (--plan-domain <domain> | --plan-command-key <sha256:key>) ...",
     );
@@ -3467,6 +3513,42 @@ describe("runKeelSession (entrypoint orchestration, simulator-driven)", () => {
     expect(r.messages).toEqual([
       { role: "user", content: "go" },
       { role: "assistant", content: "done" },
+    ]);
+  });
+
+  it("one-shot: threads the parsed final-answer contract into one tools-disabled rewrite", async () => {
+    const e = env();
+    const store = SessionStore.create({ cwd: "/w" }, e);
+    const ui = new HeadlessUI();
+    const inputs: ModelTurnInput[] = [];
+    const original = "oversized ".repeat(50).trim();
+    const model: ModelPort = {
+      async *stream(input) {
+        inputs.push(input);
+        const text = inputs.length === 1 ? original : "Bounded rewrite.";
+        yield { type: "text-delta", text };
+        yield { type: "finish", reason: "stop", usage: { inputTokens: 6, outputTokens: 8 } };
+      },
+    };
+
+    await runKeelSession({
+      model,
+      executor: new LocalExecutor({}),
+      ui,
+      store,
+      env: e,
+      prompt: "go",
+      finalAnswer: { contract: { version: 1, maxWords: 40 } },
+    });
+    store.close();
+
+    expect(inputs).toHaveLength(2);
+    expect(inputs[1]?.tools).toBeUndefined();
+    expect(ui.frame()).toContain("Bounded rewrite.");
+    expect(ui.frame()).not.toContain(original);
+    const resumed = rebuild(readSession(store.id, e));
+    expect([...resumed.finalAnswerSettlements.values()]).toEqual([
+      expect.objectContaining({ outcome: "accepted-rewrite" }),
     ]);
   });
 

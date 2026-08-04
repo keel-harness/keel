@@ -24,7 +24,7 @@ The implementation plan is to freeze the failure with focused tests, make the sm
 change, document the compatibility behavior, and run the repository's existing checks.`;
 
 const OBSERVED_WORDS = 568;
-const prefixWords = PREFIX.match(/\S+/gu)?.length ?? 0;
+const prefixWords = PREFIX.trim().split(/\s+/u).length;
 const padding = Array.from(
   { length: OBSERVED_WORDS - prefixWords },
   (_, index) => `sanitized-detail-${String(index + 1).padStart(3, "0")}`,

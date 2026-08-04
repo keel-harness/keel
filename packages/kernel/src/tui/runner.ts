@@ -37,7 +37,7 @@ import {
   modelPanel,
   reduce,
 } from "./view-model.js";
-import type { ViewConfig } from "./view-model.js";
+import type { SeedPresentation, ViewConfig } from "./view-model.js";
 import type { GoalCompletionAuditT, GoalT, LifecycleManifestT } from "@keel/shared";
 import {
   appendGoalAudit,
@@ -65,6 +65,7 @@ import {
   supportsPurposefulLiveness,
 } from "./purposeful-liveness.js";
 import { GROSS_RUNWAY_PREFLIGHT_CODE } from "../events.js";
+import { createFinalAnswerPresentation } from "./final-answer-presentation.js";
 
 export interface RunSessionOpts {
   readonly model: ModelPort;
@@ -105,6 +106,11 @@ export interface RunSessionOpts {
    *  before the first completion. The production entrypoint enables it by default (spec §7). */
   readonly verification?: AgentLoopInput["verification"];
   readonly params?: AgentLoopInput["params"];
+  /** Explicit task-scoped terminal-answer contract (ADR-0087). The runner derives the only local
+   * inspection command from this session's controller-owned id. */
+  readonly finalAnswer?: Pick<NonNullable<AgentLoopInput["finalAnswer"]>, "contract">;
+  /** Ledger-derived seed projection metadata. Never enters provider context. */
+  readonly seedPresentation?: SeedPresentation;
   /** Epic 1.6c PR-d: the IN-LOOP context compactor (serves RUNWAY). Threaded into `runAgentLoop` so it
    *  fires at turn boundaries; the runner re-drives after steering from the loop's resulting compacted
    *  set (4b), not a rebuild-from-full. Omitted → no in-loop compaction. INERT until the entrypoint
@@ -314,8 +320,16 @@ async function runSessionImpl(
   const ownsUi = opts.ownsUi ?? true;
   const receiptStartIndex = sessionEventCountForStore(opts.store, env);
   let controller = new AbortController();
+  const finalAnswerInspectionCommand = `keel sessions answer ${opts.store.id} --original`;
+  const finalAnswerPresentation =
+    opts.finalAnswer === undefined
+      ? undefined
+      : createFinalAnswerPresentation({
+          contract: opts.finalAnswer.contract,
+          originalInspectionCommand: finalAnswerInspectionCommand,
+        });
 
-  let view = initialView(opts.seed, opts.view);
+  let view = initialView(opts.seed, opts.view, opts.seedPresentation);
   opts.ui.render(view);
   let lastRendered = view;
   const render = (): void => {
@@ -757,6 +771,14 @@ async function runSessionImpl(
         ...(opts.enforcement !== undefined ? { enforcement: opts.enforcement } : {}),
         ...(opts.verification !== undefined ? { verification: opts.verification } : {}),
         ...(opts.params !== undefined ? { params: opts.params } : {}),
+        ...(opts.finalAnswer !== undefined
+          ? {
+              finalAnswer: {
+                contract: opts.finalAnswer.contract,
+                originalInspectionCommand: finalAnswerInspectionCommand,
+              },
+            }
+          : {}),
         ...(opts.compactor !== undefined ? { compactor: opts.compactor } : {}),
         ...(opts.contextWindow !== undefined ? { contextWindow: opts.contextWindow } : {}),
         onFinalMessages: (m) => {
@@ -808,7 +830,11 @@ async function runSessionImpl(
           }
           toolExecutionOccurrences.length = 0;
         }
-        view = reduce(view, presentationEvent);
+        for (const projectedEvent of finalAnswerPresentation?.project(presentationEvent) ?? [
+          presentationEvent,
+        ]) {
+          view = reduce(view, projectedEvent);
+        }
         if (ev.type === "tool-call") {
           const itemIndex = view.items.length - 1;
           const target = view.items[itemIndex];

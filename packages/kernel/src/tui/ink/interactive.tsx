@@ -316,6 +316,9 @@ export function Interactive({
     ...(stopping ? { stopping: true } : {}),
     ...(view.exitArmed === true ? { exitArmed: true } : {}),
     ...(foregroundPanel ? { foregroundPanel: true } : {}),
+    ...(view.nextFinalAnswerMaxWords === undefined
+      ? {}
+      : { nextFinalAnswerMaxWords: view.nextFinalAnswerMaxWords }),
   };
   return (
     <Box flexDirection="column">

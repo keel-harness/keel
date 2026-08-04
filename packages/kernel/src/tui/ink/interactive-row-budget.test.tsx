@@ -93,6 +93,29 @@ async function renderShellSequence(
   return frame;
 }
 
+function setTerminalEnv(next: {
+  readonly TERM?: string;
+  readonly FORCE_COLOR?: string;
+  readonly NO_COLOR?: string;
+}): () => void {
+  const keys = ["TERM", "FORCE_COLOR", "NO_COLOR"] as const;
+  const previous = new Map<(typeof keys)[number], string | undefined>(
+    keys.map((key) => [key, process.env[key]]),
+  );
+  for (const key of keys) {
+    const value = next[key];
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
+  return () => {
+    for (const key of keys) {
+      const value = previous.get(key);
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  };
+}
+
 function launchBase(): ViewModel {
   return initialView([], {
     model: "anthropic/claude-sonnet-4-6",
@@ -233,11 +256,79 @@ describe("production Ink shell row budgets", () => {
     ).toEqual({
       launch: { columns: 80, logicalLines: 16, physicalRows: 16, widestLine: 77 },
       help: { columns: 80, logicalLines: 17, physicalRows: 17, widestLine: 71 },
-      palette: { columns: 80, logicalLines: 24, physicalRows: 24, widestLine: 76 },
+      palette: { columns: 80, logicalLines: 24, physicalRows: 24, widestLine: 77 },
     });
     expect(frames[2][1]).toContain("/goal");
     expect(frames[2][1]).toContain("/reviews");
+    expect(frames[2][1]).toContain("/answer");
   });
+
+  it.each([
+    [80, 24, { TERM: "xterm-256color", FORCE_COLOR: "1" }, "basic-color"],
+    [80, 24, { TERM: "xterm-256color", NO_COLOR: "1" }, "no-color"],
+    [100, 30, { TERM: "xterm-256color", FORCE_COLOR: "1" }, "basic-color"],
+    [100, 30, { TERM: "xterm-256color", NO_COLOR: "1" }, "no-color"],
+  ] as const)(
+    "keeps bounded fallback and full-answer inspection usable at %ix%i in %s",
+    async (columns, rows, terminalEnv, _colorMode) => {
+      const restoreEnv = setTerminalEnv(terminalEnv);
+      try {
+        const fallback =
+          "Keel could not obtain a complete answer within 40 words: provider length. " +
+          "No rewrite tools ran. Inspect the redacted original: keel sessions answer ses_geometry --original";
+        const base = {
+          ...launchBase(),
+          items: [
+            {
+              kind: "message" as const,
+              role: "user" as const,
+              content: "summarize the repository",
+            },
+            { kind: "message" as const, role: "assistant" as const, content: fallback },
+          ],
+          awaitingInput: true,
+        };
+        const settled = await renderShell(base, columns, rows);
+        const panel = await renderShell(
+          {
+            ...base,
+            overlay: {
+              kind: "panel",
+              content: `original final answer · ses_geometry\n\n${"retained original line\n".repeat(40)}`,
+            },
+          },
+          columns,
+          rows,
+        );
+
+        for (const [label, frame] of [
+          ["settled", settled],
+          ["full", panel],
+        ] as const) {
+          const liveFrame =
+            label === "full"
+              ? frame.slice(frame.lastIndexOf("╭"))
+              : frame.slice(frame.lastIndexOf("│ you"));
+          const budget = summarizeRowBudget(liveFrame, columns);
+          expect(
+            budget.physicalRows,
+            `${label}: ${columns}x${rows}: ${JSON.stringify(budget)}\n${liveFrame}`,
+          ).toBeLessThanOrEqual(rows);
+          expect(liveFrame).toContain("protection:");
+          expect(liveFrame).toContain("›");
+        }
+        expect(settled).toContain("provider length");
+        expect(settled.replace(/\s*│\s*/gu, " ").replace(/\s+/gu, " ")).toContain(
+          "keel sessions answer ses_geometry --original",
+        );
+        expect(panel).toContain("original final answer · ses_geometry");
+        expect(panel).toContain("Esc closes");
+        expect(panel).toMatch(/more panel lines/u);
+      } finally {
+        restoreEnv();
+      }
+    },
+  );
 
   it("keeps launch, help, and critical command discovery usable at 40x18", async () => {
     const base = launchBase();
@@ -257,7 +348,7 @@ describe("production Ink shell row budgets", () => {
       expect(frame, label).toContain("›");
       expect(frame, label).toContain("input");
     }
-    for (const command of ["/goal", "/loop", "/policies", "/reviews"]) {
+    for (const command of ["/goal", "/loop", "/answer", "/policies", "/reviews"]) {
       expect(frames[2][1]).toContain(command);
     }
     expect(frames[1][1]).toContain('/goal TASK --check "CMD"');

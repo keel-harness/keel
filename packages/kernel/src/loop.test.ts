@@ -34,6 +34,7 @@ import {
 import { associateToolDeadlineReviewResult } from "./warden/tool-deadline-review-result.js";
 import { ScopedEgressApprovals } from "./warden/approval.js";
 import { WardenExecutor, type WardenExecuteClient } from "./warden/executor.js";
+import { R21_OVERSIZED_FINAL_ANSWER } from "./fixtures/r21-oversized-final-answer.js";
 
 const echoExec = () => new LocalExecutor({ echo: (args) => JSON.stringify(args) });
 
@@ -4175,6 +4176,534 @@ const finish = (reason: "stop" | "tool-calls", outputTokens = 0): ModelStreamChu
   type: "finish",
   reason,
   usage: { inputTokens: 0, outputTokens },
+});
+
+describe("ADR-0087 bounded final-answer settlement", () => {
+  const finalAnswer = (maxWords = 250) => ({
+    contract: { version: 1 as const, maxWords },
+    originalInspectionCommand: "keel sessions answer ses_01ARZ3NDEKTSV4RRFFQ69G5FAV --original",
+  });
+
+  const boundedInput = (
+    overrides: Partial<AgentLoopInput> & {
+      readonly finalAnswer?: ReturnType<typeof finalAnswer>;
+    } = {},
+  ): AgentLoopInput => ({
+    messages: userMsg("inspect the repository"),
+    finalAnswer: finalAnswer(),
+    ...overrides,
+  });
+
+  const settlementOutcomes = (events: readonly KernelEventT[]) =>
+    events.flatMap((event) =>
+      event.type === "final-answer-settled" ? [event.settlement.outcome] : [],
+    );
+
+  async function collect(
+    model: ModelPort,
+    input = boundedInput(),
+    exec: ExecutorPort = echoExec(),
+  ) {
+    const events: KernelEventT[] = [];
+    for await (const event of runAgentLoop(model, exec, input)) events.push(event);
+    return events;
+  }
+
+  it("is byte-behavior neutral when the explicit contract is absent", async () => {
+    const script: SimulatorScriptT = { turns: [{ text: "ordinary answer" }] };
+    const events = await run(script, { messages: userMsg("go") });
+    expect(events.map((event) => event.type)).toEqual([
+      "run-started",
+      "turn-started",
+      "text-delta",
+      "stop",
+      "run-finished",
+    ]);
+    expect(events).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ type: "final-answer-attempt" })]),
+    );
+  });
+
+  it("accepts one compliant original without a second provider request", async () => {
+    let calls = 0;
+    const model: ModelPort = {
+      async *stream() {
+        calls += 1;
+        yield { type: "text-delta", text: "A short complete answer." };
+        yield { type: "finish", reason: "stop", usage: { inputTokens: 7, outputTokens: 5 } };
+      },
+    };
+
+    const events = await collect(model, boundedInput({ finalAnswer: finalAnswer(40) }));
+    expect(calls).toBe(1);
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "final-answer-attempt",
+        attempt: "original",
+        decision: "accepted",
+      }),
+    );
+    expect(settlementOutcomes(events)).toContain("accepted-original");
+    expect(events.findIndex((event) => event.type === "final-answer-buffering")).toBeLessThan(
+      events.findIndex((event) => event.type === "final-answer-attempt"),
+    );
+  });
+
+  it("lets caller cancellation win over a clean candidate terminal", async () => {
+    const controller = new AbortController();
+    const model: ModelPort = {
+      async *stream() {
+        yield { type: "text-delta", text: "candidate received before cancellation" };
+        controller.abort();
+        yield { type: "finish", reason: "stop", usage: { inputTokens: 5, outputTokens: 5 } };
+      },
+    };
+    const events = await collect(model, boundedInput({ signal: controller.signal }));
+    expect(settlementOutcomes(events)).toContain("fallback-cancelled");
+    expect(events).toContainEqual(expect.objectContaining({ type: "stop", reason: "aborted" }));
+  });
+
+  it("rejects a tool call paired with a non-tool terminal and executes nothing", async () => {
+    let executions = 0;
+    const model: ModelPort = {
+      async *stream() {
+        yield { type: "tool-call", id: "unexpected", name: "echo", args: { text: "no" } };
+        yield { type: "finish", reason: "stop", usage: { inputTokens: 5, outputTokens: 5 } };
+      },
+    };
+    const events = await collect(model, boundedInput(), {
+      async execute() {
+        executions += 1;
+        return { ok: true, output: "must not run" };
+      },
+    });
+    expect(executions).toBe(0);
+    expect(events).toContainEqual(
+      expect.objectContaining({ type: "tool-result", id: "unexpected", ok: false }),
+    );
+    expect(settlementOutcomes(events)).toContain("fallback-tool-call");
+  });
+
+  it("releases buffered working narration only after a tool-call terminal is known", async () => {
+    let request = 0;
+    const model: ModelPort = {
+      async *stream() {
+        request += 1;
+        if (request === 1) {
+          yield { type: "text-delta", text: "I will inspect one file." };
+          yield {
+            type: "tool-call",
+            id: "read-1",
+            name: "read",
+            args: { path: "README.md" },
+          };
+          yield {
+            type: "finish",
+            reason: "tool-calls",
+            usage: { inputTokens: 4, outputTokens: 8 },
+          };
+          return;
+        }
+        yield { type: "text-delta", text: "The repository is small." };
+        yield { type: "finish", reason: "stop", usage: { inputTokens: 8, outputTokens: 5 } };
+      },
+    };
+    const executor: ExecutorPort = {
+      async execute() {
+        return { ok: true, output: "readme" };
+      },
+    };
+
+    const events = await collect(model, boundedInput(), executor);
+    const release = events.findIndex((event) => event.type === "final-answer-buffer-released");
+    const narration = events.findIndex(
+      (event) => event.type === "text-delta" && event.text === "I will inspect one file.",
+    );
+    const call = events.findIndex((event) => event.type === "tool-call" && event.id === "read-1");
+    expect(release).toBeGreaterThan(-1);
+    expect(release).toBeLessThan(narration);
+    expect(narration).toBeLessThan(call);
+  });
+
+  it("settles a bounded terminal-review synthesis without losing the Warden stop", async () => {
+    const advertisedTools = [
+      { name: "read", parameters: { type: "object" } },
+      { name: "bash", parameters: { type: "object" } },
+    ] as const;
+    const seenTools: ModelTurnInput["tools"][] = [];
+    let request = 0;
+    const model: ModelPort = {
+      async *stream(input) {
+        request += 1;
+        seenTools.push(input.tools);
+        if (request === 1) {
+          yield { type: "tool-call", id: "read-1", name: "read", args: { path: "README.md" } };
+          yield {
+            type: "finish",
+            reason: "tool-calls",
+            usage: { inputTokens: 5, outputTokens: 3 },
+          };
+          return;
+        }
+        if (request === 2) {
+          yield { type: "tool-call", id: "bash-1", name: "bash", args: { command: "find ." } };
+          yield {
+            type: "finish",
+            reason: "tool-calls",
+            usage: { inputTokens: 8, outputTokens: 3 },
+          };
+          return;
+        }
+        if (request === 3) {
+          yield { type: "text-delta", text: "oversized ".repeat(60) };
+          yield { type: "finish", reason: "stop", usage: { inputTokens: 12, outputTokens: 60 } };
+          return;
+        }
+        yield {
+          type: "text-delta",
+          text: "The read evidence remains available; the reviewed command did not run.",
+        };
+        yield { type: "finish", reason: "stop", usage: { inputTokens: 14, outputTokens: 12 } };
+      },
+    };
+    const executor: ExecutorPort = {
+      async execute(call) {
+        return call.name === "read"
+          ? { ok: true, output: "# Keel\nGoverned agent harness." }
+          : terminalReviewResult("warden review required (not executed): broad inventory command");
+      },
+    };
+
+    const events = await collect(
+      model,
+      boundedInput({ tools: advertisedTools, finalAnswer: finalAnswer(40) }),
+      executor,
+    );
+
+    expect(request).toBe(4);
+    expect(seenTools).toEqual([advertisedTools, advertisedTools, undefined, undefined]);
+    expect(settlementOutcomes(events)).toContain("accepted-rewrite");
+    expect(events.filter((event) => event.type === "stop")).toEqual([
+      expect.objectContaining({ code: "REVIEW_REQUIRED_AFTER_SYNTHESIS" }),
+    ]);
+  });
+
+  it("releases the last candidate when known-red evidence stops before settlement", async () => {
+    const model = new ScriptedModel({
+      turns: [
+        { toolCalls: [{ name: "bash", args: { command: "pytest -q" } }] },
+        { text: "I still need to repair the failing test." },
+        { text: "The test remains red; I am stopping honestly." },
+      ],
+    });
+    const executor: ExecutorPort = {
+      async execute() {
+        return {
+          ok: true,
+          output:
+            "TEST SUMMARY (pytest): FAIL\n================ 1 failed in 0.01s ================",
+        };
+      },
+    };
+
+    const events = await collect(
+      model,
+      boundedInput({ tools: [{ name: "bash", parameters: { type: "object" } }] }),
+      executor,
+    );
+
+    expect(
+      events.filter((event) => event.type === "text-delta").map((event) => event.text),
+    ).toEqual([
+      "I still need to repair the failing test.",
+      "The test remains red; I am stopping honestly.",
+    ]);
+    expect(events.filter((event) => event.type === "stop")).toEqual([
+      expect.objectContaining({ code: "known-red-completion-evidence" }),
+    ]);
+  });
+
+  it("rewrites the frozen oversized candidate exactly once with tools structurally absent", async () => {
+    const inputs: ModelTurnInput[] = [];
+    let call = 0;
+    let finalMessages: readonly ModelMessageT[] = [];
+    const model: ModelPort = {
+      async *stream(input) {
+        inputs.push(input);
+        call += 1;
+        if (call === 1) {
+          yield { type: "text-delta", text: R21_OVERSIZED_FINAL_ANSWER };
+          yield {
+            type: "finish",
+            reason: "stop",
+            usage: { inputTokens: 80, outputTokens: 568 },
+          };
+          return;
+        }
+        yield { type: "text-delta", text: "Bounded architecture and test plan." };
+        yield { type: "finish", reason: "stop", usage: { inputTokens: 90, outputTokens: 8 } };
+      },
+    };
+
+    const events = await collect(
+      model,
+      boundedInput({
+        tools: [{ name: "echo", parameters: { type: "object" } }],
+        params: { maxOutputTokens: 2_000 },
+        onFinalMessages: (messages) => {
+          finalMessages = messages;
+        },
+      }),
+    );
+
+    expect(inputs).toHaveLength(2);
+    expect(inputs[0]?.tools).toHaveLength(1);
+    expect(inputs[1]?.tools).toBeUndefined();
+    expect(inputs[1]?.params?.maxOutputTokens).toBe(1_000);
+    expect(inputs[1]?.messages.map((message) => message.role)).toEqual([
+      "user",
+      "assistant",
+      "user",
+    ]);
+    expect(finalMessages.map((message) => message.role)).toEqual([
+      "user",
+      "assistant",
+      "user",
+      "assistant",
+    ]);
+    expect(events.filter((event) => event.type === "final-answer-rewrite-requested")).toHaveLength(
+      1,
+    );
+    expect(events.filter((event) => event.type === "final-answer-attempt")).toHaveLength(2);
+    const settlement = events.find((event) => event.type === "final-answer-settled");
+    expect(settlement?.type === "final-answer-settled" ? settlement.settlement : undefined).toEqual(
+      expect.objectContaining({
+        outcome: "accepted-rewrite",
+        rewriteUsage: { inputTokens: 90, outputTokens: 8 },
+      }),
+    );
+  });
+
+  it("rejects an unadvertised rewrite tool call without executing it or retrying", async () => {
+    let request = 0;
+    let executions = 0;
+    const model: ModelPort = {
+      async *stream() {
+        request += 1;
+        if (request === 1) {
+          yield { type: "text-delta", text: R21_OVERSIZED_FINAL_ANSWER };
+          yield { type: "finish", reason: "stop", usage: { inputTokens: 80, outputTokens: 568 } };
+          return;
+        }
+        yield { type: "tool-call", id: "forged", name: "echo", args: { text: "repeat" } };
+        yield { type: "finish", reason: "tool-calls", usage: { inputTokens: 90, outputTokens: 3 } };
+      },
+    };
+    const exec: ExecutorPort = {
+      async execute() {
+        executions += 1;
+        return { ok: true, output: "must not run" };
+      },
+    };
+
+    const events = await collect(model, boundedInput(), exec);
+    expect(request).toBe(2);
+    expect(executions).toBe(0);
+    expect(events).toContainEqual(
+      expect.objectContaining({ type: "tool-result", id: "forged", ok: false }),
+    );
+    expect(settlementOutcomes(events)).toContain("fallback-tool-call");
+  });
+
+  it("does not continue a contract-active original that ends on provider length", async () => {
+    let requests = 0;
+    const model: ModelPort = {
+      async *stream() {
+        requests += 1;
+        yield { type: "text-delta", text: "partial original" };
+        yield { type: "finish", reason: "length", usage: { inputTokens: 5, outputTokens: 5 } };
+      },
+    };
+    const events = await collect(model);
+    expect(requests).toBe(1);
+    expect(settlementOutcomes(events)).toContain("fallback-length");
+    expect(events).toContainEqual(expect.objectContaining({ type: "stop", reason: "length" }));
+  });
+
+  it("uses the deterministic fallback without a rewrite when configured runway is insufficient", async () => {
+    let requests = 0;
+    const model: ModelPort = {
+      async *stream() {
+        requests += 1;
+        yield { type: "text-delta", text: R21_OVERSIZED_FINAL_ANSWER };
+        yield { type: "finish", reason: "stop", usage: { inputTokens: 80, outputTokens: 568 } };
+      },
+    };
+    const events = await collect(
+      model,
+      boundedInput({ stop: { budget: { maxGrossTokens: 700 } } }),
+    );
+    expect(requests).toBe(1);
+    expect(settlementOutcomes(events)).toContain("fallback-budget");
+  });
+
+  it("records a provider error as an honest fallback without retrying", async () => {
+    let requests = 0;
+    const model: ModelPort = {
+      async *stream() {
+        requests += 1;
+        yield { type: "error", code: "provider-500", message: "unavailable" };
+      },
+    };
+    const events = await collect(model);
+    expect(requests).toBe(1);
+    expect(settlementOutcomes(events)).toContain("fallback-error");
+    expect(events).toContainEqual(
+      expect.objectContaining({ type: "stop", reason: "error", code: "provider-500" }),
+    );
+  });
+
+  it.each([
+    ["length", "fallback-length", "length"],
+    ["aborted", "fallback-cancelled", "aborted"],
+  ] as const)(
+    "settles a rewrite %s terminal without another request",
+    async (rewriteReason, outcome, stopReason) => {
+      let request = 0;
+      const model: ModelPort = {
+        async *stream() {
+          request += 1;
+          if (request === 1) {
+            yield { type: "text-delta", text: R21_OVERSIZED_FINAL_ANSWER };
+            yield {
+              type: "finish",
+              reason: "stop",
+              usage: { inputTokens: 80, outputTokens: 568 },
+            };
+            return;
+          }
+          yield { type: "text-delta", text: "partial rewrite" };
+          yield {
+            type: "finish",
+            reason: rewriteReason,
+            usage: { inputTokens: 20, outputTokens: 4 },
+          };
+        },
+      };
+      const events = await collect(model);
+      expect(request).toBe(2);
+      expect(settlementOutcomes(events)).toContain(outcome);
+      expect(events).toContainEqual(expect.objectContaining({ type: "stop", reason: stopReason }));
+    },
+  );
+
+  it("settles an empty rewrite as an error and does not retry", async () => {
+    let request = 0;
+    const model: ModelPort = {
+      async *stream() {
+        request += 1;
+        if (request === 1) {
+          yield { type: "text-delta", text: R21_OVERSIZED_FINAL_ANSWER };
+          yield { type: "finish", reason: "stop", usage: { inputTokens: 80, outputTokens: 568 } };
+          return;
+        }
+        yield { type: "finish", reason: "stop", usage: { inputTokens: 20, outputTokens: 0 } };
+      },
+    };
+    const events = await collect(model);
+    expect(request).toBe(2);
+    expect(settlementOutcomes(events)).toContain("fallback-error");
+  });
+
+  it("retains the existing single empty-original recovery, then settles the repeated empty stop", async () => {
+    let request = 0;
+    const model: ModelPort = {
+      async *stream() {
+        request += 1;
+        yield { type: "finish", reason: "stop", usage: { inputTokens: 3, outputTokens: 0 } };
+      },
+    };
+    const events = await collect(model);
+    expect(request).toBe(2);
+    expect(settlementOutcomes(events)).toContain("fallback-error");
+    expect(events).toContainEqual(
+      expect.objectContaining({ type: "stop", reason: "error", code: "empty-assistant-stop" }),
+    );
+  });
+
+  it("skips the rewrite when enforcement or deadline becomes unavailable after the original", async () => {
+    for (const condition of ["enforcement", "deadline"] as const) {
+      let request = 0;
+      let alive = true;
+      let now = 0;
+      const model: ModelPort = {
+        async *stream() {
+          request += 1;
+          yield { type: "text-delta", text: R21_OVERSIZED_FINAL_ANSWER };
+          alive = false;
+          now = 101;
+          yield { type: "finish", reason: "stop", usage: { inputTokens: 80, outputTokens: 568 } };
+        },
+      };
+      const events = await collect(
+        model,
+        boundedInput(
+          condition === "enforcement"
+            ? { enforcement: { available: () => alive } }
+            : { now: () => now, stop: { maxWallMs: 100 } },
+        ),
+      );
+      expect(request).toBe(1);
+      expect(settlementOutcomes(events)).toContain(
+        condition === "enforcement" ? "fallback-error" : "fallback-cancelled",
+      );
+    }
+  });
+
+  it.each([
+    ["caller cancellation", "fallback-cancelled", "aborted"],
+    ["deadline", "fallback-cancelled", "deadline"],
+    ["enforcement loss", "fallback-error", "error"],
+  ] as const)(
+    "rejects a compliant rewrite when %s occurs during that request",
+    async (condition, outcome, stopReason) => {
+      let request = 0;
+      let now = 0;
+      let enforcementAvailable = true;
+      const controller = new AbortController();
+      const model: ModelPort = {
+        async *stream() {
+          request += 1;
+          if (request === 1) {
+            yield { type: "text-delta", text: R21_OVERSIZED_FINAL_ANSWER };
+            yield {
+              type: "finish",
+              reason: "stop",
+              usage: { inputTokens: 80, outputTokens: 568 },
+            };
+            return;
+          }
+          yield { type: "text-delta", text: "A compliant rewrite." };
+          if (condition === "caller cancellation") controller.abort();
+          if (condition === "deadline") now = 101;
+          if (condition === "enforcement loss") enforcementAvailable = false;
+          yield { type: "finish", reason: "stop", usage: { inputTokens: 20, outputTokens: 4 } };
+        },
+      };
+      const events = await collect(
+        model,
+        boundedInput({
+          signal: controller.signal,
+          now: () => now,
+          stop: { maxWallMs: 100 },
+          enforcement: { available: () => enforcementAvailable },
+        }),
+      );
+      expect(request).toBe(2);
+      expect(settlementOutcomes(events)).toContain(outcome);
+      expect(events).toContainEqual(expect.objectContaining({ type: "stop", reason: stopReason }));
+    },
+  );
 });
 
 /** A ModelPort that records the `messages` it is handed each turn, so a test can

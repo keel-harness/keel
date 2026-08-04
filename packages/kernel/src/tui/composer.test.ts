@@ -43,6 +43,18 @@ describe("composer presentation contract", () => {
       hint: "type a task or /help",
     });
 
+    expect(
+      composerPresentation(emptyInput(), {
+        awaitingInput: true,
+        nextFinalAnswerMaxWords: 250,
+      }),
+    ).toMatchObject({
+      state: "idle",
+      label: "input",
+      hint: "final answer ≤250 words · next task only",
+      tone: "info",
+    });
+
     const exitArmed = composerPresentation(emptyInput(), {
       awaitingInput: true,
       exitArmed: true,

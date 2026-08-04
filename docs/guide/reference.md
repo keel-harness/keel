@@ -18,6 +18,7 @@ same CLI.
 | `keel auth set\|list\|remove <provider>` | Manage stored provider keys. |
 | `keel sessions list` | List sessions: id, directory, event count, created-at. |
 | `keel sessions resume <id>` | Inspect a session (read-only). To continue it live, use `keel --resume <id>`. |
+| `keel sessions answer <id> --original` | Show the latest retained, redacted original from a settled bounded answer. |
 | `keel sessions branch <id> <n>` | Fork a ledger at event index `n`. |
 | `keel audit export <session> [--out <dir>]` | Write a signed evidence bundle (default under `<KEEL_HOME>/audit/exports`). |
 | `keel audit verify <bundle>` | Verify a bundle offline; prints hashes, counts, and the signer key. |
@@ -46,6 +47,7 @@ Available on `keel run`:
 | `--replay <file>` | Deterministic offline replay from a recording. No key, no network. |
 | `--goal <objective>` with `--goal-check <cmd>` | Run a goal contract; see below. Also `--goal-max-turns`, `--goal-max-wall-ms`, `--goal-validation`. |
 | `--loop-until <cmd>` | Run a bounded loop; also `--loop-max-iterations`, `--loop-max-wall-ms`. |
+| `--final-max-words <40..2000>` | Bound the final reading surface. Keel may make one tools-disabled rewrite, then shows a bounded honest fallback. |
 | `--plan-domain <d>` / `--plan-command-key <sha256:...>` | Pre-approve exact resources. `--plan-confirm` requires typing `approve`. |
 
 `--autopilot`, `--replay`, and `--plan-*` are mutually exclusive where noted;
@@ -58,6 +60,7 @@ In an interactive session:
 ```
 /goal <objective> --check "<cmd>" [--check "<cmd>"] [--max-turns <n>] [--max-wall-ms <ms>] [--validation minimal|standard|strict]
 /loop <prompt> --until "<cmd>" [--max-iterations <n>] [--max-wall-ms <ms>]
+/answer <40..2000> | /answer clear | /answer full
 ```
 
 A goal needs an objective and at least one `--check` command that supplies
@@ -65,6 +68,11 @@ completion evidence; validation defaults to `standard`. A loop needs `--until`
 and defaults to 3 iterations (schema max 1000). The loop's `--until` command runs
 as a governed exit check and stops the loop when it exits zero. Neither runs while
 a `/plan` approval is queued.
+
+`/answer N` arms only the next ordinary task and is consumed before provider work begins. Local
+commands, `/goal`, and `/loop` do not consume it. `/answer clear` disarms it; `/answer full` opens the
+latest retained redacted original. The bound controls presentation length, not task correctness or
+Warden authority.
 
 ## Environment variables
 

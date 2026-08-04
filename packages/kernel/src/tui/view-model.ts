@@ -1,4 +1,6 @@
 import type {
+  FinalAnswerOccurrenceT,
+  FinalAnswerSettlementT,
   JsonObjectT,
   ModelMessageT,
   SteeringClassT,
@@ -39,7 +41,8 @@ import {
   unexpectedReviewDenialOutput,
 } from "../review-settlement-copy.js";
 import type { SessionSummary } from "../session/list.js";
-import { INTERRUPTED_TOOL_RESULT } from "../session/resume.js";
+import { INTERRUPTED_FINAL_ANSWER_REWRITE, INTERRUPTED_TOOL_RESULT } from "../session/resume.js";
+import { buildFinalAnswerFallback } from "../final-answer.js";
 import { workspaceKey } from "../session/workspace-key.js";
 import {
   analyzeTestOutputForPresentation,
@@ -2029,6 +2032,135 @@ export interface SeedPresentation {
   readonly failedToolCallIds?: ReadonlySet<string>;
   /** Preferred occurrence-precise metadata. Provider call ids are not guaranteed unique across turns. */
   readonly failedToolMessageIndexes?: ReadonlySet<number>;
+  /** Typed ledger presentation metadata for one-primary final-answer reconstruction (ADR-0087). */
+  readonly finalAnswerOccurrences?: ReadonlyMap<number, FinalAnswerOccurrenceT>;
+  readonly finalAnswerSettlements?: ReadonlyMap<string, FinalAnswerSettlementT>;
+  readonly interruptedFinalAnswerSettlementIds?: ReadonlySet<string>;
+  readonly originalInspectionCommand?: string;
+}
+
+interface FinalAnswerSeedPlan {
+  readonly hidden: ReadonlySet<number>;
+  readonly after: ReadonlyMap<number, readonly ViewItem[]>;
+}
+
+function finalAnswerOccurrenceShape(occurrence: FinalAnswerOccurrenceT): string {
+  return occurrence.kind === "rewrite-prompt" ? "rewrite-prompt" : `attempt:${occurrence.attempt}`;
+}
+
+function finalAnswerInsertionIndex(seed: readonly ModelMessageT[], attemptIndex: number): number {
+  const attempt = seed[attemptIndex];
+  if (attempt?.role !== "assistant" || (attempt.toolCalls?.length ?? 0) === 0) {
+    return attemptIndex;
+  }
+  const open = (attempt.toolCalls ?? []).map((call) => ({ id: call.id, name: call.name }));
+  let insertion = attemptIndex;
+  for (let index = attemptIndex + 1; index < seed.length && open.length > 0; index += 1) {
+    const message = seed[index];
+    if (message?.role !== "tool") break;
+    const match = open.findIndex(
+      (call) => call.id === message.toolCallId && call.name === message.name,
+    );
+    if (match < 0) break;
+    open.splice(match, 1);
+    insertion = index;
+  }
+  return insertion;
+}
+
+function finalAnswerSeedPlan(
+  seed: readonly ModelMessageT[],
+  presentation: SeedPresentation,
+): FinalAnswerSeedPlan {
+  const hidden = new Set<number>();
+  const after = new Map<number, ViewItem[]>();
+  const occurrences = presentation.finalAnswerOccurrences;
+  if (occurrences === undefined || occurrences.size === 0) return { hidden, after };
+
+  const grouped = new Map<
+    string,
+    { readonly index: number; readonly occurrence: FinalAnswerOccurrenceT }[]
+  >();
+  for (const [index, occurrence] of occurrences) {
+    if (!Number.isSafeInteger(index) || index < 0 || index >= seed.length) continue;
+    const entries = grouped.get(occurrence.settlementId) ?? [];
+    entries.push({ index, occurrence });
+    grouped.set(occurrence.settlementId, entries);
+  }
+
+  const appendAfter = (index: number, item: ViewItem): void => {
+    after.set(index, [...(after.get(index) ?? []), item]);
+  };
+  for (const [settlementId, unordered] of grouped) {
+    const entries = [...unordered].sort((left, right) => left.index - right.index);
+    const shapes = entries.map((entry) => finalAnswerOccurrenceShape(entry.occurrence));
+    const isOriginalOnly = shapes.length === 1 && shapes[0] === "attempt:original";
+    const isFullRewrite =
+      shapes.length === 3 &&
+      shapes[0] === "attempt:original" &&
+      shapes[1] === "rewrite-prompt" &&
+      shapes[2] === "attempt:rewrite";
+    const isOrphanPrompt =
+      shapes.length === 2 && shapes[0] === "attempt:original" && shapes[1] === "rewrite-prompt";
+    const settlement = presentation.finalAnswerSettlements?.get(settlementId);
+
+    if (settlement !== undefined) {
+      if (settlement.settlementId !== settlementId) continue;
+      if (settlement.outcome === "accepted-original") {
+        if (!isOriginalOnly) continue;
+        continue;
+      }
+      if (settlement.outcome === "accepted-rewrite") {
+        if (!isFullRewrite) continue;
+        hidden.add(entries[0]!.index);
+        hidden.add(entries[1]!.index);
+        continue;
+      }
+      if (
+        (!isOriginalOnly && !isFullRewrite) ||
+        presentation.originalInspectionCommand === undefined
+      ) {
+        continue;
+      }
+      for (const entry of entries) hidden.add(entry.index);
+      const attempt = entries.at(-1)!;
+      const insertion = finalAnswerInsertionIndex(seed, attempt.index);
+      appendAfter(insertion, {
+        kind: "message",
+        role: "assistant",
+        content: buildFinalAnswerFallback({
+          contract: attempt.occurrence.contract,
+          outcome: settlement.outcome,
+          originalInspectionCommand: presentation.originalInspectionCommand,
+        }),
+      });
+      continue;
+    }
+
+    if (
+      presentation.interruptedFinalAnswerSettlementIds?.has(settlementId) !== true ||
+      (!isOriginalOnly && !isOrphanPrompt && !isFullRewrite)
+    ) {
+      continue;
+    }
+    let insertion = finalAnswerInsertionIndex(seed, entries.at(-1)!.index);
+    if (isOrphanPrompt || isFullRewrite) hidden.add(entries[1]!.index);
+    if (isOrphanPrompt) {
+      const closureIndex = entries[1]!.index + 1;
+      const closure = seed[closureIndex];
+      if (closure?.role === "assistant" && closure.content === INTERRUPTED_FINAL_ANSWER_REWRITE) {
+        hidden.add(closureIndex);
+        insertion = closureIndex;
+      }
+    }
+    appendAfter(insertion, {
+      kind: "message",
+      role: "system",
+      content: "final-answer settlement interrupted; raw recorded attempt shown",
+      presentation: "notice",
+    });
+  }
+  return { hidden, after };
 }
 
 function resumedBashWasLimited(content: string): boolean {
@@ -2177,6 +2309,7 @@ export function initialView(
 ): ViewModel {
   type PendingCall = { readonly subject?: string; readonly recoveryIdentity?: string };
   const pendingCalls = new Map<string, { readonly calls: PendingCall[]; ambiguous: boolean }>();
+  const finalAnswerPlan = finalAnswerSeedPlan(seed, presentation);
   const items = seed.flatMap((message, messageIndex) => {
     for (const call of message.role === "assistant" ? (message.toolCalls ?? []) : []) {
       const key = `${call.id}\u0000${call.name}`;
@@ -2211,9 +2344,14 @@ export function initialView(
     const call = pending?.calls.shift();
     if (key !== undefined && pending !== undefined && pending.calls.length === 0)
       pendingCalls.delete(key);
-    const item = seedItem(message, presentation, messageIndex, call?.subject);
+    const item = finalAnswerPlan.hidden.has(messageIndex)
+      ? undefined
+      : seedItem(message, presentation, messageIndex, call?.subject);
     if (item?.kind === "tool") associateToolRecoveryIdentity(item, call?.recoveryIdentity);
-    return item === undefined ? [] : [item];
+    return [
+      ...(item === undefined ? [] : [item]),
+      ...(finalAnswerPlan.after.get(messageIndex) ?? []),
+    ];
   });
   return withDerived({
     items,
@@ -2833,6 +2971,8 @@ export function reduce(view: ViewModel, ev: KernelEventT | UiInputEventT): ViewM
         streaming: true,
       });
     }
+    case "final-answer-buffering":
+      return view.streaming ? view : withDerived({ ...view, streaming: true });
     case "tool-call": {
       // A tool call ends the assistant's text turn and appends a running activity line. An edit may
       // show its requested path, but never request-derived old/new lines as execution evidence.

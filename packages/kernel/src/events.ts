@@ -80,7 +80,13 @@ export function stopReasonForLoopStopped(reason: LoopStoppedReason): StopReasonT
 export const KernelEvent = z.discriminatedUnion("type", [
   z.object({ type: z.literal("run-started") }).strict(),
   z.object({ type: z.literal("turn-started"), turn: z.number().int().positive() }).strict(),
+  /** Candidate prose is arriving but remains presentation-buffered under ADR-0087. Contains no
+   * model bytes; it exists only to keep terminal activity truthful and cancellation discoverable. */
+  z.object({ type: z.literal("final-answer-buffering") }).strict(),
   z.object({ type: z.literal("text-delta"), text: z.string() }).strict(),
+  /** Presentation-only boundary: the current contract-active response was proven to be ordinary
+   * working narration (for example, a completed tool-call turn) and may leave the bounded hold. */
+  z.object({ type: z.literal("final-answer-buffer-released") }).strict(),
   /** Controller-authored terminal-answer decision for one completed provider request (ADR-0087).
    * The recorder and UI consume this single decision; neither independently recounts prose. */
   z

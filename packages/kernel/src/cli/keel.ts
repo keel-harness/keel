@@ -4,8 +4,11 @@ import { rebuild } from "../session/resume.js";
 import { branch } from "../session/branch.js";
 import { stopCodeNeedsAttention } from "../events.js";
 import { oneLineText } from "../control-strip.js";
+import { stripControl } from "../control-strip.js";
+import { latestFinalAnswerOriginal } from "../session/final-answer-inspection.js";
 
-const USAGE = "usage: keel sessions <list | resume <id> | branch <id> <n>>";
+const USAGE =
+  "usage: keel sessions <list | resume <id> | answer <id> --original | branch <id> <n>>";
 
 /** Longest rendered stop code / detail. Bounds an unbounded ledger string so one field cannot
  *  dominate (or scroll away) the report around it. */
@@ -126,6 +129,24 @@ export function runKeelCliResult(
             `  usage: ${usage}`,
             `  (inspection only — use keel --resume ${id} to continue)`,
           ].join("\n"),
+        };
+      } catch (e) {
+        return { ok: false, output: `error: ${(e as Error).message}` };
+      }
+    }
+    case "answer": {
+      const id = rest[0];
+      if (id === undefined || rest.length !== 2 || rest[1] !== "--original") {
+        return { ok: false, output: USAGE };
+      }
+      try {
+        const original = latestFinalAnswerOriginal(rebuild(readSession(id, env)));
+        if (original === undefined) {
+          return { ok: false, output: `error: no settled final-answer original for ${id}` };
+        }
+        return {
+          ok: true,
+          output: `original final answer · ${id}\n\n${stripControl(original.message.content)}`,
         };
       } catch (e) {
         return { ok: false, output: `error: ${(e as Error).message}` };

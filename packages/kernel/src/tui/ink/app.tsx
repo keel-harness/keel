@@ -1519,26 +1519,26 @@ function PaletteOverlay({
   const ordered = paletteCommands(query);
   const selectedCommand = ordered[Math.min(Math.max(0, selected), Math.max(0, ordered.length - 1))];
   const innerColumns = Math.max(1, columns - 2);
-  const groupedRows =
-    1 +
-    groups.reduce(
-      (total, group) =>
-        total +
-        1 +
-        group.commands.reduce(
-          (rows, command) =>
-            rows +
-            Math.max(
-              1,
-              Math.ceil(
-                terminalDisplayWidth(`  ${commandRow(command)}${command.danger ? " ⚠" : ""}`) /
-                  innerColumns,
-              ),
+  // The first group shares the title row. This retains workflow grouping while reserving one row
+  // for the task-scoped `/answer` control at a representative 80x24 terminal.
+  const groupedRows = groups.reduce(
+    (total, group) =>
+      total +
+      1 +
+      group.commands.reduce(
+        (rows, command) =>
+          rows +
+          Math.max(
+            1,
+            Math.ceil(
+              terminalDisplayWidth(`  ${commandRow(command)}${command.danger ? " ⚠" : ""}`) /
+                innerColumns,
             ),
-          0,
-        ),
-      0,
-    );
+          ),
+        0,
+      ),
+    0,
+  );
   const compact = groupedRows > maxRows;
   if (compact) {
     const commands = ordered;
@@ -1587,10 +1587,9 @@ function PaletteOverlay({
   }
   return (
     <Box flexDirection="column" paddingX={1}>
-      <Text dimColor>commands</Text>
-      {groups.map((g) => (
+      {groups.map((g, groupIndex) => (
         <Box key={g.id} flexDirection="column">
-          <Text dimColor>{g.label}</Text>
+          <Text dimColor>{groupIndex === 0 ? `commands · ${g.label}` : g.label}</Text>
           {g.commands.map((c) => {
             const isSelected = c === selectedCommand;
             return (

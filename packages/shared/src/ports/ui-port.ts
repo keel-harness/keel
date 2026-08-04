@@ -396,6 +396,9 @@ export interface ViewModel {
    *  loop signals "the turn finished and the session stayed open". Absent/false = a turn is active (or
    *  a single-turn run). */
   readonly awaitingInput?: boolean;
+  /** Process-local next-ordinary-task answer arm (ADR-0087). Presentation only; it is consumed before
+   * provider work and is never restored from a session ledger. */
+  readonly nextFinalAnswerMaxWords?: number;
   /** Presentation-only confirmation state after the first idle Ctrl-C. The next Ctrl-C exits; any
    *  other input disarms it. Kept outside transcript history so the live composer cannot hide it. */
   readonly exitArmed?: boolean;

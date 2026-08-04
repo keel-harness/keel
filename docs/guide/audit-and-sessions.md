@@ -31,6 +31,7 @@ Everything lives under `KEEL_HOME` — resolved as `KEEL_HOME` → `$XDG_CONFIG_
 ```sh
 keel sessions list               # id · directory · event count · created-at
 keel sessions branch <id> <n>    # fork a ledger at event n
+keel sessions answer <id> --original  # latest retained redacted bounded-answer original
 ```
 
 To pick a session back up **live**, use the launch flags rather than

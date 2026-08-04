@@ -29,6 +29,7 @@ import { appendWardenAutoResolvedEvent } from "../../warden/receipt.js";
 import { ScopedEgressApprovals } from "../../warden/approval.js";
 import { WardenExecutor, type WardenExecuteClient } from "../../warden/executor.js";
 import { createInteractiveReviewDecisionController } from "../review-decision.js";
+import { R21_OVERSIZED_FINAL_ANSWER } from "../../fixtures/r21-oversized-final-answer.js";
 import { Interactive } from "./interactive.js";
 
 const env = (): NodeJS.ProcessEnv => ({ KEEL_HOME: mkdtempSync(join(tmpdir(), "keel-")) });
@@ -132,6 +133,9 @@ class InkReplUI implements UIPort {
               `timed out waiting for the controller ViewModel; latest=${JSON.stringify({
                 awaitingInput: this.latest?.awaitingInput,
                 overlay: this.latest?.overlay,
+                streaming: this.latest?.streaming,
+                currentTurn: this.latest?.currentTurn,
+                items: this.latest?.items.slice(-3),
               })}`,
             ),
           ),
@@ -651,6 +655,123 @@ describe("runRepl through the REAL Ink stack (Epic 1.23 slice 0 — interactive 
       { role: "user", content: "second question" },
       { role: "assistant", content: "answer two" },
     ]);
+  });
+
+  it("settles one bounded answer and opens the retained original through the real Ink input path", async () => {
+    const e = env();
+    const store = SessionStore.create({ cwd: "/w" }, e);
+    const ui = new InkReplUI();
+    let request = 0;
+    const model: ModelPort = {
+      async *stream() {
+        request += 1;
+        const text = request === 1 ? R21_OVERSIZED_FINAL_ANSWER : "Bounded rewrite.";
+        yield { type: "text-delta", text };
+        yield { type: "finish", reason: "stop", usage: { inputTokens: 8, outputTokens: 9 } };
+      },
+    };
+    const done = runRepl({
+      model,
+      executor: { execute: () => Promise.resolve({ ok: true, output: "ok" }) },
+      ui,
+      store,
+      env: e,
+    });
+
+    await ui.awaitRender((view) => view.awaitingInput === true);
+    ui.stdin.write("/answer 40");
+    await tick();
+    ui.stdin.write(ENTER);
+    await ui.awaitRender((view) => view.nextFinalAnswerMaxWords === 40);
+    await ui.awaitFrame((frame) => frame.includes("final answer ≤40 words · next task only"));
+    await tick();
+
+    ui.stdin.write("inspect");
+    await tick();
+    ui.stdin.write(ENTER);
+    await ui.awaitRender(
+      (view) => view.awaitingInput === true && assistantSaid(view, "Bounded rewrite."),
+    );
+    const settledFrame = ui.lastFrame() ?? "";
+    expect(settledFrame).toContain("Bounded rewrite.");
+    expect(settledFrame).not.toContain("# Repository onboarding");
+    expect(ui.latest?.nextFinalAnswerMaxWords).toBeUndefined();
+
+    ui.stdin.write("/answer full");
+    await tick();
+    ui.stdin.write(ENTER);
+    await ui.awaitRender(
+      (view) =>
+        view.overlay?.kind === "panel" && view.overlay.content.includes("# Repository onboarding"),
+    );
+    await ui.awaitFrame(
+      (frame) => frame.includes("original final answer") && frame.includes("Esc closes"),
+    );
+    ui.stdin.write(ESCAPE);
+    await ui.awaitRender((view) => view.overlay === undefined && view.awaitingInput === true);
+
+    expect(request).toBe(2);
+    await ui.close();
+    await done;
+    store.close();
+  });
+
+  it("keeps drafting visible and cancellation responsive while bounded answer bytes are held", async () => {
+    const e = env();
+    const store = SessionStore.create({ cwd: "/w" }, e);
+    const ui = new InkReplUI();
+    const candidateHeld = deferred();
+    const model: ModelPort = {
+      async *stream(input) {
+        yield { type: "text-delta", text: "raw candidate that must remain hidden" };
+        candidateHeld.resolve();
+        await new Promise<void>((resolve) => {
+          if (input.signal?.aborted === true) resolve();
+          else input.signal?.addEventListener("abort", () => resolve(), { once: true });
+        });
+        yield { type: "finish", reason: "aborted", usage: { inputTokens: 3, outputTokens: 7 } };
+      },
+    };
+    const done = runRepl({
+      model,
+      executor: { execute: () => Promise.resolve({ ok: true, output: "ok" }) },
+      ui,
+      store,
+      env: e,
+    });
+
+    await ui.awaitRender((view) => view.awaitingInput === true);
+    ui.stdin.write("/answer 40");
+    await tick();
+    ui.stdin.write(ENTER);
+    await ui.awaitRender((view) => view.nextFinalAnswerMaxWords === 40);
+    ui.stdin.write("draft then cancel");
+    await tick();
+    ui.stdin.write(ENTER);
+    await candidateHeld.promise;
+    await ui.awaitRender((view) => view.streaming === true);
+    await ui.awaitFrame(
+      (frame) => frame.includes("working · assistant drafting") && !frame.includes("raw candidate"),
+    );
+    ui.stdin.write(ESCAPE);
+    await ui.awaitRender(
+      (view) =>
+        view.awaitingInput === true &&
+        view.items.some(
+          (item) =>
+            item.kind === "message" &&
+            item.role === "assistant" &&
+            item.content.includes("Reason: cancelled"),
+        ),
+    );
+    const frame = ui.lastFrame() ?? "";
+    expect(frame).toContain("Reason: cancelled");
+    expect(frame).toContain("rewrite tools or side effects ran");
+    expect(frame).not.toContain("raw candidate that must remain hidden");
+
+    await ui.close();
+    await done;
+    store.close();
   });
 
   it("renders Markdown assistant answers through the REAL Ink stack without raw scaffolding", async () => {

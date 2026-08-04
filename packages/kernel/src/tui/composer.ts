@@ -38,6 +38,8 @@ export interface ComposerContext {
   readonly exitArmed?: boolean;
   readonly editing?: boolean;
   readonly pasted?: boolean;
+  /** Process-local bound armed for the next ordinary task; presentation only. */
+  readonly nextFinalAnswerMaxWords?: number;
 }
 
 export interface ComposerPresentation {
@@ -302,6 +304,14 @@ export function composerPresentation(
           hint: "type a follow-up to queue",
           tone: "info",
         };
+  }
+  if (context.nextFinalAnswerMaxWords !== undefined) {
+    return {
+      state: "idle",
+      label: "input",
+      hint: `final answer ≤${context.nextFinalAnswerMaxWords} words · next task only`,
+      tone: "info",
+    };
   }
   return {
     state: "idle",

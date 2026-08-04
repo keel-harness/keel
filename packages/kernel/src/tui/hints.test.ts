@@ -18,6 +18,11 @@ describe("hintFooter (contextual — never wonder what to press)", () => {
     expect(footer).toContain("^G editor");
     expect(footer).toContain("/exit"); // exit must be discoverable in the footer, not just the palette
   });
+  it("shows an armed answer bound as next-task-only at the idle prompt", () => {
+    expect(hintFooter({ ...base, awaitingInput: true, nextFinalAnswerMaxWords: 250 })).toContain(
+      "final answer ≤250 words · next task only",
+    );
+  });
   it("mid-run: offers interrupt, urgent, queue", () => {
     expect(hintFooter({ ...base, streaming: true })).toBe(
       "esc interrupt   /now urgent   type to queue",
@@ -38,6 +43,11 @@ describe("hintFooter (contextual — never wonder what to press)", () => {
   });
   it("help open: offers close", () => {
     expect(hintFooter({ ...base, overlay: { kind: "help" } })).toContain("esc close");
+  });
+  it("read-only panels offer close instead of an inactive idle action", () => {
+    expect(hintFooter({ ...base, overlay: { kind: "panel", content: "original" } })).toBe(
+      "esc close",
+    );
   });
   it("reverse-search open: offers accept, step-older, and cancel (Epic 1.23 slice 3b)", () => {
     const footer = hintFooter({ ...base, overlay: { kind: "reverse-search", query: "te" } });

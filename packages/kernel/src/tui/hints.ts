@@ -7,7 +7,7 @@ import type { ViewModel } from "@keel/shared";
  */
 export function hintFooter(view: ViewModel): string {
   if (view.overlay?.kind === "palette") return "⇥ complete   ⏎ select   esc cancel";
-  if (view.overlay?.kind === "help") return "esc close";
+  if (view.overlay?.kind === "help" || view.overlay?.kind === "panel") return "esc close";
   if (view.overlay?.kind === "reverse-search")
     return "type to search   ⏎ accept   ^R older   esc cancel";
   if (view.overlay?.kind === "at-complete") return "⇥ complete   type to filter   space ends";
@@ -20,6 +20,12 @@ export function hintFooter(view: ViewModel): string {
   if (toolRunning) return "esc interrupt   /now urgent   type to queue";
   // Idle between turns in the multi-turn REPL (Epic 1.23): surface that the session stayed open and
   // how to leave it (exit was otherwise only discoverable in the `/` palette).
-  if (view.awaitingInput === true) return "type to continue   ^G editor   ↑ history   /exit quit";
+  if (view.awaitingInput === true) {
+    const answerArm =
+      view.nextFinalAnswerMaxWords === undefined
+        ? ""
+        : `final answer ≤${view.nextFinalAnswerMaxWords} words · next task only   `;
+    return `${answerArm}type to continue   ^G editor   ↑ history   /exit quit`;
+  }
   return "/ commands   ^G editor   ↑ history   ? help";
 }
