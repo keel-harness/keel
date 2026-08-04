@@ -366,6 +366,16 @@ const PRODUCTION_MCP_DISCOVERY_TIMEOUT_MS = 15_000;
 const PRODUCTION_MCP_DISCOVERY_TERM_GRACE_MS = 1_000;
 const PRODUCTION_MCP_DISCOVERY_GIVE_UP_MS = 2_000;
 const PRODUCTION_MCP_DISCOVERY_MAX_OUTPUT_BYTES = 512_000;
+const WARDEN_REINSTALL_RECOVERY =
+  "reinstall Keel in the same package-manager scope, then rerun this command";
+const PACKAGED_WARDEN_UNAVAILABLE =
+  "packaged Warden unavailable — this Keel installation is incomplete, so governed execution " +
+  "cannot start; " +
+  WARDEN_REINSTALL_RECOVERY;
+const PRODUCTION_WARDEN_UNAVAILABLE =
+  "production Warden unavailable — this Keel installation is incomplete or unsupported, so " +
+  "governed execution cannot start; " +
+  WARDEN_REINSTALL_RECOVERY;
 
 function runtimePlanApprovalEnvelope(
   envelope: PlanApprovalEnvelope | undefined,
@@ -418,7 +428,7 @@ export function resolveProductionWardenStart(
   if (basename(modulePath) === "keel-kernel.mjs") {
     const packagedWarden = resolve(here, "keel-warden.mjs");
     if (!exists(packagedWarden)) {
-      throw new Error("packaged warden entry is unavailable");
+      throw new Error(PACKAGED_WARDEN_UNAVAILABLE);
     }
     return { command: execPath, args: [packagedWarden] };
   }
@@ -430,7 +440,7 @@ export function resolveProductionWardenStart(
   if (runningFromDist && exists(distBin)) return { command: execPath, args: [distBin] };
   const compiledBinary = options.compiledBinary ?? process.versions["bun"] !== undefined;
   if (!compiledBinary) {
-    throw new Error("production warden entry is unavailable");
+    throw new Error(PRODUCTION_WARDEN_UNAVAILABLE);
   }
   const self = selfEntrypointCommand({ execPath, argv, exists });
   return {
