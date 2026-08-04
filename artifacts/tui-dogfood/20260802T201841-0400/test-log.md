@@ -1518,3 +1518,8 @@
   zero provider calls and zero Warden review interrupts leave spend at USD 4.72508650. The official
   score remains 4.04/5 candidate and 4.02/5 pooled diagnostic pending the strict same-commit replay.
   Session log 28 contains the full evidence; publication and post-main proof remain pending.
+- First exact-head CI run `30946149289` found a test-harness flake in Node-next: the default one-
+  second marker wait expired under full-suite load, so the test never opened its fake-Warden gate and
+  later produced a 15-second RPC timeout. The two marker waits now use a test-only 10-second budget;
+  event-order assertions and production timeouts are unchanged. Session-entry passes 137/137 and the
+  unrestricted full suite passes 6,669/6,669 with 20 intentional skips after the correction.

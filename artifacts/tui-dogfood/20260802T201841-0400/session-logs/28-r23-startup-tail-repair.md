@@ -149,3 +149,18 @@ dogfood total at **6 total / 2 necessary / 4 excessive or avoidable**.
 
 Publication, exact-head CI, tree-identical merge proof, post-main CI, issue closure, and branch /
 worktree / task-root cleanup remain pending.
+
+## First exact-head CI correction
+
+PR CI run `30946149289` exposed one real test-harness flake in the new ordering coverage under its
+Node 22 full-suite load. The product assertions did not fail: the test's default one-second
+`vi.waitFor` expired before the gated child had written its `warden.hello` marker. The test then
+never opened its deliberate gate, so the otherwise-generous 15-second fake-Warden RPC budget later
+expired and surfaced as an unhandled rejection. Node-next reported **1 failed / 6,669 passed**.
+
+The correction changes only those two gated-marker waits to a 10-second harness budget. That stays
+below the existing 15-second fake-Warden request budget and the suite's 20-second test ceiling; it
+does not alter a production timeout, remove an assertion, or relax the required event order. The
+complete session-entry file then passed 137/137, format and all workspace/packaging typechecks
+passed, and the unrestricted full suite passed **365 files / 6,669 tests / 20 intentional opt-in
+skips**. Updated exact-head CI remains pending.

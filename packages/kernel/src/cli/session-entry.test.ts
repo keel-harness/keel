@@ -2039,7 +2039,9 @@ describe("runKeelCommand (bin orchestration: build runtime + store, run, dispose
       },
     });
 
-    await vi.waitFor(() => expect(existsSync(wardenStartupEntered)).toBe(true));
+    await vi.waitFor(() => expect(existsSync(wardenStartupEntered)).toBe(true), {
+      timeout: 10_000,
+    });
     order.push("warden-gate-opened");
     writeFileSync(wardenGate, "ready");
     await backupStarted;
@@ -2079,7 +2081,9 @@ describe("runKeelCommand (bin orchestration: build runtime + store, run, dispose
       },
     });
 
-    await vi.waitFor(() => expect(existsSync(wardenStartupEntered)).toBe(true));
+    await vi.waitFor(() => expect(existsSync(wardenStartupEntered)).toBe(true), {
+      timeout: 10_000,
+    });
     order.push("warden-gate-opened");
     writeFileSync(wardenGate, "ready");
     await ui.awaitRender(
