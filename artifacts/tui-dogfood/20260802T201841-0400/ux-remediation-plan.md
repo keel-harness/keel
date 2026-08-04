@@ -670,6 +670,17 @@ preservation while tools update, multiline editing, paste, command history, reve
 handoff to approvals/diffs, mouse independence, scroll anchoring, and resize. Treat dropped input or
 focus ambiguity as P1 when reproduced.
 
+Validation outcome under [issue #108](https://github.com/keel-harness/keel/issues/108): the clean
+exact installed main carrier passes **10/10** selected real-PTY scenarios across 80x24 and 100x30.
+Multiline paste, `Ctrl+J`, bounded paste, history draft/cursor restoration, reverse search, readline
+editing, native terminal scrollback, bidirectional live resize, active-panel focus, live Warden
+review focus, diff focus, keyboard closure, and exact draft restoration all pass. Review/editor/
+paste/history/search keystrokes remain inert outside their owning surface; denied and interrupted
+actions do not execute; every process group is reaped. Existing focused coverage passes **492/492**.
+Actual mouse text selection remains **NOT_RUN**. No product defect was reproduced, so R19 makes no
+runtime, score, contract, policy, or dependency change. Evidence is in
+`session-logs/22-r19-input-usability.md` and screenshots 50-51.
+
 ### R20 · accessibility and responsive terminal matrix
 
 Hypothesis, not directly observed. Test 80×24, 100×30, 120×40, dark, light, no-color, high contrast,

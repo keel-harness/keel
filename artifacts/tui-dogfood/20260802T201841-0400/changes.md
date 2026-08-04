@@ -665,3 +665,22 @@ worktree were removed.
   closure, canonical-main fast-forward, and feature branch/worktree cleanup passed. The official
   six-workflow score remains **4.01/5** until the frozen canonical replay is repeated at one exact
   commit.
+
+## R19 — installed composer and focus validation
+
+- Validation-only under issue #108: no product code, behavior test, dependency, policy, security
+  claim, frozen contract, public CLI, or score change.
+- Clean exact main `fa4a818` built and packaged all carriers. Its scripts-disabled npm tarball has
+  SHA-256 `7b56aeb67614ec78c8c3ac9ded61c85cce255ac287a4162b67746ec71a1f33ff`.
+- The exact installed carrier passes **10/10** real-PTY scenarios across 80x24 and 100x30 through a
+  spawned production Warden and clean external Click: multiline paste, `Ctrl+J`, bounded paste,
+  history/search/editing, native scrollback, provider/tool draft retention, bidirectional resize,
+  active-panel/review/diff exclusive focus, keyboard closure, and draft restoration.
+- Two exact-domain Warden reviews were necessary, denied, and not executed. Two active-panel
+  interrupts generated no later tool event. All selected process groups were reaped.
+- Existing focused input/focus/terminal coverage passes **492/492**. Screenshots 50-51 are sanitized
+  and visually inspected; eight rejected harness/oracle calibrations remain explicit. Actual mouse
+  text selection and E5 are **NOT_RUN**.
+- Zero Anthropic calls keep cumulative spend at USD 2.74434625. The official aggregate remains
+  **4.01/5** and the legacy pooled diagnostic remains **3.98/5** (247/62) pending final same-commit
+  six-workflow proof.

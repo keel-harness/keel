@@ -313,3 +313,19 @@ merge share tree `a52f7a1`. Exact post-main CI run `30883516900` passed, includi
 `91910698605`; issue #105 closed and the feature branch/worktree were removed. The exact checkpoint
 improves, but the official six-workflow score stays **4.01/5** pending its final same-commit
 canonical replay.
+
+R19 is a validation-only input/focus matrix under
+[issue #108](https://github.com/keel-harness/keel/issues/108). The clean exact installed main npm
+carrier at `fa4a818` passes **10/10** selected real-PTY scenarios across 80x24 and 100x30 against
+clean external Click. Multiline paste, `Ctrl+J`, history, reverse search, readline editing, native
+scrollback, draft preservation through provider/tool activity and bidirectional resize, exclusive
+active-panel/review/diff focus, keyboard closure, and exact draft restoration all pass. The two
+genuine Warden reviews are narrowly scoped, denied, and not executed; panel interrupts start no
+later tool; all process groups are reaped. Focused unchanged coverage passes **492/492**.
+
+Screenshots 50-51 are sanitized, visually inspected 1400x840 evidence. Actual mouse text selection
+is **NOT_RUN**; keyboard independence and native terminal history are proven without claiming that
+surface. No product defect was reproduced, so there is no runtime, score, policy, security claim,
+dependency, frozen-contract, public-CLI, or Anthropic-cost change. The official aggregate remains
+**4.01/5**, the legacy pooled diagnostic remains **3.98/5** (247/62), and final same-commit
+six-workflow E2-E5 proof remains open.
