@@ -864,3 +864,28 @@ worktree were removed.
   provider cost, or review-interrupt change. Exact head `259fdfc` passed CI `30949551544`; PR #131
   merged as `32f3346` with identical tree `03fd2f69`; exact post-main CI `30950106016` passed every
   required lane, including the originally failing macOS package smoke.
+
+## Issue #133 — final-answer rewrite headroom
+
+- The strict exact-main replay reproduced `fallback-oversized` when a 976-word onboarding original
+  received one 253-word rewrite against the explicit 250-word hard maximum. Enforcement remained
+  correct, Click stayed clean, and zero review/tool authority changed.
+- Added a red-first prompt-only 90% preferred target while preserving the exact hard word and byte
+  limits, one tools-disabled request, derived output rail, validation, fallback, persistence,
+  inspection, and absent-contract behavior. A 200-case property covers the complete 40..2,000 range.
+- Rejected two mechanically compliant live candidates because their bounded primaries repeated an
+  unsupported runtime claim. The retained candidate `305b8b1`, tree `5d2b79f`, instead omits the
+  unsupported detail and produces a source-verified 223-word / 1,854-byte primary from a 734-word
+  original under the unchanged 250-word / 16,000-byte contract.
+- Exact tarball SHA-256 `32b9f09d50a0d6cdb856356ee058fc5865b718255b403622e82ba83e7a0a7fc1`
+  exits zero through the real 100x30 product path with governed sandbox/egress/audit posture, nine
+  provider routes, zero Warden reviews, clean frozen Click, and exact cost USD 0.72041130.
+- Current-head focused **15/15**, nineteen-file adjacency **1,114/1,114**, full and coverage **6,673
+  passed / 20 intentional opt-in skips**, correctly configured real sandbox **18/18**, lint,
+  typecheck, format, supply-chain, build, package, and diff checks pass. The first real-sandbox
+  invocation's missing fixture-CA preflight remains recorded rather than hidden.
+- Screenshot 70 and session log 30 retain sanitized E4/E5 evidence and five-lens QC. Cumulative
+  Anthropic spend is USD 7.87313035 with the final USD 2 reserve intact.
+- No typed contract, retry count, truncation, oversize acceptance, ModelPort, Warden, policy,
+  sandbox, egress, audit, dependency, public CLI, or security claim changes. The score stays
+  **4.04/5 candidate / 4.02 pooled** pending publication and the strict all-six exact-commit replay.

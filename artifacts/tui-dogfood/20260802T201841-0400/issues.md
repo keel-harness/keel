@@ -532,3 +532,30 @@
   build, package, fresh scripts-disabled carrier, teardown, and five-lens QC green.
 - Boundaries: no retry, relaxed timeout/predicate, renderer/product behavior, Warden authority,
   security claim, frozen contract, dependency, score, or provider spend change.
+
+### DF-031 — a near-bound rewrite falls into honest but unhelpful fallback
+
+- Severity: P1 final-result reliability and cognitive load.
+- Status: exact-main reproduction and local red-first candidate under
+  [issue #133](https://github.com/keel-harness/keel/issues/133); publication and exact merged-carrier
+  replay remain pending.
+- Direct evidence: exact installed `main` at `01eca273` produced a 976-word onboarding original and
+  one 253-word tools-disabled rewrite against ADR-0087's 250-word hard maximum. Keel correctly
+  settled `fallback-oversized`, retained the original, ran no rewrite tool, requested no Warden
+  review, and left Click clean. A three-word approximate counting miss nevertheless removed the
+  otherwise useful primary answer.
+- Diagnosis: the controller rewrite prompt stated only the hard maximum, leaving no tolerance for
+  approximate model-side word counting. Controller enforcement and fallback were correct and are
+  not weakened.
+- Retained local repair: preserve the exact hard word/byte limits while asking for a deterministic
+  90% preferred word target. Omit unsupported runtime specifics rather than repeating them with an
+  `unverified` label. Minimum/observed/maximum tests and a 200-case full-range property preserve
+  positive headroom.
+- Validation: two mechanically compliant candidates were rejected for unsupported runtime prose.
+  Candidate `305b8b1` produces a factual 223-word / 1,854-byte primary under the 250-word / 16,000-
+  byte contract, keeps Click clean, and requests zero reviews. Focused **15/15**, final-answer
+  adjacency **1,114/1,114**, full **6,673 passed / 20 intentional skips**, coverage, static,
+  build/package, exact live E5, screenshot 70, and correctly configured real sandbox **18/18** pass.
+- Boundaries: no retry, truncation, oversize acceptance, typed contract, schema, ModelPort, Warden,
+  policy, sandbox, egress, audit, dependency, public CLI, or security-claim change. No score credit
+  is added; this repairs reliability of the already credited #113 onboarding outcome.

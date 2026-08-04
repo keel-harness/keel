@@ -713,8 +713,16 @@ candidate implements one explicit task-scoped bound, at most one tools-disabled 
 inspection/settlement, and deterministic fallbacks. Exact installed E2-E4 plus one E5 onboarding
 run pass; a 1,273-word original becomes a 241-word primary and unprobed behavior is labeled
 unverified. Onboarding is **4.11/5**; the six-workflow candidate mean is **4.04/5**. Publication and
-the final same-commit six-workflow gate remain open. Evidence is in
-`session-logs/25-final-answer-contract.md` and screenshots 61-64.
+post-main proof passed through PR #121; evidence is in `session-logs/25-final-answer-contract.md`
+and screenshots 61-64.
+
+The first strict exact-main replay then exposed DF-031: a 253-word rewrite missed the 250-word hard
+maximum by three and correctly fell back. Issue #133's local red-first candidate leaves a 10%
+preferred target below the unchanged hard limit. Two bounded candidates were rejected for
+unsupported runtime prose; retained `305b8b1` produces a source-verified 223-word primary, passes
+full/coverage/static/real-sandbox/live gates, and changes no Warden or contract authority. Evidence
+is in `session-logs/30-final-answer-headroom.md` and screenshot 70. Publication and the final same-
+commit six-workflow gate remain open.
 
 ### R22 · operator diagnostics and safe recovery commands
 

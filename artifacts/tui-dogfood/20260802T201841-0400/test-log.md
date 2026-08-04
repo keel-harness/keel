@@ -1561,3 +1561,37 @@
   job `92129805024` is the direct green replay of the originally failing lane.
 - Publication and product-path proof are closed. This evidence-only closeout adds zero provider
   calls, Warden reviews, product behavior, security claims, dependencies, or score changes.
+
+## 2026-08-04 — strict onboarding replay and issue #133 local validation
+
+- Exact installed `main` `01eca273` reproduced a 976-word original plus 253-word rewrite against the
+  250-word hard maximum. The controller correctly settled `fallback-oversized`; Click stayed clean,
+  no tool or Warden authority changed, and the run cost USD 0.85686600.
+- Opened issue #133 with exact non-goals: no retry, truncation, oversize acceptance, typed-contract,
+  ModelPort, Warden, policy, audit, sandbox, egress, dependency, or public-CLI change.
+- Red first: three minimum/observed/maximum preferred-target assertions failed before production
+  prompt headroom; the stricter unsupported-runtime omission expectation failed before its exact
+  implementation copy changed. The full-range property executes 200 generated 40..2,000-word cases.
+- Candidate `398b108` and candidate `d71eda8` passed mechanical settlement but were rejected after
+  human QC for unsupported runtime prose. Their exact costs were USD 1.07217240 and USD 0.49859415.
+- Retained `305b8b1`, tree `5d2b79f`, exact npm tarball SHA-256 `32b9f09d…`, produced a 223-word /
+  1,854-byte factual primary from a 734-word original at 100x30. Independent source inspection
+  verified the overload, branch, editor argv, test, build-backend, Python-floor, and typecheck facts.
+  Frozen Click remained clean; the run exited zero with nine provider routes, zero reviews, and cost
+  USD 0.72041130.
+- `pnpm exec vitest run packages/kernel/src/final-answer.test.ts`: **15/15 passed**.
+- Seven-file final-answer adjacency: **377/377 passed**.
+- Nineteen-file final-answer/CLI/session/TUI adjacency: **1,114/1,114 passed**.
+- `pnpm test`: **365 files / 6,673 passed / 20 intentional opt-in skips**.
+- `pnpm test:cov`: exit 0 with all enforced package thresholds; **6,673 passed / 20 intentional
+  opt-in skips**.
+- `pnpm lint`, `pnpm typecheck`, `pnpm format`, `pnpm supply-chain:check`, `pnpm build`,
+  `pnpm package`, and `git diff --check`: passed.
+- First real-sandbox command: **13 passed / 5 skipped, exit 1** because the required vendored fixture
+  CA was absent before Node startup. Correctly configured exact rerun: **18/18 passed**.
+- E3/E4/E5: real 100x30 installed carrier, screenshot 70 (visually inspected sanitized exact-text
+  transcription, SHA-256 `abf690d9…`), live Anthropic settlement, clean Click, and zero Warden
+  reviews pass. Cumulative spend is USD 7.87313035; the final USD 2 reserve remains intact.
+- Five-lens QC: no unresolved local must-fix. Security claims affected: none. ADR needed: no;
+  ADR-0087 already governs the unchanged hard contract. Publication and exact merged-carrier replay
+  remain pending.
