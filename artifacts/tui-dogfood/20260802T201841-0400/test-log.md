@@ -1291,3 +1291,16 @@
 - Evidence correction: onboarding becomes 3.67/5; the unweighted six-workflow score becomes
   **3.97/5**, and the pooled diagnostic becomes **3.95/5** (245/62). The 3.8 target remains green;
   4.0 stretch and the final same-commit gate remain open.
+- Reviewed head `4494978e6a072ab1d961799e1700574d0d5a9776` passed exact-head CI run
+  `30895021455`, including `ci-required` job `91947273912`. Owner-authorized admin squash merged
+  [PR #114](https://github.com/keel-harness/keel/pull/114) as
+  `15f991de8d5305441709ed3b7babf71f42cd0185`; candidate and merge trees are both
+  `23f203f6f8a0b0a5409ecfa5539d956ee259331d`.
+- Exact post-main CI run `30895569846` passed all 18 jobs with no non-green result, including
+  `ci-required` job `91949010897` and every main-only Linux/macOS build, package, sandbox, audit,
+  security, cross-architecture, egress-scale, and Node 20/22/24 installed-product lane.
+- Issue #111 closed. The remote feature branch was absent; canonical main was clean and exact; the
+  clean validation branch/worktree and all six task-local roots were removed. Credential-store
+  copies and audit keys were permanently deleted only after sanitized evidence merged.
+- Publication made zero additional Anthropic calls. The R21 increment remains USD 0.68968890,
+  cumulative spend remains USD 3.43403515, and the 3.97/5 score and open #113 boundary are unchanged.

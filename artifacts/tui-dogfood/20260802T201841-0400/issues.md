@@ -385,7 +385,9 @@
 ### DF-025 — explicit concise onboarding can end long and factually ungrounded
 
 - Severity: P1 final-result confidence, cognitive load, and trust.
-- Status: open. Reproduced by R21 under [issue #111](https://github.com/keel-harness/keel/issues/111).
+- Status: open under issue #113. R21 validation
+  [issue #111](https://github.com/keel-harness/keel/issues/111) closed through merged evidence
+  [PR #114](https://github.com/keel-harness/keel/pull/114).
   The prompt-only behavior issue [#112](https://github.com/keel-harness/keel/issues/112) was closed
   without merge after two live candidates failed its acceptance gate. Enforceable public-output
   design is tracked by [issue #113](https://github.com/keel-harness/keel/issues/113).

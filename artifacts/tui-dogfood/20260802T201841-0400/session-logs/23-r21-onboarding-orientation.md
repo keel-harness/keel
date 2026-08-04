@@ -216,3 +216,18 @@ Cumulative spend is **USD 3.43403515**. USD 16.56596485 remains; the final USD 2
 No Warden policy, review/grant, sandbox, egress, audit, RPC/shared schema, dependency, public CLI,
 or security claim changes. No ADR was needed for this validation/rejection. An ADR may be required
 before #113 implementation depending on its selected public-output and transcript-retention design.
+
+## Publication closeout
+
+- Reviewed head `4494978e6a072ab1d961799e1700574d0d5a9776` passed exact-head CI
+  `30895021455`, including `ci-required` job `91947273912`.
+- Owner-authorized PR #114 squash-merged as
+  `15f991de8d5305441709ed3b7babf71f42cd0185`. The reviewed and merged tree is exactly
+  `23f203f6f8a0b0a5409ecfa5539d956ee259331d`.
+- Exact post-main CI `30895569846` passed all 18 jobs, including main-only package, audit,
+  cross-architecture, and installed egress-product lanes; `ci-required` job `91949010897` passed.
+- Issue #111 closed. The remote validation branch was absent; its clean local branch/worktree and
+  all six task-local roots were removed. Credential-store copies and audit keys were permanently
+  deleted after sanitized evidence merged.
+- Publication used zero additional Anthropic calls and changes no evidence, score, security, or
+  public-behavior claim. DF-025 remains open under #113.
