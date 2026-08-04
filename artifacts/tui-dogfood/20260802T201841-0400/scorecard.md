@@ -252,4 +252,5 @@ The candidate unweighted mean therefore stays **4.04/5**, and the pooled diagnos
 Issue #130 repairs a release observer after #127's exact post-main macOS package lane falsely missed
 an already-rendered blank composer. The exact product behavior, six canonical workflow outcomes,
 and all score axes are unchanged. The candidate unweighted mean remains **4.04/5** and the pooled
-diagnostic remains **4.02/5 (249/62)** pending publication and the strict same-commit replay.
+diagnostic remains **4.02/5 (249/62)**. PR #131 and exact post-main CI are green; the strict same-
+commit replay remains open.

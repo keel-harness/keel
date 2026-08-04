@@ -479,5 +479,7 @@ candidate at `546476a`. The original observer fails 4/8 local reproductions; the
 passes 20/20 repeated exact-carrier runs plus one fresh scripts-disabled exact package. Focused,
 static, full coverage (**6,669 passed / 20 intentional skips**), package, teardown, and five-lens QC
 are green. No product timeout, predicate, retry, Warden/security surface, score, or provider spend
-changes. Publication and clean exact post-main CI remain pending; session log 29 records the full
-lineage and both non-green attempts.
+changes. Exact head `259fdfc` passed CI `30949551544`; PR #131 merged as `32f3346` with identical
+tree `03fd2f69`; issue #130 closed. Exact post-main CI `30950106016` passed every required lane,
+including the original macOS package surface. Session log 29 records the full lineage, both non-
+green attempts, and publication proof. The final same-commit six-workflow replay remains open.

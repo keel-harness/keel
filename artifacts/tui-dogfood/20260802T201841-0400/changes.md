@@ -844,7 +844,8 @@ worktree were removed.
 - Focused 176/176, full coverage 6,669 passed with 20 intentional skips, lint, typecheck, format,
   build, package, exact scripts-disabled install, diff checks, and five-lens QC pass. No dependency,
   threshold, security claim, Warden authority, frozen contract, score, provider call, or review
-  interrupt changes. Publication remains pending.
+  interrupt changes. PR #129 merged the reviewed tree as `be1c900`; its sole post-main observer
+  failure is closed by the published #130 repair below.
 
 ## Issue #130 — CRCRLF-safe PTY release observer
 
@@ -860,4 +861,6 @@ worktree were removed.
   6,669/6,669 with 20 intentional skips, static/build/package gates, 20/20 repeated exact-carrier
   PTYs, and one fresh exact scripts-disabled package smoke.
 - No dependency, runtime product behavior, Warden/security authority, frozen contract, score,
-  provider cost, or review-interrupt change. Publication remains pending.
+  provider cost, or review-interrupt change. Exact head `259fdfc` passed CI `30949551544`; PR #131
+  merged as `32f3346` with identical tree `03fd2f69`; exact post-main CI `30950106016` passed every
+  required lane, including the originally failing macOS package smoke.

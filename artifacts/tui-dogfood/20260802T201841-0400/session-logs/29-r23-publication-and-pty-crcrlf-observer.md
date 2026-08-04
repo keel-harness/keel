@@ -90,5 +90,19 @@ none; this is release-observer confidence rather than a new workflow outcome. E5
 because no provider behavior changed. Provider calls, input/output tokens, cost, and Warden reviews
 are all zero; cumulative Anthropic spend remains USD 4.72508650.
 
-Publication, exact-head CI, exact post-main CI, durable closeout, and temporary-worktree cleanup are
-pending.
+## Publication closeout
+
+- Exact reviewed head `259fdfc401e99b6a8fc1c0ca5e506c9c2552864c`, tree
+  `03fd2f69c30481e91ac5ec4f49d13bdf64b15060`, passed PR CI run `30949551544`, including DCO,
+  required aggregate `92129530917`, full build/coverage, npm package smoke, security, real sandbox,
+  Node-next, egress-scale, and all Node 20/22/24 installed-product matrices.
+- The owner-authorized admin squash merged PR #131 as
+  `32f33466065020dff6714c19b3f269e0a3bc98bf`. The merge tree is exactly the reviewed tree; issue
+  #130 closed and the remote feature branch was deleted.
+- Exact post-main run `30950106016` passed required aggregate `92131701270`, audit, security,
+  Linux/macOS build and coverage, both package lanes, both real-sandbox lanes, both cross-
+  architecture runtime smokes, Node-next, egress-scale, and all three installed-product matrices.
+  macOS package job `92129805024` is the direct green replay of the lane that exposed DF-030.
+
+Publication is closed. Cleanup follows this durable evidence commit. The final same-commit six-
+workflow replay remains open.

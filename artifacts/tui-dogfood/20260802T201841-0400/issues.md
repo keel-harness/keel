@@ -515,9 +515,10 @@
 ### DF-030 — PTY release observer loses a CRCRLF-terminated current frame
 
 - Severity: P0 flaky release gate; product behavior remained correct.
-- Status: locally fixed and validated under
-  [issue #130](https://github.com/keel-harness/keel/issues/130); publication and exact post-main proof
-  are pending.
+- Status: fixed under [issue #130](https://github.com/keel-harness/keel/issues/130), merged through
+  [PR #131](https://github.com/keel-harness/keel/pull/131) as `32f3346`. Reviewed head `259fdfc`
+  passed exact-head CI `30949551544`; reviewed and merge trees are identical; exact post-main CI
+  `30950106016` passed the original macOS package lane and every required aggregate.
 - Direct evidence: exact post-main run `30947409856` failed only macOS package job `92120753973`.
   The raw stream showed the palette cleared and blank composer rendered, but a `CRCRLF` sequence
   projected to only `"\n"` when delivered in one read. The unmodified observer failed 4/8 local
