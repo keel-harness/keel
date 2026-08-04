@@ -1218,3 +1218,20 @@
   must-fix. E5 is **NOT_RUN** and zero Anthropic calls leave cumulative spend at USD 2.74434625.
   No product or score change; the official aggregate remains **4.01/5** pending final same-commit
   six-workflow proof.
+
+## 2026-08-04 — R19 publication closeout
+
+- Reviewed head `551e97af13a3a9981a00f5ad06dfa08470c2aa72` passed exact-head CI run
+  `30887406100`, including `ci-required` job `91922806721`.
+- Owner-authorized admin squash merged [PR #109](https://github.com/keel-harness/keel/pull/109)
+  as `03de7901fa0c7ec65dff19116643549467e20cfe`; candidate and merge trees are both
+  `dbb8508dbb231cdfb45a223e3f439609a6f0bd31`.
+- Exact post-main CI run `30887857950` passed, including `ci-required` job `91924444645` and every
+  applicable Linux/macOS build, package, sandbox, security, audit, cross-architecture, egress-scale,
+  and installed-product lane.
+- Issue #108 closed. The remote feature branch was absent; canonical `main` was clean and exact;
+  the local feature branch/worktree and stale tracking ref were removed. The sanitized committed
+  evidence remains; the task-local run directory and 34 owner-only audit keys were permanently
+  deleted.
+- Publication made zero Anthropic calls and does not alter the 4.01/5 score or any product/security
+  behavior.

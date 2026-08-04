@@ -681,6 +681,9 @@ Actual mouse text selection remains **NOT_RUN**. No product defect was reproduce
 runtime, score, contract, policy, or dependency change. Evidence is in
 `session-logs/22-r19-input-usability.md` and screenshots 50-51.
 
+Publication closed through PR #109 with exact-head CI `30887406100`, byte-identical candidate/merge
+tree `dbb8508`, exact post-main CI `30887857950`, issue closure, and complete feature cleanup.
+
 ### R20 · accessibility and responsive terminal matrix
 
 Hypothesis, not directly observed. Test 80×24, 100×30, 120×40, dark, light, no-color, high contrast,
