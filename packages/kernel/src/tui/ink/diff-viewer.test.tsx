@@ -93,6 +93,23 @@ function chromeHeavyFixture(): ReturnType<typeof collectDiffViewerFiles> {
   );
 }
 
+function unavailableFixture(): ReturnType<typeof collectDiffViewerFiles> {
+  return collectDiffViewerFiles(
+    [
+      { kind: "message", role: "user", content: "inspect the generated file" },
+      {
+        kind: "tool",
+        id: "unavailable-edit",
+        name: "edit",
+        status: "ok",
+        summary: "request-only/private/generated.ts",
+        mutationPresentation: { status: "unavailable", reason: "capture-budget" },
+      },
+    ],
+    { title: "done", changed: [], checked: [], attention: [] },
+  );
+}
+
 describe("Ink focused diff viewer", () => {
   it.each([
     [40, 18],
@@ -182,5 +199,49 @@ describe("Ink focused diff viewer", () => {
     expect(frame).toMatch(/\d\s+\+\s+after-/u);
     expect(frame).toContain("reviewing changes");
     expect(frame).toContain("esc close");
+  });
+
+  it("renders an all-unavailable review as a focused, bounded, non-destructive state", () => {
+    const collection = unavailableFixture();
+    const frame =
+      render(
+        <DiffViewer
+          collection={collection}
+          state={initialDiffViewerState(collection.files)}
+          columns={80}
+          rows={24}
+        />,
+      ).lastFrame() ?? "";
+
+    expect(frame).toContain("review evidence unavailable");
+    expect(frame).toContain("observation unavailable");
+    expect(frame).toContain("exceeded presentation limits");
+    expect(frame).toContain("verification not run");
+    expect(frame).toContain("automatic undo unavailable");
+    expect(frame).toContain("esc close");
+    expect(frame).not.toMatch(/request-only|git restore|definitely safe/iu);
+    expect(frame.split("\n").length).toBeLessThanOrEqual(24);
+  });
+
+  it.each([
+    [{ NO_COLOR: "1" }, "no-color"],
+    [{ TERM: "dumb" }, "dumb"],
+  ] as const)("keeps unavailable meaning without color in %s mode", (env, _label) => {
+    process.env = { ...originalEnv, ...env };
+    const collection = unavailableFixture();
+    const frame =
+      render(
+        <DiffViewer
+          collection={collection}
+          state={initialDiffViewerState(collection.files)}
+          columns={40}
+          rows={18}
+        />,
+      ).lastFrame() ?? "";
+
+    expect(frame).toContain("unavailable");
+    expect(frame).toContain("verification not run");
+    expect(frame).toContain("esc close");
+    expect(frame.split("\n").every((line) => terminalDisplayWidth(line) <= 40)).toBe(true);
   });
 });

@@ -151,7 +151,9 @@ function countText(count: number | "unknown"): string {
   return typeof count === "number" ? String(count) : count;
 }
 
-function mutationCoverageLine(presentation: AvailableMutationPresentation): string | undefined {
+export function mutationReviewCoverageCopy(
+  presentation: AvailableMutationPresentation,
+): string | undefined {
   const shown = countText(presentation.shownLines);
   const hidden = countText(presentation.hiddenLines);
   switch (presentation.coverage) {
@@ -216,7 +218,7 @@ export function toolCardPlan(item: UiToolActivity, diffMode: ViewModel["diffMode
       };
     }
     const image = mutationImageLine(presentation);
-    const coverage = mutationCoverageLine(presentation);
+    const coverage = mutationReviewCoverageCopy(presentation);
     return {
       lines: [
         `review  ${presentation.displayPath}`,

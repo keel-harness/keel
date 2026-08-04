@@ -2,7 +2,7 @@
 // tsx (`pnpm keel`) ignores tsconfig `jsx:"react-jsx"` → keep the explicit automatic runtime.
 import { Box, Text } from "ink";
 import type { DiffViewerCollection, DiffViewerState } from "../diff-viewer.js";
-import { planDiffViewer } from "../diff-viewer.js";
+import { planDiffViewer, planUnavailableDiffViewer } from "../diff-viewer.js";
 import { wrapDisplayLine } from "../display-cells.js";
 import { diffStylePlan, terminalColorCapability, THEME, TUI_SPACING } from "../theme.js";
 
@@ -28,6 +28,64 @@ function SmallViewer({ columns }: { columns: number }): React.JSX.Element {
   );
 }
 
+function UnavailableViewer({
+  collection,
+  columns,
+  rows,
+}: {
+  collection: DiffViewerCollection;
+  columns: number;
+  rows: number;
+}): React.JSX.Element {
+  const innerColumns = columns - TUI_SPACING.nested;
+  if (innerColumns < 20) return <SmallViewer columns={columns} />;
+  let plan;
+  try {
+    plan = planUnavailableDiffViewer(collection, { columns: innerColumns, rows });
+  } catch (error) {
+    if (error instanceof RangeError) return <SmallViewer columns={columns} />;
+    throw error;
+  }
+  return (
+    <Box
+      flexDirection="column"
+      width={columns}
+      borderStyle="single"
+      borderTop={false}
+      borderRight={false}
+      borderBottom={false}
+      borderLeftColor={THEME.accent}
+      paddingLeft={TUI_SPACING.inset}
+    >
+      {plan.titleLines.map((line, index) => (
+        <Text key={`title-${String(index)}`} bold color={THEME.accent} wrap="truncate-end">
+          {line}
+        </Text>
+      ))}
+      {plan.availabilityLines.map((line, index) => (
+        <Text key={`availability-${String(index)}`} color={THEME.state.warning} wrap="truncate-end">
+          {line}
+        </Text>
+      ))}
+      {plan.verificationLines.map((line, index) => (
+        <Text key={`verification-${String(index)}`} dimColor wrap="truncate-end">
+          {line}
+        </Text>
+      ))}
+      {plan.recoveryLines.map((line, index) => (
+        <Text key={`recovery-${String(index)}`} color={THEME.state.warning} wrap="truncate-end">
+          {line}
+        </Text>
+      ))}
+      {plan.footerLines.map((line, index) => (
+        <Text key={`footer-${String(index)}`} dimColor wrap="truncate-end">
+          {line}
+        </Text>
+      ))}
+    </Box>
+  );
+}
+
 /** Thin render-only Ink map over the covered viewer reducer/planner. */
 export function DiffViewer({
   collection,
@@ -40,6 +98,9 @@ export function DiffViewer({
   columns: number;
   rows: number;
 }): React.JSX.Element {
+  if (collection.files.length === 0) {
+    return <UnavailableViewer collection={collection} columns={columns} rows={rows} />;
+  }
   const innerColumns = columns - TUI_SPACING.nested;
   if (innerColumns < 20) return <SmallViewer columns={columns} />;
   let plan;
@@ -148,12 +209,32 @@ export function DiffViewer({
         />
       ) : null}
       {plan.evidenceLines.map((line, index) => (
-        <Text key={index} dimColor wrap="truncate-end">
+        <Text key={`evidence-${String(index)}`} dimColor wrap="truncate-end">
+          {line}
+        </Text>
+      ))}
+      {plan.coverageLines.map((line, index) => (
+        <Text key={`coverage-${String(index)}`} dimColor wrap="truncate-end">
+          {line}
+        </Text>
+      ))}
+      {plan.availabilityLines.map((line, index) => (
+        <Text key={`availability-${String(index)}`} color={THEME.state.warning} wrap="truncate-end">
+          {line}
+        </Text>
+      ))}
+      {plan.verificationLines.map((line, index) => (
+        <Text key={`verification-${String(index)}`} dimColor wrap="truncate-end">
+          {line}
+        </Text>
+      ))}
+      {plan.recoveryLines.map((line, index) => (
+        <Text key={`recovery-${String(index)}`} color={THEME.state.warning} wrap="truncate-end">
           {line}
         </Text>
       ))}
       {plan.footerLines.map((line, index) => (
-        <Text key={index} dimColor wrap="truncate-end">
+        <Text key={`footer-${String(index)}`} dimColor wrap="truncate-end">
           {line}
         </Text>
       ))}

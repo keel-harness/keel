@@ -5,6 +5,7 @@ import {
   initialDiffViewerState,
   normalizeDiffViewerState,
   planDiffViewer,
+  planUnavailableDiffViewer,
   reduceDiffViewer,
   type DiffViewerState,
 } from "./diff-viewer.js";
@@ -77,6 +78,37 @@ function tool(
   };
 }
 
+function unavailableTool(
+  id: string,
+  reason: "capture-budget" | "redaction-failed" | "live-observations-not-persisted",
+): Extract<ViewItem, { readonly kind: "tool" }> {
+  return {
+    kind: "tool",
+    id,
+    name: "edit",
+    status: "ok",
+    summary: `request-only/private/${id}.ts`,
+    mutationPresentation: { status: "unavailable", reason },
+  };
+}
+
+function summaryOnlyTool(): Extract<ViewItem, { readonly kind: "tool" }> {
+  const base = tool("summary-only", "src/producer-redacted.bin", []);
+  if (base.mutationPresentation?.status !== "available") {
+    throw new Error("expected available fixture presentation");
+  }
+  return {
+    ...base,
+    summary: "request-only/private/generated.bin",
+    mutationPresentation: {
+      ...base.mutationPresentation,
+      coverage: "summary-only",
+      shownLines: 0,
+      hiddenLines: "unknown",
+    },
+  };
+}
+
 describe("focused diff viewer — bounded artifact selection", () => {
   it("collects only settled changed comparisons and uses the producer-redacted display path", () => {
     const items: ViewItem[] = [
@@ -137,6 +169,76 @@ describe("focused diff viewer — bounded artifact selection", () => {
     const collection = collectDiffViewerFiles([tool("spaced", "  src/space name.ts  ")]);
 
     expect(collection.files[0]?.path).toBe("  src/space name.ts  ");
+  });
+
+  it("retains authoritative unavailable observations without promoting request paths or prose", () => {
+    const collection = collectDiffViewerFiles([
+      unavailableTool("budget", "capture-budget"),
+      {
+        kind: "message",
+        role: "assistant",
+        content: "The diff is definitely safe and verified; restore request-only/private/budget.ts",
+      },
+      unavailableTool("redaction", "redaction-failed"),
+    ]);
+
+    expect(collection.files).toEqual([]);
+    expect(collection.unavailable.map((item) => item.text)).toEqual([
+      "edit observation unavailable · observation exceeded presentation limits",
+      "edit observation unavailable · safe display could not be produced",
+    ]);
+    expect(collection.hiddenUnavailable).toBe(0);
+    expect(JSON.stringify(collection)).not.toMatch(/request-only|definitely safe|restore/iu);
+  });
+
+  it("lets an explicit unavailable presentation override contradictory request-derived diff bytes", () => {
+    const collection = collectDiffViewerFiles([
+      {
+        ...unavailableTool("contradictory", "redaction-failed"),
+        subject: "request-only/private/subject.ts",
+        diff: changedLines("request-derived"),
+      },
+    ]);
+
+    expect(collection.files).toEqual([]);
+    expect(collection.unavailable.map((item) => item.text)).toEqual([
+      "edit observation unavailable · safe display could not be produced",
+    ]);
+    expect(JSON.stringify(collection)).not.toMatch(/request-only|request-derived/iu);
+  });
+
+  it("bounds unavailable observations and discloses the exact earlier count", () => {
+    const collection = collectDiffViewerFiles(
+      Array.from({ length: 7 }, (_, index) =>
+        unavailableTool(`tool-${String(index)}`, "capture-budget"),
+      ),
+    );
+
+    expect(collection.unavailable).toHaveLength(3);
+    expect(collection.hiddenUnavailable).toBe(4);
+    expect(collection.unavailable.map((item) => item.occurrenceKey)).toEqual([
+      "4:tool-4",
+      "5:tool-5",
+      "6:tool-6",
+    ]);
+  });
+
+  it("retains producer-safe summary-only evidence without claiming that the observation failed", () => {
+    const collection = collectDiffViewerFiles([summaryOnlyTool()], {
+      title: "done",
+      changed: [],
+      checked: [],
+      attention: [],
+    });
+
+    expect(collection.files).toEqual([]);
+    expect(collection.unavailable.map((item) => item.text)).toEqual([
+      "src/producer-redacted.bin · comparison summary only · line content unavailable",
+    ]);
+    expect(JSON.stringify(collection)).not.toContain("request-only/private");
+    const plan = planUnavailableDiffViewer(collection, { columns: 80, rows: 24 });
+    expect(plan.availabilityLines.join(" ")).toContain("1 file observation without review rows");
+    expect(plan.availabilityLines.join(" ")).not.toContain("observation failed");
   });
 });
 
@@ -276,5 +378,89 @@ describe("focused diff viewer — bounded viewport plan", () => {
     expect(plan.titleLines.length).toBeGreaterThan(1);
     expect(plan.evidenceLines.join("")).toContain("transition not atomic");
     expect(plan.footerLines.join("")).toContain("enter/space fold · esc close");
+  });
+
+  it("keeps mixed availability plus latest-turn verification and recovery in the focused review", () => {
+    const collection = collectDiffViewerFiles(
+      [
+        { kind: "message", role: "user", content: "older task" },
+        tool("older", "src/older.ts"),
+        { kind: "message", role: "user", content: "latest task" },
+        tool("latest", "src/latest.ts"),
+        unavailableTool("budget", "capture-budget"),
+      ],
+      {
+        title: "done",
+        changed: [],
+        checked: [],
+        receipt: ["verification · standard · passed"],
+        attention: [],
+      },
+    );
+    let state = initialDiffViewerState(collection.files);
+    state = reduceDiffViewer(collection.files, state, { kind: "next-file" });
+
+    const plan = planDiffViewer(collection, state, { columns: 80, rows: 24 });
+
+    expect(plan.availabilityLines.join(" ")).toBe(
+      "1 file observation without review rows · edit observation unavailable · observation exceeded presentation limits",
+    );
+    expect(plan.verificationLines).toEqual(["latest turn · verification · standard · passed"]);
+    expect(plan.recoveryLines.join(" ")).toBe(
+      "automatic undo unavailable — review file evidence and recover deliberately from version control or a backup",
+    );
+    expect(plan.rows.some((row) => row.selected)).toBe(true);
+  });
+
+  it("does not bind latest-turn verification or recovery to an earlier selected comparison", () => {
+    const collection = collectDiffViewerFiles(
+      [
+        { kind: "message", role: "user", content: "older task" },
+        tool("older", "src/older.ts"),
+        { kind: "message", role: "user", content: "latest task" },
+        tool("latest", "src/latest.ts"),
+      ],
+      {
+        title: "done",
+        changed: [],
+        checked: ["pnpm test passed"],
+        attention: [],
+      },
+    );
+
+    const plan = planDiffViewer(collection, initialDiffViewerState(collection.files), {
+      columns: 80,
+      rows: 24,
+    });
+
+    expect(plan.verificationLines).toEqual([]);
+    expect(plan.recoveryLines).toEqual([]);
+  });
+
+  it("plans an all-unavailable focused state with exact reason and safe recovery", () => {
+    const collection = collectDiffViewerFiles(
+      [
+        { kind: "message", role: "user", content: "latest task" },
+        unavailableTool("budget", "capture-budget"),
+      ],
+      { title: "done", changed: [], checked: [], attention: [] },
+    );
+
+    const plan = planUnavailableDiffViewer(collection, { columns: 40, rows: 18 });
+
+    expect(plan.titleLines).toEqual(["review evidence unavailable"]);
+    expect(plan.availabilityLines.join(" ")).toContain("observation exceeded presentation limits");
+    expect(plan.verificationLines).toEqual(["verification not run"]);
+    expect(plan.recoveryLines.join(" ")).toContain("automatic undo unavailable");
+    expect(plan.footerLines).toEqual(["esc close"]);
+    expect(
+      [
+        ...plan.titleLines,
+        ...plan.availabilityLines,
+        ...plan.verificationLines,
+        ...plan.recoveryLines,
+        ...plan.footerLines,
+      ].length,
+    ).toBeLessThanOrEqual(18);
   });
 });

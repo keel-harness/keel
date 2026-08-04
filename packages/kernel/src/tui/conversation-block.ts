@@ -30,7 +30,7 @@ import {
   reviewSettlementRecovery,
   type ReviewSettlementPresentationOutcome,
 } from "./review-settlement-presentation.js";
-import { TUI_TERMINAL_REVIEW_TRUTH } from "./strings.js";
+import { TUI_MANUAL_RECOVERY_GUIDANCE, TUI_TERMINAL_REVIEW_TRUTH } from "./strings.js";
 
 type UserMessage = UiMessage & { readonly role: "user" };
 
@@ -808,8 +808,6 @@ function cleanSummaryLines(lines: readonly string[] | undefined): readonly strin
 }
 
 const MAX_SUMMARY_CATEGORY_ITEMS = 3;
-const MANUAL_RECOVERY_GUIDANCE =
-  "automatic undo unavailable — review file evidence and recover deliberately from version control or a backup";
 
 function boundedSummaryLines(
   lines: readonly string[] | undefined,
@@ -1304,7 +1302,7 @@ export function turnSummaryPresentation(summary: UiTurnSummary): TurnSummaryPres
     checked.length > 0 || receipt.some((line) => /^verification\s*·/iu.test(line));
   const verification =
     fileEvidence.length > 0 && !hasControllerVerification ? ["verification not run"] : [];
-  const recovery = fileEvidence.length > 0 ? [MANUAL_RECOVERY_GUIDANCE] : [];
+  const recovery = fileEvidence.length > 0 ? [TUI_MANUAL_RECOVERY_GUIDANCE] : [];
   return {
     title:
       summary.title === "needs attention"
