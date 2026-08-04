@@ -329,3 +329,9 @@ surface. No product defect was reproduced, so there is no runtime, score, policy
 dependency, frozen-contract, public-CLI, or Anthropic-cost change. The official aggregate remains
 **4.01/5**, the legacy pooled diagnostic remains **3.98/5** (247/62), and final same-commit
 six-workflow E2-E5 proof remains open.
+
+Reviewed head `551e97a` passed exact-head CI run `30887406100`; owner-authorized
+[PR #109](https://github.com/keel-harness/keel/pull/109) squash-merged as `03de790` with identical
+tree `dbb8508`. Exact post-main CI run `30887857950` passed, including `ci-required` job
+`91924444645`; issue #108 closed and the feature branch/worktree were removed. Publication used
+zero Anthropic calls and changes no R19 evidence boundary or score.

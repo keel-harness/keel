@@ -142,3 +142,23 @@ credential, token, or environment value is visible.
 No unresolved local R19 must-fix remains. The official six-workflow aggregate remains **4.01/5**
 and the legacy pooled diagnostic remains **3.98/5** (247/62); R19 validates existing scores rather
 than inflating them. Final same-commit six-workflow E2-E5 proof remains open.
+
+## Publication closeout
+
+- Reviewed head `551e97af13a3a9981a00f5ad06dfa08470c2aa72` passed exact-head CI run
+  `30887406100`, including `ci-required` job `91922806721`, build/coverage, Node-next, security,
+  real-sandbox, egress-scale, and DCO.
+- Owner-authorized admin squash merged PR #109 as
+  `03de7901fa0c7ec65dff19116643549467e20cfe`. Candidate and merge trees are both
+  `dbb8508dbb231cdfb45a223e3f439609a6f0bd31`.
+- The merge command returned nonzero only after the remote merge and branch deletion succeeded:
+  GitHub CLI could not delete the still-attached local worktree branch. Live PR and refs proved the
+  merge before cleanup continued.
+- Exact post-main CI run `30887857950` passed, including `ci-required` job `91924444645`, both
+  Linux/macOS build-and-test jobs, both package jobs, both real-sandbox jobs, audit, security,
+  cross-architecture carrier smokes, Node-next, egress-scale, and all three installed egress-
+  product matrices.
+- Issue #108 closed. Canonical `main` was fast-forwarded cleanly; the remote branch was absent; the
+  clean local feature worktree/branch and stale remote-tracking ref were removed. The task-local run
+  directory and its 34 owner-only audit keys were then permanently deleted after sanitized evidence
+  was merged.

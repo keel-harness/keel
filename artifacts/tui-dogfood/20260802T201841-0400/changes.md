@@ -684,3 +684,7 @@ worktree were removed.
 - Zero Anthropic calls keep cumulative spend at USD 2.74434625. The official aggregate remains
   **4.01/5** and the legacy pooled diagnostic remains **3.98/5** (247/62) pending final same-commit
   six-workflow proof.
+- Reviewed head `551e97a` passed exact-head CI `30887406100`; PR #109 squash-merged as `03de790`
+  with byte-identical tree `dbb8508`; exact post-main CI `30887857950`, issue closure, and feature
+  branch/worktree cleanup passed. The task-local run home and owner-only audit keys were permanently
+  removed after sanitized evidence was merged.
