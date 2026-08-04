@@ -441,3 +441,13 @@ Issue #113 therefore adds **0 total / 0 necessary / 0 excessive** review interru
 validation matrix and does not change the frozen historical benchmark total of **6 total / 2
 necessary / 4 excessive or avoidable**. PR #121 publication, issue closure, exact post-main CI, and
 feature/task-root cleanup passed and add no governed product interrupt or authority.
+
+## R20 validation outcome
+
+R20 changes only responsive metadata presentation. It does not change policy input, verdicts,
+reviews, grants, sandboxing, egress, audit, Warden authority, or any execution path. The exact
+installed candidate's nine PTY profiles and native Kitty/Apple Terminal sessions reached governed
+protection without submitting a provider task or requesting a human decision, then exited cleanly.
+
+R20 therefore adds **0 total / 0 necessary / 0 excessive** review interrupts and leaves the frozen
+historical benchmark total at **6 total / 2 necessary / 4 excessive or avoidable**.
