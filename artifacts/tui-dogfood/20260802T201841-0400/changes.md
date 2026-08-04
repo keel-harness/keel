@@ -660,6 +660,8 @@ worktree were removed.
   passed/skipped/deselected/xfailed counts after. Five-lens QC has no local must-fix.
 - No Warden/policy/grant/sandbox/egress/audit/RPC/shared-schema/public-CLI/security-claim change and
   no dependency. E5 is **NOT_RUN**; zero Anthropic calls keep cumulative spend at USD 2.74434625.
-- Publication, exact reviewed-head CI, merge-tree identity, post-main CI, issue closure, and cleanup
-  remain pending. The official six-workflow score remains **4.01/5** until the frozen canonical
-  replay is repeated at one exact commit.
+- Reviewed head `d7d6f2e` passed exact-head CI run `30883098433`; PR #106 squash-merged as
+  `759a727`. Candidate and merge share tree `a52f7a1`. Exact post-main CI `30883516900`, issue
+  closure, canonical-main fast-forward, and feature branch/worktree cleanup passed. The official
+  six-workflow score remains **4.01/5** until the frozen canonical replay is repeated at one exact
+  commit.

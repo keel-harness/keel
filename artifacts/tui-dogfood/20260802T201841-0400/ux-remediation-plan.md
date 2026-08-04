@@ -659,8 +659,9 @@ outcomes, warnings, containment, and unknown output remain conservative. Focused
 coverage **6,584/20**, static/build/package/supply-chain gates, exact installed 80x24/100x30
 before/after replays, sanitized E4, and five-lens QC pass. The broader changed/risk/next completion
 aspiration stays bounded to existing R3/R14/R15 facts rather than expanding this slice. Publication
-and post-main proof remain pending; the official six-workflow score stays 4.01 until its canonical
-same-commit replay.
+closed through PR #106 with exact-head CI `30883098433`, byte-identical candidate/merge tree
+`a52f7a1`, post-main CI `30883516900`, issue closure, and feature cleanup. The official six-workflow
+score stays 4.01 until its canonical same-commit replay.
 
 ### R19 · usability validation — composer, multiline, history, focus, and scrolling
 

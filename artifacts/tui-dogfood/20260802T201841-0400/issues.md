@@ -357,8 +357,9 @@
 
 - Severity: P1 final-result confidence; repaired by R18 under
   [issue #105](https://github.com/keel-harness/keel/issues/105).
-- Status: fixed and locally validated in candidate `5a299c3`; publication and post-main evidence
-  remain pending.
+- Status: fixed by R18 in [PR #106](https://github.com/keel-harness/keel/pull/106), merged as
+  `759a727`. Exact reviewed-head CI `30883098433` and post-main CI `30883516900` passed; candidate
+  and merge trees are identical, issue #105 closed, and feature cleanup passed.
 - Direct evidence: five exact installed-carrier sessions ran the same Click command successfully.
   The authoritative Warden result retained `1901 passed, 24 skipped, 31000 deselected, 1 xfailed`
   with exit zero. The final bash card showed a success state but reduced visible stdout to progress
