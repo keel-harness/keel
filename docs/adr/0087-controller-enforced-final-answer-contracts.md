@@ -1,9 +1,10 @@
 # ADR-0087 — Controller-enforced final-answer contracts and inspectable settlement
 
 - **Status:** **Proposed — explicit maintainer decision required before implementation.** This ADR
-  changes public agent-output behavior, adds opt-in CLI/TUI controls, and adds backward-compatible
-  presentation metadata to the non-frozen session ledger. The design and tests may be reviewed
-  before acceptance; no behavior implementation is authorized by this proposed record.
+  changes public agent-output behavior, adds opt-in CLI/TUI controls, and adds optional,
+  syntactically forward-compatible metadata to the non-frozen session ledger, including a fixed
+  process-local closure for an exactly tagged interrupted rewrite prompt. The design and tests may
+  be reviewed before acceptance; no behavior implementation is authorized by this proposed record.
 - **Date:** 2026-08-04.
 - **Decider:** keel maintainer.
 - **Governs:** explicit operator-requested bounds on the terminal model answer. Relates to ADR-0002
@@ -44,6 +45,14 @@ The current architecture creates four constraints:
 4. Keel already carries controller-owned terminal-review synthesis, cumulative usage, cancellation,
    durable redaction, and additive presentation metadata patterns. The smallest safe design should
    reuse those seams rather than change `ModelPort`, Warden, or the audit chain.
+
+There is also an existing durability boundary that this ADR must not overstate. The ordinary session
+recorder accumulates an assistant turn in memory and appends it when the turn reaches a recordable
+boundary. An abrupt process or host failure can therefore lose the still-pending tail exactly as it
+can today. ADR-0031 separately defines full fidelity at the port boundary when that recording is
+retained; it does not upgrade ordinary session-ledger crash durability. This ADR guarantees
+inspectability for a **completed, recorded** candidate and never upgrades that into a claim that
+every pre-crash delta is durable.
 
 Primary references for the provider-cap option:
 
@@ -161,9 +170,18 @@ The next-task-only default prevents a forgotten compact setting from clipping a 
 diagnostic task. A plain prompt, `/goal`, `/loop`, resume without a newly armed contract, and all
 existing CLI invocations remain byte-behavior-identical.
 
+The interactive arm is process-local before submission: exiting or crashing before the next
+ordinary task discards it. Accepting that task consumes the arm immediately, before provider work,
+so cancellation, error, or crash can never apply it to a later prompt. Resume does not silently
+re-arm a consumed contract; only the tagged incomplete-settlement handling below remains.
+
 The walking skeleton may land the internal typed contract before both public constructors, but the
 issue is not complete—and no live score credit is allowed—until the one-shot and interactive
 surfaces reach the exact installed carrier.
+
+Both inspection commands are human-side controller surfaces. They preserve existing owner-only
+session-store access and redaction; they do not grant governed tools access to `KEEL_HOME`, expose a
+concrete store path to the model, or create a new Warden capability.
 
 ### 2. Settlement is a controller state machine
 
@@ -238,6 +256,13 @@ outside the compact answer and are never folded away. At narrow geometries they 
 collapsed under their existing typed affordances, but their attention state and recovery action stay
 visible.
 
+Fallback generation uses a fixed priority, proven against the 40-word minimum: settlement failure
+and reason; `no rewrite tools ran`; the exact original-inspection command; then only the
+controller-known attention facts that still fit. Facts that do not fit remain on their authoritative
+cards outside the answer rather than being truncated or omitted from the overall completion surface.
+Property tests cover every outcome, maximum-length session id, and attention combination at the
+minimum word bound.
+
 Contracts below 40 words are rejected because Keel cannot guarantee room for the failure reason,
 attention state, and inspection path. Honesty has a minimum display budget.
 
@@ -247,6 +272,15 @@ When a contract is active, the runner withholds only the current no-tool assista
 The session recorder still receives the original stream. If a tool call appears, the runner flushes
 the held text before rendering the call, preserving event order and working narration. If the turn is
 terminal, the settlement event selects the single primary answer.
+
+The runner retains at most `maxVisibleBytes + 1` sanitized bytes only for delayed presentation, then
+discards further UI-buffer bytes while the recorder continues its existing completed-turn
+persistence. It does not recount words or settle the candidate. The one controller state machine
+validates the complete candidate already held by the loop and emits the typed decision consumed by
+the runner and recorder. `/answer full` reads the durable redacted assistant record; it is not served
+from an unbounded second UI buffer. The ordinary configured per-response provider ceiling remains
+the outer generation and recorder-memory rail. This design does not claim that the recorder's
+pre-existing pending-turn buffer is newly bounded.
 
 This introduces no generic delayed-stream mode. The activity/HUD continues to show that the model is
 drafting; cancellation and steering stay live. Quantitative tests measure time-to-visible-activity
@@ -263,12 +297,59 @@ beside the ordinary cumulative usage. Consumers that do not need presentation ma
 kernel events. With no contract, none of these events is emitted and the existing event sequence is
 unchanged.
 
+The rewrite instruction is a **durable controller prompt**, unlike transient loop guidance that
+`onFinalMessages` deliberately removes. It must remain between the original and rewrite assistant
+messages in both the in-memory REPL carry and `rebuild()` output:
+
+```text
+user task -> assistant original -> user rewrite instruction -> assistant rewrite
+```
+
+Removing that middle prompt would leave consecutive assistant messages in the next interactive
+turn, while retaining it only on disk would make same-process continuation diverge from fresh-process
+resume. The implementation therefore needs a narrow durable-controller-prompt path rather than
+placing the rewrite instruction in the existing filtered weak set. Red tests compare role ordering
+and exact settlement membership across `onFinalMessages`, next-turn REPL input, and ledger rebuild.
+The presentation layer hides the controller transaction by typed occurrence metadata; provider
+history retains it unchanged.
+
 The exact event names are implementation details, but parallel inference is forbidden: the recorder
 must not recount words, the runner must not guess settlement from message text, and resume must not
 infer controller ownership from a magic prompt string. One state machine produces one typed decision
 that every downstream projection consumes.
 
-### 5. Preserve raw content with additive compatible presentation metadata
+#### Crash and torn-append semantics
+
+ADR-0035 guarantees one durable JSONL record per append and permits at most a torn final line. It does
+not make a multi-record original/prompt/rewrite/settlement transaction atomic. The final-answer
+controller must therefore define every durable prefix rather than assuming `run_status` arrives:
+
+| Last complete settlement record | Resume behavior |
+| --- | --- |
+| No tagged original attempt | Preserve the existing crash boundary: no final-answer transaction is reconstructed and no contract is retried. |
+| Original attempt only | Show the raw original plus `settlement interrupted`; retain the original in provider history and consume the task-scoped contract. |
+| Rewrite prompt, no rewrite assistant | Retain the exact prompt, insert one process-local synthetic assistant closure with the constant meaning `final-answer rewrite interrupted` before the next durable message or end of history, show the raw original plus an interruption fact, and consume the contract. |
+| Rewrite assistant, no matching final settlement | Keep the complete raw transaction visible, report `settlement interrupted`, and consume the contract; do not guess whether the rewrite should have been accepted. |
+| Matching final settlement | Apply the recorded one-primary-answer projection and ordinary terminal state. |
+
+The synthetic closure is the text-only analogue of `INTERRUPTED_TOOL_RESULT`: it performs no model
+request, carries no tool calls, is never recorded as provider output, and exists only in rebuilt
+provider context so the stale rewrite instruction is structurally closed before the next human
+message. Same-process graceful cancellation/error paths must write an explicit fallback settlement;
+the synthetic path is only for an abruptly incomplete durable prefix. Rebuilding the same prefix is
+idempotent and adds exactly one closure to the returned view each time, never to the append-only
+ledger.
+
+This is a narrow exception to presentation-only interpretation: well-formed settled transactions
+rebuild the exact recorded message bytes and roles, while an exactly tagged orphan rewrite prompt
+causes only the fixed synthetic closure above. Untagged, malformed, mismatched, or forged prose can
+never activate it. New readers expose typed `settlement interrupted` occurrence state so the closure
+cannot masquerade as the model's answer. Older tolerant readers can still parse and expose the raw
+additive records, but the interrupted-transaction repair requires a reader implementing this ADR;
+this is syntactic forward compatibility, not a promise of behavioral downgrade support after a
+newer Keel writes an incomplete transaction.
+
+### 5. Preserve raw content with additive compatible settlement metadata
 
 The ordinary session conversation remains canonical model context. The original and any rewrite are
 stored as redacted assistant messages; the controller rewrite instruction is stored as the user-role
@@ -277,11 +358,18 @@ primary conversation turns on resume, add optional presentation metadata to the 
 `user`, `assistant`, and `run_status` session variants:
 
 ```ts
-type FinalAnswerAttempt = {
-  readonly settlementId: string;
-  readonly attempt: "original" | "rewrite";
-  readonly contract: FinalAnswerContractV1;
-};
+type FinalAnswerOccurrence =
+  | {
+      readonly settlementId: string;
+      readonly kind: "attempt";
+      readonly attempt: "original" | "rewrite";
+      readonly contract: FinalAnswerContractV1;
+    }
+  | {
+      readonly settlementId: string;
+      readonly kind: "rewrite-prompt";
+      readonly contract: FinalAnswerContractV1;
+    };
 
 type FinalAnswerSettlement = {
   readonly settlementId: string;
@@ -302,12 +390,22 @@ Exact field names and nesting may be refined by the red schema tests, but these 
 
 - fields are additive and optional on known v1 events; no new event discriminant or version bump;
 - older tolerant readers retain and ignore the fields rather than refusing resume;
-- metadata is presentation only and never changes the rebuilt provider message bytes or roles;
+- metadata is presentation only for every complete settled transaction and never enters a provider
+  request; the sole provider-history effect is the fixed synthetic closure for an exactly tagged
+  orphan rewrite prompt described above;
 - new readers correlate by controller-minted settlement id plus durable message occurrence, never by
   parsing model/user text;
+- the rewrite controller prompt remains in provider context and final-message carry even when its
+  presentation row is hidden, preserving valid role alternation and same-process/resume parity;
 - malformed or torn metadata cannot hide an ordinary assistant message; fail visibly to the raw
   transcript rather than guessing; and
 - all strings still pass the existing single session-redaction chokepoint before disk.
+
+The write schema validates this metadata strictly. The tolerant read path first validates the
+load-bearing v1 message record, retains the optional metadata as JSON, then independently safe-parses
+the presentation extension. Invalid extension data is treated as absent and exposes the raw message;
+it must not convert otherwise valid assistant bytes into session corruption or activate hiding.
+Invalid base message fields retain the existing `SessionCorruptError` behavior.
 
 `ResumeState` may expose process-local occurrence metadata parallel to `messages`, following the
 existing failed-tool-message-index pattern. `initialView` uses it to reconstruct one primary answer
@@ -331,6 +429,10 @@ Settlement answers only “did the visible terminal prose fit the explicit bound
 
 A compliant rewrite that says “all tests pass” cannot turn a failed tool card green. The compact
 answer surface must never obscure a non-green controller status with a success color or glyph.
+Fallback attention facts use only typed session events, the current reducer state, and verified
+Warden/audit receipts already available to the controller. A fact absent from those sources renders
+as unavailable; it is never reconstructed from model prose, a command string, or an assumed Warden
+outcome.
 
 ## Red-first implementation plan
 
@@ -343,7 +445,9 @@ ADR is accepted explicitly.
 2. Add shared-schema reds for valid/min/max/invalid contracts; additive assistant/user/run-status
    metadata; tolerant old-field behavior; round trip; and redaction conflict handling.
 3. Add session recorder/rebuild reds proving original bytes, rewrite bytes, controller prompt, usage,
-   occurrence identity, malformed-metadata fail-visible behavior, and no provider-context change.
+   occurrence identity, valid provider-role ordering, same-process/resume parity,
+   every crash-prefix row above, idempotent synthetic closure, malformed-metadata fail-visible
+   behavior, and proof that presentation metadata itself never enters provider context.
 4. Implement only the schema and process-local presentation projection required for those tests.
 
 ### Slice 2 — kernel settlement state machine
@@ -364,7 +468,8 @@ ADR is accepted explicitly.
    fallback, `/answer full`, overlay dismissal, scroll/resize at 80x24 and 100x30, and
    `NO_COLOR`/basic-color parity.
 3. Add resume/restart/property reds proving the same settlement projects once after a fresh process,
-   forged prose cannot activate hiding, and malformed metadata fails open to visible raw content.
+   forged prose cannot activate hiding or synthetic closure, every durable crash prefix remains
+   provider-valid, and malformed metadata fails open to visible raw content.
 
 ### Slice 4 — public constructors and exact carrier
 
@@ -414,9 +519,12 @@ spec-issue. Every must-fix is resolved or explicitly escalated.
   compliant answer or absent contract adds no request.
 - Terminal answer text is briefly buffered under the opt-in contract; activity and cancellation must
   remain responsive. Ordinary working narration flushes at the first tool boundary.
-- The session ledger gains additive optional presentation metadata on existing events. This is a
-  backward-compatible non-frozen session evolution under ADR-0072, but still a public on-disk change
-  and is included in this explicit owner decision.
+- The session ledger gains additive optional settlement metadata on existing events. This is a
+  syntactically compatible non-frozen session evolution under ADR-0072, but still a public on-disk
+  change and is included in this explicit owner decision. Complete settlements rebuild exact recorded
+  provider messages; a typed orphan rewrite prompt receives the fixed process-local interrupted
+  closure. Older readers remain parse-compatible but do not gain that interrupted-transaction
+  repair.
 - Full raw text stays local, redacted, and inspectable. It is not silently discarded and is not shown
   twice by default.
 - The deterministic fallback is intentionally less useful than a valid rewrite. It is the honest
@@ -437,6 +545,7 @@ spec-issue. Every must-fix is resolved or explicitly escalated.
 
 Accepting this ADR authorizes red-first implementation of the scoped controller, the public
 `--final-max-words` and `/answer` surfaces, the local full-answer inspection surface, and the
-additive optional session presentation metadata above. It does **not** authorize a frozen contract,
-Warden/security authority, audit-format, provider-routing, dependency, release, or claim-promotion
-change. Any such need discovered during implementation is a new stop-and-ask.
+additive optional session metadata above, including the exact orphan-prompt closure and documented
+behavioral-downgrade boundary. It does **not** authorize a frozen contract, Warden/security authority,
+audit-format, provider-routing, dependency, release, or claim-promotion change. Any such need
+discovered during implementation is a new stop-and-ask.
