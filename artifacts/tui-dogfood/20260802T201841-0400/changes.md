@@ -807,3 +807,19 @@ worktree were removed.
   passed.
 - Zero provider calls, zero Warden interrupts, no score change, no dependency/authority/contract/
   security-claim change. Native Linux terminal-emulator coverage is **NOT_RUN**.
+
+## R23 — packaged performance/resource validation
+
+- Added evidence-only repeated distributions for exact-carrier startup, input, provider/controller
+  display, Warden execution, truthful liveness, legitimate verbose Click output, physical rows,
+  complete-process-group RSS, settlement, and teardown.
+- Froze scoped diagnostic resource/row/byte bounds before the confirmation run. Confirmation keeps
+  peak, absolute settled RSS, rows, bytes, output retention, and teardown green, but does not hide
+  the governed-ready or per-sample settled-growth misses.
+- Added a labeled sparse timing control so observer-induced RSS sampling overhead is never confused
+  with Keel display overhead; dense resource assertions remain unchanged.
+- Added causal diagnostic evidence that the mandatory run-start snapshot/parallel startup schedule
+  owns the governed-ready tail. Product code is unchanged in R23; red-first repair is isolated in
+  issue #127.
+- No security claim, Warden policy, sandbox, audit, frozen contract, dependency, public CLI,
+  provider cost, or workflow score changes.

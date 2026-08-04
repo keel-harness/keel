@@ -171,3 +171,9 @@ and native local terminal emulators. Its nine-case matrix and native Kitty/Apple
 submitted no task to a provider and made zero Anthropic calls. Cumulative spend remains **USD
 4.72508650**; USD 15.27491350 remains and the final USD 2 reserve is intact. No ambient credential
 value was read, copied, printed, logged, committed, or captured.
+
+R23 used only local builds, a scripts-disabled exact npm carrier, deterministic loopback provider
+fixtures, the production local Warden, PTYs, and host process observations. Accepted and rejected
+calibrations made **zero Anthropic requests**. Incremental input/output tokens and cost are all zero.
+Cumulative spend remains **USD 4.72508650**; USD 15.27491350 remains and the final USD 2 reserve is
+intact. No credential value was read, copied, printed, logged, committed, or captured.

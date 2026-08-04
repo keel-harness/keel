@@ -234,3 +234,10 @@ candidate unweighted mean therefore remains **4.04/5** and the pooled diagnostic
 (249/62)**. Exact-head CI `30936094264`, tree-identical publication through PR #124 as `67e317d`,
 issue closure, and exact post-main CI `30936677719` are green. Native Linux terminal-emulator
 coverage and the strict same-commit replay remain open.
+
+R23 adds repeated exact-carrier component confidence, not a six-workflow rescore. Active input,
+controller/display overhead, liveness, output retention, row density, peak/absolute-settled RSS,
+and teardown pass their scoped bounds. Governed-ready p95 and one settled-growth observation do not;
+issue #127 owns the startup defect and P1-007 remains failed. No score axis is raised or lowered from
+component timing alone. The candidate unweighted mean remains **4.04/5** and the pooled diagnostic
+remains **4.02/5 (249/62)** pending the strict same-commit replay.

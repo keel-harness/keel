@@ -454,3 +454,15 @@ historical benchmark total at **6 total / 2 necessary / 4 excessive or avoidable
 
 PR #124 publication, issue #123 closure, tree-identical merge `67e317d`, and exact post-main CI
 `30936677719` add no governed product interrupt or authority.
+
+## R23 validation outcome
+
+R23 runs the existing production Warden against a deterministic loopback provider and the existing
+starter policy. All 20 accepted active Click sessions are routine governed Bash allows; no action is
+grantable, no human review is requested, and no policy/grant/authority behavior changes. The two
+dense distributions plus sparse control and launch ablation add **0 total / 0 necessary / 0
+excessive** review interrupts. The frozen historical dogfood total remains **6 total / 2 necessary /
+4 excessive or avoidable**.
+
+Issue #127 may change only startup/snapshot scheduling and copy mechanics. It is explicitly barred
+from changing Warden readiness truth, policy, sandbox, egress, audit, grant, or review behavior.

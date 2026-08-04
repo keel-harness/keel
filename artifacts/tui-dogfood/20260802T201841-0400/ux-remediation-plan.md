@@ -725,9 +725,16 @@ documentation wall. Do not add a catch-all `doctor` until repeated evidence just
 
 ### R23 · performance and resource confidence
 
-Hypothesis until measured in this dogfood branch. Establish terminal input/render latency, retained
-row count, long-output memory, startup time, and provider/tool overhead budgets on packaged code.
-Profile before optimizing; do not claim responsiveness from subjective feel alone.
+Measured under issue #126 on exact installed main. Active input/render, provider-to-display,
+request-to-execution, truthful liveness, retained rows/bytes, long-output result fidelity,
+peak/absolute-settled process-group RSS, and teardown pass scoped observational bounds across two
+dense distributions plus a sparse timing control. No score credit is taken.
+
+R23 is a partial pass: combined governed-ready p95 is 1,049.076 ms against the public `<750 ms` and
+R17 `<=1,000 ms` bounds; one confirmation sample also exceeds the frozen 16 MiB per-sample settled-
+growth allowance. A causal ablation localizes startup tail to contention with the mandatory
+pre-action workspace snapshot. Red-first issue #127 owns the narrow scheduling/copy-path repair;
+P1-007 remains failed and no threshold is relaxed.
 
 ### R24 · human cohort and longitudinal dogfood
 

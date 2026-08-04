@@ -435,3 +435,20 @@ share tree `2474522`. Exact post-main CI `30936677719` passed every selected Lin
 cross-architecture, package, security, sandbox, audit, Node-next, and installed-product lane. Only
 the final same-commit replay remains open; native Linux terminal-emulator validation is explicitly
 **NOT_RUN**.
+
+R23 measures the exact installed main carrier under
+[issue #126](https://github.com/keel-harness/keel/issues/126). Two dense distributions total 40
+accepted 80x24 cold launches and 20 accepted 100x30 verbose Click runs; a separate sparse timing
+control adds ten active sessions. Every accepted session reached real governed posture, preserved
+the 185,202-character / 1,901-`PASSED` Warden result, returned to twelve physical rows, exited zero,
+and reaped its complete process group. Active typing, controller/display overhead, truthful two-
+second liveness, peak/absolute-settled RSS, row, and terminal-byte bounds pass.
+
+R23 is deliberately a **partial pass**. Combined governed-ready p95 is 1,049.076 ms, missing both
+the spec's `<750 ms` target and R17's `<=1,000 ms` observational bound. One confirmation sample's
+settled growth is +26,176 KiB against the frozen 16 MiB R23 allowance, while absolute settled RSS
+still passes 224 MiB. A 20-launch snapshot-disabled diagnostic reaches p95 631.637 ms and localizes
+the startup tail; production snapshots remain mandatory. Red-first repair is public as
+[#127](https://github.com/keel-harness/keel/issues/127). P1-007 remains failed and no threshold,
+performance claim, or workflow score changes. R23 makes zero Anthropic calls and zero Warden review
+interrupts; cumulative spend remains USD 4.72508650 and the candidate score remains **4.04/5**.
