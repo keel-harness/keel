@@ -6,26 +6,42 @@ A governance-native, open-source agent harness.
      and `packages/memory` is a placeholder; kept out of the tagline until it exists (P1-8). -->
 
 keel runs a coding agent behind a wall its governed tool surface cannot talk its way through,
-assuming the v1 kernel and OS user are not compromised. The model requests governed actions;
-a separate **warden** process decides what runs, under a hash-pinned policy the model cannot
+assuming the v1 kernel and OS user are not compromised. The model requests governed actions.
+A separate **warden** process decides what runs, under a hash-pinned policy the model cannot
 rewrite. Every governed action, allowed or denied, lands in a tamper-evident audit record the
-agent cannot write through that tool surface. The result is high autonomy inside boundaries
-that hold even when the model is wrong or adversarially steered.
+agent cannot write through that tool surface.
+
+The result is high autonomy inside boundaries that hold even when the model is wrong or
+adversarially steered.
 
 [![A real keel session: the warden denies an SSH-key read and writes the audit record](site/demo.gif)](docs/demo/keel-deny-audit.cast)
 
 _Recorded from the real kernel → warden → policy → audit path. A deterministic offline replay
 supplies only the model turns; [run it locally](docs/demo/run-deny-audit-demo.mjs)._
 
+## Quickstart
+
+```bash
+npm i -g keel-harness        # or run any command below as: npx keel-harness <command>
+keel doctor                  # environment preflight
+keel auth set anthropic      # paste your API key (stored 0600, never echoed)
+keel                         # start an interactive session
+```
+
+To run from a source checkout instead:
+
 ```bash
 corepack enable && pnpm install
-pnpm keel doctor                    # environment preflight
-pnpm keel auth set anthropic        # paste your API key (stored 0600, never echoed)
+pnpm keel doctor
 pnpm keel run -p "fix the failing test in src/foo.ts"
 ```
 
+Node 20+ and ripgrep are required. `keel doctor` checks the OS sandbox and prints one
+copy-paste fix when something is missing.
+
 New here: [what keel is](docs/architecture.md) · [getting started](docs/guide/getting-started.md)
-· [the honest security model](docs/guide/security-model.md).
+· [the honest security model](docs/guide/security-model.md) ·
+[status and limitations](docs/status.md).
 
 > **DISCLAIMER:** This note is the only thing in this repo that was not written by or with AI -
 > while keel aspires to be one of the most secure agent harnesses available, it should not be
@@ -58,42 +74,15 @@ vetted set to the final dial. This scope does not include provider API calls, UD
 sandbox backends; see the [security model](docs/guide/security-model.md) and
 [ADR-0086](docs/adr/0086-warden-owned-egress-address-guard.md).
 
-The checkpoint-signing key is an at-rest `0600` file readable by the same OS user. Bundle
-verification proves "signed by that key," not "signed by an actor independent of the audited
-host." OS-keychain and hardware-backed/TPM custody are future hardening and are not implemented.
-
 Test and coverage figures were measured on 2026-07-31 at commit
 [`a22b127`](https://github.com/keel-harness/keel/commit/a22b127fd37858920d006205758e46cd037e8565).
 Exact values, fractions, commands, and the staleness window live in the
 [evidence-number ledger](docs/quality/evidence-numbers.json).
 
-> **Running `pnpm test` locally?** A handful of warden and TUI suites spawn real child processes
-> under wall-clock handshake budgets, so on a busy or high-core machine the full run can report
-> timeout-shaped failures ("timed out waiting for warden.hello") while nothing is actually broken —
-> vitest scales its worker count to your CPU count, and each worker spawns children of its own.
-> Re-run any failing file on its own (`pnpm exec vitest run <file>`); it should pass. **CI on clean
-> runners is the authoritative signal.** A failure that still reproduces in isolation is a real bug
-> and we want the report — see [CONTRIBUTING.md](CONTRIBUTING.md#a-note-on-load-sensitive-test-suites).
+## Status
 
-> **Status: pre-alpha; open-source preparation.** The default `keel` CLI routes governed
-> `bash`, trusted direct-argv `process.run`, and trusted `read`/`search`/`write`/`edit` actions through
-> the out-of-process warden for policy, sandbox/profile checks, and per-session audit. Phase 2B signed offline evidence bundles are
-> implemented for exported audit evidence. Reviewed, pinned local-stdio MCP calls also route through
-> the spawned Warden under the bounded ADR-0084 contract. This is **not a stable or public-alpha
-> release**: provider API egress; remote, localhost, and unreviewed MCP; general plugin/registry
-> governance; Phase-3 provenance; **the durable "memory-first" plane
-> (`packages/memory` is a placeholder, a Phase-3 roadmap goal, not built)**, public compliance, full
-> resource containment, a macOS audit-latency pass, and a comparable live TB-2/TB-2.1 benchmark are
-> not claimed. Bundle authenticity
-> still requires comparing the signer key with a published or out-of-band signer key.
-
-## Requirements
-
-Node 20+ and ripgrep. `pnpm keel ...` runs the agent straight from source. Linux and
-macOS are the tested platforms (CI runs both); native Windows is unsupported, and WSL2
-is the supported path on Windows. `keel doctor` checks the OS sandbox (`bubblewrap`/`socat`
-on Linux, `sandbox-exec` on macOS) and prints one copy-paste fix per platform when
-something is missing.
+**keel is pre-alpha, in open-source preparation.** `keel-harness@0.1.1` is published on npm and
+tagged `latest`, but this is **not a stable or public-alpha release**.
 
 Governed mode covers `bash`, capability-negotiated trusted direct-argv `process.run`, the trusted typed
 file tools (`read`, `search`, `write`, `edit`), and reviewed, pinned local-stdio MCP calls through the
@@ -104,36 +93,25 @@ grants, and MCP resources, prompts, sampling, and elicitation are not claimed. S
 surfaces such as `plan`, `skill`, and `retrieve`, provider API calls, and future tools are likewise
 not counted as governed product execution proof.
 
-## Documentation
-
-- [docs/architecture.md](docs/architecture.md) is the one-page tour.
-- [docs/README.md](docs/README.md) is the full index, by audience.
-- [docs/guide/](docs/guide/) holds the guides: getting started, concepts, reference,
-  policy and approvals, untrusted repos, the security model, and audit and sessions.
-- [docs/quality/claim-ledger.md](docs/quality/claim-ledger.md) maps every security claim to
-  its evidence and honest limits.
-
-Going deeper: [`MASTER_SPEC.md`](MASTER_SPEC.md) is the full governing spec and
-[`AGENTS.md`](AGENTS.md) is the engineering charter.
+**[docs/status.md](docs/status.md) is the full account** — every limitation, the audit and signing
+boundaries, the release flow, and a note on running the test suite locally. Read it before you
+rely on any claim here.
 
 ## Autonomy (Autopilot is not YOLO)
 
-Autonomy in keel is a set of **policy postures over the warden's enforcement**. Not promises
+Autonomy in keel is a set of **policy postures over the warden's enforcement**, not a promise
 about how the model behaves. In every mode the model can only *request*; the out-of-process
-**warden decides** (execute vs. deny) under a hash-pinned policy the model cannot rewrite.
+**warden decides** under a hash-pinned policy the model cannot rewrite.
 
 - **Guided** (default): consequential actions pause for your approval; the warden still enforces.
-- **Autopilot**: the model acts *without a prompt*, but **only for actions the warden has already
-  proven contained and low-risk**. Autopilot never lets the model declare itself safe, raise its own
-  mode, change policy, or turn a `deny` into an `allow`; it only removes the prompt for actions
-  enforcement already permits. A human sets the mode; every change is audited.
+- **Autopilot**: the model acts *without a prompt*, but only for actions the warden has already
+  proven contained and low-risk. It never lets the model declare itself safe, raise its own mode,
+  change policy, or turn a `deny` into an `allow`.
 
-**Autopilot ≠ YOLO.** Autopilot is *high autonomy inside enforced boundaries*. "YOLO" means *reduced
-or absent enforcement*. keel never conflates the two in the UI, receipts, or docs. Because the modes
-are postures *over* enforcement, they are honest only once the warden is enforcing; where there is
-nothing structural behind a posture the status line says so plainly rather than showing a trust word.
+"YOLO" means reduced or absent enforcement. keel never conflates the two in the UI, receipts, or
+docs. See the [policy guide](docs/guide/policy-guide.md) for modes, approvals, and grant scopes.
 
-## Configuration (environment)
+## Configuration
 
 All optional, with sensible defaults. The most common:
 
@@ -149,34 +127,18 @@ All optional, with sensible defaults. The most common:
 The full list, including budget, compaction, verification, and tool-behavior knobs, is in
 the [reference](docs/guide/reference.md).
 
-## Packaging (npx release carrier + binary build mechanism)
+## Documentation
 
-```bash
-pnpm package        # → build/bin/ (bun --compile binaries) + build/npx/ (the npm package)
-```
+- [docs/architecture.md](docs/architecture.md) is the one-page tour.
+- [docs/guide/](docs/guide/) holds the guides: getting started, concepts, reference,
+  policy and approvals, untrusted repos, the security model, and audit and sessions.
+- [docs/status.md](docs/status.md) is what is and is not true today.
+- [docs/quality/claim-ledger.md](docs/quality/claim-ledger.md) maps every security claim to
+  its evidence and honest limits.
+- [docs/README.md](docs/README.md) is the full index, by audience.
 
-The build produces an `npx`-installable package and mechanically testable self-contained binaries
-(macOS arm64/x64, Linux x64/arm64). Both paths are smoke-tested in CI (`--version`, `doctor`, a
-hermetic one-task run). The compiled binary uses your system ripgrep; the npx package bundles its
-own. Bun is a build/CI-only tool; development and tests use Node/pnpm/vitest (ADR-0009).
-
-The graph-audited `keel-harness@0.1.1` npx carrier is being prepared for isolated install/dlx,
-doctor, replay, Warden, egress-guard, and pre-trust `.env` proof on Node 20, 22, and 24. It is not
-published. The registry still serves only the `keel-harness@0.0.1` reservation
-placeholder; do not use it as the release carrier. The earlier `0.1.0` candidate was staged but
-never approved or made public.
-Standalone Bun binaries remain test-only pending review of linked LGPL components, while the npx
-release remains gated on protected stage-only OIDC, staged-byte inspection, human 2FA approval, and
-live-registry verification; see the [release runbook](docs/guide/releasing.md).
-
-## Layout
-- `packages/kernel`: the agent: loop, six governed product tools, providers, sessions, TUI, context, CLI
-- `packages/shared`: frozen RPC/audit/memory/policy/simulator schemas (zod)
-- `packages/simulator`: scripted ModelPort for deterministic tests
-- `packages/eval`: benchmark runner wrapper + trajectory store
-- `packages/warden`: warden RPC, policy/sandbox mediation, audit, and evidence bundles
-- `packages/memory`: placeholder for later Phase 3 memory work
-- `docs/`: ADRs, design notes, research + source ledger
+Going deeper: [`MASTER_SPEC.md`](MASTER_SPEC.md) is the full governing spec and
+[`AGENTS.md`](AGENTS.md) is the engineering charter.
 
 ## Develop
 
@@ -189,5 +151,11 @@ pnpm install
 pnpm test:cov     # unit + property tests + coverage gate
 pnpm typecheck && pnpm lint && pnpm format
 ```
+
+The repository layout is described in the
+[architecture deep-dive](docs/guide/architecture.md#repository-layout).
+
+`pnpm package` builds the npx package and the self-contained binaries into `build/`. Bun is a
+build/CI-only tool; development and tests use Node/pnpm/vitest (ADR-0009).
 
 License: Apache-2.0.

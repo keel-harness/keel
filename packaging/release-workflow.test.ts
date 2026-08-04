@@ -43,11 +43,15 @@ describe("public npm release workflow authority", () => {
     expect(releaseAdr).toContain("`keel-harness@0.1.1`");
     expect(releaseAdr).toContain("`0.1.0` was staged but never approved");
     expect(releaseNotes).toContain("# keel v0.1.1");
-    expect(releaseNotes).toContain("not published until separate 2FA approval");
+    // Published 2026-08-03 after byte inspection and 2FA approval. The note previously said the
+    // carrier was "not published until separate 2FA approval"; that approval happened, so the
+    // pre-publication wording became false and the note now records the publication instead.
+    expect(releaseNotes).toContain("published on 2026-08-03");
+    expect(releaseNotes).toContain("2FA approval");
     expect(installedCarrierSmoke.match(/keel 0\.1\.1/gu)).toHaveLength(2);
     expect(installedCarrierSmoke).toContain('chmod 700 "$KEEL_HOME"');
     expect(readme).toContain("`keel-harness@0.1.1`");
-    expect(masterSpec).toContain("source/runtime/candidate version is `0.1.1`");
+    expect(masterSpec).toContain("`keel-harness@0.1.1` was published 2026-08-03");
     expect(claimLedger).toContain("**Packaging — `keel-harness@0.1.1` npm release carrier");
   });
 

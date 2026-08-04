@@ -363,52 +363,19 @@ verification appropriate to the change and report exactly what did or did not ru
 
 ## Repo map
 
-    packages/shared
-      Frozen zod schemas and shared types: RPC, audit, memory, policy, sim-script.
+The package and directory layout is documented once, in the
+[architecture deep-dive](docs/guide/architecture.md#repository-layout). Read it there. If the
+layout changes, update that section in the same PR as the structural change.
 
-    packages/simulator
-      Scripted ModelPort for deterministic tests.
+Two contributor-facing directories are not covered there:
 
-    packages/eval
-      Benchmark runner wrapper and trajectory store.
-
-    packages/kernel
-      Kernel package; phase-dependent implementation surface.
-
-    packages/warden
-      Warden package; enforcement, policy mediation, and security-critical control plane.
-
-    packages/memory
-      Memory package; phase-dependent implementation surface.
-
-    docs/adr
-      Architectural decisions and rationale.
-
-    docs/guide
-      Public user/admin guides.
-
-    docs/design
-      Design notes.
-
-    docs/research
-      Research notes and source analysis.
+    docs/design, docs/research
+      Dated design and research archives. Each has a README explaining what it is
+      and what supersedes it. Not current documentation.
 
     docs/quality
       Public claim ledger, security-suite inventory, and verification guidance.
-
-    docs/roadmap.md
-      Public roadmap and explicitly deferred work.
-
-    MASTER_SPEC.md
-      Governing system spec.
-
-    CONTRIBUTING.md
-      Contribution workflow.
-
-    SECURITY.md
-      Security policy.
-
-If this map drifts from the repo, update it in the same PR as the structural change.
+      Update the claim ledger whenever evidence or product status changes.
 
 ## Final rule
 

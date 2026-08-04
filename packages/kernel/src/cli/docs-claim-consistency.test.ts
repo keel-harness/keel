@@ -29,8 +29,42 @@ function readRepoFile(path: string): string {
   return readFileSync(join(repoRoot, path), "utf8");
 }
 
-const RUNNABLE_PLACEHOLDER_PACKAGE_COMMAND =
-  /^\s*(?:(?:[-*+]|\d+\.)\s+)?(?:\$\s*)?(?:(?:env(?:\s+[A-Za-z_][A-Za-z0-9_]*=\S+)*|command|sudo(?:\s+-\S+)*)\s+)*(?:npx(?:\s+(?:--yes|-y))?\s+keel-harness|npm\s+(?:exec|x)\s+(?:--\s+)?keel-harness|(?:pnpm|yarn)\s+dlx\s+keel-harness)(?:\s|$)/im;
+/** Claims that were true while the registry served only the `0.0.1` name-reservation placeholder,
+ *  and became FALSE once `keel-harness@0.1.1` was published and tagged `latest` (2026-08-03).
+ *
+ *  The original guard here forbade a runnable `npx keel-harness` anywhere in the public docs,
+ *  because the registry would have handed a visitor a 3-file stub. That premise is dead: the
+ *  published carrier resolves, reports `keel 0.1.1`, and passes `doctor`. Telling readers it is
+ *  unpublished is now the overclaim — in the opposite direction, but still a doc that does not
+ *  match reality, which §3.2 forbids just as firmly. So the guard is inverted rather than dropped:
+ *  the stale wording is what fails now. */
+const STALE_UNPUBLISHED_CARRIER_CLAIMS = [
+  /registry (?:still )?serves only/i,
+  /registry still serves the non-carrier/i,
+  /do not use it as the release carrier/i,
+  /`?keel-harness@0\.1\.1`?[^.\n]{0,80}is not published/i,
+  /\bplaceholder only\b/i,
+  /npm[^.\n]{0,30}not yet available/i,
+];
+
+/** Surfaces that describe keel as it is RIGHT NOW. ADRs, release notes, and design/research docs
+ *  are deliberately excluded: they are dated records of what was true when written, and rewriting
+ *  them to match today would be falsifying history rather than correcting a claim. */
+const CURRENT_FACING_DOCS = (): string[] => [
+  "README.md",
+  "SECURITY.md",
+  "MASTER_SPEC.md",
+  "site/index.html",
+  "docs/README.md",
+  "docs/status.md",
+  "docs/architecture.md",
+  "docs/roadmap.md",
+  "docs/benchmarks.md",
+  "docs/quality/claim-ledger.md",
+  ...readdirSync(join(repoRoot, "docs/guide"))
+    .filter((f) => f.endsWith(".md"))
+    .map((f) => `docs/guide/${f}`),
+];
 
 function markdownFilesUnder(relativeDir: string): string[] {
   const absoluteDir = join(repoRoot, relativeDir);
@@ -177,11 +211,14 @@ function findOverclaims(text: string): { term: string; line: string }[] {
 describe("public docs claim consistency", () => {
   it("keeps README status aligned with open-source preparation evidence and limitations", () => {
     const readme = readRepoFile("README.md");
+    // The full limitation set moved to docs/status.md so the README could lead with what keel is
+    // rather than with its caveats. Each claim below is still pinned to an exact file — the guard
+    // follows the prose, it does not accept "somewhere in the docs".
+    const status = readRepoFile("docs/status.md");
     const landingPage = readRepoFile("site/index.html");
     const demoGif = readFileSync(join(repoRoot, "site/demo.gif"));
     const demoCast = readRepoFile("docs/demo/keel-deny-audit.cast");
     const demoRunner = readRepoFile("docs/demo/run-deny-audit-demo.mjs");
-    const blockquoteText = readme.replace(/\n>\s*/g, " ");
 
     expect(readme).not.toMatch(/Phase 2A warden build in progress/i);
     expect(readme).not.toMatch(/Other typed tools are intentionally unavailable/i);
@@ -189,16 +226,28 @@ describe("public docs claim consistency", () => {
     expect(readme).not.toMatch(/later evidence hardening land/i);
 
     expect(readme).not.toMatch(/private developer preview/i);
+    expect(status).not.toMatch(/private developer preview/i);
+
+    // The README keeps the honest headline framing and a status summary that names the boundary.
     expect(readme).toMatch(/open-source preparation/i);
-    expect(readme).toMatch(/trusted `read`\/`search`\/`write`\/`edit`/i);
-    expect(readme).toMatch(/signed.*offline.*evidence/i);
-    expect(readme).toMatch(/macOS audit-latency pass/i);
-    expect(readme).toMatch(/comparable live TB-2/i);
-    expect(readme).toMatch(/out-of-band signer key/i);
+    expect(readme).toMatch(/trusted typed\s+file tools/i);
+    expect(readme).toMatch(/`read`.*`search`.*`write`.*`edit`/is);
+    expect(readme).toMatch(/not a stable or public-alpha release/i);
     expect(readme).toMatch(/governed tool surface.*v1 kernel.*OS user.*not\s+compromised/is);
-    expect(readme).toMatch(/checkpoint-signing key.*0600.*same OS user/is);
-    expect(readme).toMatch(/signed by that key.*not.*actor independent/is);
-    expect(readme).toMatch(/OS-keychain.*hardware-backed.*not implemented/is);
+    expect(readme).toMatch(/\[docs\/status\.md\]\(docs\/status\.md\)/);
+
+    // docs/status.md owns the itemized limits.
+    expect(status).toMatch(/open-source preparation/i);
+    expect(status).toMatch(/trusted `read`\/`search`\/`write`\/`edit`/i);
+    expect(status).toMatch(/signed.*offline.*evidence/i);
+    expect(status).toMatch(/macOS audit-latency pass/i);
+    expect(status).toMatch(/comparable live TB-2/i);
+    expect(status).toMatch(/out-of-band signer key/i);
+    expect(status).toMatch(/not a stable or public-alpha release/i);
+    expect(status).toMatch(/checkpoint-signing key.*0600.*same OS user/is);
+    expect(status).toMatch(/signed by that key.*not.*actor independent/is);
+    expect(status).toMatch(/OS-keychain.*hardware-backed.*not implemented/is);
+
     expect(landingPage).toMatch(/governed tool surface.*v1 kernel.*OS user.*not\s+compromised/is);
     expect(landingPage).toMatch(/checkpoint-signing key.*0600.*same OS user/is);
     expect(readme).toMatch(/!\[[^\]]*real keel[^\]]*\]\(site\/demo\.gif\)/i);
@@ -219,7 +268,7 @@ describe("public docs claim consistency", () => {
     expect(demoRunner).toContain('record.eventType === "tool.deny"');
     expect(landingPage).toMatch(/<img\s+class="demo"\s+src="demo\.gif"/i);
     expect(landingPage).not.toMatch(/recording soon/i);
-    expect(blockquoteText).toMatch(/not a stable or public-alpha\s+release/i);
+    expect(status).toMatch(/not a stable or public-alpha\s+release/i);
   });
 
   it("keeps SECURITY status aligned with the current threat model instead of stale Phase-1 wording", () => {
@@ -276,7 +325,6 @@ describe("public docs claim consistency", () => {
     const memoryManifest = JSON.parse(readRepoFile("packages/memory/package.json")) as {
       readonly description?: unknown;
     };
-    const readme = readRepoFile("README.md");
 
     expect(releaseMetadata).not.toMatch(/Phase 2A: warden-governed bash/i);
     expect(releaseMetadata).not.toMatch(/private developer preview readiness/i);
@@ -288,16 +336,20 @@ describe("public docs claim consistency", () => {
     expect(memoryDescription).toMatch(/Phase 3/i);
     expect(memoryDescription).toMatch(/not implemented/i);
 
-    const packagingSummary = readme.match(
-      /The graph-audited `keel-harness@0\.1\.1`[\s\S]*?\[release runbook\]\(docs\/guide\/releasing\.md\)\./u,
-    )?.[0];
-    expect(packagingSummary).toBeDefined();
-    expect(packagingSummary).toMatch(
-      /not\s+published.*0\.0\.1.*reservation\s+placeholder.*do not use it as the release carrier/is,
-    );
-    expect(packagingSummary).toMatch(/0\.1\.0.*staged but\s+never approved or made public/is);
-    expect(packagingSummary).toMatch(/Standalone Bun binaries.*test-only/is);
-    expect(packagingSummary?.match(/\.(?=\s|$)/gu) ?? []).toHaveLength(5);
+    // The release facts now live in docs/status.md. It must state the published carrier, both
+    // superseded versions, and the binaries exclusion — a status page that lists only the good
+    // news is the same failure as a README that overclaims.
+    const status = readRepoFile("docs/status.md");
+    expect(status).toMatch(/`keel-harness@0\.1\.1` is published on npm and tagged `latest`/i);
+    // `0.1.0` was STAGED and never approved — npm records a timestamp for a staged version, but it
+    // never became public. It is not an unpublish: the registry has no `time.unpublished` marker,
+    // no tarball, and answers "version not found". Do not let the docs drift back into calling it a
+    // published-then-withdrawn release; that would invent a public release that never existed.
+    expect(status).toMatch(/`0\.1\.0`[^|]*\|[^|]*never (?:approved|became public)/i);
+    expect(status).not.toMatch(/`0\.1\.0`[^|]*\|[^|]*unpublish/i);
+    expect(status).toMatch(/`0\.0\.1`[^|]*\|[^|]*placeholder/i);
+    expect(status).toMatch(/Standalone Bun binaries remain test-only/i);
+    expect(status).toMatch(/2FA approval/i);
   });
 
   it("uses the locked name (not the taken 'keel' placeholder / working-codename marker) (P0-8)", () => {
@@ -324,56 +376,70 @@ describe("public docs claim consistency", () => {
     expect(packaging).not.toMatch(/npx keel(?![-\w])/);
   });
 
-  it("keeps the placeholder npm package from becoming a broken public quickstart", () => {
-    const readme = readRepoFile("README.md");
-    const publicDocs = [
-      "MASTER_SPEC.md",
-      "README.md",
-      "SECURITY.md",
-      ...markdownFilesUnder("docs").filter(
-        (doc) => !doc.startsWith("docs/execution/") && !doc.startsWith("docs/superpowers/"),
-      ),
-    ];
-
-    expect(readme).toMatch(/`keel-harness@0\.0\.1`[^.]*placeholder/i);
-    expect(readme).toMatch(/do not use it as the release carrier/i);
-    for (const doc of publicDocs) {
-      expect(
-        readRepoFile(doc),
-        `${doc} contains a runnable placeholder-package instruction`,
-      ).not.toMatch(RUNNABLE_PLACEHOLDER_PACKAGE_COMMAND);
+  it("does not tell readers the published carrier is still an unpublished placeholder", () => {
+    // `keel-harness@0.1.1` went public on 2026-08-03 and is tagged `latest`. Any doc still saying
+    // the registry serves a placeholder sends a reader to a source build they do not need, and is
+    // a false statement about a shipped artifact. Landing page included: it is the surface most
+    // likely to keep stale launch copy.
+    for (const doc of CURRENT_FACING_DOCS()) {
+      const text = readRepoFile(doc);
+      for (const stale of STALE_UNPUBLISHED_CARRIER_CLAIMS) {
+        expect(text, `${doc} still claims the npm carrier is unpublished (${stale})`).not.toMatch(
+          stale,
+        );
+      }
     }
   });
 
-  it.each([
-    "npx keel-harness",
-    "$ npx keel-harness",
-    "env KEEL_TRUST=1 npx keel-harness",
-    "command npx keel-harness",
-    "sudo npx keel-harness",
-    "npm exec keel-harness",
-    "npm exec -- keel-harness",
-    "pnpm dlx keel-harness",
-    "yarn dlx keel-harness",
-  ])("recognizes runnable placeholder-package command: %s", (command) => {
-    expect(command).toMatch(RUNNABLE_PLACEHOLDER_PACKAGE_COMMAND);
-  });
+  it("gives the published carrier a real install path on the README and the landing page", () => {
+    const readme = readRepoFile("README.md");
+    const landingPage = readRepoFile("site/index.html");
 
-  it.each([
-    "The npm name is reserved; do not run npx keel-harness yet.",
-    "Public npx keel-harness remains gated on a real signed carrier.",
-    "`npx keel-harness` is a roadmap command, not an install instruction.",
-  ])("does not mistake explanatory prose for a runnable command: %s", (prose) => {
-    expect(prose).not.toMatch(RUNNABLE_PLACEHOLDER_PACKAGE_COMMAND);
+    // The install line must name the PACKAGE and reach the `keel` command. Both surfaces carry it,
+    // because a visitor who lands on either one should not have to hunt for how to run it.
+    for (const [name, text] of [
+      ["README.md", readme],
+      ["site/index.html", landingPage],
+    ] as const) {
+      expect(text, `${name} lost the npm install instruction`).toMatch(
+        /npm i(?:nstall)?(?:\s+-g)?\s+keel-harness/i,
+      );
+      expect(text, `${name} lost the npx alternative`).toMatch(/npx keel-harness/i);
+      expect(text, `${name} lost the provider key setup step`).toMatch(/keel auth set/i);
+    }
   });
 
   it("scopes MCP proof to reviewed pinned local-stdio calls", () => {
     const readme = readRepoFile("README.md");
+    const status = readRepoFile("docs/status.md");
 
-    expect(readme).toMatch(/reviewed, pinned local-stdio MCP/i);
+    // The README carries the short scoping sentence; docs/status.md carries the full exclusion set.
+    expect(readme).toMatch(/reviewed,\s*\n?\s*pinned local-stdio MCP/i);
     expect(readme).toMatch(/spawned Warden/i);
-    expect(readme).toMatch(/remote, localhost, and unreviewed MCP/i);
-    expect(readme).toMatch(/resources, prompts, sampling, and elicitation/i);
+
+    expect(status).toMatch(/reviewed, pinned local-stdio MCP/i);
+    expect(status).toMatch(/spawned Warden/i);
+    expect(status).toMatch(/remote, localhost, and unreviewed MCP/i);
+    expect(status).toMatch(/resources, prompts, sampling, and\s*\n?\s*elicitation/i);
+  });
+
+  it("keeps governed direct-argv process execution scoped on every front-door surface", () => {
+    const surfaces = [
+      ["README.md", readRepoFile("README.md")],
+      ["docs/status.md", readRepoFile("docs/status.md")],
+      ["docs/architecture.md", readRepoFile("docs/architecture.md")],
+      ["docs/guide/getting-started.md", readRepoFile("docs/guide/getting-started.md")],
+      ["site/index.html", readRepoFile("site/index.html")],
+    ] as const;
+
+    for (const [name, text] of surfaces) {
+      expect(text, `${name} omits the governed process.run surface`).toMatch(/process\.run/i);
+    }
+
+    const status = readRepoFile("docs/status.md");
+    expect(status).toMatch(/literal argv vector/i);
+    expect(status).toMatch(/no shell interpolation/i);
+    expect(status).toMatch(/live-model efficacy remains `NOT_RUN`/i);
   });
 
   it("keeps tracked documentation portable and free of private local attachment roots", () => {
@@ -592,7 +658,8 @@ describe("connect-time egress documentation", () => {
 // launch post links to, and it is edited for persuasion rather than for accuracy. The markdown docs
 // already have a guard; without this one the page is the single place where a claim can drift free
 // of enforcement. These tests bind the page's numbers to the README that sources them, and keep the
-// page's honest framing (pre-alpha status, the unpublished npm carrier) from being quietly dropped.
+// page's honest framing (pre-alpha status, the published pre-alpha npm carrier) from being quietly
+// dropped.
 describe("landing page claim consistency (site/index.html)", () => {
   const PAGE = "site/index.html";
   const pageAvailable = existsSync(join(repoRoot, PAGE));
@@ -639,24 +706,22 @@ describe("landing page claim consistency (site/index.html)", () => {
     }
   });
 
-  it.runIf(pageAvailable)("never presents the reserved npm name as a working install", () => {
-    // `npm i keel-harness` resolves to the 0.0.1 name-reservation placeholder, so shipping it as a
-    // bare instruction hands visitors a stub. Showing the command is fine; showing it as ready is
-    // not. (RUNNABLE_PLACEHOLDER_PACKAGE_COMMAND covers npx/dlx, which need no install step; this
-    // covers the install form a landing-page quickstart actually reaches for.)
+  it.runIf(pageAvailable)("presents the install path without dropping the pre-alpha caveat", () => {
+    // `npm i keel-harness` now resolves to the real published carrier, so the page SHOULD show it.
+    // The risk inverted: a working install command next to no status wording reads as a finished
+    // product. The command and the caveat ship together or not at all.
     const text = pageText();
-    const mentionsInstall = /npm\s+(?:i|install)\b[^.]{0,40}keel-harness/i.test(text);
 
-    if (mentionsInstall) {
-      expect(text, `${PAGE} shows an npm install without saying it is unpublished`).toMatch(
-        /not published|does not work|not yet available/i,
-      );
-      expect(text, `${PAGE} shows an npm install without explaining the placeholder`).toMatch(
-        /placeholder|reserved/i,
-      );
-    }
-    // Regardless of phrasing, the never-runnable forms stay banned outright.
-    expect(page()).not.toMatch(RUNNABLE_PLACEHOLDER_PACKAGE_COMMAND);
+    expect(text, `${PAGE} lost the npm install command`).toMatch(
+      /npm i(?:nstall)?(?:\s+-g)?\s+keel-harness/i,
+    );
+    expect(text, `${PAGE} lost the npx alternative`).toMatch(/npx keel-harness/i);
+    expect(text, `${PAGE} shows an install command without the pre-alpha caveat`).toMatch(
+      /pre-alpha/i,
+    );
+    // The bare `keel` npm package is someone else's. Install strings must name `keel-harness`.
+    expect(page()).not.toMatch(/npm i(?:nstall)?\s+(?:-g\s+)?keel(?![-\w])/i);
+    expect(page()).not.toMatch(/npx keel(?![-\w])/i);
   });
 
   it.runIf(pageAvailable)("keeps the load-bearing limitations on the page", () => {

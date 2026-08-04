@@ -25,10 +25,12 @@ conversation) can only ask.
 ## The two processes
 
 - **kernel (`packages/kernel`)** — the thin agent loop, the core tools (read · search · write ·
-  edit · bash), the model-provider adapters, the session ledger, the TUI, context discipline,
-  and the CLI. It holds the model conversation and the provider API keys, so it is *inside* the
-  trust boundary for credential access — but it has no path to execute a governed tool directly;
-  every such action flows through `warden.execute`.
+  edit · bash · `process.run`), the model-provider adapters, the session ledger, the TUI, context
+  discipline, and the CLI. `process.run` accepts one bounded literal argv vector; it adds no shell,
+  environment, working-directory, stdin, or background authority. The kernel holds the model
+  conversation and the provider API keys, so it is *inside* the trust boundary for credential
+  access — but it has no path to execute a governed tool directly; every such action flows through
+  `warden.execute`.
 - **warden (`packages/warden`)** — the enforcement plane, in its own process. It evaluates a
   hash-pinned policy pack, runs actions inside an OS sandbox profile, mediates network egress,
   checks the resolved address used by supported TCP connections, and writes the audit chain. The
@@ -75,17 +77,14 @@ at-rest key. See the threat model in `MASTER_SPEC.md` §3.3 and the claim ledger
 
 ## Autopilot is not YOLO
 
-Autonomy modes (Guided, Autopilot, …) are **policy postures over the warden's enforcement**, not
-promises about model behavior. Autopilot means *high autonomy inside enforced boundaries* — it
-removes the human prompt only for actions the warden has already proven contained and low-risk; it
-never lets the model raise its own mode, change policy, or turn a `deny` into an `allow`. "YOLO"
-means reduced or absent enforcement; keel never conflates the two.
+Autonomy modes are **policy postures over the warden's enforcement**, not promises about model
+behavior. Autopilot removes the human prompt only for actions the warden has already proven
+contained and low-risk. It never lets the model raise its own mode, change policy, or turn a
+`deny` into an `allow`. "YOLO" means reduced or absent enforcement; keel never conflates the two.
+See [concepts](guide/concepts.md) for the full model.
 
 ## Honest phasing
 
-keel is pre-alpha. The governed product path today covers `bash`, the trusted typed file tools,
-`lifecycle.run`, and reviewed local-stdio MCP through the warden; a general MCP/plugin governance
-platform (registry, remote MCP), provider-API egress, the Phase-3 provenance and memory planes, and
-full resource containment are **not yet** claimed. The status
-line, receipts, and docs are honest-by-construction about what is actually enforced — see the
-`README.md` status note and `quality/claim-ledger.md`.
+keel is pre-alpha. The status line, receipts, and docs are honest-by-construction about what is
+actually enforced. [status.md](status.md) lists what keel governs today and what it does not
+claim; [quality/claim-ledger.md](quality/claim-ledger.md) maps each claim to its evidence.

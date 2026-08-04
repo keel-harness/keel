@@ -7,24 +7,27 @@ with 0.x pre-release semantics (minor bumps may break).
 
 ## [Unreleased]
 
+## [0.1.1] — 2026-08-03
+
+The first public pre-alpha npm carrier. `keel-harness@0.1.1` is published and tagged `latest`.
+
 ### Added
 
-- Prepared the `keel-harness@0.1.1` pre-alpha npm carrier with public source metadata, an exact npm
+- Published the `keel-harness@0.1.1` pre-alpha npm carrier with public source metadata, an exact npm
   shrinkwrap, graph-complete SPDX/CycloneDX SBOMs, GitHub attestations, and a stage-only trusted-
   publishing workflow with separate human 2FA approval.
 - Added installed-carrier verification across the pinned Node 20, 22, and 24 lines.
 - Added Warden-owned connect-time resolved-address enforcement for the vendored SRT TCP carrier,
   including narrow operator-managed private-address exceptions and exact product-path evidence.
 
-The `0.1.0` candidate was staged but never approved or made public. The real package is not
-published yet. The public release record starts only after `0.1.1` staged and live-registry
-verification succeeds.
+The `0.1.0` candidate was staged but never approved or made public; the registry serves no `0.1.0`.
+`0.0.1` was a name-reservation placeholder and is superseded.
 
 ### Security
 
 Hardening from an internal pre-release security review of how the warden consumes model-writable
-workspace configuration. All items predate any supported release; the `keel-harness` npm carrier is
-unpublished, so no installed version is affected.
+workspace configuration. All items predate the first public carrier, so no released version shipped
+them.
 
 - **Credential-proxy project config.** `.keel/credential-proxy.json` is now parsed under a restricted
   provenance: only a realpath-contained, workspace-local `file` source is accepted (command/env
