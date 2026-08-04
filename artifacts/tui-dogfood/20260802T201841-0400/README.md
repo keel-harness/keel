@@ -420,3 +420,14 @@ and all six exact task-scoped temporary roots were permanently deleted. Exact po
 and package lanes, both real-sandbox lanes, audit, security, both cross-architecture carrier smokes,
 Node-next, egress-scale, and all three installed-product matrices. Only the final same-commit
 six-workflow replay remains open.
+
+R20 now adds a full accessibility/responsive checkpoint under
+[issue #123](https://github.com/keel-harness/keel/issues/123). Exact installed main reproduced a real
+80x24 defect: production-length identity metadata wrapped and hid the composer below the complete
+command palette. Candidate `1a46d01` fixes only non-fitting known-width metadata, preserves the
+existing narrow and unknown-width behavior, and passes **6,668 tests / 20 intentional opt-in
+skips**, full coverage, static/package gates, nine governed terminal profiles, real Kitty, and real
+Apple Terminal. Screenshots 65-69 and session log 26 retain the sanitized evidence. R20 used zero
+provider calls and zero Warden interrupts; its cross-cutting confidence does not change the
+**4.04/5** candidate score. Exact-head CI/publication and the final same-commit replay remain open;
+native Linux terminal-emulator validation is explicitly **NOT_RUN**.

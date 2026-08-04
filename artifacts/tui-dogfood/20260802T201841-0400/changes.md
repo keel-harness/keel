@@ -786,3 +786,21 @@ worktree were removed.
   removed.
 - No Warden verdict/policy, sandbox, egress, grant, audit schema, frozen ModelPort/RPC interface,
   dependency, or security claim changed.
+
+## R20 — responsive identity metadata and terminal accessibility matrix
+
+- Reproduced DF-027 through the exact installed main carrier: production-length identity metadata
+  made the complete command palette 25 rows at 80x24 and hid the composer.
+- Added red-first pure and real-Ink coverage for long model/workspace labels, Unicode, terminal
+  controls, 80/100/120 widths, unknown width, and the exact 80x24 palette.
+- Changed `compactMetaLine` to use its existing priority/truncation path when a known-width full row
+  does not fit. Preserved the established <=60 ordering after the broad equivalence ledger caught
+  an initial regression.
+- Full tests and coverage pass **6,668 tests / 20 intentional opt-in skips**; lint, typecheck,
+  format, package, exact scripts-disabled install, and five-lens QC pass.
+- Exact candidate `1a46d01`, tarball SHA-256
+  `63e50181dc46422203e4034ff6ab1bc8de7e4237a5342511f381c6062bc05306`, passes nine terminal
+  profiles plus native Kitty and Apple Terminal checks. Screenshots 65-69 and session log 26 retain
+  the evidence.
+- Zero provider calls, zero Warden interrupts, no score change, no dependency/authority/contract/
+  security-claim change. Native Linux terminal-emulator coverage is **NOT_RUN**.

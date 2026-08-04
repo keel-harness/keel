@@ -1412,3 +1412,31 @@
   and no runtime, security, schema, policy, sandbox, egress, grant, dependency, or score change.
   Cumulative Anthropic spend remains USD 4.72508650. The final same-commit six-workflow replay is the
   only remaining #113-era release gate.
+
+## 2026-08-04 — R20 accessibility and responsive terminal matrix
+
+- Started from clean exact main `30e68a0` on isolated branch/worktree
+  `dogfood/r20-accessibility-matrix`; external Click stayed clean at `edda51f`.
+- Baseline exact installed carrier reproduced DF-027: an 83-cell identity row wrapped and made the
+  complete command palette 25 physical rows at 80x24. Opened issue #123.
+- Red-first pure/real-Ink coverage reported **3 failed / 233 passed** for the intended 80-column and
+  row-budget defects. The smallest fix routed non-fitting known-width metadata through the existing
+  priority/truncation path.
+- Broad QC caught an initial <=60 compatibility regression. After preserving the narrow path,
+  focused product/equivalence coverage passed **247/247**.
+- Lint, typecheck, format, full tests, and full coverage passed. The final whole-suite/coverage
+  commands each passed **365 files / 6,668 tests / 20 intentional opt-in skips** with four workers;
+  coverage is 97.87% statements/lines, 93.63% branches, and 99.59% functions.
+- Exact clean candidate `1a46d01`, `dirty: false`, tarball SHA-256
+  `63e50181dc46422203e4034ff6ab1bc8de7e4237a5342511f381c6062bc05306`, installed 57 packages with
+  scripts disabled and passed nine governed PTY profiles with zero provider calls. The repaired
+  80x24 palette is 24 rows and 77 cells wide.
+- Real Kitty 0.47.4 passed at 100x30 with a keyboard-opened palette; real Apple Terminal 2.15 passed
+  at 100x30 and after live resize to 80x24. Both exited cleanly. Linux native emulator coverage is
+  explicitly **NOT_RUN** because no Linux daemon/VM was available.
+- Screenshots 65-69 are sanitized and visually inspected; 68-69 are window-scoped native captures.
+  A colorized `NO_COLOR` transcription and a Terminal screenshot with title metadata were rejected,
+  overwritten/deleted, and never retained.
+- Five-lens QC has no local must-fix. R20 makes zero Anthropic calls and zero Warden reviews, changes
+  no authority/security/public contract, and leaves the candidate six-workflow score at **4.04/5**
+  pending exact-head CI, publication, and the final same-commit replay.

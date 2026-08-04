@@ -447,3 +447,23 @@
   intact-Warden control, sanitized screenshots 59-60, and five-lens QC pass. Resolution order,
   fail-closed control flow, Warden authority, frozen contracts, dependencies, and security claims
   are unchanged.
+
+### DF-027 — production-length identity metadata hides the 80x24 composer
+
+- Severity: P1 responsive usability and command discoverability.
+- Status: fixed locally under [issue #123](https://github.com/keel-harness/keel/issues/123) on
+  candidate `1a46d01`; publication/CI remain pending.
+- Direct evidence: exact installed main rendered the complete command palette as 25 physical rows
+  at an 80x24 terminal. Its 83-cell model/workspace/trust identity wrapped `trusted` onto a second
+  line and pushed the composer outside the viewport. The existing row-budget fixture used a short
+  model and masked the defect.
+- Repair: whenever a known width above the existing narrow breakpoint cannot hold the full metadata
+  line, reuse the established fact-priority candidates and grapheme-safe truncator. Unknown-width
+  output and <=60-column ordering remain unchanged.
+- Validation: intended red **3 failed / 233 passed**; focused green **236/236**; compatibility
+  **247/247**; full tests and coverage **6,668/6,668 with 20 intentional opt-in skips**; exact
+  nine-profile installed matrix; real Kitty 100x30; real Apple Terminal 100x30 to 80x24 resize;
+  screenshots 65-69; five-lens QC. The repaired palette is 24 rows and retains model identity,
+  workspace trust, protection truth, keyboard guidance, and composer.
+- Boundaries: no Warden verdict, policy, sandbox, egress, grant, audit, public CLI, frozen contract,
+  dependency, or security-claim change. Native Linux terminal-emulator validation is **NOT_RUN**.

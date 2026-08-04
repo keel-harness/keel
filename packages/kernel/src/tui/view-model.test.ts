@@ -1232,6 +1232,48 @@ describe("view-model reducer", () => {
     expect(rows.join("\n")).not.toMatch(/posture|autopilot|trusted|approved|n\/a/i);
   });
 
+  it("keeps production-length compact identity metadata within every known terminal width", () => {
+    const status = initialView([], {
+      model: "openai-compatible/r20-no-provider",
+      cwd: "/private/tmp/keel-dogfood-click-20260802",
+      workspaceTrust: "trusted",
+      protectionRoute: "governed",
+      posture: { sandbox: true, egress: true, audit: true },
+      policy: { active: true, label: "Guided · starter@abc123" },
+    }).status;
+
+    expect(compactStatusRows(status)[0]).toBe(
+      "openai-compatible/r20-no-provider · keel-dogfood-click-20260802 · workspace trusted",
+    );
+    for (const columns of [80, 100, 120]) {
+      const meta = compactStatusRows(status, { columns })[0]!;
+      expect(terminalDisplayWidth(meta), `${String(columns)} columns: ${meta}`).toBeLessThanOrEqual(
+        columns,
+      );
+      expect(meta).toContain("openai-compatible/r20-no-provider");
+      expect(meta).toContain("workspace trusted");
+    }
+  });
+
+  it("bounds Unicode compact identity metadata after stripping terminal controls", () => {
+    const status = initialView([], {
+      model: `openai-compatible/界面-agent-${ESC}[31m`,
+      cwd: `/private/tmp/long-👩🏽‍💻-workspace-${BEL}-for-terminal-width`,
+      workspaceTrust: "untrusted",
+      posture: ALL_OFF_POSTURE,
+    }).status;
+
+    for (const columns of [40, 80, 100, 120]) {
+      const meta = compactStatusRows(status, { columns })[0]!;
+      expect(terminalDisplayWidth(meta), `${String(columns)} columns: ${meta}`).toBeLessThanOrEqual(
+        columns,
+      );
+      expect(hasControl(meta)).toBe(false);
+      expect(meta).not.toContain("\n");
+      expect(meta).toContain("workspace untrusted");
+    }
+  });
+
   it("compactStatusRows keeps narrow unreported status explicit and within three rows", () => {
     const rows = compactStatusRows(
       {

@@ -224,3 +224,11 @@ becomes **4.02/5 (249/62)**. The 4.0 stretch checkpoint is green for this candid
 `30929433667`, publication through PR #121 as merge `7c8ff68` with identical tree `99d8fda9`, exact
 post-main CI `30929922987`, issue closure, and branch/worktree/task-root cleanup are green. The strict
 same-commit six-workflow replay remains open.
+
+R20 validates responsive and non-color behavior across the exact installed candidate at 80x24,
+100x30, 120x40, live resize, nine terminal capability profiles, real Kitty, and real Apple Terminal.
+It directly fixes an 80x24 palette overflow that hid the composer, while preserving narrow-width
+fact priority and protection truth. This strengthens visual-hierarchy, cognitive-load, control, and
+trust evidence, but it is a cross-cutting matrix rather than a new frozen six-workflow replay. The
+candidate unweighted mean therefore remains **4.04/5** and the pooled diagnostic remains **4.02/5
+(249/62)**. Native Linux terminal-emulator coverage and the strict same-commit replay remain open.

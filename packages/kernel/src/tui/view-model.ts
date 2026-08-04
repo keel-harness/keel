@@ -531,7 +531,8 @@ function compactMetaLine(s: UiStatus, columns: number | undefined): string {
   const gitPart = git !== "git n/a" ? git : undefined;
   const tokenPart = s.tokens > 0 ? `${formatTokens(s.tokens)} tokens` : undefined;
   const trustPart = s.workspaceTrust !== undefined ? `workspace ${s.workspaceTrust}` : undefined;
-  if (!narrow) return joinCompactParts([model, workspace, trustPart, gitPart, tokenPart]);
+  const full = joinCompactParts([model, workspace, trustPart, gitPart, tokenPart]);
+  if (columns === undefined || (!narrow && terminalDisplayWidth(full) <= columns)) return full;
 
   const candidates =
     trustPart !== undefined

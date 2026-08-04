@@ -70,6 +70,7 @@ applicable input rate.
 | R21 prompt candidate 2 | 35,610 | 12,939 | 55,421 | 2,687 | 0.2123 | 3.4340 | 16.5660 |
 | R22 local operator-diagnostic matrix | 0 | 0 | 0 | 0 | 0.0000 | 3.4340 | 16.5660 |
 | #113 exact-carrier live onboarding | 214,531 | 112,387 | 450,457 | 6,058 | 1.2911 | 4.7251 | 15.2749 |
+| R20 accessibility/responsive matrix | 0 | 0 | 0 | 0 | 0.0000 | 4.7251 | 15.2749 |
 
 Anthropic provider calls: 103 successful, 4 rejected at zero reported usage. R7's two local-fixture
 requests are not Anthropic calls and carry no Anthropic cost. The USD 2.00 final-regression
@@ -164,3 +165,9 @@ local and add no Anthropic usage.
 The R0 manifest caps a future six-workflow replay at
 USD 12.00, below the currently spendable USD 13.27491350 after preserving the final USD 2.00
 reserve.
+
+R20 used only deterministic renderer tests, local Warden processes, the exact installed npm carrier,
+and native local terminal emulators. Its nine-case matrix and native Kitty/Apple Terminal checks
+submitted no task to a provider and made zero Anthropic calls. Cumulative spend remains **USD
+4.72508650**; USD 15.27491350 remains and the final USD 2 reserve is intact. No ambient credential
+value was read, copied, printed, logged, committed, or captured.
