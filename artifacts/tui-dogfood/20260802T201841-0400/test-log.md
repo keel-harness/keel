@@ -1304,3 +1304,42 @@
   copies and audit keys were permanently deleted only after sanitized evidence merged.
 - Publication made zero additional Anthropic calls. The R21 increment remains USD 0.68968890,
   cumulative spend remains USD 3.43403515, and the 3.97/5 score and open #113 boundary are unchanged.
+
+## 2026-08-04 — R22 operator diagnostics and packaged-Warden recovery
+
+- Started from clean exact main `57bb07f7d8658394868180b338a82b251468c252`; local, tracking, and
+  live remote main matched and CI run `30896365640` was green. Opened validation issue #116 and
+  isolated branch/worktree `test/cli-r22-diagnostics`.
+- Built and packaged exact baseline. The npm carrier was installed scripts-disabled at version
+  0.1.1 with tarball SHA-256
+  `3b4d67bfe3bdc24acf9fe65ce724252c7743ca70c7e0069e5389860447dfc896`.
+- The seven-path baseline matrix at 100x30 and 80x24 passed missing credential, missing ripgrep,
+  active writer, provider 503, gross-token runway, and unavailable mutation-presentation recovery.
+  The packaged-Warden-missing path failed the what/why/how contract at both geometries while still
+  exiting 1 with zero provider calls/reviews and no stack/path disclosure.
+- Opened behavior issue #117. Four exact negative resolution expectations were red first: the full
+  runtime suite reported **3 failed / 46 passed** because the old errors lacked reason/recovery.
+  Brevity revisions also produced valid filtered red failures before green.
+- Retained three local message constants and two throw substitutions. Resolution order, successful
+  source/built/packaged/compiled behavior, and fail-closed authority remain unchanged. Focused
+  Warden runtime passes **49/49**; runtime plus public bin entry passes **56/56**.
+- Full coverage, lint, typecheck, format, supply-chain, build, and package passed. Exact clean
+  candidate `1480b53`, `dirty: false`, tarball SHA-256
+  `e68f84f70c45c80af96d9cab66fd13ccffeb8f082d73abedd75e97626dfe162a` installed offline with
+  scripts disabled and passed fault injection at 100x30/80x24 plus an intact-Warden control.
+- Screenshots 59-60 are sanitized, visually inspected 1400x840 transcriptions. The in-app browser
+  was unavailable; the documented Quick Look fallback rendered them, so they are not claimed as
+  live-window captures. Session log 24 records image/transcript hashes and every non-green setup or
+  comparator attempt.
+- Five-lens spec, security/adversarial, reliability, DX, and simplicity review has no local
+  must-fix. No frozen contract, public CLI grammar, dependency, policy, sandbox, egress, audit,
+  Warden authority, or security claim changes.
+- Reviewed head `1480b53` passed exact-head CI run `30900073097`, including `ci-required` job
+  `91963483699`. Owner-authorized admin squash merged PR #118 as `4e774a0`; candidate and merge
+  trees are both `06f2769c`. Issue #117 closed and the feature branch/worktree were removed.
+- Exact post-main CI run `30900575475` passed, including `ci-required` job `91965181411`, Linux and
+  macOS build/coverage and packaging, both real-sandbox lanes, audit, security, cross-architecture,
+  Node-next, egress-scale, and all three installed-product lanes.
+- R22 made zero Anthropic calls, adds zero Warden interrupts, and does not raise the frozen
+  workflow score. Cumulative spend remains USD 3.43403515; the official score remains **3.97/5**
+  and #113/final same-commit gates remain open.

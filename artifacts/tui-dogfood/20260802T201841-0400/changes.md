@@ -724,3 +724,29 @@ worktree were removed.
   copy and audit key after sanitized evidence was merged.
 - Publication made zero additional Anthropic calls and changes no product behavior, score,
   security claim, or #113 follow-up boundary.
+
+## R22 — actionable fail-closed Warden-start recovery
+
+- Validated seven operator diagnostic paths at 100x30 and 80x24 through the exact installed main
+  npm carrier: missing credential, missing ripgrep, active writer, missing packaged Warden, provider
+  503, gross-token runway, and unavailable mutation presentation. Six passed; the missing-Warden
+  path reproduced DF-026 with zero provider calls/reviews but no safe recovery guidance.
+- Tightened four negative production-Warden resolution cases red-first. The retained runtime change
+  uses three local constants and substitutes two existing throws; successful resolution order and
+  all authority/control flow are unchanged.
+- The packaged error now explains that the installation is incomplete, that governed execution
+  cannot start, and that the user should reinstall Keel in the same package-manager scope before
+  rerunning. It does not fabricate an npm command whose scope the carrier cannot prove.
+- Focused runtime/bin coverage passes **56/56**; full coverage, lint, typecheck, format,
+  supply-chain, build, npm package, and four Bun carrier gates pass. Exact clean candidate
+  `1480b53`, `dirty: false`, tarball SHA-256
+  `e68f84f70c45c80af96d9cab66fd13ccffeb8f082d73abedd75e97626dfe162a` passes both fault geometries
+  plus an intact-Warden control.
+- Screenshots 59-60 and session log 24 record the before/after, immutable carrier identities,
+  rejected harness/setup attempts, exact tests, and five-lens QC. R22 made zero Anthropic calls,
+  adds zero Warden interrupts, and does not change the official **3.97/5** score because this
+  diagnostic checkpoint is outside the six frozen workflow rows.
+- Reviewed head `1480b53` passed exact-head CI `30900073097`; PR #118 squash-merged as `4e774a0`
+  with identical tree `06f2769c`. Issue #117 closed and the remote/local feature branches plus
+  feature worktree were removed. Exact post-main CI `30900575475`, including `ci-required` job
+  `91965181411` and all applicable main-only lanes, passed.

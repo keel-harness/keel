@@ -397,3 +397,22 @@ Reviewed head `4494978` passed exact-head CI `30895021455`; PR #114 merged as `1
 byte-identical tree `23f203f`. Exact post-main CI `30895569846`, issue closure, and validation
 branch/worktree plus credential-root cleanup passed. These publication and cleanup actions add no
 governed product interrupt, grant, or execution authority.
+
+## R22 validation outcome
+
+R22 changes no Warden policy, review/grant semantics, sandbox, egress guard, audit format, or
+execution authority. The accepted matrix exercises three zero-provider startup/preflight failures,
+one doctor failure, one bounded provider failure, one token-runway stop after a governed read, and
+one successful governed mutation with unavailable presentation.
+
+The missing-Warden fault removes only the installed private sibling before startup. Both baseline
+and candidate exit 1 before provider work, create zero grantable decisions, and execute zero tools.
+The change is controller-owned diagnostic copy after the same failed resolution check; it cannot
+start a Warden, choose a fallback, grant authority, reinterpret a verdict, or weaken fail-closed
+behavior. The intact-candidate active-writer control proves the packaged Warden still launches and
+the existing controlled recovery path remains unchanged.
+
+R22 therefore adds **0 total / 0 necessary / 0 excessive** review interrupts to its validation
+matrix and does not change the frozen historical benchmark total of **6 total / 2 necessary / 4
+excessive or avoidable**. Screenshots 59-60 compare only recovery presentation. PR #118, issue
+closure, and feature cleanup add no governed product interrupt or authority.

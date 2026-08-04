@@ -410,3 +410,27 @@
 - Score correction: onboarding cognitive load and trust each fall from 4 to 3; final confidence
   remains 2. The evidence-bound aggregate is **3.97/5**, still above 3.8 but below the 4.0 stretch
   target and strict same-commit gate.
+
+### DF-026 — packaged-Warden startup failure is fail-closed but not recoverable by the operator
+
+- Severity: P1 error recovery and operator trust.
+- Status: fixed under [issue #117](https://github.com/keel-harness/keel/issues/117), merged through
+  [PR #118](https://github.com/keel-harness/keel/pull/118) as `4e774a0`. Exact reviewed-head CI run
+  `30900073097` and exact post-main CI run `30900575475` passed; candidate and merge share tree
+  `06f2769c`; issue #117 closed and feature branch/worktree cleanup passed.
+- Direct evidence: the exact installed baseline was copied to an owner-only fault root and only its
+  private `bin/keel-warden.mjs` sibling was removed. At both 100x30 and 80x24 Keel exited 1 before
+  any provider call or human review, emitted no path or stack, but said only
+  `keel: packaged warden entry is unavailable`.
+- Impact: security stayed fail-closed, but the user could not tell that the installation was
+  incomplete or how to recover. The safest likely response was guesswork: retrying could not help,
+  while deleting state or bypassing the Warden would be wrong.
+- Repair: the same two controller throws now identify the unavailable Warden, explain that governed
+  execution cannot start from an incomplete/unsupported installation, and direct the user to
+  reinstall Keel in the same package-manager scope before rerunning. The runtime deliberately does
+  not guess a local/global/transient npm command.
+- Validation: red-first negative-layout tests, all positive resolution controls, focused **56/56**,
+  full coverage and static/build/package gates, exact clean installed 80x24/100x30 fault replays,
+  intact-Warden control, sanitized screenshots 59-60, and five-lens QC pass. Resolution order,
+  fail-closed control flow, Warden authority, frozen contracts, dependencies, and security claims
+  are unchanged.

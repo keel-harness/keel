@@ -200,3 +200,13 @@ fall from 4 to 3; final confidence remains 2. The onboarding mean is **3.67/5**.
 unweighted mean is corrected from 4.01 to **3.97/5**; the legacy pooled diagnostic becomes
 **3.95/5** (245/62). The 3.8 target remains met, but the 4.0 stretch target and strict same-commit
 gate are not green. DF-025 / issue #113 remains open.
+
+R22 validates seven operator failure/recovery paths through exact installed npm carriers at 80x24
+and 100x30. Six baseline paths already provide bounded what/why/next guidance. The missing-packaged-
+Warden path was secure but dead-ended; the retained candidate preserves the same fail-closed exit
+while adding the installation reason and safe reinstall/rerun action. The exact checkpoint therefore
+improves operator recovery and trust, but it is not one of the six frozen canonical workflow rows.
+The official unweighted workflow mean remains **3.97/5** and the legacy pooled diagnostic remains
+**3.95/5** (245/62). This avoids converting a component diagnostic into an unsupported workflow-
+wide score increase. The 3.8 target remains met; issue #113, the 4.0 stretch target, and the strict
+same-commit six-workflow gate remain open.

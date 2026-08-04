@@ -369,3 +369,31 @@ skipped jobs, including `ci-required` job `91949010897`; issue #111 closed. The 
 branch/worktree and all six task-local roots, including every credential-store copy and audit key,
 were removed after sanitized evidence merged. Publication used zero additional Anthropic calls and
 does not change the R21 evidence boundary, corrected score, or open #113 must-fix.
+
+R22 validates seven operator diagnostic/recovery paths under
+[issue #116](https://github.com/keel-harness/keel/issues/116). Exact installed baseline replays at
+80x24 and 100x30 passed missing credential, missing toolchain, active writer, provider failure,
+token runway, and unavailable mutation-presentation paths. Removing only the private packaged
+Warden sibling reproduced DF-026: Keel failed closed before provider/tool/review work and exposed no
+stack or path, but gave the operator no cause or recovery action.
+
+Issue [#117](https://github.com/keel-harness/keel/issues/117) constrained a red-first fix to the two
+existing production-Warden resolution errors. The retained message explains that the installation
+is incomplete/unsupported, that governed execution cannot start, and that the user should reinstall
+Keel in the same package-manager scope before rerunning. Resolution order, fallback behavior,
+Warden authority, policy, sandbox, egress, audit, frozen contracts, dependencies, and successful
+launches are unchanged.
+
+Focused **56/56**, full coverage, static, supply-chain, build/package, exact installed
+80x24/100x30 fault replays, intact-Warden control, screenshots 59-60, and five-lens QC pass. Reviewed
+head `1480b53` passed exact-head CI `30900073097`; owner-authorized
+[PR #118](https://github.com/keel-harness/keel/pull/118) squash-merged as `4e774a0` with identical
+tree `06f2769c`. Issue #117 closed and feature cleanup passed. R22 used zero Anthropic calls and
+adds zero review interrupts. Because the diagnostic is outside the six frozen workflow rows, the
+official score remains **3.97/5**, cumulative spend remains USD 3.43403515, and #113 plus the final
+same-commit gate remain open.
+
+Exact post-main CI run `30900575475` passed, including `ci-required` job `91965181411`, both
+Linux/macOS build-and-coverage and package lanes, both real-sandbox lanes, audit, security,
+cross-architecture carrier smokes, Node-next, egress-scale, and all three installed-product
+matrices.

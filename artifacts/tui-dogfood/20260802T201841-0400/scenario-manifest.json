@@ -239,7 +239,9 @@
         "23-r5b-containment-after.png",
         "33-r11-command-recovery-before.png",
         "34-r11-command-recovery-active.png",
-        "35-r11-command-recovery-after.png"
+        "35-r11-command-recovery-after.png",
+        "59-r22-warden-unavailable-before.png",
+        "60-r22-warden-unavailable-after.png"
       ],
       "costCeilingUsd": 1.5
     }
