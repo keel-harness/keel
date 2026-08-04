@@ -626,7 +626,7 @@ describe("production Ink shell row budgets", () => {
     expect(budgets).toEqual({
       policies: { columns: 80, logicalLines: 13, physicalRows: 13, widestLine: 70 },
       reviews: { columns: 80, logicalLines: 14, physicalRows: 14, widestLine: 65 },
-      context: { columns: 80, logicalLines: 19, physicalRows: 19, widestLine: 78 },
+      context: { columns: 80, logicalLines: 19, physicalRows: 19, widestLine: 80 },
       model: { columns: 80, logicalLines: 10, physicalRows: 10, widestLine: 65 },
       capabilities: { columns: 80, logicalLines: 19, physicalRows: 19, widestLine: 80 },
       about: { columns: 80, logicalLines: 13, physicalRows: 13, widestLine: 73 },

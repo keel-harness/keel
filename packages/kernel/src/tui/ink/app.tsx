@@ -64,7 +64,7 @@ import {
   welcomeResumeLine,
 } from "../view-model.js";
 import { responseSurfaceColumns, terminalDisplayWidth } from "../row-budget.js";
-import { truncateDisplayCells } from "../display-cells.js";
+import { truncateDisplayCells, wrapDisplayLine } from "../display-cells.js";
 import { overlayPresentation } from "../overlay-presentation.js";
 import {
   commitIncrementalTranscriptCandidate,
@@ -1661,15 +1661,20 @@ function panelViewport(
   readonly bodyRows: number;
   readonly rowCost: (line: string) => number;
 } {
-  const [title = "panel", ...lines] = stripControl(content).split("\n");
+  const [title = "panel", ...logicalLines] = stripControl(content).split("\n");
   const innerColumns = Math.max(1, columns - 4);
   const contentRows = Math.max(2, maxRows - 2);
-  const rowCost = (line: string): number =>
-    Math.max(1, Math.ceil(terminalDisplayWidth(stripControlLine(line)) / innerColumns));
+  // Navigation offsets address physical rows. Pre-wrap each logical line so one long paragraph can
+  // never consume more than the viewport and disappear behind a permanent "more lines" disclosure.
+  const lines = logicalLines.flatMap((line) =>
+    wrapDisplayLine(stripControlLine(line), innerColumns).map((row) => row.text),
+  );
+  const titleRows = wrapDisplayLine(stripControlLine(title), innerColumns).length;
+  const rowCost = (): number => 1;
   return {
     title,
     lines,
-    bodyRows: Math.max(1, contentRows - rowCost(title)),
+    bodyRows: Math.max(1, contentRows - titleRows),
     rowCost,
   };
 }

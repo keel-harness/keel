@@ -416,6 +416,25 @@ describe("Ink Interactive shell (conversation + live InputBar)", () => {
     expect(onAction).not.toHaveBeenCalled();
   });
 
+  it("renders the first physical row of an overlong single-line panel instead of an empty viewport", () => {
+    const overlong = `BEGIN-RETAINED-ANSWER ${"detail ".repeat(800)}END-RETAINED-ANSWER`;
+    const frame =
+      render(
+        <Interactive
+          view={{
+            ...view,
+            awaitingInput: true,
+            overlay: { kind: "panel", content: `original final answer\n${overlong}` },
+          }}
+          onAction={vi.fn()}
+          onDismissOverlay={vi.fn()}
+        />,
+      ).lastFrame() ?? "";
+
+    expect(frame).toContain("BEGIN-RETAINED-ANSWER");
+    expect(frame).toContain("more panel lines");
+  });
+
   it("keeps rendered panel offset synchronized at the bounded tail", async () => {
     const lines = Array.from(
       { length: 40 },
