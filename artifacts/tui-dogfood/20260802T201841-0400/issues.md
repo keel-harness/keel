@@ -355,8 +355,10 @@
 
 ### DF-024 — exact test outcome is not scannable in the completion state
 
-- Severity: P1 final-result confidence; routed to R18 under issue #103's evidence boundary.
-- Status: directly observed, unresolved. R17 itself passes and makes no product change.
+- Severity: P1 final-result confidence; repaired by R18 under
+  [issue #105](https://github.com/keel-harness/keel/issues/105).
+- Status: fixed and locally validated in candidate `5a299c3`; publication and post-main evidence
+  remain pending.
 - Direct evidence: five exact installed-carrier sessions ran the same Click command successfully.
   The authoritative Warden result retained `1901 passed, 24 skipped, 31000 deselected, 1 xfailed`
   with exit zero. The final bash card showed a success state but reduced visible stdout to progress
@@ -369,3 +371,12 @@
 - Constraint: R18 must derive test truth from the existing authoritative tool/controller result,
   preserve failed/partial prominence, and build on R3 rather than treating model prose as proof or
   creating a second summary authority.
+- Repair: a strict presentation-only quiet-pytest recognizer consumes only complete parsed Warden
+  bash envelopes. The settled tool card and existing `ran` receipt show every recognized count in
+  producer order; unknown output falls back unchanged. Exit, signal, typed failure/limited/partial,
+  warning, containment, and contradictory failure-count truth remain dominant.
+- Validation: red-first parser/view/Ink cases, focused **637/637**, unrestricted full coverage
+  **6,584/20**, static/build/package/supply-chain gates, and the exact installed-carrier 80x24 and
+  100x30 before/after matrix pass. Screenshots 46-49 show progress dots before and the full
+  `1901 passed, 24 skipped, 31000 deselected, 1 xfailed` line after. No Warden or frozen contract
+  changes; five-lens QC has no unresolved local must-fix.

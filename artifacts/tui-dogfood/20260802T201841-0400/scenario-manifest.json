@@ -88,7 +88,11 @@
         "34-r11-command-recovery-active.png",
         "35-r11-command-recovery-after.png",
         "41-r15-diff-review-before.png",
-        "42-r15-diff-review-after.png"
+        "42-r15-diff-review-after.png",
+        "46-r18-completion-before-80x24.png",
+        "47-r18-completion-after-80x24.png",
+        "48-r18-completion-before-100x30.png",
+        "49-r18-completion-after-100x30.png"
       ],
       "costCeilingUsd": 2
     },

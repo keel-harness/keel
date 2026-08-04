@@ -651,6 +651,17 @@ changed files, tests and outcomes, denied/recovered actions, unresolved risks, c
 action scannable in one screen, with full evidence on demand. A failed or partial test must remain
 prominent even if the assistant says the task is done.
 
+Candidate outcome under [issue #105](https://github.com/keel-harness/keel/issues/105): the directly
+observed DF-024 test-outcome gap is fixed without a new summary authority. A strict, presentation-
+only quiet-pytest recognizer consumes complete parsed Warden envelopes and lets the existing `ran`
+receipt show exact counts. Failed/error counts, nonzero exits, signals, typed partial/limited/failed
+outcomes, warnings, containment, and unknown output remain conservative. Focused **637/637**, full
+coverage **6,584/20**, static/build/package/supply-chain gates, exact installed 80x24/100x30
+before/after replays, sanitized E4, and five-lens QC pass. The broader changed/risk/next completion
+aspiration stays bounded to existing R3/R14/R15 facts rather than expanding this slice. Publication
+and post-main proof remain pending; the official six-workflow score stays 4.01 until its canonical
+same-commit replay.
+
 ### R19 · usability validation — composer, multiline, history, focus, and scrolling
 
 Input remained usable in the observed run, but the full matrix was not covered. Validate draft

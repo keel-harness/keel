@@ -639,3 +639,27 @@ worktree were removed.
   lacked the isolated worktree's package-local dependency link and is explicitly not green.
 - DF-024 routes the exact test-summary visibility gap to R18. R17 raises no score; the official
   plan aggregate remains 4.01/5. E5 is NOT_RUN and Anthropic spend remains USD 2.74434625.
+
+## R18 — exact test outcomes in the settled receipt
+
+- Added a strict presentation-only recognizer for pytest's quiet terminal-summary line while
+  preserving the existing model-facing test summarizer.
+- Complete parsed Warden bash envelopes now prefer exact recognized counts over progress dots in
+  the settled tool card and existing `what ran` receipt. Ordinary bash remains `ran`, never
+  controller-verified.
+- Added conservative status reconciliation so failure/error counts cannot appear as a green
+  success even with contradictory exit zero. Exit, signal, partial, limited, typed failure,
+  containment, warning, stderr, and unrecognized-output behavior retain precedence.
+- Added red-first parser, property, live/resume view-model, headless final-card, and real-Ink
+  coverage. The retained focused set passes **637/637**; unrestricted full coverage passes
+  **6,584/20** with no failures.
+- Built a clean exact candidate npm carrier at `5a299c3`; its scripts-disabled tarball SHA-256 is
+  `e303abb86a41b29cb23c90a63e4478a5fa544bbc1096057d2da1b16fdee8b177`.
+- Exact installed baseline/candidate replays against clean Click pass at 80x24 and 100x30 through
+  the spawned production Warden. Screenshots 46-49 show progress rows before and full
+  passed/skipped/deselected/xfailed counts after. Five-lens QC has no local must-fix.
+- No Warden/policy/grant/sandbox/egress/audit/RPC/shared-schema/public-CLI/security-claim change and
+  no dependency. E5 is **NOT_RUN**; zero Anthropic calls keep cumulative spend at USD 2.74434625.
+- Publication, exact reviewed-head CI, merge-tree identity, post-main CI, issue closure, and cleanup
+  remain pending. The official six-workflow score remains **4.01/5** until the frozen canonical
+  replay is repeated at one exact commit.

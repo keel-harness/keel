@@ -323,3 +323,20 @@ execution without inventing progress. The user could type and clear a draft duri
 provider wait. R17 does not infer policy timing from model prose, persist a performance claim,
 reinterpret the allow, or widen sandbox/egress access. Historical benchmark totals remain **6 total
 / 2 necessary / 4 excessive or avoidable**.
+
+## R18 validation outcome
+
+R18 introduces no human review interrupt, automatic grant, denial, decision surface, or policy
+change. Each of the four accepted exact installed-carrier runs asks the production Warden to run
+one ordinary local Click test command. Every run receives one allow, zero review interrupts, a
+complete zero-exit result, sandbox on, egress guard on, and clean teardown.
+
+The new recognizer acts only on the already-returned complete bash envelope. It cannot execute a
+command, grant or batch authority, reinterpret an allow/deny/review verdict, change policy input,
+widen sandbox or egress access, write an audit record, or synthesize a model-visible result.
+Malformed/unknown output falls back unchanged; failure/error counts, exit, signal, typed failure,
+partial, and limited outcomes remain needs-attention. The exact candidate summary remains in the
+ordinary `ran` receipt and never claims `checked` or `verified`.
+
+R18 therefore changes presentation and final confidence only. Historical benchmark totals remain
+**6 total / 2 necessary / 4 excessive or avoidable**.

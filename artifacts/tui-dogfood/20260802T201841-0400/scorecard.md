@@ -168,3 +168,14 @@ explicit elapsed/quiet/timeout/next truth and no fake percentage. Existing progr
 responsiveness scores therefore remain supported but are not raised. The plan-defined aggregate
 stays **4.01/5** and the legacy pooled diagnostic stays **3.98/5** (247/62). DF-024—the exact pytest
 summary missing from the final visible card—keeps onboarding final confidence and R18 open.
+
+R18 repeats DF-024 through clean exact installed baseline and candidate npm carriers at 80x24 and
+100x30. The same governed Click test command exits zero in all four runs. Baseline selects progress
+dots; candidate shows `TEST SUMMARY (pytest): PASS` with all 1,901 passed, 24 skipped, 31,000
+deselected, and 1 xfailed counts under the existing `ran` receipt. The candidate rejects malformed,
+duplicate, unsafe, signaled, partial, and contradictory failure-count cases without changing
+Warden authority. The exact checkpoint's final-confidence score improves from **2 to 4**. It is not
+one of the six frozen canonical workflow rows, so the official unweighted workflow mean remains
+**4.01/5** and the legacy pooled diagnostic remains **3.98/5** (247/62) until the final same-commit
+replay. This avoids converting a component regression proof into an unsupported workflow-wide
+score increase.

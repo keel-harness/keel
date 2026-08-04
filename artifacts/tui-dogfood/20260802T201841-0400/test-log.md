@@ -1126,3 +1126,41 @@
 - DF-024 records the separate R18 finding: the authoritative exact pytest summary is not scannable
   in the final card. R17 makes no product or score change. E5 is **NOT_RUN**; all fixture traffic was
   loopback-only and cumulative Anthropic spend remains USD 2.74434625.
+
+## 2026-08-04 — R18 exact test-outcome receipt
+
+- Started from clean exact main `5041c3d1846d0ba506a305c059212f89ce639148`, confirmed live main
+  matched and exact-main CI run `30880036752` passed, published issue #105, and created isolated
+  branch `fix/tui-r18-test-outcome-receipt`.
+- Reproduced DF-024 from the exact installed baseline carrier: the complete exit-zero Warden
+  envelope held `1901 passed, 24 skipped, 31000 deselected, 1 xfailed`, while the final visible
+  card selected progress dots.
+- Red-first parser tests failed **13/28** and live/resumed view regressions failed **2/189**. A
+  signal case, then leading-zero and contradictory exit-zero/failure-count adversarial cases also
+  failed before their respective fixes. One final duplicate-stdout regression stayed red before
+  the retained formatting fix.
+- Added a strict presentation-only quiet-pytest grammar, producer-order count retention, structured
+  failure reconciliation, and complete-envelope integration through the existing settled `ran`
+  receipt. The existing model-facing summarizer remains behaviorally unchanged.
+- Focused parser/conversation/headless/view/real-Ink coverage passes **637/637**. Typecheck, lint,
+  pre-evidence format, supply-chain, build, and package pass.
+- The first full-coverage attempt was **not green**: concurrent static gates caused exit 137 before
+  any test assertion result. The isolated rerun passed **362 files, 6,584 tests, 20 existing
+  opt-in skips, 0 failed**, with repository coverage 97.99% statements/lines, 93.74% branches,
+  and 99.58% functions.
+- Committed the behavior as `5a299c3`, then rebuilt a clean exact npm carrier. Metadata records that
+  commit and `dirty: false`; the scripts-disabled tarball SHA-256 is
+  `e303abb86a41b29cb23c90a63e4478a5fa544bbc1096057d2da1b16fdee8b177`.
+- Exact installed baseline/candidate PTY runs pass at 80x24 and 100x30 through the spawned
+  production Warden and clean external Click checkout. All four exit zero, show governed posture,
+  retain ordinary `ran` wording, return the composer, and tear down cleanly. Baseline selects dots;
+  candidate selects the full exact summary.
+- Screenshots 46-49 are sanitized, visually inspected 1400x840 before/after transcriptions. The
+  first artifact rendering was rejected for clipping and regenerated; retained hashes and raw
+  transcript/frame hashes are recorded in `session-logs/21-r18-exact-test-receipt.md`.
+- Five-lens spec, security/adversarial, reliability, DX, and simplicity review passes with no
+  unresolved local must-fix. No Warden/policy/grant/sandbox/egress/audit/RPC/shared-schema/public-
+  CLI/security-claim/dependency change; no ADR is needed.
+- The exact component checkpoint improves final confidence from 2 to 4, but the official frozen
+  six-workflow aggregate remains **4.01/5** pending its same-commit replay. E5 is **NOT_RUN** and
+  Anthropic spend remains USD 2.74434625. Publication/merge/post-main/cleanup remain pending.
