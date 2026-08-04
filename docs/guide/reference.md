@@ -91,6 +91,9 @@ Provider keys resolve from the stored `0600` credentials file first, then the
 provider's environment variable (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`,
 `GOOGLE_GENERATIVE_AI_API_KEY`).
 
+Key resolution happens when a Keel process starts. `keel auth set` does not reload an already
+running session; restart from that session's workspace with `keel --continue`.
+
 ### Budget and loop safety
 
 | Variable | Effect | Default |

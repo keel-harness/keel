@@ -26,6 +26,20 @@ describe("runAuthCli — keel auth set/list/remove (Epic 1.9)", () => {
     expect(out).not.toContain(SECRET); // the secret is NEVER printed back
   });
 
+  it("set: distinguishes durable storage from process reload and gives one exact recovery command", async () => {
+    const store = memStore();
+    const out = await runAuthCli(["set", "anthropic"], {
+      store,
+      readSecret: async () => SECRET,
+    });
+
+    expect(out).toBe(
+      "stored the anthropic key in the 0600 credentials file\n" +
+        "running Keel sessions were not reloaded — restart from the session workspace with `keel --continue`",
+    );
+    expect(out).not.toContain(SECRET);
+  });
+
   it("set: an empty secret is rejected (no blank key stored)", async () => {
     const store = memStore();
     const out = await runAuthCli(["set", "anthropic"], { store, readSecret: async () => "  " });

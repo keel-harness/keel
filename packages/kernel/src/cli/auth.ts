@@ -21,9 +21,9 @@ const hasEnvKey = (p: ProviderId, env: NodeJS.ProcessEnv): boolean =>
 /**
  * The `keel auth` command (Epic 1.9): manage provider API keys in the `0600` credentials file. Pure of
  * I/O except the injected `readSecret` (stdin) and the `store` side effects — the bin wires those.
- * **Secret values are never printed** (set confirms the backend; list shows only the source). Never
- * throws on a cancelled read or a failed store write — both return a clean one-line message so the bin
- * cannot crash with an unhandled rejection (M5, Epic 1.9 QC).
+ * **Secret values are never printed** (set confirms the backend and process-lifetime boundary; list
+ * shows only the source). Never throws on a cancelled read or a failed store write — both return a
+ * clean one-line message so the bin cannot crash with an unhandled rejection (M5, Epic 1.9 QC).
  */
 export async function runAuthCli(args: readonly string[], deps: AuthCliDeps): Promise<string> {
   const [sub, provider] = args;
@@ -48,7 +48,10 @@ export async function runAuthCli(args: readonly string[], deps: AuthCliDeps): Pr
       } catch (e) {
         return `keel auth: could not store the ${provider} key (${(e as Error).message})`;
       }
-      return `stored the ${provider} key in the 0600 credentials file`;
+      return [
+        `stored the ${provider} key in the 0600 credentials file`,
+        "running Keel sessions were not reloaded — restart from the session workspace with `keel --continue`",
+      ].join("\n");
     }
     case "list": {
       return [
