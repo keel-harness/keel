@@ -18,7 +18,12 @@ import {
 import { runSession } from "./runner.js";
 import type { GoalFailureReason, RunOutcome, RunSessionOpts } from "./runner.js";
 import type { TurnOutcome } from "./runner.js";
-import { applyPendingSteeringOnResume, closeOpenToolCalls, rebuild } from "../session/resume.js";
+import {
+  applyPendingSteeringOnResume,
+  closeOpenToolCalls,
+  rebuild,
+  type ResumeState,
+} from "../session/resume.js";
 import { readSession } from "../session/store.js";
 import { firstRunView, initialView, leadingSystemEnd, modelPanel, reduce } from "./view-model.js";
 import type { ViewConfig } from "./view-model.js";
@@ -57,6 +62,43 @@ function resumedSteeringLabel(total: number, urgent: number): string {
     return `${boundedUrgent} urgent correction${boundedUrgent === 1 ? "" : "s"}`;
   }
   return `${boundedTotal} pending inputs (${boundedUrgent} urgent)`;
+}
+
+type SeedPresentationState = Pick<
+  ResumeState,
+  | "failedToolCallIds"
+  | "failedToolMessageIndexes"
+  | "finalAnswerOccurrences"
+  | "finalAnswerSettlements"
+  | "interruptedFinalAnswerSettlementIds"
+>;
+
+/**
+ * Avoid projecting empty ledger presentation indexes across every message of an ordinary turn.
+ * Any authoritative exceptional state keeps the complete projection so malformed or partial
+ * histories remain conservative and visible (ADR-0087).
+ */
+export function seedPresentationForTurn(
+  state: SeedPresentationState,
+  sessionId: string,
+): RunSessionOpts["seedPresentation"] {
+  if (
+    state.failedToolCallIds.size === 0 &&
+    state.failedToolMessageIndexes.size === 0 &&
+    state.finalAnswerOccurrences.size === 0 &&
+    state.finalAnswerSettlements.size === 0 &&
+    state.interruptedFinalAnswerSettlementIds.size === 0
+  ) {
+    return undefined;
+  }
+  return {
+    failedToolCallIds: state.failedToolCallIds,
+    failedToolMessageIndexes: state.failedToolMessageIndexes,
+    finalAnswerOccurrences: state.finalAnswerOccurrences,
+    finalAnswerSettlements: state.finalAnswerSettlements,
+    interruptedFinalAnswerSettlementIds: state.interruptedFinalAnswerSettlementIds,
+    originalInspectionCommand: `keel sessions answer ${sessionId} --original`,
+  };
 }
 
 /**
@@ -342,14 +384,8 @@ export async function runRepl(opts: RunReplOpts): Promise<RunOutcome> {
   ): Promise<void> => {
     const pendingState = rebuild(readSession(base.store.id, base.env ?? process.env));
     const pendingBeforeTurn = pendingState.pendingSteering;
-    const seedPresentation = {
-      failedToolCallIds: pendingState.failedToolCallIds,
-      failedToolMessageIndexes: pendingState.failedToolMessageIndexes,
-      finalAnswerOccurrences: pendingState.finalAnswerOccurrences,
-      finalAnswerSettlements: pendingState.finalAnswerSettlements,
-      interruptedFinalAnswerSettlementIds: pendingState.interruptedFinalAnswerSettlementIds,
-      originalInspectionCommand: `keel sessions answer ${base.store.id} --original`,
-    };
+    const seedPresentation = seedPresentationForTurn(pendingState, base.store.id);
+    const seedPresentationOption = seedPresentation === undefined ? {} : { seedPresentation };
     const carriedUrgent = [...pendingBeforeTurn]
       .reverse()
       .find((steering) => steering.class === "urgent");
@@ -403,7 +439,7 @@ export async function runRepl(opts: RunReplOpts): Promise<RunOutcome> {
               seed,
               recordSeed,
               ownsUi: false,
-              seedPresentation,
+              ...seedPresentationOption,
               ...(runControl.finalAnswer !== undefined
                 ? { finalAnswer: { contract: runControl.finalAnswer } }
                 : {}),
@@ -415,7 +451,7 @@ export async function runRepl(opts: RunReplOpts): Promise<RunOutcome> {
               seed,
               recordSeed,
               ownsUi: false,
-              seedPresentation,
+              ...seedPresentationOption,
               ...(runControl.finalAnswer !== undefined
                 ? { finalAnswer: { contract: runControl.finalAnswer } }
                 : {}),
