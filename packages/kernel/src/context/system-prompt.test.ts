@@ -51,8 +51,24 @@ describe("SYSTEM_PROMPT (§7 Epic 1.6 — <2,000 tokens, 4-phase protocol, hones
   it("preserves operator-requested exact command bytes and relies on structured exit evidence", () => {
     expect(SYSTEM_PROMPT).toMatch(/exact command/i);
     expect(SYSTEM_PROMPT).toMatch(/unchanged|byte-for-byte/i);
+    expect(SYSTEM_PROMPT).toMatch(/(?:never|do not).{0,40}(?:split|rewrite)/i);
     expect(SYSTEM_PROMPT).toMatch(/exit (?:code|status).{0,120}(?:already|result|tool)/i);
     expect(SYSTEM_PROMPT).toMatch(/do not append.{0,100}(?:echo|status|\$\?)/i);
+  });
+
+  it("keeps routine tooling discovery atomic without suppressing legitimate shell composition", () => {
+    expect(SYSTEM_PROMPT).toMatch(/unrelated.{0,80}(?:separate|one).{0,30}bash calls?/i);
+    expect(SYSTEM_PROMPT).toMatch(/`;`.{0,80}`&&`.{0,80}`\|\|`.{0,80}pipeline/is);
+    expect(SYSTEM_PROMPT).toMatch(/independent.{0,80}separate parallel tool calls?/i);
+    expect(SYSTEM_PROMPT).toMatch(/optional checker.{0,100}NOT_RUN/i);
+    expect(SYSTEM_PROMPT).toMatch(
+      /do not use.{0,80}(?:uv|pip|npm).{0,120}(?:discover|materialize).{0,120}optional tooling/is,
+    );
+    expect(SYSTEM_PROMPT).toMatch(/unless.{0,80}(?:operator|user).{0,80}dependency setup/i);
+    expect(SYSTEM_PROMPT).toMatch(
+      /authoritative code.{0,120}failing test.{0,120}(?:begin|start).{0,80}(?:smallest|requested) edit/is,
+    );
+    expect(SYSTEM_PROMPT).toMatch(/genuinely atomic.{0,80}(?:pipeline|shell expression)/i);
   });
 
   it("keeps nonzero command failure separate from following the requested procedure", () => {
