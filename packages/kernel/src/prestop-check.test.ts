@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
@@ -108,32 +108,30 @@ describe("runFreshPreStopCheck", () => {
         tmpdir(),
         `keel-prestop-daemon-${String(process.pid)}-${String(Date.now())}.pid`,
       );
-      const running = runFreshPreStopCheck({
-        command:
-          "python3 -c 'import os, subprocess; " +
-          'p=subprocess.Popen(["sh","-c","while :; do sleep 60; done"], ' +
-          "stdin=subprocess.DEVNULL, start_new_session=True); " +
-          'open(os.environ["KEEL_PRESTOP_PID_FILE"], "w").write(str(p.pid)); ' +
-          'print("started")\'',
-        env: { KEEL_PRESTOP_PID_FILE: pidFile },
-        timeoutMs: 2_000,
-      });
-      const raced = await Promise.race([
-        running,
-        new Promise<"hung">((resolve) => setTimeout(() => resolve("hung"), 500)),
-      ]);
-      const daemonPid = readPidFile(pidFile);
-      if (daemonPid !== undefined) killProcessGroup(daemonPid);
-      if (raced === "hung") await running;
+      try {
+        const result = await runFreshPreStopCheck({
+          command:
+            "python3 -c 'import os, subprocess; " +
+            'p=subprocess.Popen(["sh","-c","while :; do sleep 60; done"], ' +
+            "stdin=subprocess.DEVNULL, start_new_session=True); " +
+            'open(os.environ["KEEL_PRESTOP_PID_FILE"], "w").write(str(p.pid)); ' +
+            'print("started")\'',
+          env: { KEEL_PRESTOP_PID_FILE: pidFile },
+          timeoutMs: 2_000,
+        });
 
-      expect(raced).not.toBe("hung");
-      expect(raced).toMatchObject({
-        ok: true,
-        exitCode: 0,
-        timedOut: false,
-        output: "started\n",
-        truncated: false,
-      });
+        expect(result).toMatchObject({
+          ok: true,
+          exitCode: 0,
+          timedOut: false,
+          output: "started\n",
+          truncated: false,
+        });
+      } finally {
+        const daemonPid = readPidFile(pidFile);
+        if (daemonPid !== undefined) killProcessGroup(daemonPid);
+        rmSync(pidFile, { force: true });
+      }
     },
   );
 
