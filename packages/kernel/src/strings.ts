@@ -19,6 +19,11 @@ const LOOP_GUIDANCE_L2 =
   "Repeated attempts of this kind keep failing and are burning the budget. Either switch to a " +
   "fundamentally different strategy now, or — if you have genuinely exhausted your options — stop and " +
   "honestly report that you are stuck and why, instead of continuing variations that do not converge.";
+const TERMINAL_REVIEW_DIRECT_COMMAND_GUIDANCE =
+  "For a requested test, check, or command, use one atomic bash call. " +
+  "Do not probe `--version` when the requested action can be run directly. " +
+  "Emit the direct requested command with no output-only wrapper. " +
+  "Do not add `2>&1`, `| head`, or `| tail`: the bash result already separates and bounds stdout and stderr.";
 
 export const KERNEL_STRINGS = {
   /** Persistent banner when running with no warden (honest-YOLO; §4.2, ADR-0016). */
@@ -95,8 +100,8 @@ export const KERNEL_STRINGS = {
     "The Warden confirmed the last action was not executed and no live decision exists. Make at " +
     "most one fresh model-authored correction; it remains Warden-gated. For read-only file discovery, " +
     "use typed `search` or `read`, not bash `find`, `grep`, or `xargs`; `search: no matches.` is a " +
-    "completed observation. For a requested test, check, or command, use one atomic bash call. Preserve " +
-    "task intent and exact Warden guidance. Never repeat, split, normalize, or mechanically rewrite the " +
+    `completed observation. ${TERMINAL_REVIEW_DIRECT_COMMAND_GUIDANCE} Preserve task intent and exact ` +
+    "Warden guidance. Never repeat, split, normalize, or mechanically rewrite the " +
     "original action, invent approval, or emit multiple calls. If no safe call exists, state the exact " +
     "remaining work and stop.",
   /** The one final correction earned by a successful ordinary typed workspace mutation. */
@@ -105,9 +110,9 @@ export const KERNEL_STRINGS = {
     "The Warden confirmed the last action was not executed and no live decision exists. Make at " +
     "most one fresh model-authored correction; it remains Warden-gated, and no further terminal-review " +
     "recovery is available after this call. For read-only file discovery, use typed `search` or `read`, " +
-    "not bash `find`, `grep`, or `xargs`; `search: no matches.` is a completed observation. For a " +
-    "requested test, check, or command, use one atomic bash call. Preserve task intent and exact Warden " +
-    "guidance. Never repeat, split, normalize, or mechanically rewrite the original action, invent " +
+    "not bash `find`, `grep`, or `xargs`; `search: no matches.` is a completed observation. " +
+    `${TERMINAL_REVIEW_DIRECT_COMMAND_GUIDANCE} Preserve task intent and exact Warden guidance. ` +
+    "Never repeat, split, normalize, or mechanically rewrite the original action, invent " +
     "approval, or emit multiple calls. If no safe call exists, state the exact remaining work and stop.",
   /** Tool-disabled closeout when the bounded correction does not authoritatively succeed alone. */
   terminalReviewRecoveryFinalization:

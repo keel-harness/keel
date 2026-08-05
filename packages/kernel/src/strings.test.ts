@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { KERNEL_STRINGS, budgetWarningMessage, infraTimeoutMessage } from "./strings.js";
 
+const DIRECT_COMMAND_RECOVERY_GUIDANCE =
+  "For a requested test, check, or command, use one atomic bash call. " +
+  "Do not probe `--version` when the requested action can be run directly. " +
+  "Emit the direct requested command with no output-only wrapper. " +
+  "Do not add `2>&1`, `| head`, or `| tail`: the bash result already separates and bounds stdout and stderr.";
+
 describe("kernel strings", () => {
   it("budgetWarningMessage states used, max, and remaining tokens", () => {
     const m = budgetWarningMessage(6, 10);
@@ -61,6 +67,17 @@ describe("kernel strings", () => {
     expect(message).toContain("Warden-gated");
     expect(message).toMatch(/no further terminal-review recovery is available/is);
     expect(message).toMatch(/requested test, check, or command.{0,80}atomic bash/is);
+  });
+
+  it.each([
+    ["initial", KERNEL_STRINGS.terminalReviewRecovery],
+    ["earned-final", KERNEL_STRINGS.terminalReviewRecoveryEarned],
+  ] as const)("keeps %s recovery correction-local command guidance exact", (_credit, message) => {
+    expect(message).toContain(DIRECT_COMMAND_RECOVERY_GUIDANCE);
+    expect(message.match(/`--version`/g)).toHaveLength(1);
+    expect(message.match(/`2>&1`/g)).toHaveLength(1);
+    expect(message.match(/`\| head`/g)).toHaveLength(1);
+    expect(message.match(/`\| tail`/g)).toHaveLength(1);
   });
 
   // Epic 1.16 golden: the verification prompt MUST be STOP-biased + execution-grounded. The prior

@@ -50,6 +50,11 @@ async function run(
 }
 
 const userMsg = (content: string) => [{ role: "user" as const, content }];
+const DIRECT_COMMAND_RECOVERY_GUIDANCE =
+  "For a requested test, check, or command, use one atomic bash call. " +
+  "Do not probe `--version` when the requested action can be run directly. " +
+  "Emit the direct requested command with no output-only wrapper. " +
+  "Do not add `2>&1`, `| head`, or `| tail`: the bash result already separates and bounds stdout and stderr.";
 
 describe("runAgentLoop", () => {
   it("happy path: streams text, dispatches a tool, then stops on model-stop", async () => {
@@ -397,6 +402,79 @@ describe("runAgentLoop", () => {
     expect(modelTurn).toBe(3);
   });
 
+  it("keeps exact direct-command recovery guidance provider-visible across compaction", async () => {
+    const original = "python3 -m pytest --version 2>&1 | head -3";
+    const corrected = "python3 -m pytest tests/test_termui.py -x -q";
+    const seen: ModelMessageT[][] = [];
+    let turn = 0;
+    const model: ModelPort = {
+      async *stream(input): AsyncGenerator<ModelStreamChunkT> {
+        seen.push(input.messages.map((message) => structuredClone(message)));
+        turn += 1;
+        if (turn === 1) {
+          yield { type: "tool-call", id: "reviewed", name: "bash", args: { command: original } };
+          yield {
+            type: "finish",
+            reason: "tool-calls",
+            usage: { inputTokens: 10, outputTokens: 2 },
+          };
+          return;
+        }
+        if (turn === 2) {
+          yield {
+            type: "tool-call",
+            id: "correction",
+            name: "bash",
+            args: { command: corrected },
+          };
+          yield {
+            type: "finish",
+            reason: "tool-calls",
+            usage: { inputTokens: 10, outputTokens: 2 },
+          };
+          return;
+        }
+        yield { type: "text-delta", text: "The direct focused test passed." };
+        yield { type: "finish", reason: "stop", usage: { inputTokens: 10, outputTokens: 2 } };
+      },
+    };
+    const executed: string[] = [];
+    const exec: ExecutorPort = {
+      async execute(call) {
+        const command = call.args["command"];
+        if (typeof command !== "string") throw new Error("expected string command");
+        executed.push(command);
+        if (command === original) {
+          return recoverableTerminalReviewResult(
+            "warden review required (not executed): POL-003; use one simpler direct command",
+          );
+        }
+        return { ok: true, output: "1 passed" };
+      },
+    };
+
+    const events: KernelEventT[] = [];
+    for await (const event of runAgentLoop(model, exec, {
+      messages: userMsg("run the focused test"),
+      tools: [{ name: "bash", parameters: { type: "object" } }],
+      compactor: (messages) => {
+        const latest = messages.at(-1);
+        return latest?.role === "user" && latest.content === KERNEL_STRINGS.terminalReviewRecovery
+          ? [latest]
+          : messages;
+      },
+    })) {
+      events.push(event);
+    }
+
+    expect(seen[1]).toEqual([{ role: "user", content: KERNEL_STRINGS.terminalReviewRecovery }]);
+    expect(seen[1]?.[0]?.content).toContain(DIRECT_COMMAND_RECOVERY_GUIDANCE);
+    expect(executed).toEqual([original, corrected]);
+    expect(events.filter((event) => event.type === "stop")).toEqual([
+      { type: "stop", reason: "model-stop" },
+    ]);
+  });
+
   it("returns a sole authoritative correction success to ordinary Warden-gated work", async () => {
     const original =
       "python3 -m pytest --version 2>&1; python3 -m ruff --version 2>&1; python3 -m mypy --version 2>&1";
@@ -615,6 +693,8 @@ describe("runAgentLoop", () => {
         role: "user",
         content: KERNEL_STRINGS.terminalReviewRecoveryEarned,
       });
+      expect(seenMessages[1]?.at(-1)?.content).toContain(DIRECT_COMMAND_RECOVERY_GUIDANCE);
+      expect(seenMessages[4]?.at(-1)?.content).toContain(DIRECT_COMMAND_RECOVERY_GUIDANCE);
       expect(seenTools).toEqual(Array.from({ length: 7 }, () => advertisedTools));
       expect(executed).toEqual(calls);
       expect(events.filter((event) => event.type === "stop")).toEqual([
