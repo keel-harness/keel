@@ -16,7 +16,7 @@ import { ScriptedModel } from "@keel/simulator";
 import { InputQueue } from "../cli/input-queue.js";
 import { SessionStore, readSession } from "../session/store.js";
 import { rebuild } from "../session/resume.js";
-import { runRepl, statusAfterPlanTurn, type RunReplOpts } from "./repl.js";
+import { runRepl, seedPresentationForTurn, statusAfterPlanTurn, type RunReplOpts } from "./repl.js";
 import { COMMANDS } from "./commands.js";
 import { staticModelRouteRuntime } from "../model-routing/controller.js";
 import { renderFrame } from "./headless.js";
@@ -32,6 +32,68 @@ import { createInteractiveReviewDecisionController } from "./review-decision.js"
 import { R21_OVERSIZED_FINAL_ANSWER } from "../fixtures/r21-oversized-final-answer.js";
 
 const env = (): NodeJS.ProcessEnv => ({ KEEL_HOME: mkdtempSync(join(tmpdir(), "keel-")) });
+
+describe("seedPresentationForTurn", () => {
+  const empty = () => ({
+    failedToolCallIds: new Set<string>(),
+    failedToolMessageIndexes: new Set<number>(),
+    finalAnswerOccurrences: new Map(),
+    finalAnswerSettlements: new Map(),
+    interruptedFinalAnswerSettlementIds: new Set<string>(),
+  });
+
+  it("omits the presentation projection when every authoritative collection is empty", () => {
+    expect(seedPresentationForTurn(empty(), "ses_01ARZ3NDEKTSV4RRFFQ69G5FAV")).toBeUndefined();
+  });
+
+  it.each([
+    ["failed tool call id", { failedToolCallIds: new Set(["call-1"]) }],
+    ["failed tool message index", { failedToolMessageIndexes: new Set([3]) }],
+    [
+      "final-answer occurrence",
+      {
+        finalAnswerOccurrences: new Map([
+          [
+            2,
+            {
+              settlementId: "fas_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+              kind: "attempt" as const,
+              attempt: "original" as const,
+              contract: { version: 1 as const, maxWords: 40 },
+            },
+          ],
+        ]),
+      },
+    ],
+    [
+      "final-answer settlement",
+      {
+        finalAnswerSettlements: new Map([
+          [
+            "fas_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            {
+              settlementId: "fas_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+              outcome: "accepted-original" as const,
+            },
+          ],
+        ]),
+      },
+    ],
+    [
+      "interrupted final-answer settlement",
+      {
+        interruptedFinalAnswerSettlementIds: new Set(["fas_01ARZ3NDEKTSV4RRFFQ69G5FAV"]),
+      },
+    ],
+  ])("keeps the complete conservative projection for a %s", (_label, exceptional) => {
+    const state = { ...empty(), ...exceptional };
+
+    expect(seedPresentationForTurn(state, "ses_01ARZ3NDEKTSV4RRFFQ69G5FAV")).toEqual({
+      ...state,
+      originalInspectionCommand: "keel sessions answer ses_01ARZ3NDEKTSV4RRFFQ69G5FAV --original",
+    });
+  });
+});
 
 it("does not restore stale plan posture after governed protections become unavailable", () => {
   const unavailable = {
