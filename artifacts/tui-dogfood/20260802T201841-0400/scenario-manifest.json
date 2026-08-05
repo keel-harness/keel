@@ -72,8 +72,8 @@
     {
       "id": "feature",
       "externalBaselineCommit": "00e592cea702e0b2caa0dee42489fdb1c22cd845",
-      "prompt": "Implement the local-only pathlib.Path support for click.edit(filename=...) now. Correct the earlier diagnosis: pathlib.Path is not Iterable on this runtime, so first verify the actual failure mode. TDD is mandatory: add focused failing tests first for a single PathLike filename and an iterable containing PathLike filenames, run the targeted tests and confirm they fail for the intended reason, then make the smallest type/runtime change, add a concise CHANGES.md entry, and run the targeted tests plus relevant typing and formatting checks. Use existing locked tooling; if dependencies are missing, request only the narrow setup needed. Do not commit yet and do not broaden scope.",
-      "promptProvenance": "source-ledger",
+      "prompt": "Implement the local-only pathlib.Path support for click.edit(filename=...) now. Correct the earlier diagnosis: pathlib.Path is not Iterable on this runtime, so first verify the actual failure mode. TDD is mandatory: add focused failing tests first for a single PathLike filename and an iterable containing PathLike filenames, run the targeted tests and confirm they fail for the intended reason, then make the smallest type/runtime change, add a concise CHANGES.md entry, and run the targeted tests plus relevant typing and formatting checks. Use existing locked tooling only. Do not install dependencies or request setup for optional typing or formatting tools. Run each requested test or check directly; if an optional checker is unavailable, report that checker NOT_RUN and continue with the implementation and available verification. Do not commit yet and do not broaden scope.",
+      "promptProvenance": "canonicalized",
       "terminal": { "columns": 100, "rows": 30 },
       "mode": "guided",
       "expectedPolicyPosture": {

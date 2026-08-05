@@ -501,7 +501,8 @@
 ### DF-029 — packaged full-process-group RSS remains outside generic confidence
 
 - Severity: P1 resource confidence; existing named residual P1-007.
-- Status: open/accepted only as a named pre-alpha residual; R23 does not promote it to green.
+- Status: open/accepted only as a named pre-alpha residual; R23 and the bounded #140 optimization do
+  not promote it to green.
 - Direct evidence: first/confirmation dense peak p95 values are 247,152/244,432 KiB for the complete
   Kernel + Warden group—inside the scoped 256 MiB R23 alert bound but not the separate `<150 MB`
   generic Kernel 200-turn target. The protocols are not identical, so no cross-protocol percentage
@@ -509,6 +510,11 @@
 - Settlement evidence: absolute settled p95 passes the frozen 224 MiB R23 bound in both runs, but
   one confirmation sample grows 26,176 KiB from its own initial idle, exceeding the frozen 16 MiB
   allowance. It is retained as a failure rather than discarded or normalized away.
+- Issue #140 evidence: production-shape profiling found 61,998,278 bytes of GC-normalized live heap
+  and localized one avoidable empty ordinary-turn presentation projection. PR #141 removes only
+  that work. Two 150-turn × 12 KiB comparisons improve normalized growth by 1,196,032 and
+  33,652,736 bytes versus control, a 17,424,384-byte mean, but the exact signed-head confirmation
+  still grows 90,980,352 bytes and exceeds the absolute product gate. #140 is closed; P1-007 is not.
 - Boundaries: no threshold relaxation, heap/RSS conflation, compatibility claim, or optimization
   without a separately scoped performance issue and exact measurement.
 
@@ -566,8 +572,9 @@
 ### DF-032 — bounded final answer invents an unsupported runtime mechanism
 
 - Severity: P0 trust/final-result confidence for repository onboarding.
-- Status: fixed locally under [issue #136](https://github.com/keel-harness/keel/issues/136);
-  publication and exact merged replay pending.
+- Status: fixed under [issue #136](https://github.com/keel-harness/keel/issues/136), merged through
+  [PR #138](https://github.com/keel-harness/keel/pull/138) as `4588bfa`; the first exact merged
+  onboarding repetition passes human semantic review. Full all-six repetition remains pending.
 - Direct evidence: exact merged carrier `9a9e40a` passed its mechanical oracle but claimed that a
   bare `pathlib.Path` iterates character by character. The run had inspected only source; no
   preceding tool result demonstrated a runtime mechanism. The statement is also false on the
@@ -583,6 +590,133 @@
   opt-in skips; static/build/package; exact candidate tarball; two independent live runs with zero
   reviews, clean Click, exit zero, factual primary answers, and exact costs USD 0.33683610 and USD
   0.82259265. Screenshot 71 and session log 31 retain sanitized evidence.
+- Publication: reviewed head `c1cb8d7` passed exact-head CI `30961206113`; exact post-main CI
+  `30961587248`, issue closure, and branch/worktree cleanup passed.
 - Boundaries: no second model call, retry, semantic grader/classifier, phrase filter, forced
   execution, hard-limit change, new state, dependency, schema, ModelPort, Warden, policy, sandbox,
   egress, audit, grant, RPC, public CLI, or security-claim change.
+
+### DF-033 — successful terminal correction disables the feature's remaining tool lane
+
+- Severity: P0 task-completion trust, feature workflow, and controlled recovery.
+- Status: open under [issue #139](https://github.com/keel-harness/keel/issues/139); implementation is
+  **NOT_RUN pending explicit owner authorization** because the change affects public recovery
+  behavior adjacent to Warden terminal-review handling.
+- Direct evidence: in the first exact-main feature replay, Warden correctly rejected a composite
+  tooling probe as terminal `POL-003` with no approval handle and did not execute it. Keel allowed
+  one safe atomic correction, `python3 -m pytest --version`, which succeeded. It then disabled tools
+  for the recovery lane. The model described intended edits/tests, the TUI rendered completion and
+  exited zero, but the frozen Click workspace remained unchanged.
+- Impact: the user receives a clean completion surface for a feature that was neither implemented
+  nor tested. Warden's correct least-privilege decision becomes a dead end, so task trust and
+  recovery control fail even though security enforcement worked.
+- Required boundary: preserve terminal no-handle semantics, original non-execution, atomic-shape
+  correction, policy authority, audit fidelity, and bounded recovery. The next safe slice must let
+  ordinary work continue after the successful correction without converting terminal review into
+  an approval or weakening Warden.
+
+- Current status: implemented and locally validated on signed PR #142 head `edc9ea59`; exact-head CI
+  passes. Publication is held because two required live user-outcome replays remain red. The first
+  proves the corrected continuation path before a later second terminal review; the second keeps a
+  review-required `uv run` correction terminal. #139 code has no unresolved local must-fix, but its
+  end-to-end definition of done is unmet.
+
+### DF-034 — routine tooling discovery repeatedly drives the agent into terminal review
+
+- Severity: P0 feature-completion reliability and Warden-friction interaction.
+- Status: prompt-only implementation is complete and locally/CI green on PR #142 head `38f21afb`,
+  but live validation failed and the PR remains unmerged. A structural continuation is **NOT_RUN
+  pending separate owner approval** because controller transformation and another recovery pass are
+  explicit #143 non-goals.
+- Direct evidence: two exact-carrier #139 replays performed extensive read-only diagnosis but no
+  edit. One resumed successfully after the first correction, then stopped on a later compound
+  `which`/`pip show`/`grep` query. The other selected `uv run mypy --version` as its bounded
+  correction, which correctly remained review-required. Both exited 1 with clean Click.
+- Safest boundary: shape unrelated discovery/version/status intentions into separate calls and
+  report unavailable optional checkers `NOT_RUN`; do not relax Warden, add recovery attempts, or
+  transform commands in the controller.
+- Prompt-only outcome: the final exact carrier removed named version/package-manager preflights from
+  the observed trajectory but did not make the model obey the broader rule. It still emitted two
+  `| head` pipelines and `find ... | xargs grep ... 2>/dev/null`; the last correctly reached terminal
+  POL-003, the single atomic correction exited 1, and the model stopped with a clean workspace.
+  This is evidence that prompt text alone is insufficient for the P0 completion outcome.
+- Structural diagnosis: Warden's result is correct and must remain unchanged. The smallest safe
+  continuation is situational guidance in the existing controller-owned one-call recovery message:
+  route read-only file discovery to typed `search`/`read`, whose no-match result is a successful
+  observation, while reserving bash for one atomic requested command. This adds no retry, rewrite,
+  authority, or Warden change. It remains **NOT_RUN pending separate owner authorization**; the full
+  contract trace, rejected alternatives, TDD matrix, and USD 1.25 validation cap are recorded in
+  session log 34.
+
+### DF-035 — feature replay prompt confounds recovery validation with dependency setup
+
+- Severity: P0 feature-completion reliability; P1 cognitive load and cost.
+- Status: open; directly observed on exact signed #144 candidate `3b21d2a`; public issue #144 and PR
+  #142 remain open.
+- Direct evidence: the model requested `pip show ... 2>&1 | grep ...` availability inventory even
+  though the ordinary system prompt says not to inventory tools. Warden correctly returned a
+  terminal POL-003 no-handle review without execution. Recovery then batched four
+  `python3 -m ... --version` checks with `&&`; the call exited 1 on missing mypy, so the monotonic
+  #139 recovery correctly closed terminally.
+- User impact: after 18 provider calls and USD 0.26713935, Keel produced a plausible implementation
+  plan but no edit. Click stayed clean, the independent runtime probe remained red, and the TUI
+  settled `needs attention` with `BLOCKED_AFTER_SYNTHESIS`.
+- What worked: exact controller wiring is deterministic; the original reviewed action did not run;
+  the correction remained Warden-gated; a failed correction did not reopen recovery; zero human
+  prompts were shown.
+- Confounder: #144 targets terminal *file-discovery* recovery, but this run reached a dependency/tool
+  availability review. The scenario says to request narrow setup if dependencies are missing, while
+  its expected outcome says unavailable static checks should be reported. The result therefore does
+  not isolate #144's intended branch.
+- Boundary: #144 forbids Warden relaxation, another recovery, tool filtering, or controller command
+  transformation. The second live replay is NOT_RUN under #144's predeclared stop rule; any
+  corrected-oracle replay or structural product slice needs separate review.
+
+### DF-036 — one task-global recovery credit expires despite later verified progress
+
+- Severity: P0 feature-completion reliability; P1 cost and user-control burden.
+- Status: directly reproduced by corrected-oracle replay on exact `3b21d2a`; implementation NOT_RUN
+  pending an accepted recovery-budget decision.
+- Direct evidence: an early compound pytest-version probe received non-grantable, non-pending
+  POL-003 review. Its one atomic correction succeeded and ordinary tools resumed. The agent then
+  made two typed edits to `tests/test_termui.py`, proving meaningful workspace progress. A later
+  requested pytest command included redundant `cd` and `2>&1`, received another correct POL-003
+  result, and could not use recovery because the process-global flag remained exhausted.
+- User impact: after 31 provider routes and USD 0.85785450, Keel stopped with an honest plan and one
+  reviewable test-file diff but did not run the red test, implement the feature, update CHANGES, or
+  verify the outcome. Restarting would repeat costly context acquisition and TDD work.
+- Warden judgment: both actions were `grantable:false`, `pending:false`, not executed, and avoidable
+  through simpler commands. Policy remained fail-closed; no Warden relaxation is supported.
+- Recommended bounded design: earn at most one additional task-wide recovery credit only after an
+  authoritative successful typed workspace mutation. Preserve one model-authored call per credit,
+  ordinary Warden gating, sibling rejection, exact command bytes, and terminal closeout for every
+  failed/ambiguous/reviewed correction. Reads, searches, prose, opaque bash, failures, and correction
+  success alone must not refresh credit.
+- Boundary: this changes #139/#144's normative monotonic recovery budget and therefore requires an
+  accepted ADR and explicit owner authorization before implementation. Reclassifying POL-003,
+  broadening its allow set, automatic command rewriting, unlimited retries, and semantic-equivalence
+  inference are rejected.
+- Decision status: public issue #145 and proposed ADR-0088 PR #146 now define the bounded slice.
+  Signed docs head `222cf69` passes exact-head CI `31016337581` and required aggregate
+  `92341536526`. Behavior implementation remains **NOT_RUN** pending explicit ADR acceptance.
+
+### DF-037 — bounded correction repeats forbidden output wrappers before useful progress
+
+- Severity: P0 feature-completion reliability; P1 cost efficiency.
+- Status: directly reproduced on exact PR #142 head `5e2625f`; public issue #149 scopes the smallest
+  follow-up. Implementation and another provider replay are **NOT_RUN** pending explicit approval.
+- Direct evidence: the ordinary agent requested `python3 -m pytest --version 2>&1 | head -3`.
+  Warden returned a non-grantable, non-pending POL-003 result and did not execute it. The bounded
+  correction then requested `python3 -m pytest tests/test_termui.py -x -q 2>&1 | tail -5`, receiving
+  the same correct terminal result.
+- ADR-0088 judgment: the first correction failed and no ordinary typed mutation occurred. The new
+  controller therefore correctly earned no final credit and closed tools. This run neither refutes
+  nor validates the progress-earned refresh path.
+- User impact: 12 provider routes and USD 0.69344145 were spent before repository inspection or
+  mutation produced a reviewable result. Click remained clean and the feature outcome stayed red.
+- Recommended smallest slice: correction-local prompt guidance that explicitly prohibits the
+  observed `--version`, `2>&1`, `| head`, and `| tail` shapes and asks for one direct requested test
+  command. Do not relax or rewrite Warden policy, widen recovery, or alter command bytes.
+- Stop rule: permit at most one newly budgeted replay after deterministic prompt regressions and
+  explicit owner approval. If the same class fails again, stop prompt-only iteration and plan a
+  separately reviewed typed verification-intent architecture.

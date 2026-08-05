@@ -282,3 +282,61 @@ restores the candidate onboarding row to **4.11/5**, candidate unweighted mean t
 pooled diagnostic to **4.02/5 (249/62)**. No new axis points are added; #136 restores the validity
 of the already credited #113 result. Publication and the exact merged all-six replay remain the
 strict promotion gate.
+
+PR #138 has now published #136 as `4588bfa`; exact-head CI `30961206113`, exact post-main CI
+`30961587248`, issue closure, and cleanup pass. The first exact merged onboarding repetition also
+passes human semantic review, so the candidate onboarding row remains 4.11/5.
+
+The same pass's feature workflow does **not** validate the candidate row. After one correct terminal
+review and one successful atomic correction, the recovery lane disabled tools; Keel rendered done
+while the external workspace remained unchanged. Issue #139 is a P0 strict-gate blocker. Because
+this is a reliability invalidation rather than a complete eleven-axis rescore, the published point
+estimate is held at **4.04/5 candidate / 4.02 pooled**, not promoted as current release proof. The
+strict gate remains **NO-GO**: two all-six same-commit passes are absent; debugging and refactor
+remain below their 3.8 floors; cross-workflow floors and an independent cohort remain open.
+
+Issue #140's ordinary-turn projection guard is a measured resource optimization and earns no
+workflow-axis credit. It improves normalized exact-carrier growth by 17,424,384 bytes on average,
+but P1-007's absolute `<150,000,000` gate remains failed. PR #141, exact-head CI `30966432286`,
+merge `caa51dc`, exact post-main CI `30966805542`, and cleanup are green. The candidate mean remains
+**4.04/5** and the pooled diagnostic remains **4.02/5 (249/62)** pending the strict replay.
+
+PR #142 fixes #139's local control defect and passes exact-head CI, but two exact-carrier feature
+replays still fail before mutation due repeatable ordinary tooling-discovery command shaping. This
+does not lower the historical point estimate without a full eleven-axis rescore, but it keeps the
+strict release verdict **NO-GO** and provides no feature-row promotion. #143 is NOT_RUN pending
+owner approval. The evidence-bound candidate remains **4.04/5**, not a current all-workflow proof.
+
+The owner-approved #143 prompt-only candidate then passed all local and exact-head CI gates, but its
+final live replay again stopped before any mutation after issuing explicitly discouraged pipeline
+and redirection shapes. The named version/package-manager probes disappeared, but the user outcome
+did not improve enough to pass. A second final-candidate replay was not run after the predeclared
+stop condition. No score credit is assigned: the evidence-bound point estimate remains **4.04/5
+candidate / 4.02 pooled**, and the strict same-commit release verdict remains **NO-GO**.
+
+The separately authorized #144 controller-guidance candidate passes deterministic wiring, full
+local gates, and exact-head CI, but its sole permitted live replay also stopped before mutation.
+Recovery converted a reviewed availability pipeline into one Warden-gated bash call, but the model
+still batched optional checks and the call failed on missing mypy. Because that distinct path did
+not exercise targeted file-discovery recovery and the scenario's dependency-setup wording is
+ambiguous, it provides neither positive nor clean negative score evidence for #144. No workflow
+axis is promoted or downgraded without a complete rescore: the evidence-bound estimate remains
+**4.04/5 candidate / 4.02 pooled**, and strict release evidence remains **NO-GO**.
+
+The corrected #144 oracle removes the dependency-setup confounder and produces stronger negative
+evidence. Keel resumed after one correction, performed two typed test edits, then stopped on a later
+non-actionable review because its sole task-global recovery credit was already consumed. This is
+meaningful progress over the original clean-workspace failures but not feature completion. No axis
+credit is earned: **4.04/5 candidate / 4.02 pooled** remains an historical evidence-bound estimate,
+and strict release evidence remains **NO-GO** pending DF-036 and two full corrected replays.
+
+Proposed ADR-0088 is now green as a docs-only decision candidate on PR #146 (`222cf69`, exact-head
+CI `31016337581`). It earns no score credit: behavior, exact-carrier replay, and the two required
+complete feature outcomes are **NOT_RUN** pending maintainer acceptance. The estimate therefore
+remains **4.04/5 candidate / 4.02 pooled**, and the strict release verdict remains **NO-GO**.
+
+The accepted ADR-0088 implementation is deterministic and exact-head green on PR #142 (`5e2625f`,
+CI `31022857084`), but its first exact-carrier replay stopped before typed progress and therefore
+never exercised the earned-final-credit path. This is not positive workflow evidence and does not
+warrant a score change. The estimate remains **4.04/5 candidate / 4.02 pooled**; the strict release
+verdict remains **NO-GO** pending DF-037 and a complete same-carrier feature outcome.

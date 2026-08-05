@@ -50,12 +50,24 @@ describe("dogfood scenario manifest", () => {
 
     expect(raw.scenarios.map((scenario) => scenario.promptProvenance)).toEqual([
       "source-ledger",
-      "source-ledger",
+      "canonicalized",
       "source-ledger",
       "source-ledger",
       "canonicalized",
       "canonicalized",
     ]);
+  });
+
+  it("keeps the feature workflow actionable when optional checkers are unavailable", () => {
+    const manifest = DogfoodScenarioManifest.parse(manifestFixture());
+    const feature = manifest.scenarios.find((scenario) => scenario.id === "feature");
+
+    expect(feature).toBeDefined();
+    expect(feature!.prompt).toMatch(/do not install dependencies/i);
+    expect(feature!.prompt).toMatch(/optional checker.*not_run.*continue/i);
+    expect(feature!.prompt).not.toMatch(/request only the narrow setup/i);
+    expect(feature!.promptProvenance).toBe("canonicalized");
+    expect(feature!.expectedUserOutcome).toMatch(/unavailable static checks/i);
   });
 
   it("keeps the committed manifest free of credential and user-home markers", () => {
