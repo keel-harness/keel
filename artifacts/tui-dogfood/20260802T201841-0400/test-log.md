@@ -1857,3 +1857,28 @@
   **USD 0.62484855**. Cumulative spend is **USD 17.52122260**; USD 2.47877740 remains under the hard
   cap. Replay 2 is **NOT_RUN** under the one-run authorization. PR #142 remains unmerged and #149's
   strict live definition is unmet.
+
+## 2026-08-05 — final-regression replay and strict closeout
+
+- Integrated exact `origin/main` into PR #142 at `175f3dd`. Focused adjacency passed 355/355; full
+  enforced coverage passed 6,721 tests with 20 intentional opt-in skips; typecheck, lint, format,
+  build, package, supply-chain, diff, prohibited-surface, and real sandbox 18/18 gates passed.
+- The clean scripts-disabled carrier SHA-256 was
+  `f26f630fe002215ae0977ad39cb301f41cd952b39e4ba6616039a7c6e3b0fed3`. Exact-head CI
+  `31044498815`, including required aggregate `92438324768`, passed.
+- The one fresh-home/fresh-Click 100x30 replay revalidated #149's direct correction, then reached a
+  second terminal diagnostic on a `PYTHONPATH=src ...` test request. Its final correction attempted
+  forbidden `pip install -e . -q && ...`; bash exited 127. The run settled
+  `BLOCKED_AFTER_SYNTHESIS` without a successful public exit.
+- Click ended with only `src/click/termui.py` and `tests/test_termui.py` modified. `CHANGES.md` was
+  unchanged. Independent `git diff --check`, local-source PathLike runtime probe, and full
+  `tests/test_termui.py` verification passed (**223 passed / 23 skipped**), but the strict exact
+  three-file and public-exit gates failed.
+- Private-oracle red-first regression: its helper stripped Git porcelain's first status column. The
+  new test failed before changing `.strip()` to newline-only trimming; all six driver self-tests
+  then passed. The defect did not change the no-go verdict.
+- Usage was 63,659 fresh input, 94,385 cache-write, 983,708 cache-read, and 5,847 output tokens for
+  **USD 0.92773815**. Cumulative spend is **USD 18.44896075**. No further provider call is run.
+- PR #142 was closed unmerged; post-main CI and issue closure are **NOT_RUN**. Issue #149 remains
+  open. The closed PR branch/worktree, remote branch, and disposable Click replay worktree were
+  removed.

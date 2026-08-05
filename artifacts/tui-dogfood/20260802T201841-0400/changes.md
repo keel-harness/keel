@@ -1061,3 +1061,21 @@ worktree were removed.
   to a direct wrapper-free pytest command that succeeded and resumed typed work. The strict workflow
   still failed at gross-runway preflight with only two of three required files and failed independent
   verification. PR #142 remains unmerged; #149 stays open; no score or security claim changes.
+
+## Final-regression closeout
+
+- Rebased the combined candidate on exact main as merge head `175f3dd`, reran focused/full/static/
+  build/package/supply-chain/real-sandbox gates, built and independently installed the clean exact
+  scripts-disabled carrier, and confirmed exact-head CI `31044498815` green.
+- Ran exactly one owner-authorized final-regression Click replay. The first direct correction again
+  removed the observed output wrapper and restored ordinary typed work; later verification and the
+  final correction did not complete within safe task behavior.
+- Independent local-source verification passes for the two retained Click edits, but `CHANGES.md`
+  was unchanged and the public process did not exit zero. The strict three-file and independent-
+  verification merge condition therefore failed.
+- Added a red-first self-test to the private driver for Git porcelain leading-status preservation and
+  replaced all-whitespace trimming with newline-only trimming. All six driver self-tests pass. This
+  evidence-harness repair changes no product byte or prior verdict.
+- Published the exact no-go evidence, closed PR #142 unmerged, left issue #149 open, and removed the
+  closed implementation branch/worktree, remote branch, and disposable Click replay worktree. No
+  post-main CI, issue closure, score promotion, security claim, or provider rerun is claimed.
