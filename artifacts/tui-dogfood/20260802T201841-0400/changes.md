@@ -913,3 +913,130 @@ worktree were removed.
 - No second request, hard-contract change, state, dependency, ModelPort, Warden, policy, sandbox,
   egress, audit, grant, RPC, public CLI, or security claim changes. Candidate scores return to
   **4.11 onboarding / 4.04 mean / 4.02 pooled**, pending publication and exact merged all-six proof.
+
+## Issue #136 — publication closeout
+
+- Reviewed head `c1cb8d7` passed exact-head CI `30961206113`; PR #138 merged as `4588bfa`, issue
+  #136 closed, and exact post-main CI `30961587248` passed.
+- The remote/local feature branches and isolated worktree were removed. Publication adds no
+  provider cost, Warden interrupt, product authority, score, dependency, or security claim.
+
+## Issue #140 — skip empty ordinary-turn presentation projection
+
+- Added pure `seedPresentationForTurn` selection in `packages/kernel/src/tui/repl.ts`. It returns no
+  projection only when all five authoritative failed-tool/final-answer collections are empty. Any
+  nonempty collection preserves the entire established presentation plus the controller-owned
+  original-inspection command.
+- Both ordinary and bounded loop paths use the optional projection. No schema, persisted state,
+  receipt, audit, model-visible result, Warden verdict, review, grant, sandbox, egress, CLI, or
+  security claim changes.
+- Six red focused cases preceded implementation. Focused **68/68**, adjacency **490/490**, full
+  coverage **6,679 passed / 20 intentional opt-in skips**, lint, typecheck, format, supply-chain,
+  build, package, exact carrier, and five-lens QC pass.
+- The exact product comparison finds a 17,424,384-byte mean normalized improvement, but all
+  candidate samples still fail the frozen `<150,000,000` P1-007 process-group RSS gate. The change
+  is retained as bounded evidence-backed progress; P1-007 is not closed or relabeled.
+- Reviewed head `02014f4` passed exact-head CI `30966432286`; PR #141 merged as `caa51dc`. Exact
+  post-main CI `30966805542`, required aggregate `92183426632`, issue closure, and feature cleanup
+  pass. Anthropic calls/cost and score change: zero.
+
+## Issue #139 — resume ordinary work after a successful terminal correction
+
+- Added one turn-local success fact: only a sole authoritative bounded correction returns to the
+  ordinary loop; every other outcome retains tool-disabled closeout. The monotonic attempted flag
+  remains consumed, so later review cannot reopen recovery.
+- Presentation now associates the immediate controller-owned correction even after later ordinary
+  history and same-response narration. It retains the original non-execution receipt, user-turn
+  boundary, bounded sibling truth, and later consequential failures.
+- Added exact command byte assertions plus turn, token, deadline, abort, loop, second-review,
+  failure-envelope, narration, user-boundary, live/headless/no-color/resume coverage.
+- Hardened the private feature oracle to require exact mutation and independent verification rather
+  than exit zero. The untouched baseline now fails as intended.
+- Signed PR #142 head `edc9ea59`, exact-head CI `30969379058`, local full gates, and exact carrier
+  pass. Two live task outcomes fail for the separately scoped #143 command-shaping defect, so PR #142
+  remains unmerged and no completion claim is made.
+
+## Issue #143 — explicit ordinary-agent command shaping
+
+- Added and red-first proved explicit model guidance to skip `--version`, `which`, `command -v`,
+  `pip show`, `2>&1`, and `| head` during routine model-authored discovery; requested checks should
+  run first and a demonstrably missing optional checker should be reported `NOT_RUN`.
+- Preserved exact operator commands, genuinely atomic shell expressions, independent parallel
+  observations, locked-tooling fallback, and all Warden authority. The final wording is shorter than
+  the previous green prompt after a deterministic compaction-threshold regression was found and
+  fixed without altering compaction behavior or its tests.
+- Final signed head `38f21afb` passes full local gates and exact-head CI `30973240684`; exact carrier
+  SHA-256 is `7eb2e06f…906b9` with clean embedded metadata.
+- Live evidence does not validate completion. The final replay avoided the named version and
+  package-manager probes but still ignored the direct prompt by emitting unrelated pipelines and
+  output redirection, stopped after one correct #139 atomic recovery, and made no edit. The required
+  second pass was not run after the predeclared prompt-only stop condition.
+- PR #142 remains unmerged. A structural repair would exceed #143's explicit non-goals and requires
+  a separate approved public scope. Security claims affected: none. ADR needed for the retained
+  prompt slice: no.
+
+## Issue #144 — typed-tool controller recovery guidance
+
+- Changed only the existing `terminalReviewRecovery` text plus focused string and exact-injection
+  tests. Read-only discovery now names typed `search`/`read`, typed no-match is a completed
+  observation, and requested tests/checks/commands retain one model-authored Warden-gated bash call.
+- The controller remains one-shot and monotonic. No tool filtering, command rewrite, second recovery,
+  exit reinterpretation, Warden/POL-003 change, dependency, frozen interface, or security claim was
+  added.
+- Red-first 2-case evidence, 215/215 focused, 479/479 adjacency, full coverage 6,692 tests, all
+  static/build/package gates, five-lens QC, and exact-head CI `30976412151` pass on signed head
+  `3b21d2a`. The exact scripts-disabled tarball SHA-256 is `aefbff8d…f6f7d2`.
+- Live evidence does not validate the user outcome. The sole permitted first replay recovered a
+  reviewed availability pipeline into a multi-check bash call that failed on absent mypy, then
+  stopped before editing. It did not exercise the targeted terminal file-discovery branch, and the
+  scenario's dependency-setup wording is a material confounder. The second replay is NOT_RUN, PR
+  #142 remains unmerged, and no score credit is assigned.
+
+## Corrected #144 evidence contract
+
+- Added one red-first dogfood-manifest regression and removed the feature prompt's contradictory
+  conditional dependency-setup instruction. Optional typing/formatting tools must not be installed;
+  unavailable checks are reported `NOT_RUN` while implementation and available verification
+  continue.
+- Focused prompt red/green is 1 failed then 1 passed. A second provenance-honesty red failed 1/1
+  before the amended feature prompt changed from `source-ledger` to `canonicalized`. Both focused
+  cases, the complete dogfood evidence suite (22/22), and the private driver self-test pass. This is
+  an evidence-harness change only; exact PR carrier `3b21d2a` remained byte-frozen.
+- Corrected replay 1 made real progress through typed edits but exposed DF-036: the one task-global
+  recovery credit remained exhausted after a later successful typed mutation. No second replay or
+  product implementation is retained from this evidence change.
+
+## Issue #145 — proposed progress-earned recovery decision
+
+- Published proposed ADR-0088 in docs-only PR #146 on signed head `222cf69`. It scopes one refresh
+  earned only by a successful post-recovery typed `edit`/`write`, with at most two corrections and
+  one refresh per task. Reads, searches, prose, bash, failures, siblings, pre-correction mutation,
+  and the correction itself cannot earn credit; a third review stays terminal.
+- Warden/POL-003, command bytes, tool implementations, grants, sandbox, egress, audit, frozen
+  contracts, public CLI, dependencies, and security claims remain unchanged.
+- `pnpm format` and 144/144 docs-claim checks pass. Exact-head CI `31016337581`, docs job
+  `92341438924`, and required aggregate `92341536526` pass.
+- Behavior implementation, full behavioral gates, live provider replay, merge, and score change are
+  **NOT_RUN** pending explicit maintainer acceptance. Incremental Anthropic cost: USD 0.
+
+## Issue #145 — accepted progress-earned recovery implementation
+
+- Added explicit initial-credit, earned-final-credit, and terminal state to the kernel recovery
+  controller. A final credit is earned only after the first correction succeeds as a sole call and
+  a later sole ordinary typed `edit` or `write` succeeds. The hard bounds are two corrections and
+  one refresh per task.
+- Reads, searches, bash, MCP, console, failures, siblings, bounded calls, pre-correction edits, and
+  the correction itself cannot earn the refresh. Reconciliation presents two distinct review and
+  correction pairs without changing the original not-executed truth in live, headless, no-color,
+  or resumed output.
+- Red-first controller, presentation, and runner cases failed 4 cases before implementation. A new
+  adversarial sibling case then exposed and drove a production fix: blocked-action accounting is
+  consumed only by a successful sole correction, never by a successful sibling in a multi-call
+  turn.
+- Focused tests passed 325/325; adjacency passed 915/915; full enforced coverage passed 6,717 tests
+  with 20 intentional opt-in skips; typecheck, lint, format, build, package, supply-chain, diff, and
+  real sandbox 18/18 passed. Exact-head CI `31022857084` is green on signed head `5e2625f`.
+- The exact carrier did not validate the earned-final path. Both the original pytest probe and its
+  bounded correction used forbidden output wrappers, so both were correctly denied before any
+  typed progress. Issue #149 isolates correction-local command guidance; no score credit or merge
+  is claimed from the deterministic implementation alone.

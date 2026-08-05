@@ -81,8 +81,10 @@ applicable input rate.
 | #136 ordinary prompt 3 (rejected) | 102,371 | 57,151 | 128,311 | 3,907 | 0.6185 | 9.8267 | 10.1733 |
 | #136 rewrite boundary live 1 (accepted) | 46,995 | 29,356 | 55,437 | 4,609 | 0.3368 | 10.1636 | 9.8364 |
 | #136 rewrite boundary live 2 (accepted) | 165,754 | 67,193 | 53,073 | 3,829 | 0.8226 | 10.9861 | 9.0139 |
+| Final exact-main onboarding pass 1 | 58,916 | 34,396 | 54,095 | 4,417 | 0.3882 | 11.3744 | 8.6256 |
+| Final exact-main feature pass 1 | 76,474 | 87,565 | 197,439 | 2,344 | 0.6522 | 12.0265 | 7.9735 |
 
-Anthropic provider calls: 225 successful, 4 rejected at zero reported usage. R7's two local-fixture
+Anthropic provider calls: 246 successful, 4 rejected at zero reported usage. R7's two local-fixture
 requests are not Anthropic calls and carry no Anthropic cost. The USD 2.00 final-regression
 reserve remains intact. The R1 through R6 and R0 replays were deterministic and offline; they made
 no Anthropic request. R3's displayed 175 and R4's displayed 136 replay tokens are synthetic
@@ -248,3 +250,82 @@ USD 7.01385695 remains usable before preserving the final USD 2.00 reserve. The 
 review found continued value in closing this high-impact trust defect. Broad exploration remains
 stopped; the remaining budget is prioritized for exact merged regression and final evidence. No
 credential value was read, copied, printed, logged, committed, or captured.
+
+The final pass-1 onboarding run made 11 provider requests. It reported 147,407 total input tokens:
+58,916 fresh, 34,396 cache-write, and 54,095 cache-read, plus 4,417 output, for exactly USD
+0.38821650. It passed the mechanical and human semantic gates. The pass-1 feature run made ten
+provider requests. It reported 361,478 total input tokens: 76,474 fresh, 87,565 cache-write, and
+197,439 cache-read, plus 2,344 output, for exactly USD 0.65218245. The mechanical runner passed,
+but human QC rejected completion because the successful atomic correction disabled the recovery
+tool lane and the agent then exited without implementing or testing the requested feature. Issue
+#139 owns that P0. Issue #140 profiling, implementation, exact-carrier A/B measurement, publication,
+and CI made zero provider calls and add zero cost.
+
+Cumulative dogfood spend is now **USD 12.02654200**. USD 7.97345800 remains under the hard cap;
+USD 5.97345800 remains usable before preserving the final USD 2.00 reserve. Broad exploration stays
+stopped, and the remaining provider budget is reserved for explicitly authorized repair validation
+and final same-commit regression. No credential value was read, copied, printed, logged, committed,
+or captured.
+
+Issue #139 implementation, deterministic regressions, full coverage, exact-head CI, private oracle
+hardening, packaging, and scripts-disabled install made no provider call. Exact-carrier replay A
+reported 463,984 input tokens: 96,591 fresh, 82,425 cache write, and 284,968 cache read, plus 4,186
+output, for USD 0.74714715. Replay B reported 517,897 input tokens: 100,100 fresh, 79,019 cache
+write, and 338,778 cache read, plus 2,996 output, for USD 0.74319465. Both opened zero human reviews,
+failed the outcome oracle, and receive no score credit.
+
+Cumulative dogfood spend is now **USD 13.51688380**. USD 6.48311620 remains under the hard cap;
+USD 4.48311620 remains usable before preserving the final USD 2.00 reserve. Broad exploration
+remains stopped. Further provider spend is limited to an explicitly approved #143 repair and final
+same-commit validation. No credential value was read, printed, logged, committed, or captured.
+
+Issue #143 used three exact-carrier Click feature replays while iterating only the approved system-
+prompt command-shaping slice. The first reported 96,045 fresh, 90,224 cache-write, 575,178 cache-
+read, and 6,311 output tokens for USD 0.89369340. The second reported 35,375 fresh, 28,571 cache-
+write, 107,374 cache-read, and 3,793 output tokens for USD 0.30237345. The final exact candidate
+reported 35,605 fresh, 48,892 cache-write, 129,477 cache-read, and 2,399 output tokens for USD
+0.36498810. All three failed the independent feature outcome gate and earn no score credit.
+
+The #143 increment is **USD 1.56105495**. Cumulative dogfood spend is now **USD 15.07793875**. USD
+4.92206125 remains under the hard cap; USD 2.92206125 remains usable before preserving the final USD
+2.00 reserve. The $15 threshold is active: broad exploration is stopped, a second final-candidate
+replay was not run, and further provider spend is reserved for an owner-approved structural repair
+or final regression. No credential value was read, printed, logged, committed, or captured.
+
+Issue #144's deterministic implementation, local gates, exact-head CI, packaging, and stale-carrier
+rejection made zero provider requests. Its single permitted live replay made 18 requests and
+reported 186,889 input tokens: 20,763 fresh, 30,779 cache-write, and 135,347 cache-read, plus 3,255
+output tokens, for **USD 0.26713935**. It opened zero actionable human prompts and failed the strict
+feature outcome gate. The predeclared stop condition therefore makes the second replay **NOT_RUN**.
+
+Cumulative dogfood spend is now **USD 15.34507810**. USD 4.65492190 remains under the hard cap;
+USD 2.65492190 remains usable before preserving the final USD 2.00 reserve. No further Anthropic
+request was made after the failed first replay. No credential value was read, printed, logged,
+committed, or captured.
+
+The owner-authorized corrected-oracle amendment itself used no provider call. Corrected replay 1
+made 31 provider requests and reported 878,379 input tokens: 67,697 fresh, 91,462 cache-write, and
+719,220 cache-read, plus 6,401 output tokens, for **USD 0.85785450**. It opened zero actionable
+human prompts and failed the strict feature outcome after one typed test-file mutation. The
+fail-first rule makes corrected replay 2 **NOT_RUN**.
+
+The full #144 live increment is **USD 1.12499385**, leaving USD 0.12500615 under its USD 1.25 cap.
+Cumulative dogfood spend is now **USD 16.20293260**. USD 3.79706740 remains under the hard cap; USD
+1.79706740 remains usable before preserving the final USD 2.00 reserve. All provider use is stopped
+pending a separately approved recovery-policy decision. No credential value was read, printed,
+logged, committed, or captured.
+
+Proposed ADR-0088 issue/PR preparation, local checks, and exact-head CI used **USD 0** Anthropic
+spend. Cumulative and remaining amounts are unchanged. No live validation resumes before explicit
+ADR acceptance and a per-run estimate that preserves the USD 2 reserve.
+
+The accepted ADR-0088 implementation, deterministic gates, packaging, and exact-head CI used
+**USD 0** Anthropic spend. Its first exact-carrier replay made 12 provider requests and reported
+430,348 input tokens: 43,587 fresh, 118,647 cache-write, and 268,114 cache-read, plus 2,488 output
+tokens, for **USD 0.69344145**. It opened zero actionable human reviews and failed before mutation.
+The fail-first rule makes a second replay **NOT_RUN**.
+
+Cumulative dogfood spend is now **USD 16.89637405**. USD 3.10362595 remains under the hard cap;
+USD 1.10362595 remains usable before preserving the final USD 2.00 reserve. All further provider
+use is stopped pending explicit owner approval of a separately bounded repair and replay. No
+credential value was read, printed, logged, committed, or captured.

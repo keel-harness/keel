@@ -1641,3 +1641,188 @@
 - Cumulative spend is USD 10.98614305. The $10 threshold review confirms that the spend found and
   repaired a high-impact trust failure; broad exploration remains stopped. USD 7.01385695 remains
   usable before the final USD 2 reserve.
+
+## 2026-08-04 — issue #136 publication closeout
+
+- Reviewed head `c1cb8d7` passed exact-head CI `30961206113`, including required aggregate
+  `92166385443`, Linux build/coverage, package, real sandbox, security, Node-next, egress-scale, and
+  all installed-product matrices.
+- Owner-authorized admin squash merged PR #138 as `4588bfa`; issue #136 closed. Exact post-main CI
+  `30961587248` passed. The remote/local feature branches, feature worktree, and stale tracking ref
+  were removed.
+- Publication made zero provider calls and changed no Warden authority, security claim, dependency,
+  frozen contract, or score.
+
+## 2026-08-04 — final exact-main replay pass 1
+
+- Rebuilt the exact scripts-disabled npm carrier from merged `4588bfa` and used fresh private homes
+  plus clean frozen Click workspaces at 100x30.
+- Onboarding: mechanical **PASS**, human semantic **PASS**, exit 0, clean workspace, zero Warden
+  reviews, 11 provider requests, exact cost USD 0.38821650.
+- Feature: mechanical **PASS**, human semantic **FAIL**, exit 0, clean workspace, zero human review
+  prompts, ten provider requests, exact cost USD 0.65218245.
+- The feature model first requested a composite tooling probe. Warden correctly denied it as a
+  terminal `POL-003` no-handle review and did not execute the original. The one atomic correction
+  `python3 -m pytest --version` succeeded. Keel then disabled the recovery tool lane; the model
+  enumerated intended work but edited no file and ran no feature test. The TUI rendered done despite
+  the unchanged workspace. Public P0 issue #139 records the public-behavior/security-adjacent repair
+  boundary; implementation is **NOT_RUN pending explicit owner authorization**.
+- The candidate score remains 4.04/5 rather than being promoted. Cumulative spend is USD
+  12.02654200, leaving USD 5.97345800 usable before the protected final USD 2 reserve.
+
+## 2026-08-05 — P1-007 ordinary-turn profiling and issue #140
+
+- A production-shape heap profile reported 61,998,278 bytes of GC-normalized live heap. The largest
+  single retained allocation was Yoga's 16,777,216-byte WebAssembly memory; native, code, strings,
+  arrays, closures, and objects made up the remaining leading categories. RSS fell sharply after
+  idle, supporting allocation/high-water pressure rather than one retained transcript as the cause.
+- Historical localization at PR #121 identified a full resume-presentation projection on ordinary
+  turns even when all five typed authoritative collections were empty. Six red focused tests failed
+  before the helper existed; retained code adds one pure empty-projection guard used by both loop
+  paths and preserves the complete projection whenever any collection is nonempty.
+- Focused REPL **68/68**, adjacency **490/490**, unrestricted full coverage **365 files / 6,679
+  passed / 20 intentional opt-in skips**, lint, typecheck, format, build, package, supply-chain, and
+  diff checks pass. A managed coverage invocation is recorded as **partial/non-green** because six
+  loopback tests received outer-sandbox `listen EPERM`; the unrestricted run passed all six.
+- Exact installed-carrier 150-turn × 12 KiB A/B/A-style evidence passed workload, cadence,
+  resource, idle, process, FD, exit, and cleanup checks. The control growth was 92,930,048 bytes;
+  candidate measurements reduced growth by 1,196,032 and 33,652,736 bytes, a 17,424,384-byte mean
+  normalized reduction. The retained signed-head confirmation grew 90,980,352 bytes. Every strict
+  `<150,000,000` absolute product threshold remained red.
+- Reviewed head `02014f4` passed exact-head CI `30966432286`; PR #141 admin-squash-merged as
+  `caa51dc`. Exact post-main CI `30966805542`, required aggregate `92183426632`, and every selected
+  lane passed. Issue #140 closed and branch/worktree cleanup passed.
+- No threshold, GC policy, evidence protocol, Warden/security authority, public CLI, dependency, or
+  score changed. P1-007 remains open and needs a separately planned architecture slice. Provider
+  calls and incremental cost: zero.
+
+## 2026-08-05 — issue #139 candidate and exact live gate
+
+- Red-first exact sequence failed 4/277 focused cases before implementation; later ordinary edit and
+  verification calls received no tools. Same-response assistant narration exposed a second 1/9 red
+  presentation case before its fix.
+- Final focused **283/283**, TUI adjacency **1,085/1,085**, unrestricted security **1,041/1,041**,
+  and unrestricted coverage **6,689 passed / 20 intentional opt-in skips**. Coverage is 97.87%
+  statements / 93.63% branches overall, kernel 96.16% / 93.55%, and Warden 97.61% / 91.72%.
+  Lint, typecheck, format, supply-chain, build, package, and diff checks pass.
+- Invalid environment attempts are not green: absent isolated package links invalidated one static
+  run; outer-sandbox localhost `EPERM` invalidated one security run; and cross-checkout workspace
+  package resolution invalidated one coverage threshold report. Corrected reruns pass above.
+- Signed head `edc9ea59` passed exact-head CI `30969379058`, required aggregate `92191180350`.
+  Exact scripts-disabled tarball SHA-256 is `0e18ec03…a766eae` with clean embedded source metadata.
+- The private oracle red-first rejects exit zero without mutation and independently requires the
+  three intended Click files, diff check, PathLike runtime probe, and complete termui test file.
+- Two fresh-home exact-carrier replays both **FAIL** the user-outcome gate: exit 1,
+  `BLOCKED_AFTER_SYNTHESIS`, clean Click, zero human reviews, and costs USD 0.74714715 / 0.74319465.
+  The first proves successful #139 continuation before a later second compound review. The second
+  chooses review-required `uv run` as its bounded correction. PR #142 is not merged.
+- Follow-up #143 is public and prompt-only; implementation is **NOT_RUN pending owner approval**.
+
+## 2026-08-05 — issue #143 prompt-only implementation and evidence stop
+
+- Owner approved issue #143 as scoped. Three red-first prompt contracts required direct requested-
+  check execution, named forbidden inventory probes, and omission of output-only wrappers.
+- The first implementation attempt exposed two deterministic compaction-wiring regressions because
+  the longer prompt made the fold non-shrinking. The tests failed 2/4 both in the broad kernel run
+  and in isolation. No threshold or compaction code was changed; the guidance was compressed to 83
+  bytes smaller than the previous green prompt, after which the focused prompt suite passed 27/27
+  and compaction wiring passed 4/4.
+- Unrestricted `pnpm test:cov`: **365 files / 6,691 passed / 20 intentional opt-in skips**, 97.87%
+  statements / 93.63% branches overall, kernel 96.16% / 93.55%, Warden 97.61% / 91.73%, and system
+  prompt 100%. Lint, typecheck, format, build, package, supply-chain, and diff checks passed.
+- Signed head `38f21afb` passed exact-head CI run `30973240684`, including required aggregate job
+  `92202824574`. Exact scripts-disabled carrier metadata reports the same commit and `dirty: false`;
+  tarball SHA-256 is `7eb2e06f15e8d51d875935c91a41b4dce3e98c3ee86f2549e9476b83f75906b9`.
+- Final fresh-home/fresh-Click replay at 100x30 cost USD 0.36498810, opened zero actionable reviews,
+  exited 1 with `BLOCKED_AFTER_SYNTHESIS`, and left Click clean. The model omitted the newly named
+  version/package-manager preflights but still issued forbidden `| head` probes and a terminal
+  `find ... | xargs grep ... 2>/dev/null` command. The one atomic #139 correction ran and exited 1;
+  the model then stopped before mutation.
+- The second required final-candidate replay is **NOT_RUN** because the prompt-only stop condition
+  was met. Issue #143's two-pass outcome definition is unmet; PR #142 remains unmerged. No Warden,
+  classifier, policy, grant, sandbox, egress, audit, controller rewriting, second recovery pass,
+  dependency, frozen contract, public CLI, or security claim changed.
+
+## 2026-08-05 — issue #144 controller recovery guidance and live stop
+
+- Owner-authorized public issue #144 limits the continuation to the existing controller recovery
+  instruction. It adds typed `search`/`read` routing for read-only discovery, makes typed no-match a
+  completed observation, and retains one atomic bash call for a requested test/check/command.
+- Red-first focused execution failed exactly 2 cases before production changed and passed 2/2 after.
+  Full string/loop coverage passed 215/215; adjacency passed 479/479; unrestricted full coverage
+  passed 365 files / 6,692 tests with 20 intentional opt-in skips at 97.87% statements / 93.63%
+  branches. Lint, typecheck, format, supply-chain, build, package, and diff checks passed.
+- Signed head `3b21d2a` passed exact-head CI `30976412151`, including required aggregate
+  `92212176409`. The first carrier was rejected as stale (`38f21af`, dirty); the rebuilt exact
+  scripts-disabled carrier reports `3b21d2a`, clean, and SHA-256 `aefbff8d…f6f7d2`.
+- The first fresh-home/fresh-Click 100x30 replay cost USD 0.26713935, opened zero actionable human
+  prompts, exited 1 with `BLOCKED_AFTER_SYNTHESIS`, changed no file, and failed the independent
+  PathLike runtime probe. A terminal `pip show ... | grep` review recovered to one bash call that
+  batched optional availability checks; missing mypy made that correction fail.
+- This run did not reach #144's targeted terminal file-discovery path. The scenario's instruction to
+  request setup for missing dependencies conflicts with its expected explicit-NOT_RUN outcome, so
+  the failed replay is not a clean causal test of the new guidance.
+- The second replay is **NOT_RUN** under the issue's fail-first stop rule. PR #142 remains unmerged;
+  #144's live definition of done is unmet. No Warden/policy/sandbox/egress/audit authority,
+  dependency, frozen contract, public CLI, or security claim changed.
+
+## 2026-08-05 — corrected #144 oracle and progress-lifetime blocker
+
+- Added a red-first manifest regression for an actionable feature workflow when optional checkers
+  are absent. It failed 1/1 before correction; after replacing the contradictory setup instruction,
+  the focused regression passed 1/1 and the full dogfood evidence suite passed 22/22. The driver
+  self-test passed. No PR #142 candidate byte changed.
+- A second provenance-honesty expectation failed 1/1 because the amended prompt still claimed
+  `source-ledger`. The feature prompt is now `canonicalized`; the focused test passes 1/1 and the
+  complete dogfood suite remains 22/22. No original source-ledger prompt was relabeled.
+- Corrected replay 1 used a fresh private home, fresh Click worktree, fixed 100x30 terminal, and the
+  unchanged exact `3b21d2a` scripts-disabled carrier. It made 31 provider routes, cost USD
+  0.85785450, opened zero actionable human prompts, and exited 1 with
+  `BLOCKED_AFTER_SYNTHESIS`.
+- The first POL-003 review was non-grantable/non-pending; one direct pytest-version correction
+  succeeded and ordinary work resumed. Missing mypy/ruff checks were then direct, exited 1, and did
+  not stop implementation. The agent added two focused tests through typed edits.
+- A later targeted pytest request added redundant workspace `cd` plus `2>&1`; Warden correctly
+  returned a second non-grantable/non-pending POL-003 review. The task-global recovery flag remained
+  exhausted despite the intervening typed mutation, so the red test and feature were not completed.
+- The strict oracle failed: only `tests/test_termui.py` changed; diff check passed; runtime probe and
+  complete termui file failed. Corrected replay 2 is **NOT_RUN**. A new recovery-budget ADR/scope is
+  required before code; no Warden/policy change is authorized.
+
+## 2026-08-05 — proposed ADR-0088 decision slice
+
+- Opened public issue #145 for the distinct DF-036 state-lifetime defect and published proposed
+  ADR-0088 as PR #146 on signed exact head `222cf693a8b9a533a2e677b2c40aeefa395e1e0a`.
+- The docs-only state machine permits at most one refresh after successful post-recovery typed
+  mutation, with at most two corrections total. Every correction preserves existing exact-call,
+  Warden, sibling, failure, timeout, cancellation, and finalization bounds.
+- Initial targeted Prettier was **NOT_RUN** because the fresh docs worktree had no installed binary.
+  After linking the existing exact dependency tree, targeted Prettier passed; full `pnpm format`
+  passed; `pnpm exec vitest run packages/kernel/src/cli/docs-claim-consistency.test.ts` passed
+  **144/144**; diff and credential-pattern checks passed.
+- Exact-head CI run `31016337581` passed; docs job `92341438924` and required aggregate
+  `92341536526` are green. Behavior tests, coverage, package, sandbox, exact carrier, provider replay,
+  merge, and score change are **NOT_RUN** until explicit ADR acceptance.
+
+## 2026-08-05 — accepted ADR-0088 implementation and exact-carrier stop
+
+- Repaired the pre-existing Ubuntu-only pre-stop timing flake in test-only PR #148. Exact-head CI
+  passed and the admin squash merge is `8b6b17f`; post-main CI `31020900443` is fully green.
+- The #145 walking, presentation, and runner tests failed 4 cases before implementation. A later
+  adversarial sibling test also failed first and exposed incorrect multi-call blocked-action
+  accounting; production logic now records a successful correction only for a sole call.
+- On signed PR #142 head `5e2625f`, focused tests passed 325/325; adjacency passed 915/915; full
+  enforced coverage passed 6,717 with 20 intentional opt-in skips; typecheck, lint, format, build,
+  package, supply-chain, and diff checks passed. Real sandbox rerun with the committed fixture CA
+  passed 18/18. Exact-head CI `31022857084` and required checks are green.
+- The scripts-disabled exact carrier had SHA-256 `e5216093…c047d`, embedded commit `5e2625f`, and a
+  clean source marker. A fresh Click worktree used the upstream commit `00e592c`.
+- The sole permitted live replay made 12 provider routes and cost USD 0.69344145. The agent first
+  requested `python3 -m pytest --version 2>&1 | head -3`; its bounded correction requested
+  `python3 -m pytest tests/test_termui.py -x -q 2>&1 | tail -5`. Both were non-grantable,
+  non-pending POL-003 results and were not executed.
+- Because the correction failed before typed progress, ADR-0088 correctly earned no refresh. The
+  run exited 1 with `BLOCKED_AFTER_SYNTHESIS`, opened zero human reviews, left Click clean, and
+  failed the runtime/complete-file oracle. Replay 2 is **NOT_RUN**.
+- Issue #149 records the separately governed correction-local prompt defect. PR #142 remains open
+  and unmerged; this is a strict **NO-GO**, not a hidden green.

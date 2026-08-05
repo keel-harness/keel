@@ -761,11 +761,26 @@ full-coverage, package, 20-run PTY, exact-carrier, and five-lens gates pass. PR 
 `32f3346` with the reviewed tree unchanged, and exact post-main CI `30950106016` passed every
 required lane. This does not rescore R23 or resolve P1-007.
 
+P1-007 follow-through: issue #140 used production-shape heap evidence to remove one avoidable full
+resume-presentation projection from ordinary turns whose five typed evidence collections are all
+empty. Exact 150-turn × 12 KiB installed-carrier comparisons show a 17,424,384-byte mean normalized
+RSS reduction, but the signed-head confirmation still grows 90,980,352 bytes and the frozen
+`<150,000,000` complete-process-group gate remains red. PR #141 merged as `caa51dc`; exact-head CI
+`30966432286`, exact post-main CI `30966805542`, and cleanup pass. This is bounded progress, not
+P1-007 closure, threshold relaxation, or score credit. A larger architecture slice requires its own
+public plan and authorization.
+
 ### R24 · human cohort and longitudinal dogfood
 
 Run the fixed workflows with advanced developers who did not implement the fixes. Record success,
 hesitations, erroneous interpretations, interventions, Warden decisions, task time, provider spend,
 and score. Repeat on a Python CLI and a TypeScript tool so the score does not overfit Click.
+
+Current evidence status: **NOT_RUN**. The primary evaluator implemented the fixes, so self-review
+cannot satisfy the independent-cohort requirement. The Python CLI workload is covered by Click;
+the required independent advanced developers, TypeScript-tool repetition, and longitudinal return
+use remain missing. These are human/external evidence dependencies, not implementation gaps, and
+must not be inferred from headless or single-evaluator runs.
 
 ## Target score trajectory
 
@@ -918,3 +933,41 @@ post-main CI, and two complete fresh-home all-six replays from one merged carrie
 This adds an explicit release rule: **human semantic QC of load-bearing final-answer claims is a
 required gate; mechanical answer length, exit status, and settlement success cannot substitute for
 truth.**
+
+Issue #139's clean local and CI result is insufficient for release: both exact live feature attempts
+remain red. #143 is now the next stack-ranked P0 because it targets the repeatable command-shaping
+dead end without widening authority. Implementation requires owner approval; another recovery pass
+or Warden relaxation is explicitly not an acceptable route to the 3.8/4.0 goal.
+
+The owner subsequently approved #143 and the separate controller-guidance #144. Both pass
+deterministic, local, packaging, and exact-head CI gates, but neither passes the strict live feature
+outcome. #144's first replay stopped before mutation after a tool-availability pipeline recovered
+into a multi-check bash call that failed on an absent optional checker. The run did not exercise
+#144's targeted terminal file-discovery branch, and the scenario's conditional dependency-setup
+instruction conflicts with its expected unavailable-check outcome. Its second replay is NOT_RUN
+under the predeclared stop rule. The next stack-ranked decision is therefore a corrected-oracle
+validation boundary before any further product prompt or structural change. PR #142 remains
+unmerged and the release verdict remains NO-GO.
+
+The authorized corrected oracle is now deterministic and removes that confounder. Its first replay
+proved that #139 can resume ordinary work and that typed edits succeed, but a second later POL-003
+result remains terminal because the one task-global recovery credit does not refresh after verified
+progress. DF-036 is therefore the next stack-ranked P0. The recommended smallest slice is one
+additional task-wide credit earned only after an authoritative successful typed workspace mutation,
+with a hard total cap and every existing one-call/Warden/ambiguity boundary retained. Because this
+changes the normative recovery budget, an accepted ADR and explicit owner approval are required
+before implementation; Warden relaxation and command rewriting remain rejected.
+
+Issue #145 and proposed ADR-0088 now freeze that recommendation as one initial credit, at most one
+progress-earned refresh, and at most two corrections per task. Docs-only PR #146 passes exact-head
+CI on `222cf69`; implementation remains stopped at the owner-decision gate. This planning slice does
+not promote the score or consume provider budget.
+
+After acceptance, the #145 implementation passed red-first deterministic tests, full local gates,
+real sandbox verification, packaging, and exact-head CI on `5e2625f`. Its live replay nevertheless
+failed before the new state could be exercised: both the initial pytest probe and the bounded
+correction repeated forbidden output-wrapper shapes. DF-037 / issue #149 is therefore the next
+stack-ranked P0. The smallest allowed experiment is correction-local prompt guidance plus one
+explicitly approved replay; Warden relaxation, command rewriting, or another recovery credit remain
+out of scope. If that experiment repeats the failure, prompt-only command shaping is exhausted and
+a typed verification-intent design must be planned before further provider spend.

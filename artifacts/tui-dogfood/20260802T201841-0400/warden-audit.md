@@ -527,3 +527,112 @@ Issue #136 therefore adds **0 total / 0 necessary / 0 excessive** review interru
 frozen historical dogfood total at **6 total / 2 necessary / 4 excessive or avoidable**. Its UX
 value is trust in the final answer, not fewer approvals. Exact publication and the final canonical
 replay remain open at this chronology point.
+
+PR #138, issue closure, exact post-main CI `30961587248`, and cleanup are now green and add no
+governed product review.
+
+## Final replay pass 1 and issue #139 validation outcome
+
+The exact-main onboarding repetition requested zero reviews. The feature repetition encountered one
+automatic terminal Warden decision: `POL-003` rejected a composite tooling probe without exposing
+an approval handle and without executing the original. This is not counted as a human review
+interrupt. The one atomic correction succeeded, also without a human review. The subsequent tool-
+disabled dead end is a controller recovery defect, not an excessive Warden prompt; issue #139 must
+preserve the correct terminal decision while restoring ordinary task continuity.
+
+Pass 1 therefore adds **0 human review interrupts** and leaves the frozen historical total at **6
+total / 2 necessary / 4 excessive or avoidable**.
+
+## Issue #140 validation outcome
+
+Issue #140 skips a pure controller presentation projection when its five typed inputs are empty. It
+cannot alter a Warden verdict, review eligibility, grant, policy input, sandbox, egress, audit,
+execution authority, or human decision. All profiling and exact-carrier measurements used local
+fixtures and requested no review.
+
+Issue #140 adds **0 total / 0 necessary / 0 excessive** review interrupts. PR #141, merge `caa51dc`,
+exact post-main CI `30966805542`, issue closure, and cleanup are green; historical totals remain **6
+total / 2 necessary / 4 excessive or avoidable**.
+
+## Issue #139 exact live outcome
+
+The two fresh-home replays opened **0 actionable human prompts** but encountered four terminal
+no-handle review results. Two involved independent local version/discovery intentions combined into
+compound shell shapes; these are classified as potentially excessive for expert UX even though the
+Warden's conservative unclassified-shape decision was structurally correct. Two involved `uv run`
+package-manager requests; those are necessary supply-chain/network awareness boundaries.
+
+#139 correctly permits only one exceptional correction and correctly keeps the later/second review
+terminal. Repeating recovery or relaxing these verdicts is rejected. #143 instead proposes
+model-facing command shaping. Terminal-result diagnostic totals for these runs are **4 total / 2
+necessary / 2 potentially excessive**; human-interrupt totals remain **6 / 2 / 4** historically.
+
+## Issue #143 prompt-only live outcome
+
+Across the three #143 candidate replays, Keel opened **0 actionable human prompts** and returned five
+terminal no-handle POL-003 results. Each was caused by avoidable model-authored discovery or output
+composition; the underlying local read/test intention had an atomic or typed-tool form. Warden
+correctly retained its conservative boundary and did not grant or execute the reviewed shapes.
+
+The final candidate eliminated the specifically named `--version`, `which`, `pip show`, `uv`, and
+package-manager fallback behavior, but the model still ignored `| head` and output-redirection
+guidance. Its final `find ... | xargs grep ... 2>/dev/null` request was terminal; the one bounded
+atomic correction executed normally and returned exit 1. No additional recovery was attempted.
+
+For #143, terminal diagnostic outcomes are therefore **5 total / 0 task-necessary / 5 avoidable by
+better command shaping**; human review interrupts remain **0**. The frozen historical human total
+remains **6 total / 2 necessary / 4 excessive or avoidable**. This evidence supports a structural
+model-facing follow-up, not a Warden relaxation.
+
+## Issue #144 controller-guidance live outcome
+
+The one permitted #144 replay opened **0 actionable human prompts** and returned one terminal
+no-handle POL-003 result for `pip show ... 2>&1 | grep ...`. The action was local discovery and had
+safer direct/typed alternatives, so it is **avoidable by better agent behavior**; Warden's
+conservative refusal to execute the unclassified pipeline remained correct.
+
+The bounded correction stayed Warden-gated and executed one bash call. It still batched four
+availability checks with `&&`, exited 1 on missing mypy, and correctly exhausted recovery. No
+approval was invented, remembered, or widened. #144 therefore adds **1 terminal diagnostic / 0
+necessary / 1 avoidable** and **0 human interrupts**. Historical human totals remain **6 / 2 / 4**.
+Relaxing POL-003 is not supported by this evidence.
+
+## Corrected #144 replay outcome
+
+The corrected replay opened **0 actionable human prompts** and produced two terminal POL-003
+diagnostics. Both audit records were `grantable:false`, `pending:false`, and not executed.
+
+1. A pytest availability command redundantly added workspace `cd`, `2>&1`, and `| head`. One direct
+   bounded correction succeeded and ordinary work resumed.
+2. After two successful typed test-file edits, the requested red pytest command redundantly added
+   workspace `cd` and `2>&1`. Warden again failed closed; the exhausted task-global recovery flag
+   made the task terminal.
+
+Both underlying intentions were routine and had simpler atomic forms, so the terminal outcomes are
+**0 task-necessary / 2 avoidable by correct command shaping**. The second nevertheless exposes a
+controller-lifetime defect because useful verified progress cannot earn another bounded correction.
+Human interrupt totals remain unchanged at **6 total / 2 necessary / 4 excessive or avoidable**.
+The evidence supports a separately bounded kernel recovery decision, not a POL-003 relaxation or
+new approval surface.
+
+## Proposed ADR-0088 boundary
+
+Issue #145 and docs-only PR #146 preserve both observed POL-003 outcomes and all historical counts.
+The proposal changes only when the kernel may ask for one final fresh model-authored correction
+after authoritative typed mutation progress. It creates no approval, remembered grant, Warden
+classifier change, command rewrite, or third attempt. PR preparation and CI triggered **0 Warden
+interrupts** and **0 provider calls**; behavior validation is **NOT_RUN** pending owner acceptance.
+
+## Accepted ADR-0088 exact-carrier outcome
+
+The exact `5e2625f` replay opened **0 actionable human prompts** and produced two terminal POL-003
+diagnostics. The first pytest-version request used `2>&1 | head`; its one bounded correction again
+used `2>&1 | tail` around a targeted pytest request. Both audit records were non-grantable,
+non-pending, and not executed.
+
+The underlying test intentions were routine, and direct commands were available, so the terminal
+diagnostics are **0 task-necessary / 2 avoidable by correct command shaping**. Warden remained
+correct: it did not execute, approve, remember, or rewrite either unclassified pipeline. The failed
+correction and absence of a typed mutation correctly prevented ADR-0088 from earning a refresh.
+This evidence supports issue #149's model-facing correction guidance, not a policy relaxation.
+Historical actionable human totals remain **6 total / 2 necessary / 4 excessive or avoidable**.
