@@ -348,3 +348,15 @@ earn workflow-axis credit because the same run exited 1 at gross-runway prefligh
 of three required files, and failed independent runtime/termui verification. The evidence-bound
 estimate therefore remains **4.04/5 candidate / 4.02 pooled**, not a current all-workflow score, and
 the strict release verdict remains **NO-GO**. A second replay is NOT_RUN under the one-run cap.
+
+The final-regression replay on exact `175f3dd` is stronger but still negative workflow evidence. It
+again demonstrates that #149 can convert the first wrapper-bearing reviewed command into a direct
+successful pytest command and preserve subsequent typed work. It also demonstrates that Keel can
+still lose completion reliability after progress: a later local-source test request was reviewed,
+and the final correction attempted dependency installation contrary to the locked-tooling task.
+
+Because the public run did not exit zero and omitted required `CHANGES.md`, no workflow axis earns
+credit. Independent verification of the two code/test edits does not substitute for the explicit
+three-file/public-exit contract. The score therefore remains the historical evidence-bound
+**4.04/5 candidate / 4.02 pooled**, not a current all-workflow score. PR #142 is closed unmerged and
+the strict release verdict remains **NO-GO**.

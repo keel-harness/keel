@@ -740,3 +740,25 @@
 - Verdict: no prompt-only rollback is justified by this evidence, but no merge or score promotion is
   justified either. A second replay is NOT_RUN under the explicit one-run authorization. Any next
   product slice or additional provider validation requires a separate owner decision.
+
+### DF-037 final-regression closeout — local fix retained, end-to-end gate failed
+
+- Status: final owner-authorized replay completed on exact PR #142 head `175f3dd`; PR #142 is closed
+  unmerged, while issue #149 remains open.
+- Direct positive evidence: the first wrapper-bearing pytest-version request was correctly not
+  executed, and its fresh correction ran the direct requested pytest command successfully. Typed
+  red-first tests and edits followed. This independently confirms the narrow #149 behavior.
+- Remaining P0 reliability defect: after progress, the agent's local-source test request used an
+  environment-assignment shell shape that received terminal POL-003 review. Its final correction
+  then requested `pip install -e . -q && ...`, violating the task's explicit no-install boundary,
+  and exited 127. Keel synthesized an honest partial result but did not produce a successful public
+  exit.
+- Strict outcome: only `src/click/termui.py` and `tests/test_termui.py` changed; `CHANGES.md` did not.
+  Independent runtime and full termui tests passed against local `src`, but the exact three-file and
+  public-exit gates failed.
+- Warden judgment: zero actionable human prompts; two avoidable terminal diagnostics. Warden's
+  fail-closed decisions were correct, and no policy relaxation is supported.
+- Verdict: prompt-only iteration is exhausted under the published stop rule. Any continuation should
+  be a separately reviewed typed verification-intent/tool architecture rather than more recovery
+  prose, shell-byte rewriting, or weaker POL-003 classification. Implementation and additional
+  provider validation are **NOT_RUN** pending a new public scope and owner authorization.

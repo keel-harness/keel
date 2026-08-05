@@ -341,3 +341,14 @@ Cumulative dogfood spend is now **USD 17.52122260**. USD 2.47877740 remains unde
 cap; USD 0.47877740 remains usable before preserving the final USD 2.00 reserve. A second replay is
 **NOT_RUN** under the one-run authorization. No credential value was printed, logged, committed, or
 captured.
+
+The one separately authorized final-regression replay made provider requests until the driver crossed
+its predeclared USD 0.85 live-abort threshold while remaining below the owner's USD 1.00 hard ceiling.
+It reported 1,141,752 input tokens: 63,659 fresh, 94,385 cache-write, and 983,708 cache-read, plus
+5,847 output tokens, for **USD 0.92773815**. It opened zero actionable human prompts and failed the
+strict three-file/public-exit gate, so it earns no score credit.
+
+Cumulative dogfood spend is now **USD 18.44896075**. USD 1.55103925 remains under the USD 20 hard
+cap. The final-regression authorization consumed part of the previously protected reserve; no
+further Anthropic call is authorized or run. No credential value was read, printed, logged,
+committed, or captured.

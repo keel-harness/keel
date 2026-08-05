@@ -650,3 +650,23 @@ successfully. Keel neither rewrote command bytes nor invented approval. This val
 model-facing improvement without weakening POL-003. The later gross-runway stop is unrelated to
 approval precision and opened no review. Historical actionable human totals remain **6 total / 2
 necessary / 4 excessive or avoidable**.
+
+## Final-regression #149 outcome
+
+The exact `175f3dd` replay opened **0 actionable human prompts** and produced two terminal POL-003
+diagnostics. First, `python3 -m pytest --version 2>&1 | head -3` was non-grantable, non-pending, and
+not executed; its ruff sibling was skipped. The bounded correction emitted the direct requested
+pytest command without the wrapper and executed successfully. This repeats #149's narrow positive
+result without any Warden relaxation or command rewrite.
+
+After typed test and implementation edits, `PYTHONPATH=src ...` was also non-grantable/non-pending
+and not executed under the fail-closed classifier. The progress-earned final correction requested
+`pip install -e . -q && ...`, which Warden exposed under POL-008 and executed inside the governed
+sandbox; bash returned 127 because `pip` was unavailable. This preserved security visibility but
+did not respect the operator's explicit no-install task boundary or complete the workflow.
+
+Both terminal diagnostics represented routine local testing intentions with safer direct locked-
+tool forms, so this replay adds **2 terminal diagnostics / 0 task-necessary / 2 avoidable** and **0
+human interrupts**. Historical actionable human totals remain **6 total / 2 necessary / 4 excessive
+or avoidable**. The result supports a separately reviewed typed verification-intent/tool boundary,
+not weaker POL-003 policy, broader grants, command rewriting, or more prompt-only recovery.

@@ -637,3 +637,22 @@ predeclared 700k gross-runway gate stopped before another provider request. Clic
 failed. The 17-route run cost **USD 0.62484855**, opened zero actionable human prompts, and receives
 no score credit. Cumulative spend is **USD 17.52122260**; the final USD 2 reserve remains protected.
 Issue #149 and PR #142 remain open under a strict **NO-GO** verdict, and no second replay is run.
+
+The one separately authorized final-regression replay used the clean scripts-disabled carrier from
+PR #142 head `175f3dd` after exact `origin/main` integration. All deterministic, full-coverage,
+static/build/package/supply-chain, real-sandbox 18/18, and exact-head CI `31044498815` gates passed.
+The live run again validated #149's narrow behavior: a reviewed pytest-version wrapper recovered to
+a direct wrapper-free pytest command, executed, and returned to ordinary typed work.
+
+The strict workflow still failed. After two real Click edits, a later local-source test request
+received another terminal POL-003 result, and the final correction requested forbidden dependency
+installation rather than a direct locked-tool check. Click ended with only `src/click/termui.py` and
+`tests/test_termui.py` modified; `CHANGES.md` was unchanged, and the public process settled
+`BLOCKED_AFTER_SYNTHESIS` without a zero exit. Independent local-source runtime and full termui tests
+pass, but the required three-file/public-exit contract does not.
+
+The replay cost **USD 0.92773815**, bringing cumulative spend to **USD 18.44896075** with USD
+1.55103925 left under the hard cap. It opened zero actionable human prompts. PR #142 was therefore
+closed unmerged, issue #149 remains open, and post-main proof is **NOT_RUN**. No further provider
+call is authorized. Session log 39 records the exact evidence, red-first private-oracle repair, and
+cleanup; the candidate score remains **4.04/5 candidate / 4.02 pooled** with no workflow credit.
