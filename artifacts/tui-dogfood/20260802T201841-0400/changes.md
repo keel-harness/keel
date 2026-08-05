@@ -1040,3 +1040,24 @@ worktree were removed.
   bounded correction used forbidden output wrappers, so both were correctly denied before any
   typed progress. Issue #149 isolates correction-local command guidance; no score credit or merge
   is claimed from the deterministic implementation alone.
+
+## Issue #149 — correction-local direct-command guidance
+
+- Added one shared recovery sentence to both initial and progress-earned terminal-review controller
+  messages: run the requested test/check directly, do not probe `--version`, and do not add
+  `2>&1`, `| head`, or `| tail` because bash results already separate and bound stdout/stderr.
+- Added red-first exact-string tests, exact controller delivery through compaction, and both earned-
+  correction adjacency assertions. No command parser, rewrite, replay, tool filtering, Warden,
+  policy, grant, sandbox, egress, audit, shared schema, typed tool, public CLI, dependency, or
+  security claim changed.
+- Focused red failed 5 cases before production changed; focused green passed 5/5 and adjacency passed
+  355/355. Full enforced coverage passed 6,721 tests with 20 intentional opt-in skips. Typecheck,
+  lint, format, build, package, supply-chain, diff, real sandbox 18/18, and exact-head CI
+  `31040649898` passed on signed head `487ddf7`.
+- The first installed carrier was rejected because pre-commit packaging correctly embedded
+  `9682fcf`, `dirty:true`. The clean scripts-disabled rebuild embeds exact `487ddf7`, `dirty:false`;
+  SHA-256 is `2fd3578a710629ca53106ee839d423ab41c21753d339ac5b533ac99a2f30be9b`.
+- The one live replay proves the wrapper-local repair: a denied `2>&1 | head` pytest request recovered
+  to a direct wrapper-free pytest command that succeeded and resumed typed work. The strict workflow
+  still failed at gross-runway preflight with only two of three required files and failed independent
+  verification. PR #142 remains unmerged; #149 stays open; no score or security claim changes.

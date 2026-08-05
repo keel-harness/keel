@@ -720,3 +720,23 @@
 - Stop rule: permit at most one newly budgeted replay after deterministic prompt regressions and
   explicit owner approval. If the same class fails again, stop prompt-only iteration and plan a
   separately reviewed typed verification-intent architecture.
+
+### DF-037 validation update — targeted behavior fixed, strict workflow still red
+
+- Status: implemented on PR #142 head `487ddf7`; deterministic/full/security/carrier gates and
+  exact-head CI `31040649898` pass. The one authorized provider replay is complete.
+- Direct positive evidence: Warden rejected one pytest request containing `2>&1 | head -40`; the
+  fresh bounded correction removed both wrapper components, emitted the direct requested pytest
+  command, succeeded, and returned to ordinary typed work. No `--version`, `2>&1`, `| head`, or
+  `| tail` appeared in the correction. This is a material improvement over `5e2625f`.
+- Remaining strict blocker: the same run stopped at gross-runway preflight after 672,173/700,000
+  cumulative tokens, with the next request estimated at 41,694. It left a two-file partial diff,
+  omitted `CHANGES.md` and `_termui_impl.py`, exited 1, and failed the independent runtime and test
+  oracle. Thus #149's complete three-file definition is unmet despite fixing its targeted command
+  shape.
+- User impact: useful red-first work and two typed edits now survive the review boundary, but the
+  developer still receives a partial unverified implementation and must reason about continuation.
+  The run cost USD 0.62484855 and opened zero actionable human prompts.
+- Verdict: no prompt-only rollback is justified by this evidence, but no merge or score promotion is
+  justified either. A second replay is NOT_RUN under the explicit one-run authorization. Any next
+  product slice or additional provider validation requires a separate owner decision.
