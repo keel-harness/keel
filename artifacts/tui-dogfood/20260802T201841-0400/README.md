@@ -622,3 +622,18 @@ with `BLOCKED_AFTER_SYNTHESIS`, and left Click clean. Issue
 [#149](https://github.com/keel-harness/keel/issues/149) scopes the distinct correction-local
 command-guidance defect. Cumulative spend is **USD 16.89637405**; the score remains **4.04/5
 candidate / 4.02 pooled**, and PR #142 remains unmerged under a strict **NO-GO** verdict.
+
+Issue #149's owner-approved correction-local prompt slice is now implemented on PR #142 head
+`487ddf7`. Red-first exact-copy/controller/compaction tests, full enforced coverage (**6,721 passed /
+20 intentional opt-in skips**), static/build/package/supply-chain gates, real sandbox 18/18, and
+exact-head CI `31040649898` pass. The clean scripts-disabled carrier SHA-256 is `2fd3578a…be9b`.
+
+The single permitted fresh-home replay directly fixed the targeted wrapper failure. Warden rejected
+one pytest request containing `2>&1 | head`; the fresh bounded correction emitted the direct pytest
+command with no version probe or output wrapper, succeeded, and ordinary work continued through a
+real red test and two typed file edits. The strict three-file scenario still failed when the
+predeclared 700k gross-runway gate stopped before another provider request. Click lacked
+`CHANGES.md` and the remaining implementation; independent runtime and complete-termui verification
+failed. The 17-route run cost **USD 0.62484855**, opened zero actionable human prompts, and receives
+no score credit. Cumulative spend is **USD 17.52122260**; the final USD 2 reserve remains protected.
+Issue #149 and PR #142 remain open under a strict **NO-GO** verdict, and no second replay is run.

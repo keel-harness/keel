@@ -636,3 +636,17 @@ correct: it did not execute, approve, remember, or rewrite either unclassified p
 correction and absence of a typed mutation correctly prevented ADR-0088 from earning a refresh.
 This evidence supports issue #149's model-facing correction guidance, not a policy relaxation.
 Historical actionable human totals remain **6 total / 2 necessary / 4 excessive or avoidable**.
+
+## Issue #149 exact-carrier outcome
+
+The exact `487ddf7` replay opened **0 actionable human prompts** and produced one terminal POL-003
+diagnostic. The reviewed pytest request added `2>&1 | head -40`; its audit record was non-grantable,
+non-pending, and not executed. The underlying local test intention had a direct form, so this is **0
+task-necessary / 1 avoidable by correct command shaping**.
+
+The fresh bounded correction then emitted the direct pytest command without a version probe,
+redirection, head, or tail wrapper. It passed through the ordinary Warden path and executed
+successfully. Keel neither rewrote command bytes nor invented approval. This validates #149's
+model-facing improvement without weakening POL-003. The later gross-runway stop is unrelated to
+approval precision and opened no review. Historical actionable human totals remain **6 total / 2
+necessary / 4 excessive or avoidable**.

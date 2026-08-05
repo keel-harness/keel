@@ -340,3 +340,11 @@ CI `31022857084`), but its first exact-carrier replay stopped before typed progr
 never exercised the earned-final-credit path. This is not positive workflow evidence and does not
 warrant a score change. The estimate remains **4.04/5 candidate / 4.02 pooled**; the strict release
 verdict remains **NO-GO** pending DF-037 and a complete same-carrier feature outcome.
+
+Issue #149's exact carrier provides direct positive evidence for the narrow correction behavior:
+the bounded recovery removed the rejected `2>&1 | head` wrapper, executed the requested pytest
+command directly, and ordinary typed work resumed through a red test and two file edits. It does not
+earn workflow-axis credit because the same run exited 1 at gross-runway preflight, changed only two
+of three required files, and failed independent runtime/termui verification. The evidence-bound
+estimate therefore remains **4.04/5 candidate / 4.02 pooled**, not a current all-workflow score, and
+the strict release verdict remains **NO-GO**. A second replay is NOT_RUN under the one-run cap.

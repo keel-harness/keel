@@ -329,3 +329,15 @@ Cumulative dogfood spend is now **USD 16.89637405**. USD 3.10362595 remains unde
 USD 1.10362595 remains usable before preserving the final USD 2.00 reserve. All further provider
 use is stopped pending explicit owner approval of a separately bounded repair and replay. No
 credential value was read, printed, logged, committed, or captured.
+
+The owner-approved #149 implementation, deterministic gates, exact-head CI, packaging, and private
+driver validation used **USD 0** Anthropic spend. The sole permitted exact-carrier replay made 17
+provider requests and reported 667,936 input tokens: 69,472 fresh, 50,243 cache-write, and 548,221
+cache-read, plus 4,237 output tokens, for **USD 0.62484855**. It remained below the separately
+authorized USD 1.00 ceiling. The direct bounded correction succeeded without the observed wrapper,
+but the strict task failed at the predeclared gross-runway preflight before completion.
+
+Cumulative dogfood spend is now **USD 17.52122260**. USD 2.47877740 remains under the USD 20 hard
+cap; USD 0.47877740 remains usable before preserving the final USD 2.00 reserve. A second replay is
+**NOT_RUN** under the one-run authorization. No credential value was printed, logged, committed, or
+captured.

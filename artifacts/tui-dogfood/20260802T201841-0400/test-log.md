@@ -1826,3 +1826,34 @@
   failed the runtime/complete-file oracle. Replay 2 is **NOT_RUN**.
 - Issue #149 records the separately governed correction-local prompt defect. PR #142 remains open
   and unmerged; this is a strict **NO-GO**, not a hidden green.
+
+## 2026-08-05 — issue #149 direct-correction validation and gross-runway stop
+
+- Owner approved #149's prompt-only scope and exactly one fresh-home exact-carrier replay with no
+  more than USD 1.00 additional Anthropic spend while preserving the final USD 2 reserve.
+- Red-first focused execution initially failed 5 cases: both exact recovery strings, compaction-
+  adjacent delivery, and both progress-earned edit/write paths. After the prompt-only change, the
+  focused cases passed 5/5; controller/context/TUI adjacency passed 355/355.
+- Unrestricted `pnpm test:cov` passed 365 files with 4 intentional opt-in file skips: **6,721 tests
+  passed / 20 intentional opt-in test skips**, 97.87% statements / 93.64% branches overall; kernel
+  96.21% / 93.64%; Warden 97.61% / 91.72%; `strings.ts` 100% / 100%.
+- `pnpm typecheck`, `pnpm lint`, `pnpm format`, `pnpm build`, `pnpm package`,
+  `pnpm supply-chain:check`, and `git diff --check` passed. With the committed fixture CA configured
+  before Node startup, `pnpm test:sandbox:real` passed 18/18. Prohibited Warden/shared/policy/audit/
+  tool diffs were empty.
+- Signed head `487ddf7` passed exact-head CI `31040649898`, including the required aggregate. The
+  first post-commit install candidate was correctly rejected because it had been packaged before
+  commit (`9682fcf`, `dirty:true`). The clean rebuild/install reports exact `487ddf7`, `dirty:false`,
+  version 0.1.1, and tarball SHA-256 `2fd3578a710629ca53106ee839d423ab41c21753d339ac5b533ac99a2f30be9b`.
+- The sole fresh-home/fresh-Click 100x30 replay made 17 provider routes. Its first reviewed pytest
+  request added `2>&1 | head -40`; Warden recorded one non-grantable POL-003 denial and did not run
+  it. The one fresh bounded correction emitted the direct pytest command without a version probe or
+  wrapper, succeeded, and ordinary typed work resumed.
+- The agent added genuine red-first PathLike tests and edited `src/click/termui.py`, but the 700k
+  gross-runway preflight stopped at 672,173 used before the next estimated 41,694-token request.
+  Public exit was 1. Only two of the required three files changed; `CHANGES.md` and the remaining
+  `_termui_impl.py` behavior were absent; the runtime probe and complete termui verification failed.
+- Usage was 69,472 fresh input, 50,243 cache-write, 548,221 cache-read, and 4,237 output tokens for
+  **USD 0.62484855**. Cumulative spend is **USD 17.52122260**; USD 2.47877740 remains under the hard
+  cap. Replay 2 is **NOT_RUN** under the one-run authorization. PR #142 remains unmerged and #149's
+  strict live definition is unmet.
