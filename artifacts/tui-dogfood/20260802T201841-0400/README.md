@@ -525,3 +525,100 @@ USD 7.01385695 before the final USD 2 reserve.
 The accepted candidate evidence restores onboarding to **4.11/5**, the provisional six-workflow
 mean to **4.04/5**, and the pooled diagnostic to **4.02/5 (249/62)**. These remain candidate values:
 publication and the exact merged all-six replay are still required before final promotion.
+
+Publication is now closed through [PR #138](https://github.com/keel-harness/keel/pull/138).
+Reviewed head `c1cb8d7` passed exact-head CI `30961206113`, including required aggregate
+`92166385443`. Owner-authorized admin squash merged the same reviewed change as `4588bfa`; issue
+#136 closed. Exact post-main CI `30961587248` passed, and the feature branch/worktree were removed.
+
+The first final exact-main pass then produced mixed evidence. Onboarding passed both the mechanical
+runner and human semantic review for USD 0.38821650. Feature mechanically passed for USD
+0.65218245, but human QC rejected it: after a correctly rejected composite tooling probe, one safe
+atomic correction succeeded; Keel then disabled the recovery tool lane, the model narrated an
+implementation without editing or testing, the TUI rendered completion, and the clean Click
+workspace remained unchanged. This is P0 [issue #139](https://github.com/keel-harness/keel/issues/139).
+The candidate **4.04/5** score is held, not promoted, until that separately authorized public-
+behavior repair and two complete same-commit all-six passes.
+
+P1-007 profiling localized a smaller ordinary-turn cost: Keel projected the full typed resume
+presentation even when all five authoritative failed-tool/final-answer collections were empty.
+[Issue #140](https://github.com/keel-harness/keel/issues/140) and
+[PR #141](https://github.com/keel-harness/keel/pull/141) add one pure empty-projection guard to both
+ordinary and bounded loop paths. Red-first focused, adjacency, full coverage (**6,679 passed / 20
+intentional opt-in skips**), static, build/package, supply-chain, exact-carrier, and five-lens gates
+pass. Two 150-turn × 12 KiB comparisons show a mean normalized RSS reduction of 17,424,384 bytes,
+but the strict `<150,000,000` complete-process-group gate still fails; P1-007 remains open.
+Reviewed head `02014f4` passed exact-head CI `30966432286`; admin squash merged it as `caa51dc`.
+Exact post-main CI `30966805542`, including required aggregate `92183426632`, passed. Issue #140
+closed and its branch/worktree were removed. Cumulative Anthropic spend is **USD 12.02654200**.
+
+Issue #139 is implemented on signed PR [#142](https://github.com/keel-harness/keel/pull/142) head
+`edc9ea59`; exact-head CI `30969379058` and required aggregate `92191180350` pass. Focused 283/283,
+TUI adjacency 1,085/1,085, security 1,041/1,041, full coverage 6,689 passed with 20 intentional
+opt-in skips, static/build/package, exact carrier, and five-lens gates pass. The hardened feature
+oracle now requires the three intended Click files plus independent runtime/test verification.
+
+Two exact-carrier feature replays nevertheless both failed before editing: #139 resumed ordinary
+work in the first, but a later compound tooling query reached a second terminal review; in the
+second, the bounded correction itself used review-required `uv run`. Both exited 1, opened zero
+human reviews, and left Click clean. PR #142 is therefore intentionally unmerged. Public follow-up
+[#143](https://github.com/keel-harness/keel/issues/143) proposes prompt-only ordinary command
+shaping without Warden relaxation or another recovery pass; implementation is **NOT_RUN pending
+owner approval**. The score remains 4.04/5 candidate, and cumulative spend is **USD 13.51688380**.
+
+The owner-approved #143 prompt-only implementation is now published on PR #142 head `38f21afb` and
+passes local full coverage plus exact-head CI `30973240684`. Its final exact-carrier replay removed
+the specifically named version and package-manager preflights, but Claude still ignored the prompt's
+pipeline/output-wrapper rule, reached terminal review on `find ... | xargs grep ... 2>/dev/null`,
+used the one bounded atomic correction, and stopped without editing. The required second pass was
+not run after this predeclared evidence stop. PR #142 remains unmerged; issue #143's live definition
+is unmet, the candidate score remains **4.04/5**, and cumulative spend is **USD 15.07793875**.
+
+The owner separately authorized controller recovery-guidance issue
+[#144](https://github.com/keel-harness/keel/issues/144). Signed PR #142 head `3b21d2a` passes
+red-first focused coverage, full local coverage/static/build/package gates, and exact-head CI
+`30976412151` with required aggregate `92212176409`. A stale candidate carrier was rejected before
+provider use; the rebuilt scripts-disabled tarball is clean and exact.
+
+Its single permitted live replay still failed before mutation: the ordinary model requested a
+reviewed availability pipeline, then used its bounded recovery for one multi-check bash call that
+failed on absent mypy. Click stayed clean, zero actionable human prompts opened, and the strict
+oracle failed. This distinct tool-availability path did not exercise #144's targeted file-discovery
+branch, and the scenario's dependency-setup wording conflicts with its expected unavailable-check
+outcome. The second run is **NOT_RUN** under #144's stop condition. PR #142 remains unmerged, the
+evidence-bound score remains **4.04/5**, and cumulative spend is **USD 15.34507810**.
+
+The owner-authorized corrected oracle now has a red-first manifest contract and removes the setup
+ambiguity without changing candidate bytes. Corrected replay 1 resumed after its first terminal
+review, made two typed edits to the Click test file, and correctly continued past unavailable mypy
+and ruff checks. A later targeted pytest request still included redundant `cd` and `2>&1`; Warden
+returned a second non-grantable/non-pending POL-003 result, and the task-global one-shot recovery
+could not reopen after the intervening mutation.
+
+The corrected replay therefore remains a strict **FAIL**: only one of three required files changed,
+the red test did not run, and the runtime/complete-file oracle failed. Replay 2 is **NOT_RUN**. This
+exposes DF-036, a separately governed recovery-budget decision. Cumulative spend is **USD
+16.20293260**; the score remains **4.04/5 candidate / 4.02 pooled**, and PR #142 remains unmerged.
+
+DF-036 is now publicly scoped in issue
+[#145](https://github.com/keel-harness/keel/issues/145). Proposed ADR-0088 is published in docs-only
+[PR #146](https://github.com/keel-harness/keel/pull/146) on signed head `222cf69`; exact-head CI
+`31016337581` and required aggregate `92341536526` pass. Behavior and provider validation remain
+**NOT_RUN** pending explicit maintainer acceptance. No score or cost changes: the strict release
+verdict remains **NO-GO**, and the final USD 2 reserve remains protected.
+
+The accepted ADR-0088 implementation is now published on PR #142 head `5e2625f`. Red-first tests,
+6,717 full-coverage tests with 20 intentional opt-in skips, all static/build/package gates, the real
+sandbox suite (18/18), and exact-head CI `31022857084` pass. The bounded state machine correctly
+allows at most two corrections and one progress-earned refresh, while leaving Warden, POL-003,
+frozen contracts, audit, sandbox, egress, and tool implementations unchanged.
+
+The exact-carrier replay still failed before exercising the new refresh. The agent first requested
+`python3 -m pytest --version 2>&1 | head -3`, then repeated the same forbidden output-wrapper shape
+in its sole correction with `python3 -m pytest tests/test_termui.py -x -q 2>&1 | tail -5`. Warden
+correctly denied both non-grantable POL-003 actions; no typed mutation occurred, so ADR-0088
+correctly earned no refresh. The run cost **USD 0.69344145**, opened zero human reviews, exited 1
+with `BLOCKED_AFTER_SYNTHESIS`, and left Click clean. Issue
+[#149](https://github.com/keel-harness/keel/issues/149) scopes the distinct correction-local
+command-guidance defect. Cumulative spend is **USD 16.89637405**; the score remains **4.04/5
+candidate / 4.02 pooled**, and PR #142 remains unmerged under a strict **NO-GO** verdict.
