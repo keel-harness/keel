@@ -98,7 +98,7 @@ export const KERNEL_STRINGS = {
     "split, normalize, or mechanically rewrite the original action; do not invent approval or emit " +
     "multiple calls. The fresh call is still Warden-gated. If no safe call exists, state the exact " +
     "remaining work and stop.",
-  /** Tool-disabled closeout after the sole bounded correction call completes. */
+  /** Tool-disabled closeout when the bounded correction does not authoritatively succeed alone. */
   terminalReviewRecoveryFinalization:
     "The one bounded correction attempt is complete. Tools are disabled. Report the observed result " +
     "and the exact remaining work. Do not claim the original reviewed action ran, and do not offer " +

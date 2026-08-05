@@ -47,6 +47,71 @@ describe("recovered exploratory failures", () => {
     });
   });
 
+  it("reconciles the immediate successful correction after later ordinary work", () => {
+    const blocked = markToolPresentationOutcome(
+      {
+        kind: "tool",
+        id: "reviewed-composite",
+        name: "bash",
+        status: "error",
+        summary:
+          "blocked (not executed): no live decision available · POL-003 review: use a simpler command",
+      } as const,
+      "blocked",
+    );
+    const laterFailure = markToolPresentationOutcome(
+      {
+        kind: "tool",
+        id: "later-failure",
+        name: "bash",
+        status: "error",
+        summary: "exit 1 · later verification failed",
+      } as const,
+      "failed",
+    );
+    const items: ViewItem[] = [
+      { kind: "message", role: "user", content: "implement and verify the feature" },
+      blocked,
+      {
+        kind: "tool",
+        id: "atomic-correction",
+        name: "bash",
+        status: "ok",
+        summary: "pytest 9.1.1",
+      },
+      {
+        kind: "tool",
+        id: "ordinary-edit",
+        name: "edit",
+        status: "ok",
+        summary: "updated tests/test_termui.py",
+        subject: "tests/test_termui.py",
+      },
+      laterFailure,
+      {
+        kind: "tool",
+        id: "ordinary-verification",
+        name: "bash",
+        status: "ok",
+        summary: "1 passed",
+      },
+      {
+        kind: "message",
+        role: "assistant",
+        content: "Implemented the feature and verified the focused test.",
+      },
+    ];
+
+    expect(reconciledToolAttempts(items)).toEqual({
+      failureIndexes: new Set([1]),
+      recoveredCount: 1,
+      receiptLines: [
+        "recovered · bash completed one bounded correction; original reviewed action was not executed",
+      ],
+    });
+    expect(reconciledToolAttempts(items).failureIndexes).not.toContain(4);
+  });
+
   it("does not reconcile a terminal review when the bounded correction fails or has siblings", () => {
     const blocked = markToolPresentationOutcome(
       {
@@ -96,6 +161,66 @@ describe("recovered exploratory failures", () => {
 
     expect(reconciledToolAttempts(failed).failureIndexes).toEqual(new Set());
     expect(reconciledToolAttempts(siblings).failureIndexes).toEqual(new Set());
+  });
+
+  it("does not reconcile a terminal review across a later user turn", () => {
+    const blocked = markToolPresentationOutcome(
+      {
+        kind: "tool",
+        id: "reviewed-composite",
+        name: "bash",
+        status: "error",
+        summary:
+          "blocked (not executed): no live decision available · POL-003 review: use a simpler command",
+      } as const,
+      "blocked",
+    );
+    const items: ViewItem[] = [
+      blocked,
+      { kind: "message", role: "user", content: "start a new attempt" },
+      { kind: "tool", id: "later-success", name: "bash", status: "ok", summary: "passed" },
+      { kind: "message", role: "assistant", content: "The later attempt passed." },
+    ];
+
+    expect(reconciledToolAttempts(items)).toEqual({
+      failureIndexes: new Set(),
+      recoveredCount: 0,
+      receiptLines: [],
+    });
+  });
+
+  it("keeps same-recovery assistant narration transparent to the immediate correction", () => {
+    const blocked = markToolPresentationOutcome(
+      {
+        kind: "tool",
+        id: "reviewed-composite",
+        name: "bash",
+        status: "error",
+        summary:
+          "blocked (not executed): no live decision available · POL-003 review: use a simpler command",
+      } as const,
+      "blocked",
+    );
+    const items: ViewItem[] = [
+      blocked,
+      { kind: "message", role: "assistant", content: "I will run one atomic check." },
+      {
+        kind: "tool",
+        id: "atomic-correction",
+        name: "bash",
+        status: "ok",
+        summary: "pytest 9.1.1",
+      },
+      { kind: "message", role: "assistant", content: "The correction succeeded." },
+    ];
+
+    expect(reconciledToolAttempts(items)).toEqual({
+      failureIndexes: new Set([0]),
+      recoveredCount: 1,
+      receiptLines: [
+        "recovered · bash completed one bounded correction; original reviewed action was not executed",
+      ],
+    });
   });
 
   it("never hides a binary refusal merely because another read later succeeds", () => {

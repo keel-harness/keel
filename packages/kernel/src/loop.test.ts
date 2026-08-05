@@ -382,6 +382,385 @@ describe("runAgentLoop", () => {
     expect(modelTurn).toBe(3);
   });
 
+  it("returns a sole authoritative correction success to ordinary Warden-gated work", async () => {
+    const original =
+      "python3 -m pytest --version 2>&1; python3 -m ruff --version 2>&1; python3 -m mypy --version 2>&1";
+    const corrected = "python3 -m pytest --version";
+    const editArgs = {
+      path: "tests/test_termui.py",
+      oldText: "def test_old(): pass",
+      newText: "def test_new(): pass",
+    };
+    const verification = "python3 -m pytest tests/test_termui.py::test_new -q";
+    const advertisedTools = [
+      { name: "bash", parameters: { type: "object" } },
+      { name: "edit", parameters: { type: "object" } },
+    ] as const;
+    const seenTools: ModelTurnInput["tools"][] = [];
+    let modelTurn = 0;
+    const model: ModelPort = {
+      async *stream(input): AsyncGenerator<ModelStreamChunkT> {
+        seenTools.push(input.tools);
+        modelTurn += 1;
+        if (modelTurn === 1) {
+          yield { type: "tool-call", id: "reviewed", name: "bash", args: { command: original } };
+          yield {
+            type: "finish",
+            reason: "tool-calls",
+            usage: { inputTokens: 10, outputTokens: 2 },
+          };
+          return;
+        }
+        if (modelTurn === 2) {
+          yield {
+            type: "tool-call",
+            id: "corrected",
+            name: "bash",
+            args: { command: corrected },
+          };
+          yield {
+            type: "finish",
+            reason: "tool-calls",
+            usage: { inputTokens: 20, outputTokens: 2 },
+          };
+          return;
+        }
+        if (modelTurn === 3) {
+          yield { type: "tool-call", id: "edit", name: "edit", args: editArgs };
+          yield {
+            type: "finish",
+            reason: "tool-calls",
+            usage: { inputTokens: 30, outputTokens: 2 },
+          };
+          return;
+        }
+        if (modelTurn === 4) {
+          yield {
+            type: "tool-call",
+            id: "verified",
+            name: "bash",
+            args: { command: verification },
+          };
+          yield {
+            type: "finish",
+            reason: "tool-calls",
+            usage: { inputTokens: 40, outputTokens: 2 },
+          };
+          return;
+        }
+        yield {
+          type: "text-delta",
+          text: "Implemented the focused change and verified the exact test.",
+        };
+        yield { type: "finish", reason: "stop", usage: { inputTokens: 50, outputTokens: 8 } };
+      },
+    };
+    const executed: string[] = [];
+    const exec: ExecutorPort = {
+      async execute(call) {
+        executed.push(call.id);
+        if (call.id === "reviewed") {
+          expect(call).toMatchObject({ name: "bash", args: { command: original } });
+          return recoverableTerminalReviewResult(
+            "warden review required (not executed): POL-003 review; no live review was opened by this kernel; no approval can be resolved from this result; simplify the request, then rerun",
+          );
+        }
+        if (call.id === "corrected" || call.id === "verified") {
+          expect(call).toMatchObject({
+            name: "bash",
+            args: { command: call.id === "corrected" ? corrected : verification },
+          });
+          return {
+            ok: true,
+            output: JSON.stringify({
+              exitCode: 0,
+              signal: null,
+              stdout: call.id === "corrected" ? "pytest 9.1.1\n" : "1 passed\n",
+              stderr: "",
+            }),
+          };
+        }
+        expect(call).toMatchObject({ name: "edit", args: editArgs });
+        return { ok: true, output: "updated tests/test_termui.py" };
+      },
+    };
+
+    const events: KernelEventT[] = [];
+    for await (const event of runAgentLoop(model, exec, {
+      messages: userMsg("implement and verify the focused feature"),
+      tools: advertisedTools,
+    })) {
+      events.push(event);
+    }
+
+    expect(seenTools).toEqual([
+      advertisedTools,
+      advertisedTools,
+      advertisedTools,
+      advertisedTools,
+      advertisedTools,
+    ]);
+    expect(executed).toEqual(["reviewed", "corrected", "edit", "verified"]);
+    expect(events.filter((event) => event.type === "stop")).toEqual([
+      { type: "stop", reason: "model-stop" },
+    ]);
+    expect(modelTurn).toBe(5);
+  });
+
+  it("does not reopen bounded recovery after successful correction and later ordinary review", async () => {
+    const advertisedTools = [{ name: "bash", parameters: { type: "object" } }] as const;
+    const seenTools: ModelTurnInput["tools"][] = [];
+    let modelTurn = 0;
+    const model: ModelPort = {
+      async *stream(input): AsyncGenerator<ModelStreamChunkT> {
+        seenTools.push(input.tools);
+        modelTurn += 1;
+        yield {
+          type: "tool-call",
+          id: modelTurn === 1 ? "reviewed" : modelTurn === 2 ? "corrected" : "later-review",
+          name: "bash",
+          args: {
+            command:
+              modelTurn === 1
+                ? "pytest --version; ruff --version"
+                : modelTurn === 2
+                  ? "pytest --version"
+                  : "pytest -q; ruff check .",
+          },
+        };
+        yield { type: "finish", reason: "tool-calls", usage: { inputTokens: 10, outputTokens: 2 } };
+      },
+    };
+    const executed: string[] = [];
+    const exec: ExecutorPort = {
+      async execute(call) {
+        executed.push(call.id);
+        if (call.id === "corrected") {
+          return {
+            ok: true,
+            output: JSON.stringify({
+              exitCode: 0,
+              signal: null,
+              stdout: "pytest 9.1.1\n",
+              stderr: "",
+            }),
+          };
+        }
+        return recoverableTerminalReviewResult(
+          "warden review required (not executed): simplify the request; no live review exists",
+        );
+      },
+    };
+
+    const events: KernelEventT[] = [];
+    for await (const event of runAgentLoop(model, exec, {
+      messages: userMsg("continue only through ordinary Warden-gated calls"),
+      tools: advertisedTools,
+    })) {
+      events.push(event);
+    }
+
+    expect(seenTools).toEqual([advertisedTools, advertisedTools, advertisedTools]);
+    expect(executed).toEqual(["reviewed", "corrected", "later-review"]);
+    expect(events.filter((event) => event.type === "stop")).toEqual([
+      expect.objectContaining({ type: "stop", reason: "error", code: "BLOCKED" }),
+    ]);
+    expect(modelTurn).toBe(3);
+  });
+
+  it("keeps the ordinary turn cap authoritative after a successful correction", async () => {
+    const advertisedTools = [{ name: "bash", parameters: { type: "object" } }] as const;
+    const seenTools: ModelTurnInput["tools"][] = [];
+    let modelTurn = 0;
+    const model: ModelPort = {
+      async *stream(input): AsyncGenerator<ModelStreamChunkT> {
+        seenTools.push(input.tools);
+        modelTurn += 1;
+        yield {
+          type: "tool-call",
+          id: modelTurn === 1 ? "reviewed" : "corrected",
+          name: "bash",
+          args: {
+            command: modelTurn === 1 ? "pytest --version; ruff --version" : "pytest --version",
+          },
+        };
+        yield { type: "finish", reason: "tool-calls", usage: { inputTokens: 10, outputTokens: 2 } };
+      },
+    };
+    let executions = 0;
+    const exec: ExecutorPort = {
+      async execute() {
+        executions += 1;
+        return executions === 1
+          ? recoverableTerminalReviewResult(
+              "warden review required (not executed): simplify the request; no live review exists",
+            )
+          : {
+              ok: true,
+              output: JSON.stringify({
+                exitCode: 0,
+                signal: null,
+                stdout: "pytest 9.1.1\n",
+                stderr: "",
+              }),
+            };
+      },
+    };
+
+    const events: KernelEventT[] = [];
+    for await (const event of runAgentLoop(model, exec, {
+      messages: userMsg("respect the existing turn boundary"),
+      tools: advertisedTools,
+      stop: { maxTurns: 2 },
+    })) {
+      events.push(event);
+    }
+
+    expect(seenTools).toEqual([advertisedTools, advertisedTools]);
+    expect(executions).toBe(2);
+    expect(events.filter((event) => event.type === "stop")).toEqual([
+      { type: "stop", reason: "max-turns" },
+    ]);
+  });
+
+  it.each(["budget", "deadline", "aborted"] as const)(
+    "keeps the ordinary %s control authoritative after a successful correction",
+    async (control) => {
+      const advertisedTools = [{ name: "bash", parameters: { type: "object" } }] as const;
+      const controller = new AbortController();
+      let nowMs = 0;
+      let modelTurn = 0;
+      const model: ModelPort = {
+        async *stream(): AsyncGenerator<ModelStreamChunkT> {
+          modelTurn += 1;
+          yield {
+            type: "tool-call",
+            id: modelTurn === 1 ? "reviewed" : modelTurn === 2 ? "corrected" : "ordinary",
+            name: "bash",
+            args: {
+              command:
+                modelTurn === 1
+                  ? "pytest --version; ruff --version"
+                  : modelTurn === 2
+                    ? "pytest --version"
+                    : "pytest tests/test_termui.py -q",
+            },
+          };
+          yield {
+            type: "finish",
+            reason: "tool-calls",
+            usage: { inputTokens: 10, outputTokens: 2 },
+          };
+        },
+      };
+      let executions = 0;
+      const exec: ExecutorPort = {
+        async execute() {
+          executions += 1;
+          if (executions === 1) {
+            return recoverableTerminalReviewResult(
+              "warden review required (not executed): simplify the request; no live review exists",
+            );
+          }
+          if (executions === 2) {
+            if (control === "deadline") nowMs = 100;
+            if (control === "aborted") controller.abort();
+          }
+          return {
+            ok: true,
+            output: JSON.stringify({
+              exitCode: 0,
+              signal: null,
+              stdout: "pytest 9.1.1\n",
+              stderr: "",
+            }),
+          };
+        },
+      };
+
+      const events: KernelEventT[] = [];
+      for await (const event of runAgentLoop(model, exec, {
+        messages: userMsg("respect every ordinary run control"),
+        tools: advertisedTools,
+        ...(control === "budget" ? { stop: { budget: { maxTokens: 24 } } } : {}),
+        ...(control === "deadline" ? { stop: { maxWallMs: 50 }, now: () => nowMs } : {}),
+        ...(control === "aborted" ? { signal: controller.signal } : {}),
+      })) {
+        events.push(event);
+      }
+
+      expect(executions).toBe(2);
+      expect(modelTurn).toBe(2);
+      expect(events.filter((event) => event.type === "stop")).toEqual([
+        { type: "stop", reason: control },
+      ]);
+    },
+  );
+
+  it("keeps the ordinary loop detector authoritative after a successful correction", async () => {
+    const advertisedTools = [
+      { name: "bash", parameters: { type: "object" } },
+      { name: "echo", parameters: { type: "object" } },
+    ] as const;
+    let modelTurn = 0;
+    const model: ModelPort = {
+      async *stream(): AsyncGenerator<ModelStreamChunkT> {
+        modelTurn += 1;
+        yield {
+          type: "tool-call",
+          id: `call-${String(modelTurn)}`,
+          name: modelTurn <= 2 ? "bash" : "echo",
+          args:
+            modelTurn === 1
+              ? { command: "pytest --version; ruff --version" }
+              : modelTurn === 2
+                ? { command: "pytest --version" }
+                : { value: "same" },
+        };
+        yield { type: "finish", reason: "tool-calls", usage: { inputTokens: 1, outputTokens: 1 } };
+      },
+    };
+    let executions = 0;
+    const exec: ExecutorPort = {
+      async execute() {
+        executions += 1;
+        return executions === 1
+          ? recoverableTerminalReviewResult(
+              "warden review required (not executed): simplify the request; no live review exists",
+            )
+          : {
+              ok: true,
+              output:
+                executions === 2
+                  ? JSON.stringify({
+                      exitCode: 0,
+                      signal: null,
+                      stdout: "pytest 9.1.1\n",
+                      stderr: "",
+                    })
+                  : "same result",
+            };
+      },
+    };
+
+    const events: KernelEventT[] = [];
+    for await (const event of runAgentLoop(model, exec, {
+      messages: userMsg("do not repeat the same ordinary call indefinitely"),
+      tools: advertisedTools,
+      loopDetection: { maxToolRepeats: 3 },
+    })) {
+      events.push(event);
+    }
+
+    expect(events.filter((event) => event.type === "loop-detected")).toHaveLength(2);
+    expect(events.find((event) => event.type === "stop")).toEqual({
+      type: "stop",
+      reason: "loop-detected",
+      message: "tool-repeat: echo exact input repeated after warning",
+    });
+    expect(executions).toBeGreaterThan(2);
+  });
+
   it.each([
     [
       "nonzero",

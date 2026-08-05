@@ -2311,6 +2311,7 @@ export async function* runAgentLoopWithControlState(
     let terminalReviewHalted = false;
     let terminalReviewRecoveryAvailable = false;
     let terminalReviewCorrectionCompleted = false;
+    let terminalReviewCorrectionSucceeded = false;
     const boundedRecoveryTurn = terminalReviewRecoveryActive;
     terminalReviewRecoveryActive = false;
     const toolMs = input.infraTimeout?.toolMs;
@@ -2536,7 +2537,8 @@ export async function* runAgentLoopWithControlState(
         resetTailSuccess();
       }
       if (boundedRecoveryTurn) {
-        if (boundedCorrectionSucceeded(call, result, failureEvidence)) {
+        const correctionSucceeded = boundedCorrectionSucceeded(call, result, failureEvidence);
+        if (correctionSucceeded) {
           unrecoveredBlockedActions = Math.max(0, unrecoveredBlockedActions - 1);
         }
         for (let j = ci + 1; j < calls.length; j++) {
@@ -2554,6 +2556,7 @@ export async function* runAgentLoopWithControlState(
           });
         }
         terminalReviewCorrectionCompleted = true;
+        terminalReviewCorrectionSucceeded = correctionSucceeded && calls.length === 1;
         break;
       }
       const successEvidence = extractStrongSuccessEvidence(call, result);
@@ -2611,7 +2614,7 @@ export async function* runAgentLoopWithControlState(
     if (wardenHalted) break;
 
     if (
-      terminalReviewCorrectionCompleted ||
+      (terminalReviewCorrectionCompleted && !terminalReviewCorrectionSucceeded) ||
       (terminalReviewHalted && boundedRecoveryTurn && !terminalReviewTimedOut)
     ) {
       terminalReviewRecoveryFinalizationActive = true;

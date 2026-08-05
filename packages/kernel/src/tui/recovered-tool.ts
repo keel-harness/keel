@@ -4,6 +4,7 @@ import { TUI_TERMINAL_REVIEW_TRUTH } from "./strings.js";
 
 const recoveryIdentityByActivity = new WeakMap<UiToolActivity, string>();
 const MAX_RECOVERED_RECEIPT_LINES = 3;
+const BOUNDED_RECOVERY_SIBLING_PREFIX = "bounded recovery permits one tool call";
 
 /** Exact, process-local identity for retry reconciliation. Never rendered or persisted. */
 export function toolRecoveryIdentityForCall(name: string, args: JsonObjectT): string | undefined {
@@ -100,49 +101,57 @@ function reconcileToolAttempts(
     }
   >();
   let terminalAttempt: RecoveredTerminalReviewAttempt | undefined;
-  let laterToolCount = 0;
-  let soleLaterSuccessfulCorrection:
+  let nearestLaterTool: { readonly index: number; readonly item: UiToolActivity } | undefined;
+  let toolAfterNearestLaterTool:
     | { readonly index: number; readonly item: UiToolActivity }
     | undefined;
+  let userMessageBetweenCurrentAndNearestTool = false;
 
   for (let index = items.length - 1; index >= 0; index -= 1) {
     const item = items[index]!;
     if (item.kind === "message") {
       if (item.role === "assistant" && item.content.trim().length > 0) answerSeen = true;
+      if (item.role === "user" && nearestLaterTool !== undefined) {
+        userMessageBetweenCurrentAndNearestTool = true;
+      }
       continue;
     }
     // The exact no-live-review result is controller-owned presentation derived from a
-    // WardenExecutor result. Before R11 it ended the turn, so exactly one later tool occurrence can
-    // exist only on the bounded recovery lane. Failed corrections and skipped siblings therefore
-    // remain consequential. This shares the existing reverse pass to preserve linear projection.
+    // WardenExecutor result. The immediate later tool occurrence can exist only on the bounded
+    // recovery lane unless a new user turn intervenes. Same-response assistant narration is not an
+    // authority boundary. A successful sole correction may now
+    // be followed by ordinary Warden-gated work; failed corrections and bounded siblings remain
+    // consequential. This shares the existing reverse pass to preserve linear projection.
     if (
       includeMutationRecovery &&
       terminalAttempt === undefined &&
-      laterToolCount === 1 &&
-      soleLaterSuccessfulCorrection !== undefined &&
+      answerSeen &&
+      nearestLaterTool !== undefined &&
+      !userMessageBetweenCurrentAndNearestTool &&
+      nearestLaterTool.item.status === "ok" &&
+      toolOutcome(nearestLaterTool.item) === "done" &&
+      !(
+        toolAfterNearestLaterTool?.item.status === "error" &&
+        toolOutcome(toolAfterNearestLaterTool.item) === "skipped" &&
+        toolAfterNearestLaterTool.item.summary.startsWith(BOUNDED_RECOVERY_SIBLING_PREFIX)
+      ) &&
       item.status === "error" &&
       toolOutcome(item) === "blocked" &&
       item.summary.startsWith(TUI_TERMINAL_REVIEW_TRUTH.summaryPrefix)
     ) {
       terminalAttempt = {
         failureIndex: index,
-        successIndex: soleLaterSuccessfulCorrection.index,
-        name: soleLaterSuccessfulCorrection.item.name,
-        ...(soleLaterSuccessfulCorrection.item.subject !== undefined
-          ? { subject: soleLaterSuccessfulCorrection.item.subject }
+        successIndex: nearestLaterTool.index,
+        name: nearestLaterTool.item.name,
+        ...(nearestLaterTool.item.subject !== undefined
+          ? { subject: nearestLaterTool.item.subject }
           : {}),
       };
       recovered.add(index);
     }
-    if (
-      laterToolCount === 0 &&
-      answerSeen &&
-      item.status === "ok" &&
-      toolOutcome(item) === "done"
-    ) {
-      soleLaterSuccessfulCorrection = { index, item };
-    }
-    laterToolCount += 1;
+    toolAfterNearestLaterTool = nearestLaterTool;
+    nearestLaterTool = { index, item };
+    userMessageBetweenCurrentAndNearestTool = false;
     if (answerSeen && isExploratorySuccess(item)) successfulPathToAnswer = true;
     if (successfulPathToAnswer && isRecoverableExploratoryFailure(item)) recovered.add(index);
     if (!includeMutationRecovery) continue;
