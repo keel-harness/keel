@@ -1,7 +1,7 @@
 # R25 — controller recovery-guidance implementation and live stop
 
-Date: 2026-08-05  
-Terminal: 100 columns × 30 rows  
+Date: 2026-08-05
+Terminal: 100 columns × 30 rows
 External baseline: Click `00e592cea702e0b2caa0dee42489fdb1c22cd845`
 
 ## Authorized scope

@@ -1,8 +1,8 @@
 # R25 — structural continuation blocker after #143
 
-Date: 2026-08-05  
-Anthropic spend during this analysis: USD 0.00  
-Candidate head: `38f21afb33423d63e2370e1ec73e0b99885f24b8`  
+Date: 2026-08-05
+Anthropic spend during this analysis: USD 0.00
+Candidate head: `38f21afb33423d63e2370e1ec73e0b99885f24b8`
 Exact live failure: `BLOCKED_AFTER_SYNTHESIS`, clean Click workspace, zero actionable reviews
 
 ## Exact failure chain

@@ -1,8 +1,8 @@
 # R25 — corrected oracle exposes later-progress recovery blocker
 
-Date: 2026-08-05  
-Terminal: 100 columns × 30 rows  
-External baseline: Click `00e592cea702e0b2caa0dee42489fdb1c22cd845`  
+Date: 2026-08-05
+Terminal: 100 columns × 30 rows
+External baseline: Click `00e592cea702e0b2caa0dee42489fdb1c22cd845`
 Exact Keel carrier: `3b21d2a250e57ac7996937293faba3666f13eca8`
 
 ## Corrected evidence contract
