@@ -41,6 +41,17 @@ describe("kernel strings", () => {
     expect(message).not.toContain("did not execute");
   });
 
+  it("routes read-only terminal-review recovery to typed observations", () => {
+    const message = KERNEL_STRINGS.terminalReviewRecovery;
+    expect(message).toMatch(/read-only file discovery.{0,80}typed `search` or `read`/is);
+    expect(message).toMatch(/not bash.{0,80}`find`.{0,40}`grep`.{0,40}`xargs`/is);
+    expect(message).toContain("`search: no matches.`");
+    expect(message).toMatch(/no matches.{0,80}completed observation/is);
+    expect(message).toMatch(/requested test, check, or command.{0,80}atomic bash/is);
+    expect(message).toMatch(/at most one.{0,80}(?:model-authored|model-driven)/is);
+    expect(message).toContain("Warden-gated");
+  });
+
   // Epic 1.16 golden: the verification prompt MUST be STOP-biased + execution-grounded. The prior
   // CONTINUE-biased prompt was measured net-negative — it pushed cleanly-stopped models into open-ended
   // re-work until they burned the gross cap (claim-ledger 2026-06-18: clean-stops 7→2, +49% output). This

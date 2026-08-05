@@ -301,10 +301,12 @@ describe("runAgentLoop", () => {
     const sibling = "python3 -m pytest tests/test_termui.py -q";
     const advertisedTools = [{ name: "bash", parameters: { type: "object" } }] as const;
     const seenTools: ModelTurnInput["tools"][] = [];
+    const seenMessages: ModelMessageT[][] = [];
     let modelTurn = 0;
     const model: ModelPort = {
       async *stream(input): AsyncGenerator<ModelStreamChunkT> {
         seenTools.push(input.tools);
+        seenMessages.push(input.messages.map((message) => structuredClone(message)));
         modelTurn += 1;
         if (modelTurn === 1) {
           yield { type: "tool-call", id: "reviewed", name: "bash", args: { command: original } };
@@ -367,6 +369,13 @@ describe("runAgentLoop", () => {
     }
 
     expect(seenTools).toEqual([advertisedTools, advertisedTools, undefined]);
+    expect(seenMessages[1]?.at(-1)).toEqual({
+      role: "user",
+      content: KERNEL_STRINGS.terminalReviewRecovery,
+    });
+    expect(seenMessages[1]?.at(-1)?.content).toMatch(
+      /read-only file discovery.{0,160}typed `search` or `read`/is,
+    );
     expect(executed).toEqual([original, corrected]);
     expect(executed).not.toContain(sibling);
     const skippedSibling = events.find(
