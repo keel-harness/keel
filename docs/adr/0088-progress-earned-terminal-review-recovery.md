@@ -1,9 +1,9 @@
 # ADR-0088 — Progress-earned terminal-review recovery
 
-- **Status:** **Proposed — maintainer decision required.** No implementation is authorized by this
-  record until the maintainer accepts it and explicitly authorizes issue #145.
+- **Status:** **Accepted (2026-08-05).** The maintainer explicitly accepted ADR-0088 and authorized
+  implementation of issue #145 as scoped in PR #146.
 - **Date:** 2026-08-05.
-- **Decider:** keel maintainer (pending).
+- **Decider:** keel maintainer.
 - **Governs:** the process-local controller budget for model-authored correction after a
   non-grantable terminal-review result. Relates to ADR-0076 (terminal review after UI disconnect),
   ADR-0087 (controller-owned bounded settlement), MASTER_SPEC Appendix D `POL-003`, and issues
@@ -62,8 +62,8 @@ Start with the existing single recovery credit. After that correction succeeds a
 work resumes, exactly one successful typed workspace mutation may earn exactly one additional
 credit. The task can therefore execute at most two bounded corrections and can refresh at most once.
 
-**Selected if this ADR is accepted.** It addresses the observed failure with a small local state
-transition, derives eligibility from controller-owned tool results, and retains a strict finite cap.
+**Selected.** It addresses the observed failure with a small local state transition, derives
+eligibility from controller-owned tool results, and retains a strict finite cap.
 
 ### Option 2 — classify non-grantable review as deny
 
@@ -92,7 +92,7 @@ context acquisition.
 **Rejected.** Reads, searches, version probes, prose, and opaque bash can be repeated without moving
 the user's task forward. Time, token spend, and model self-report are not authoritative progress.
 
-## Proposed decision
+## Decision
 
 Adopt a process-local **progress-earned terminal-review recovery budget** with one initial credit,
 at most one refresh, and at most two correction attempts for the entire ordinary task.
