@@ -1515,6 +1515,127 @@ describe("runner — bounded terminal-review correction presentation", () => {
     expect(resumedFrame).not.toContain(String.fromCharCode(27));
     store.close();
   });
+
+  it("keeps both progress-earned recovery occurrences truthful live, headless, and after resume", async () => {
+    const e = env();
+    const store = SessionStore.create({ cwd: "/w" }, e);
+    const ui = new QueueUI();
+    const firstOriginal = "python3 -m pytest --version; python3 -m ruff --version";
+    const firstCorrection = "python3 -m pytest --version";
+    const edit = "tests/test_termui.py";
+    const secondOriginal = `cd /w && python3 -m pytest ${edit}::test_new -q 2>&1`;
+    const secondCorrection = `python3 -m pytest ${edit}::test_new -q`;
+    const verification = `python3 -m pytest ${edit} -q`;
+    const executed: string[] = [];
+    const outcome = await runSession({
+      model: new ScriptedModel({
+        turns: [
+          { toolCalls: [{ name: "bash", args: { command: firstOriginal } }] },
+          { toolCalls: [{ name: "bash", args: { command: firstCorrection } }] },
+          {
+            toolCalls: [
+              {
+                name: "edit",
+                args: {
+                  path: edit,
+                  oldText: "def test_old(): pass",
+                  newText: "def test_new(): pass",
+                },
+              },
+            ],
+          },
+          { toolCalls: [{ name: "bash", args: { command: secondOriginal } }] },
+          { toolCalls: [{ name: "bash", args: { command: secondCorrection } }] },
+          { toolCalls: [{ name: "bash", args: { command: verification } }] },
+          { text: "Implemented the feature and verified the complete termui suite." },
+        ],
+      }),
+      executor: {
+        execute(call): Promise<ToolResultT> {
+          if (call.name === "edit") {
+            const path = call.args["path"];
+            if (typeof path !== "string") throw new Error("expected edit path string");
+            executed.push(`edit:${path}`);
+            return Promise.resolve({ ok: true, output: `updated ${edit}` });
+          }
+          const command = call.args["command"];
+          if (typeof command !== "string") throw new Error("expected command string");
+          executed.push(command);
+          if (command === firstOriginal || command === secondOriginal) {
+            return Promise.resolve(
+              recoverableTerminalReviewResult(
+                "warden review required (not executed): POL-003 review: use a simpler command; no live review was opened by this kernel; no approval can be resolved from this result",
+              ),
+            );
+          }
+          return Promise.resolve({
+            ok: true,
+            output: JSON.stringify({
+              exitCode: 0,
+              signal: null,
+              stdout: command === firstCorrection ? "pytest 9.1.1\n" : "32 passed\n",
+              stderr: "",
+            }),
+          });
+        },
+      },
+      ui,
+      store,
+      seed: [{ role: "user", content: "implement and verify the feature" }],
+      env: e,
+      tools: [
+        { name: "bash", description: "run a governed command" },
+        { name: "edit", description: "edit one workspace file" },
+      ],
+    });
+
+    expect(executed).toEqual([
+      firstOriginal,
+      firstCorrection,
+      `edit:${edit}`,
+      secondOriginal,
+      secondCorrection,
+      verification,
+    ]);
+    expect(outcome).toMatchObject({ lastStop: "model-stop" });
+    expect(outcome.finalView.turnSummary).toMatchObject({ title: "done", attention: [] });
+    const liveReceipt = outcome.finalView.turnSummary?.receipt;
+    if (liveReceipt === undefined) throw new Error("expected live recovery receipt");
+    expect(
+      liveReceipt.filter((line) => line.includes("original reviewed action was not executed")),
+    ).toHaveLength(2);
+    const liveFrame = renderFrame(outcome.finalView);
+    // Two receipt lines plus the retained original non-execution card keep both the recovered
+    // accounting and one inspectable source occurrence visible.
+    expect(liveFrame.match(/original reviewed action was not executed/g)).toHaveLength(3);
+    expect(liveFrame).not.toContain("needs attention");
+    expect(liveFrame).not.toContain(String.fromCharCode(27));
+
+    const rebuilt = rebuild(readSession(store.id, e));
+    const resumedBase = initialView(
+      rebuilt.messages,
+      {},
+      {
+        failedToolCallIds: rebuilt.failedToolCallIds,
+        failedToolMessageIndexes: rebuilt.failedToolMessageIndexes,
+      },
+    );
+    const resumedSummary = buildTurnSummary(resumedBase);
+    if (resumedSummary === undefined) throw new Error("expected resumed recovery summary");
+    if (resumedSummary.receipt === undefined) throw new Error("expected resumed recovery receipt");
+    const resumedFrame = renderFrame({ ...resumedBase, turnSummary: resumedSummary });
+    expect(rebuilt).toMatchObject({ finished: true, lastStop: "model-stop" });
+    expect(resumedSummary).toMatchObject({ title: "done", attention: [] });
+    expect(
+      resumedSummary.receipt.filter((line) =>
+        line.includes("original reviewed action was not executed"),
+      ),
+    ).toHaveLength(2);
+    expect(resumedFrame.match(/original reviewed action was not executed/g)).toHaveLength(3);
+    expect(resumedFrame).not.toContain("needs attention");
+    expect(resumedFrame).not.toContain(String.fromCharCode(27));
+    store.close();
+  });
 });
 
 describe("runner — purposeful tool liveness", () => {

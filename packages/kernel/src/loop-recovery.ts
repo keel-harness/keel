@@ -14,6 +14,89 @@ const PYTEST_SUMMARY_PASS_RE =
 const PYTEST_FAILURE_OUTPUT_RE =
   /\b\d+\s+(?:failed|error|errors)\b|^FAILED\b|^ERROR\b|^FAIL\b|\[exit code:\s*[1-9]\d*\]/m;
 
+export type TerminalReviewRecoveryCredit = "initial" | "earned-final";
+
+export interface TerminalReviewRecoveryState {
+  readonly correctionAttempts: 0 | 1 | 2;
+  readonly refreshEarned: boolean;
+  readonly refreshConsumed: boolean;
+  readonly eligibleProgressSeen: boolean;
+  readonly firstCorrectionSucceeded: boolean;
+}
+
+export function createTerminalReviewRecoveryState(): TerminalReviewRecoveryState {
+  return {
+    correctionAttempts: 0,
+    refreshEarned: false,
+    refreshConsumed: false,
+    eligibleProgressSeen: false,
+    firstCorrectionSucceeded: false,
+  };
+}
+
+export function takeTerminalReviewRecoveryCredit(state: TerminalReviewRecoveryState):
+  | {
+      readonly credit: TerminalReviewRecoveryCredit;
+      readonly state: TerminalReviewRecoveryState;
+    }
+  | undefined {
+  if (state.correctionAttempts === 0) {
+    return {
+      credit: "initial",
+      state: { ...state, correctionAttempts: 1 },
+    };
+  }
+  if (
+    state.correctionAttempts === 1 &&
+    state.firstCorrectionSucceeded &&
+    state.refreshEarned &&
+    !state.refreshConsumed
+  ) {
+    return {
+      credit: "earned-final",
+      state: {
+        ...state,
+        correctionAttempts: 2,
+        refreshEarned: false,
+        refreshConsumed: true,
+      },
+    };
+  }
+  return undefined;
+}
+
+export function recordTerminalReviewCorrectionSuccess(
+  state: TerminalReviewRecoveryState,
+): TerminalReviewRecoveryState {
+  return state.correctionAttempts === 1 && !state.refreshConsumed
+    ? { ...state, firstCorrectionSucceeded: true }
+    : state;
+}
+
+export function recordTerminalReviewToolResult(
+  state: TerminalReviewRecoveryState,
+  input: {
+    readonly toolName: string;
+    readonly ok: boolean;
+    readonly soleCall: boolean;
+    readonly boundedCorrectionTurn: boolean;
+  },
+): TerminalReviewRecoveryState {
+  if (
+    state.correctionAttempts !== 1 ||
+    !state.firstCorrectionSucceeded ||
+    state.eligibleProgressSeen ||
+    state.refreshConsumed ||
+    input.boundedCorrectionTurn ||
+    !input.soleCall ||
+    !input.ok ||
+    (input.toolName !== "edit" && input.toolName !== "write")
+  ) {
+    return state;
+  }
+  return { ...state, eligibleProgressSeen: true, refreshEarned: true };
+}
+
 function truncateEvidence(value: string): string {
   const trimmed = redactText(value).trim();
   if (trimmed.length <= MAX_EVIDENCE_CHARS) return trimmed;

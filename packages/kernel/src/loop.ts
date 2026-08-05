@@ -53,9 +53,13 @@ import {
 import { finalizeOnlyEvidenceForToolResult } from "./run-control/finalize-eligibility.js";
 import {
   callSuggestsArtifactWrite,
+  createTerminalReviewRecoveryState,
   extractLoopFailureEvidence,
   extractStrongSuccessEvidence,
+  recordTerminalReviewCorrectionSuccess,
+  recordTerminalReviewToolResult,
   renderLoopRecoveryGuidance,
+  takeTerminalReviewRecoveryCredit,
 } from "./loop-recovery.js";
 import { abortForToolDeadline, InfraError, withDeadline } from "./infra.js";
 import { estimateTokens, messageTokens } from "./context/system-prompt.js";
@@ -898,7 +902,7 @@ export async function* runAgentLoopWithControlState(
   let terminalReviewOutcome: ToolPresentationOutcome | undefined;
   let terminalReviewTimedOut = false;
   let terminalReviewRecoveryActive = false;
-  let terminalReviewRecoveryAttempted = false;
+  let terminalReviewRecoveryState = createTerminalReviewRecoveryState();
   let terminalReviewRecoveryFinalizationActive = false;
   let unrecoveredBlockedActions = 0;
   const blockedStopEvent = (): StopEvent => ({
@@ -1839,7 +1843,7 @@ export async function* runAgentLoopWithControlState(
           reason: "error",
           code: "BLOCKED",
           message:
-            "bounded recovery response was truncated; no correction was executed and no second attempt is available",
+            "bounded recovery response was truncated; no correction was executed and no further attempt is available",
         };
         break;
       }
@@ -2418,6 +2422,12 @@ export async function* runAgentLoopWithControlState(
       if (result.ok && (call.name === "read" || call.name === "search")) {
         hasSuccessfulTypedReadEvidence = true;
       }
+      terminalReviewRecoveryState = recordTerminalReviewToolResult(terminalReviewRecoveryState, {
+        toolName: call.name,
+        ok: result.ok,
+        soleCall: calls.length === 1,
+        boundedCorrectionTurn: boundedRecoveryTurn,
+      });
 
       // User cancellation is authoritative over a concurrent child-process close. Close every
       // sibling tool call explicitly so provider/session history remains well formed, then stop
@@ -2538,9 +2548,6 @@ export async function* runAgentLoopWithControlState(
       }
       if (boundedRecoveryTurn) {
         const correctionSucceeded = boundedCorrectionSucceeded(call, result, failureEvidence);
-        if (correctionSucceeded) {
-          unrecoveredBlockedActions = Math.max(0, unrecoveredBlockedActions - 1);
-        }
         for (let j = ci + 1; j < calls.length; j++) {
           const skipped = calls[j]!;
           yield presentationToolResultEvent(
@@ -2557,6 +2564,12 @@ export async function* runAgentLoopWithControlState(
         }
         terminalReviewCorrectionCompleted = true;
         terminalReviewCorrectionSucceeded = correctionSucceeded && calls.length === 1;
+        if (terminalReviewCorrectionSucceeded) {
+          unrecoveredBlockedActions = Math.max(0, unrecoveredBlockedActions - 1);
+          terminalReviewRecoveryState = recordTerminalReviewCorrectionSuccess(
+            terminalReviewRecoveryState,
+          );
+        }
         break;
       }
       const successEvidence = extractStrongSuccessEvidence(call, result);
@@ -2623,14 +2636,18 @@ export async function* runAgentLoopWithControlState(
     }
 
     if (terminalReviewHalted) {
-      if (
-        !terminalReviewTimedOut &&
-        terminalReviewRecoveryAvailable &&
-        !terminalReviewRecoveryAttempted
-      ) {
-        terminalReviewRecoveryAttempted = true;
+      const recovery =
+        !terminalReviewTimedOut && terminalReviewRecoveryAvailable
+          ? takeTerminalReviewRecoveryCredit(terminalReviewRecoveryState)
+          : undefined;
+      if (recovery !== undefined) {
+        terminalReviewRecoveryState = recovery.state;
         terminalReviewRecoveryActive = true;
-        pushControllerPrompt(KERNEL_STRINGS.terminalReviewRecovery);
+        pushControllerPrompt(
+          recovery.credit === "initial"
+            ? KERNEL_STRINGS.terminalReviewRecovery
+            : KERNEL_STRINGS.terminalReviewRecoveryEarned,
+        );
         continue;
       }
       if (

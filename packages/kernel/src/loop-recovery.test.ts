@@ -1,10 +1,15 @@
 import { describe, expect, it } from "vitest";
+import * as fc from "fast-check";
 import type { ToolInvocationT } from "@keel/shared";
 import {
   callSuggestsArtifactWrite,
+  createTerminalReviewRecoveryState,
   extractLoopFailureEvidence,
   extractStrongSuccessEvidence,
+  recordTerminalReviewCorrectionSuccess,
+  recordTerminalReviewToolResult,
   renderLoopRecoveryGuidance,
+  takeTerminalReviewRecoveryCredit,
 } from "./loop-recovery.js";
 
 const bashCall = (command: string): ToolInvocationT => ({
@@ -14,6 +19,128 @@ const bashCall = (command: string): ToolInvocationT => ({
 });
 
 describe("loop recovery helpers", () => {
+  it.each(["edit", "write"] as const)(
+    "earns one final terminal-review credit only after a successful ordinary typed %s",
+    (toolName) => {
+      const initial = createTerminalReviewRecoveryState();
+      const first = takeTerminalReviewRecoveryCredit(initial);
+      if (first === undefined) throw new Error("expected initial recovery credit");
+      expect(first.credit).toBe("initial");
+      const afterCorrection = recordTerminalReviewCorrectionSuccess(first.state);
+      const afterProgress = recordTerminalReviewToolResult(afterCorrection, {
+        toolName,
+        ok: true,
+        soleCall: true,
+        boundedCorrectionTurn: false,
+      });
+      const final = takeTerminalReviewRecoveryCredit(afterProgress);
+      if (final === undefined) throw new Error("expected progress-earned final credit");
+
+      expect(final).toMatchObject({
+        credit: "earned-final",
+        state: {
+          correctionAttempts: 2,
+          refreshEarned: false,
+          refreshConsumed: true,
+          eligibleProgressSeen: true,
+        },
+      });
+      expect(takeTerminalReviewRecoveryCredit(final.state)).toBeUndefined();
+    },
+  );
+
+  it.each([
+    ["read", true, true, false],
+    ["search", true, true, false],
+    ["bash", true, true, false],
+    ["mcp.example", true, true, false],
+    ["interactive_console.send_keys", true, true, false],
+    ["edit", false, true, false],
+    ["write", false, true, false],
+    ["edit", true, false, false],
+    ["write", true, false, false],
+    ["edit", true, true, true],
+    ["write", true, true, true],
+  ] as const)(
+    "does not earn a refresh for tool=%s ok=%s sole=%s correction=%s",
+    (toolName, ok, soleCall, boundedCorrectionTurn) => {
+      const first = takeTerminalReviewRecoveryCredit(createTerminalReviewRecoveryState());
+      if (first === undefined) throw new Error("expected initial recovery credit");
+      const afterCorrection = recordTerminalReviewCorrectionSuccess(first.state);
+      const afterResult = recordTerminalReviewToolResult(afterCorrection, {
+        toolName,
+        ok,
+        soleCall,
+        boundedCorrectionTurn,
+      });
+
+      expect(afterResult.refreshEarned).toBe(false);
+      expect(takeTerminalReviewRecoveryCredit(afterResult)).toBeUndefined();
+    },
+  );
+
+  it("does not pre-earn a refresh from a typed mutation before the first correction succeeds", () => {
+    const beforeReview = recordTerminalReviewToolResult(createTerminalReviewRecoveryState(), {
+      toolName: "edit",
+      ok: true,
+      soleCall: true,
+      boundedCorrectionTurn: false,
+    });
+    const first = takeTerminalReviewRecoveryCredit(beforeReview);
+    if (first === undefined) throw new Error("expected initial recovery credit");
+    const afterCorrection = recordTerminalReviewCorrectionSuccess(first.state);
+
+    expect(afterCorrection.eligibleProgressSeen).toBe(false);
+    expect(takeTerminalReviewRecoveryCredit(afterCorrection)).toBeUndefined();
+  });
+
+  it("property-bounds arbitrary recovery traces to two corrections and one refresh", () => {
+    const event = fc.oneof(
+      fc.constant({ kind: "review" as const }),
+      fc.constant({ kind: "correction-success" as const }),
+      fc.record({
+        kind: fc.constant("tool-result" as const),
+        toolName: fc.constantFrom(
+          "edit",
+          "write",
+          "read",
+          "search",
+          "bash",
+          "mcp.example",
+          "interactive_console.send_keys",
+        ),
+        ok: fc.boolean(),
+        soleCall: fc.boolean(),
+        boundedCorrectionTurn: fc.boolean(),
+      }),
+    );
+
+    fc.assert(
+      fc.property(fc.array(event, { maxLength: 80 }), (events) => {
+        let state = createTerminalReviewRecoveryState();
+        let earnedFinalCredits = 0;
+        for (const item of events) {
+          if (item.kind === "review") {
+            const taken = takeTerminalReviewRecoveryCredit(state);
+            if (taken !== undefined) {
+              if (taken.credit === "earned-final") earnedFinalCredits += 1;
+              state = taken.state;
+            }
+          } else if (item.kind === "correction-success") {
+            state = recordTerminalReviewCorrectionSuccess(state);
+          } else {
+            state = recordTerminalReviewToolResult(state, item);
+          }
+
+          expect(state.correctionAttempts).toBeLessThanOrEqual(2);
+          expect(earnedFinalCredits).toBeLessThanOrEqual(1);
+          expect(state.refreshEarned && state.refreshConsumed).toBe(false);
+          if (state.refreshConsumed) expect(state.correctionAttempts).toBe(2);
+        }
+      }),
+    );
+  });
+
   it("extracts a bounded redacted traceback excerpt for loop redirects", () => {
     const output = [
       "setup",

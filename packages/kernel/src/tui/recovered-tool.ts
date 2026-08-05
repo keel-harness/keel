@@ -82,7 +82,7 @@ function reconcileToolAttempts(
 ): {
   readonly recovered: ReadonlySet<number>;
   readonly mutationAttempts: readonly RecoveredMutationAttempt[];
-  readonly terminalAttempt?: RecoveredTerminalReviewAttempt;
+  readonly terminalAttempts: readonly RecoveredTerminalReviewAttempt[];
 } {
   const recovered = new Set<number>();
   let answerSeen = false;
@@ -100,7 +100,7 @@ function reconcileToolAttempts(
       readonly failedIndexes: number[];
     }
   >();
-  let terminalAttempt: RecoveredTerminalReviewAttempt | undefined;
+  const terminalAttempts: RecoveredTerminalReviewAttempt[] = [];
   let nearestLaterTool: { readonly index: number; readonly item: UiToolActivity } | undefined;
   let toolAfterNearestLaterTool:
     | { readonly index: number; readonly item: UiToolActivity }
@@ -124,7 +124,6 @@ function reconcileToolAttempts(
     // consequential. This shares the existing reverse pass to preserve linear projection.
     if (
       includeMutationRecovery &&
-      terminalAttempt === undefined &&
       answerSeen &&
       nearestLaterTool !== undefined &&
       !userMessageBetweenCurrentAndNearestTool &&
@@ -139,14 +138,14 @@ function reconcileToolAttempts(
       toolOutcome(item) === "blocked" &&
       item.summary.startsWith(TUI_TERMINAL_REVIEW_TRUTH.summaryPrefix)
     ) {
-      terminalAttempt = {
+      terminalAttempts.push({
         failureIndex: index,
         successIndex: nearestLaterTool.index,
         name: nearestLaterTool.item.name,
         ...(nearestLaterTool.item.subject !== undefined
           ? { subject: nearestLaterTool.item.subject }
           : {}),
-      };
+      });
       recovered.add(index);
     }
     toolAfterNearestLaterTool = nearestLaterTool;
@@ -186,7 +185,7 @@ function reconcileToolAttempts(
     mutationAttempts: [...attemptsBySuccess.values()].sort(
       (a, b) => a.successIndex - b.successIndex,
     ),
-    ...(terminalAttempt !== undefined ? { terminalAttempt } : {}),
+    terminalAttempts: terminalAttempts.sort((a, b) => a.successIndex - b.successIndex),
   };
 }
 
@@ -201,18 +200,16 @@ export function reconciledToolAttempts(items: readonly ViewItem[]): {
   readonly receiptLines: readonly string[];
 } {
   const reconciliation = reconcileToolAttempts(items, true);
-  const terminalReceipt =
-    reconciliation.terminalAttempt === undefined
-      ? []
-      : [
-          `recovered · ${
-            reconciliation.terminalAttempt.subject === undefined
-              ? reconciliation.terminalAttempt.name
-              : `${reconciliation.terminalAttempt.name} ${reconciliation.terminalAttempt.subject}`
-          } completed one bounded correction; original reviewed action was not executed`,
-        ];
+  const terminalReceipt = reconciliation.terminalAttempts
+    .slice(0, MAX_RECOVERED_RECEIPT_LINES)
+    .map(
+      (attempt) =>
+        `recovered · ${
+          attempt.subject === undefined ? attempt.name : `${attempt.name} ${attempt.subject}`
+        } completed one bounded correction; original reviewed action was not executed`,
+    );
   const recoveredCount =
-    reconciliation.mutationAttempts.length + (reconciliation.terminalAttempt === undefined ? 0 : 1);
+    reconciliation.mutationAttempts.length + reconciliation.terminalAttempts.length;
   const receiptLines = reconciliation.mutationAttempts
     .slice(0, MAX_RECOVERED_RECEIPT_LINES - terminalReceipt.length)
     .map((attempt) => {

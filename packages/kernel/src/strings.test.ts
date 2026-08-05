@@ -52,6 +52,17 @@ describe("kernel strings", () => {
     expect(message).toContain("Warden-gated");
   });
 
+  it("names the earned correction as the task's final bounded opportunity", () => {
+    const message = KERNEL_STRINGS.terminalReviewRecoveryEarned;
+    expect(message).toMatch(
+      /verified successful typed workspace progress.{0,80}final bounded correction/is,
+    );
+    expect(message).toMatch(/at most one.{0,80}(?:model-authored|model-driven)/is);
+    expect(message).toContain("Warden-gated");
+    expect(message).toMatch(/no further terminal-review recovery is available/is);
+    expect(message).toMatch(/requested test, check, or command.{0,80}atomic bash/is);
+  });
+
   // Epic 1.16 golden: the verification prompt MUST be STOP-biased + execution-grounded. The prior
   // CONTINUE-biased prompt was measured net-negative — it pushed cleanly-stopped models into open-ended
   // re-work until they burned the gross cap (claim-ledger 2026-06-18: clean-stops 7→2, +49% output). This

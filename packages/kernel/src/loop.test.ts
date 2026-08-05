@@ -8,6 +8,7 @@ import type {
   ModelStreamChunkT,
   ModelTurnInput,
   SimulatorScriptT,
+  ToolInvocationT,
   ToolResultT,
 } from "@keel/shared";
 import {
@@ -386,7 +387,12 @@ describe("runAgentLoop", () => {
       /bounded recovery.*one tool call.*not executed/i,
     );
     expect(events.filter((event) => event.type === "stop")).toEqual([
-      { type: "stop", reason: "model-stop" },
+      {
+        type: "stop",
+        reason: "model-stop",
+        code: BLOCKED_AFTER_SYNTHESIS_CODE,
+        message: BLOCKED_AFTER_SYNTHESIS_MESSAGE,
+      },
     ]);
     expect(modelTurn).toBe(3);
   });
@@ -514,6 +520,322 @@ describe("runAgentLoop", () => {
       { type: "stop", reason: "model-stop" },
     ]);
     expect(modelTurn).toBe(5);
+  });
+
+  it.each(["edit", "write"] as const)(
+    "spends one progress-earned final correction after a successful typed %s",
+    async (mutationName) => {
+      const firstReviewed = "python3 -m pytest --version; python3 -m ruff --version";
+      const firstCorrection = "python3 -m pytest --version";
+      const secondReviewed =
+        "cd /workspace && python3 -m pytest tests/test_termui.py::test_new -q 2>&1";
+      const secondCorrection = "python3 -m pytest tests/test_termui.py::test_new -q";
+      const verification = "python3 -m pytest tests/test_termui.py -q";
+      const mutationArgs =
+        mutationName === "edit"
+          ? {
+              path: "tests/test_termui.py",
+              oldText: "def test_old(): pass",
+              newText: "def test_new(): pass",
+            }
+          : { path: "tests/test_termui.py", content: "def test_new(): pass\n" };
+      const advertisedTools = [
+        { name: "bash", parameters: { type: "object" } },
+        { name: mutationName, parameters: { type: "object" } },
+      ] as const;
+      const calls = [
+        { id: "first-reviewed", name: "bash", args: { command: firstReviewed } },
+        { id: "first-correction", name: "bash", args: { command: firstCorrection } },
+        { id: "typed-progress", name: mutationName, args: mutationArgs },
+        { id: "second-reviewed", name: "bash", args: { command: secondReviewed } },
+        { id: "second-correction", name: "bash", args: { command: secondCorrection } },
+        { id: "verification", name: "bash", args: { command: verification } },
+      ] as const;
+      const seenTools: ModelTurnInput["tools"][] = [];
+      const seenMessages: ModelMessageT[][] = [];
+      let modelTurn = 0;
+      const model: ModelPort = {
+        async *stream(input): AsyncGenerator<ModelStreamChunkT> {
+          seenTools.push(input.tools);
+          seenMessages.push(input.messages.map((message) => structuredClone(message)));
+          const call = calls[modelTurn];
+          modelTurn += 1;
+          if (call !== undefined) {
+            yield { type: "tool-call", ...call };
+            yield {
+              type: "finish",
+              reason: "tool-calls",
+              usage: { inputTokens: 10, outputTokens: 2 },
+            };
+            return;
+          }
+          yield { type: "text-delta", text: "Implemented and verified the requested change." };
+          yield { type: "finish", reason: "stop", usage: { inputTokens: 10, outputTokens: 5 } };
+        },
+      };
+      const executed: ToolInvocationT[] = [];
+      const exec: ExecutorPort = {
+        async execute(call) {
+          executed.push(structuredClone(call));
+          if (call.id === "first-reviewed" || call.id === "second-reviewed") {
+            return recoverableTerminalReviewResult(
+              "warden review required (not executed): POL-003 review; no live review exists; use one simpler command",
+            );
+          }
+          if (call.name === "edit" || call.name === "write") {
+            const path = call.args["path"];
+            if (typeof path !== "string") throw new Error("expected mutation path string");
+            return { ok: true, output: `updated ${path}` };
+          }
+          return {
+            ok: true,
+            output: JSON.stringify({
+              exitCode: 0,
+              signal: null,
+              stdout: call.id === "first-correction" ? "pytest 9.1.1\n" : "1 passed\n",
+              stderr: "",
+            }),
+          };
+        },
+      };
+
+      const events: KernelEventT[] = [];
+      for await (const event of runAgentLoop(model, exec, {
+        messages: userMsg("implement and verify the focused feature"),
+        tools: advertisedTools,
+      })) {
+        events.push(event);
+      }
+
+      expect(seenMessages[1]?.at(-1)).toEqual({
+        role: "user",
+        content: KERNEL_STRINGS.terminalReviewRecovery,
+      });
+      expect(seenMessages[4]?.at(-1)).toEqual({
+        role: "user",
+        content: KERNEL_STRINGS.terminalReviewRecoveryEarned,
+      });
+      expect(seenTools).toEqual(Array.from({ length: 7 }, () => advertisedTools));
+      expect(executed).toEqual(calls);
+      expect(events.filter((event) => event.type === "stop")).toEqual([
+        { type: "stop", reason: "model-stop" },
+      ]);
+    },
+  );
+
+  it.each(["nonzero", "review", "sibling"] as const)(
+    "closes the earned-final %s correction without recursive recovery",
+    async (outcome) => {
+      const advertisedTools = [
+        { name: "bash", parameters: { type: "object" } },
+        { name: "edit", parameters: { type: "object" } },
+      ] as const;
+      const seenTools: ModelTurnInput["tools"][] = [];
+      let modelTurn = 0;
+      const model: ModelPort = {
+        async *stream(input): AsyncGenerator<ModelStreamChunkT> {
+          seenTools.push(input.tools);
+          modelTurn += 1;
+          if (modelTurn === 1 || modelTurn === 4) {
+            yield {
+              type: "tool-call",
+              id: modelTurn === 1 ? "first-reviewed" : "second-reviewed",
+              name: "bash",
+              args: {
+                command: modelTurn === 1 ? "pytest --version; ruff --version" : "cd . && pytest -q",
+              },
+            };
+          } else if (modelTurn === 2) {
+            yield {
+              type: "tool-call",
+              id: "first-correction",
+              name: "bash",
+              args: { command: "pytest --version" },
+            };
+          } else if (modelTurn === 3) {
+            yield {
+              type: "tool-call",
+              id: "typed-progress",
+              name: "edit",
+              args: { path: "tests/test_termui.py", oldText: "old", newText: "new" },
+            };
+          } else if (modelTurn === 5) {
+            yield {
+              type: "tool-call",
+              id: "earned-final-correction",
+              name: "bash",
+              args: { command: "pytest -q" },
+            };
+            if (outcome === "sibling") {
+              yield {
+                type: "tool-call",
+                id: "bounded-sibling",
+                name: "bash",
+                args: { command: "ruff check ." },
+              };
+            }
+          } else {
+            expect(input.tools).toBeUndefined();
+            yield {
+              type: "text-delta",
+              text: "The final bounded correction did not complete alone; exact work remains.",
+            };
+            yield { type: "finish", reason: "stop", usage: { inputTokens: 10, outputTokens: 5 } };
+            return;
+          }
+          yield {
+            type: "finish",
+            reason: "tool-calls",
+            usage: { inputTokens: 10, outputTokens: 2 },
+          };
+        },
+      };
+      const executed: string[] = [];
+      const exec: ExecutorPort = {
+        async execute(call) {
+          executed.push(call.id);
+          if (call.id === "first-reviewed" || call.id === "second-reviewed") {
+            return recoverableTerminalReviewResult(
+              "warden review required (not executed): no live review exists; use a simpler command",
+            );
+          }
+          if (call.id === "typed-progress")
+            return { ok: true, output: "updated tests/test_termui.py" };
+          if (call.id === "earned-final-correction" && outcome === "review") {
+            return recoverableTerminalReviewResult(
+              "warden review required (not executed): final correction was also reviewed",
+            );
+          }
+          return {
+            ok: true,
+            output: JSON.stringify({
+              exitCode: call.id === "earned-final-correction" && outcome === "nonzero" ? 1 : 0,
+              signal: null,
+              stdout: call.id === "first-correction" ? "pytest 9.1.1\n" : "",
+              stderr:
+                call.id === "earned-final-correction" && outcome === "nonzero"
+                  ? "tests failed\n"
+                  : "",
+            }),
+          };
+        },
+      };
+
+      const events: KernelEventT[] = [];
+      for await (const event of runAgentLoop(model, exec, {
+        messages: userMsg("keep every bounded recovery fail closed"),
+        tools: advertisedTools,
+      })) {
+        events.push(event);
+      }
+
+      expect(executed).toEqual([
+        "first-reviewed",
+        "first-correction",
+        "typed-progress",
+        "second-reviewed",
+        "earned-final-correction",
+      ]);
+      expect(seenTools).toEqual([
+        advertisedTools,
+        advertisedTools,
+        advertisedTools,
+        advertisedTools,
+        advertisedTools,
+        undefined,
+      ]);
+      expect(events.filter((event) => event.type === "stop")).toEqual([
+        expect.objectContaining({
+          type: "stop",
+          reason: "model-stop",
+          code: BLOCKED_AFTER_SYNTHESIS_CODE,
+        }),
+      ]);
+    },
+  );
+
+  it("never offers a third correction even after more successful typed progress", async () => {
+    const advertisedTools = [
+      { name: "bash", parameters: { type: "object" } },
+      { name: "edit", parameters: { type: "object" } },
+    ] as const;
+    const ids = [
+      "first-reviewed",
+      "first-correction",
+      "first-progress",
+      "second-reviewed",
+      "second-correction",
+      "second-progress",
+      "third-reviewed",
+    ] as const;
+    let modelTurn = 0;
+    const seenMessages: ModelMessageT[][] = [];
+    const model: ModelPort = {
+      async *stream(input): AsyncGenerator<ModelStreamChunkT> {
+        seenMessages.push(input.messages.map((message) => structuredClone(message)));
+        const id = ids[modelTurn];
+        modelTurn += 1;
+        if (id === undefined)
+          throw new Error("a third correction must not request another model turn");
+        if (id.includes("progress")) {
+          yield {
+            type: "tool-call",
+            id,
+            name: "edit",
+            args: { path: `${id}.ts`, oldText: "old", newText: "new" },
+          };
+        } else {
+          yield {
+            type: "tool-call",
+            id,
+            name: "bash",
+            args: {
+              command: id.includes("correction") ? `pytest -q ${id}` : `cd . && pytest -q ${id}`,
+            },
+          };
+        }
+        yield { type: "finish", reason: "tool-calls", usage: { inputTokens: 10, outputTokens: 2 } };
+      },
+    };
+    const executed: string[] = [];
+    const exec: ExecutorPort = {
+      async execute(call) {
+        executed.push(call.id);
+        if (call.id.includes("reviewed")) {
+          return recoverableTerminalReviewResult(
+            "warden review required (not executed): no live review exists; use a simpler command",
+          );
+        }
+        if (call.name === "edit") {
+          const path = call.args["path"];
+          if (typeof path !== "string") throw new Error("expected edit path string");
+          return { ok: true, output: `updated ${path}` };
+        }
+        return {
+          ok: true,
+          output: JSON.stringify({ exitCode: 0, signal: null, stdout: "1 passed\n", stderr: "" }),
+        };
+      },
+    };
+
+    const events: KernelEventT[] = [];
+    for await (const event of runAgentLoop(model, exec, {
+      messages: userMsg("never exceed the terminal-review correction cap"),
+      tools: advertisedTools,
+    })) {
+      events.push(event);
+    }
+
+    expect(executed).toEqual(ids);
+    expect(modelTurn).toBe(7);
+    expect(
+      seenMessages.filter(
+        (messages) => messages.at(-1)?.content === KERNEL_STRINGS.terminalReviewRecoveryEarned,
+      ),
+    ).toHaveLength(1);
+    expect(events.filter((event) => event.type === "stop")).toEqual([
+      expect.objectContaining({ type: "stop", reason: "error", code: "BLOCKED" }),
+    ]);
   });
 
   it("does not reopen bounded recovery after successful correction and later ordinary review", async () => {

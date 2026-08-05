@@ -99,6 +99,16 @@ export const KERNEL_STRINGS = {
     "task intent and exact Warden guidance. Never repeat, split, normalize, or mechanically rewrite the " +
     "original action, invent approval, or emit multiple calls. If no safe call exists, state the exact " +
     "remaining work and stop.",
+  /** The one final correction earned by a successful ordinary typed workspace mutation. */
+  terminalReviewRecoveryEarned:
+    "Verified successful typed workspace progress earned this task's final bounded correction. " +
+    "The Warden confirmed the last action was not executed and no live decision exists. Make at " +
+    "most one fresh model-authored correction; it remains Warden-gated, and no further terminal-review " +
+    "recovery is available after this call. For read-only file discovery, use typed `search` or `read`, " +
+    "not bash `find`, `grep`, or `xargs`; `search: no matches.` is a completed observation. For a " +
+    "requested test, check, or command, use one atomic bash call. Preserve task intent and exact Warden " +
+    "guidance. Never repeat, split, normalize, or mechanically rewrite the original action, invent " +
+    "approval, or emit multiple calls. If no safe call exists, state the exact remaining work and stop.",
   /** Tool-disabled closeout when the bounded correction does not authoritatively succeed alone. */
   terminalReviewRecoveryFinalization:
     "The one bounded correction attempt is complete. Tools are disabled. Report the observed result " +

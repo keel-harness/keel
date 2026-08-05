@@ -112,6 +112,55 @@ describe("recovered exploratory failures", () => {
     expect(reconciledToolAttempts(items).failureIndexes).not.toContain(4);
   });
 
+  it("reconciles two distinct successful bounded corrections without hiding either original review", () => {
+    const firstBlocked = markToolPresentationOutcome(
+      {
+        kind: "tool",
+        id: "first-reviewed",
+        name: "bash",
+        status: "error",
+        summary: "blocked (not executed): no live decision available · first POL-003 review",
+      } as const,
+      "blocked",
+    );
+    const secondBlocked = markToolPresentationOutcome(
+      {
+        kind: "tool",
+        id: "second-reviewed",
+        name: "bash",
+        status: "error",
+        summary: "blocked (not executed): no live decision available · second POL-003 review",
+      } as const,
+      "blocked",
+    );
+    const items: ViewItem[] = [
+      { kind: "message", role: "user", content: "implement and verify the feature" },
+      firstBlocked,
+      { kind: "tool", id: "first-correction", name: "bash", status: "ok", summary: "pytest 9.1.1" },
+      {
+        kind: "tool",
+        id: "typed-progress",
+        name: "edit",
+        status: "ok",
+        summary: "updated tests/test_termui.py",
+        subject: "tests/test_termui.py",
+      },
+      secondBlocked,
+      { kind: "tool", id: "second-correction", name: "bash", status: "ok", summary: "1 passed" },
+      { kind: "tool", id: "verification", name: "bash", status: "ok", summary: "32 passed" },
+      { kind: "message", role: "assistant", content: "Implemented and verified the feature." },
+    ];
+
+    expect(reconciledToolAttempts(items)).toEqual({
+      failureIndexes: new Set([1, 4]),
+      recoveredCount: 2,
+      receiptLines: [
+        "recovered · bash completed one bounded correction; original reviewed action was not executed",
+        "recovered · bash completed one bounded correction; original reviewed action was not executed",
+      ],
+    });
+  });
+
   it("does not reconcile a terminal review when the bounded correction fails or has siblings", () => {
     const blocked = markToolPresentationOutcome(
       {
