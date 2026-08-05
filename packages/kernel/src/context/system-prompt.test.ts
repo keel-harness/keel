@@ -85,6 +85,13 @@ describe("SYSTEM_PROMPT (§7 Epic 1.6 — <2,000 tokens, 4-phase protocol, hones
     expect(SYSTEM_PROMPT).toMatch(
       /(?:do not|never).{0,80}(?:append|add).{0,80}`2>&1`.{0,120}(?:bash result|tool result).{0,100}(?:output|stderr)/is,
     );
+    expect(SYSTEM_PROMPT).toMatch(
+      /do not inventory tools.{0,160}`--version`.{0,80}`which`.{0,80}`pip show`/is,
+    );
+    expect(SYSTEM_PROMPT).toMatch(
+      /invoke.{0,80}(?:actual|requested).{0,80}(?:test|check).{0,80}first.{0,160}(?:missing|unavailable).{0,80}NOT_RUN/is,
+    );
+    expect(SYSTEM_PROMPT).toMatch(/`2>&1`.{0,80}`\| head`/is);
   });
 
   it("keeps nonzero command failure separate from following the requested procedure", () => {
