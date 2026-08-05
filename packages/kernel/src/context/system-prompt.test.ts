@@ -71,6 +71,22 @@ describe("SYSTEM_PROMPT (§7 Epic 1.6 — <2,000 tokens, 4-phase protocol, hones
     expect(SYSTEM_PROMPT).toMatch(/genuinely atomic.{0,80}(?:pipeline|shell expression)/i);
   });
 
+  it("runs required checks directly without avoidable cwd or output wrappers", () => {
+    expect(SYSTEM_PROMPT).toMatch(
+      /run.{0,80}(?:requested|required).{0,80}(?:test|check).{0,80}directly.{0,120}(?:availability|version)/is,
+    );
+    expect(SYSTEM_PROMPT).toMatch(
+      /bash session.{0,80}(?:starts|begins).{0,80}(?:workspace|displayed cwd)/i,
+    );
+    expect(SYSTEM_PROMPT).toMatch(/model-authored.{0,80}bash session/i);
+    expect(SYSTEM_PROMPT).toMatch(
+      /unless.{0,80}(?:changed|left).{0,80}(?:do not|never).{0,80}(?:prepend|wrap).{0,80}`cd .{0,20}&&`/is,
+    );
+    expect(SYSTEM_PROMPT).toMatch(
+      /(?:do not|never).{0,80}(?:append|add).{0,80}`2>&1`.{0,120}(?:bash result|tool result).{0,100}(?:output|stderr)/is,
+    );
+  });
+
   it("keeps nonzero command failure separate from following the requested procedure", () => {
     expect(SYSTEM_PROMPT).toMatch(/non[- ]?zero exit.{0,120}(?:command|process).{0,80}fail/is);
     expect(SYSTEM_PROMPT).toMatch(/followed.{0,120}(?:request|procedure)/is);
