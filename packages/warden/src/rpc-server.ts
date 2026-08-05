@@ -81,6 +81,7 @@ import {
 } from "./capability-manifest.js";
 import {
   buildPolicyInputForBash,
+  buildPolicyInputForProcessRun,
   buildPolicyInputForToolCall,
   buildUntrustedTypedFileToolPolicyInput,
   builtinStarterPackSnapshot,
@@ -90,6 +91,12 @@ import {
   type PolicyDecision,
   type PolicyPort,
 } from "./policy.js";
+import {
+  PROCESS_RUN_CAPABILITY_V1,
+  ProcessRunResolutionError,
+  parseProcessRunArgs,
+  renderProcessRunArgv,
+} from "./process-run.js";
 import {
   COMMAND_PROJECT_GRANT_RULE,
   COMMAND_SESSION_GRANT_RULE,
@@ -278,6 +285,7 @@ interface RpcContext {
 interface ResolvedCommand {
   readonly command: string;
   readonly sandboxToolName: string;
+  readonly argv?: readonly string[];
   readonly typedTool?: TypedToolName;
   readonly typedArgs?: JsonObjectT;
   readonly lifecycle?: LifecycleAuditPayload;
@@ -375,11 +383,36 @@ function statusResult(context: RpcContext): unknown {
   };
 }
 
+function processRunAvailable(
+  context: RpcContext,
+  sandbox: ReturnType<typeof readSandboxStatus>,
+): boolean {
+  const manifestConfigured =
+    context.capabilityManifest === undefined ||
+    context.capabilityManifest.tools.some((tool) => tool.toolName === "process.run");
+  const boundaryReady =
+    context.workspaceTrusted &&
+    sandbox.available &&
+    sandbox.enforcementTier.startsWith("sandbox:") &&
+    context.auditWriter !== undefined &&
+    manifestConfigured;
+  if (!boundaryReady) return false;
+  try {
+    buildSandboxProfile(context, "process.run");
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function helloCapabilities(
   context: RpcContext,
   sandbox: ReturnType<typeof readSandboxStatus>,
 ): string[] {
   const capabilities: string[] = [...RPC_SKELETON_CAPABILITIES];
+  if (processRunAvailable(context, sandbox)) {
+    capabilities.push(PROCESS_RUN_CAPABILITY_V1);
+  }
   if (
     // QC §8: the console is an operator-configured privileged surface — withhold it (advertisement
     // AND the openable target list) until the workspace is trusted, mirroring MCP's trust gate. The
@@ -541,6 +574,25 @@ function commandFromToolCall(
     if (!command.ok) return command;
     return { ok: true, command: { command: command.command, sandboxToolName: "bash" } };
   }
+  if (params.toolCall.name === "process.run") {
+    const sandbox = readSandboxStatus(context.sandbox);
+    if (!processRunAvailable(context, sandbox)) {
+      return {
+        ok: false,
+        response: processRunUnavailableDeny(context, params),
+      };
+    }
+    const resolved = parseProcessRunArgs(params.toolCall.args);
+    const argv = [...resolved.argv];
+    return {
+      ok: true,
+      command: {
+        command: renderProcessRunArgv(argv),
+        argv,
+        sandboxToolName: "process.run",
+      },
+    };
+  }
   if (params.toolCall.name === "lifecycle.run") {
     const resolved = resolveLifecycleAction(params.toolCall.args, context.lifecycleManifest, {
       env: context.env,
@@ -620,6 +672,85 @@ function commandFromToolCall(
       code: "WARDEN_NOT_READY",
     }),
   };
+}
+
+function processRunAuditArgs(params: ExecuteParams): JsonObjectT {
+  try {
+    return { argv: [...parseProcessRunArgs(params.toolCall.args).argv] };
+  } catch {
+    return { invalid: "process.run args rejected" };
+  }
+}
+
+function processRunDeniedPolicyInput(context: RpcContext, params: ExecuteParams): PolicyInputT {
+  let argv: readonly string[];
+  try {
+    argv = parseProcessRunArgs(params.toolCall.args).argv;
+  } catch {
+    argv = ["process.run-invalid"];
+  }
+  return buildPolicyInputForProcessRun(params, argv, {
+    workspaceRoot: context.workspaceRoot,
+    env: context.env,
+    workspaceTrusted: context.workspaceTrusted,
+    declaredTempRoots: context.declaredTempRoots,
+    safeCommandMetadataTrusted: executionMetadataTrusted(
+      context.executionMetadataState,
+      params.sessionId,
+    ),
+  });
+}
+
+function processRunUnavailableDeny(context: RpcContext, params: ExecuteParams): RpcResponse {
+  const guidance = "process.run is unavailable at this trust boundary";
+  const policyInput = processRunDeniedPolicyInput(context, params);
+  const decision: PolicyDecision = {
+    verdict: "deny",
+    matchedRules: ["PROCESS-RUN-AVAILABILITY"],
+    guidance,
+  };
+  const auditSeq = appendAuditSeq(context, {
+    eventType: "tool.deny",
+    sessionId: params.sessionId,
+    payload: toolPayload(
+      params.toolCall,
+      "process.run unavailable",
+      { guidance },
+      { args: processRunAuditArgs(params) },
+    ),
+    sideEffect: policyInput.sideEffect,
+    policy: auditPolicyInfo(context, decision),
+    provenance: auditProvenanceInfo(policyInput),
+  });
+  return rpcError(null, -32000, guidance, { code: "WARDEN_NOT_READY", auditSeq });
+}
+
+function processRunInvalidParamsDeny(
+  context: RpcContext,
+  params: ExecuteParams,
+  error: ProcessRunResolutionError,
+): RpcResponse {
+  const guidance = guidanceTextForResponse(error.message);
+  const policyInput = processRunDeniedPolicyInput(context, params);
+  const decision: PolicyDecision = {
+    verdict: "deny",
+    matchedRules: ["PROCESS-RUN-ARGS"],
+    guidance,
+  };
+  const auditSeq = appendAuditSeq(context, {
+    eventType: "tool.deny",
+    sessionId: params.sessionId,
+    payload: toolPayload(
+      params.toolCall,
+      "process.run invalid request",
+      { guidance },
+      { args: { invalid: "process.run args rejected" } },
+    ),
+    sideEffect: policyInput.sideEffect,
+    policy: auditPolicyInfo(context, decision),
+    provenance: auditProvenanceInfo(policyInput),
+  });
+  return rpcError(null, -32602, guidance, { code: "INVALID_PARAMS", auditSeq });
 }
 
 function isTypedFileToolName(name: string): name is TypedToolName {
@@ -1255,7 +1386,76 @@ function policyInputForResolvedCommand(
       workspaceTrusted: context.workspaceTrusted,
     });
   }
+  if (command.argv !== undefined) {
+    return buildPolicyInputForProcessRun(params, command.argv, {
+      workspaceRoot: context.workspaceRoot,
+      env: context.env,
+      workspaceTrusted: context.workspaceTrusted,
+      declaredTempRoots: context.declaredTempRoots,
+      safeCommandMetadataTrusted: executionMetadataTrusted(
+        context.executionMetadataState,
+        params.sessionId,
+      ),
+      ...(sandboxContainment === undefined ? {} : { sandboxContainment }),
+    });
+  }
   return policyInputForCommand(context, params, command.command, sandboxContainment);
+}
+
+function terminalProcessRunReview(
+  context: RpcContext,
+  params: ExecuteParams,
+  command: ResolvedCommand,
+  policyInput: PolicyInputT,
+  decision: PolicyDecision,
+): unknown {
+  const auditSeq = appendAuditSeq(context, {
+    eventType: "tool.deny",
+    sessionId: params.sessionId,
+    payload: toolPayload(params.toolCall, command.command, {
+      guidance: decision.guidance ?? null,
+      processRunReview: {
+        status: "terminal",
+        reason: "exact argv review grants are not supported in V1",
+      },
+    }),
+    sideEffect: policyInput.sideEffect,
+    policy: auditPolicyInfo(context, decision),
+    provenance: auditProvenanceInfo(policyInput),
+  });
+  return nonExecutionPolicyResult(decision, auditSeq);
+}
+
+function processRunModifyDeny(
+  context: RpcContext,
+  params: ExecuteParams,
+  command: ResolvedCommand,
+  policyInput: PolicyInputT,
+  decision: PolicyDecision,
+): unknown {
+  const guidance =
+    "process.run policy modification is unsupported in V1; neither the original nor proposed argv was executed";
+  const deniedDecision: PolicyDecision = {
+    verdict: "deny",
+    matchedRules: [...decision.matchedRules],
+    guidance,
+  };
+  const auditSeq = appendAuditSeq(context, {
+    eventType: "tool.deny",
+    sessionId: params.sessionId,
+    payload: toolPayload(params.toolCall, command.command, {
+      guidance,
+      processRunModify: {
+        status: "not-executed",
+        originalArgs: params.toolCall.args,
+        proposedArgs: decision.modifiedArgs ?? {},
+      },
+    }),
+    sideEffect: policyInput.sideEffect,
+    policy: auditPolicyInfo(context, deniedDecision),
+    provenance: auditProvenanceInfo(policyInput),
+  });
+  return nonExecutionPolicyResult(deniedDecision, auditSeq);
 }
 
 function mcpTrustDeny(
@@ -3344,6 +3544,7 @@ async function executeWithProfile(
   decision?: PolicyDecision,
   options: {
     includePolicyDetails?: boolean;
+    argv?: readonly string[];
     /** Model/UI response copy only; the authoritative decision and audit records stay unchanged. */
     responseGuidance?: string;
     credentialProxy?: ReturnType<typeof resolveCredentialProxyRules>;
@@ -3395,7 +3596,11 @@ async function executeWithProfile(
   }
   let result: SandboxExecutionResult;
   try {
-    result = await context.sandbox.execute({ command, cwd: context.workspaceRoot }, profile, {
+    const invocation =
+      options.argv === undefined
+        ? { command, cwd: context.workspaceRoot }
+        : { command: options.argv[0]!, argv: [...options.argv], cwd: context.workspaceRoot };
+    result = await context.sandbox.execute(invocation, profile, {
       // On warden teardown the signal aborts so the sandbox runner reaps its (detached) child
       // process group instead of leaving an orphan that keeps writing/dialing after the turn.
       ...(credentialProxy === undefined ? {} : { credentialProxy }),
@@ -5729,6 +5934,9 @@ async function methodResult(
             if (error instanceof LifecycleResolutionError) {
               return lifecycleResolutionDeny(context, p, error);
             }
+            if (error instanceof ProcessRunResolutionError) {
+              return processRunInvalidParamsDeny(context, p, error);
+            }
             if (error instanceof TypedToolError) {
               return typedToolError(error);
             }
@@ -5738,7 +5946,11 @@ async function methodResult(
         if (!command.ok) return command.response;
         let prebuiltProfile: SandboxProfile | undefined;
         let sandboxContainment: SandboxContainmentProof | undefined;
-        if (command.command.mcp === undefined && command.command.sandboxToolName === "bash") {
+        if (
+          command.command.mcp === undefined &&
+          (command.command.sandboxToolName === "bash" ||
+            command.command.sandboxToolName === "process.run")
+        ) {
           const built = buildSandboxProfileOrError(context, command.command.sandboxToolName);
           if (!built.ok) return built.response;
           const workspaceSecrets = workspaceSecretDenyReadScan(context);
@@ -5771,6 +5983,12 @@ async function methodResult(
           if (error instanceof TypedToolError) return typedToolError(error);
           if (error instanceof PolicyEvaluationError) return policyEvaluationError(error);
           throw error;
+        }
+        if (command.command.argv !== undefined && policyDecision.verdict === "review") {
+          return terminalProcessRunReview(context, p, command.command, policyInput, policyDecision);
+        }
+        if (command.command.argv !== undefined && policyDecision.modifiedArgs !== undefined) {
+          return processRunModifyDeny(context, p, command.command, policyInput, policyDecision);
         }
         if (policyDecision.verdict === "deny" || policyDecision.verdict === "review") {
           if (policyDecision.verdict === "review") {
@@ -5977,14 +6195,21 @@ async function methodResult(
                 { toolCall: effectiveTyped.params.toolCall, command: effectiveCommand.command },
               );
         const effectivePolicyInput =
-          command.command.mcp === undefined
-            ? policyInputForCommand(
+          command.command.argv !== undefined
+            ? policyInputForResolvedCommand(
                 context,
                 effectiveTyped.params,
-                effectiveCommand.command,
+                effectiveTyped.command,
                 sandboxContainment,
               )
-            : policyInput;
+            : command.command.mcp === undefined
+              ? policyInputForCommand(
+                  context,
+                  effectiveTyped.params,
+                  effectiveCommand.command,
+                  sandboxContainment,
+                )
+              : policyInput;
         if (command.command.mcp === undefined && policyDecision.modifiedArgs !== undefined) {
           let recheckDecision: PolicyDecision;
           try {
@@ -6104,6 +6329,24 @@ async function methodResult(
           explicitTarget.kind === "domain" &&
           !profileAllowsEgressDomain(profile, explicitTarget.domain)
         ) {
+          if (effectiveTyped.command.argv !== undefined) {
+            return terminalProcessRunReview(
+              context,
+              p,
+              effectiveTyped.command,
+              effectivePolicyInput,
+              {
+                verdict: "review",
+                matchedRules: [
+                  ...policyDecision.matchedRules,
+                  "PROCESS-RUN-EXACT-EGRESS-REVIEW-UNSUPPORTED",
+                ],
+                guidance:
+                  `process.run egress to ${explicitTarget.domain} requires review, but exact argv grants are not supported in V1; ` +
+                  "no process was executed",
+              },
+            );
+          }
           const review = createPendingEgressReview(context.reviewState, {
             domain: explicitTarget.domain,
             command: effectiveCommand.command,
@@ -6144,6 +6387,9 @@ async function methodResult(
           profile,
           policyDecision,
           {
+            ...(effectiveTyped.command.argv === undefined
+              ? {}
+              : { argv: effectiveTyped.command.argv }),
             ...(credentialProxy === undefined ? {} : { credentialProxy }),
             ...(responseGuidance === undefined ? {} : { responseGuidance }),
             audit: {

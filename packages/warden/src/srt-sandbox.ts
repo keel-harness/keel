@@ -11,6 +11,7 @@ import type {
   SandboxSpawnDescriptor,
   SandboxStatus,
 } from "./sandbox.js";
+import { renderProcessRunArgv } from "./process-run.js";
 
 interface SrtFilesystemConfig {
   allowRead?: string[];
@@ -231,11 +232,6 @@ function sandboxSpawnDescriptor(
       };
 }
 
-function shellQuoteArg(value: string): string {
-  if (value === "") return "''";
-  return `'${value.replace(/'/gu, `'\\''`)}'`;
-}
-
 function sandboxCommandForInvocation(invocation: SandboxInvocation): string {
   const argv = invocation.argv;
   if (argv === undefined) return invocation.command;
@@ -249,7 +245,7 @@ function sandboxCommandForInvocation(invocation: SandboxInvocation): string {
       throw new Error("sandbox invocation argv must not contain NUL bytes");
     }
   }
-  return argv.map(shellQuoteArg).join(" ");
+  return renderProcessRunArgv(argv);
 }
 
 function canSignalProcessGroup(platform: NodeJS.Platform): boolean {

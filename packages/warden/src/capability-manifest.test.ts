@@ -136,7 +136,7 @@ describe("warden capability manifest projection", () => {
   // (credential-proxy.json, lifecycle.yaml, mcp.json). A governed tool that can write there can grant
   // itself authority — the credential-proxy RCE. No governed tool may write <workspace>/.keel.
   it("denies every governed tool from writing the workspace .keel project-config directory", () => {
-    for (const toolName of ["bash", "write", "edit", "read", "search"] as const) {
+    for (const toolName of ["bash", "process.run", "write", "edit", "read", "search"] as const) {
       const profile = buildSandboxProfileFromCapabilityManifest(DEFAULT_CAPABILITY_MANIFEST, {
         ...baseOptions,
         toolName,
@@ -145,27 +145,29 @@ describe("warden capability manifest projection", () => {
     }
   });
 
-  it("denies bash writes to package-manager and VCS execution metadata", () => {
-    const filesystem = buildSandboxProfileFromCapabilityManifest(DEFAULT_CAPABILITY_MANIFEST, {
-      ...baseOptions,
-      toolName: "bash",
-    }).filesystem;
+  it("denies broad process tools from writing package-manager and VCS execution metadata", () => {
+    for (const toolName of ["bash", "process.run"] as const) {
+      const filesystem = buildSandboxProfileFromCapabilityManifest(DEFAULT_CAPABILITY_MANIFEST, {
+        ...baseOptions,
+        toolName,
+      }).filesystem;
 
-    expect(filesystem?.denyWrite).toEqual(
-      expect.arrayContaining([
-        "/repo/package.json",
-        "/repo/pnpm-lock.yaml",
-        "/repo/package-lock.json",
-        "/repo/yarn.lock",
-        "/repo/bun.lock",
-        "/repo/bun.lockb",
-        "/repo/.npmrc",
-        "/repo/.pnpmfile.cjs",
-        "/repo/pnpm-workspace.yaml",
-        "/repo/.git/config",
-        "/repo/.git/hooks",
-      ]),
-    );
+      expect(filesystem?.denyWrite).toEqual(
+        expect.arrayContaining([
+          "/repo/package.json",
+          "/repo/pnpm-lock.yaml",
+          "/repo/package-lock.json",
+          "/repo/yarn.lock",
+          "/repo/bun.lock",
+          "/repo/bun.lockb",
+          "/repo/.npmrc",
+          "/repo/.pnpmfile.cjs",
+          "/repo/pnpm-workspace.yaml",
+          "/repo/.git/config",
+          "/repo/.git/hooks",
+        ]),
+      );
+    }
   });
 
   it("keeps typed package-manifest edits available while the Warden tracks their session impact", () => {
@@ -191,6 +193,16 @@ describe("warden capability manifest projection", () => {
       deniedDomains: [],
       strictAllowlist: true,
     });
+    expect(
+      buildSandboxProfileFromCapabilityManifest(manifest, {
+        ...baseOptions,
+        toolName: "process.run",
+      }).network,
+    ).toEqual({
+      allowedDomains: ["example.com", "*.github.com"],
+      deniedDomains: [],
+      strictAllowlist: true,
+    });
 
     for (const domain of ["localhost", "api.localhost", "*.localhost", "127.0.0.1"]) {
       expect(() => capabilityManifestWithEgressDomains([domain]), domain).not.toThrow();
@@ -208,11 +220,21 @@ describe("warden capability manifest projection", () => {
   it("declares default typed file tools with least-privilege filesystem envelopes", () => {
     expect(DEFAULT_CAPABILITY_MANIFEST.tools.map((tool) => tool.toolName)).toEqual([
       "bash",
+      "process.run",
       "read",
       "search",
       "write",
       "edit",
     ]);
+
+    expect(
+      DEFAULT_CAPABILITY_MANIFEST.tools.find((tool) => tool.toolName === "process.run")
+        ?.staticCapability,
+    ).toMatchObject({
+      toolName: "process.run",
+      effectEnvelope: ["fs_read", "fs_write", "network_read", "network_write", "process_exec"],
+      broad: true,
+    });
 
     expect(
       DEFAULT_CAPABILITY_MANIFEST.tools.find((tool) => tool.toolName === "search")
