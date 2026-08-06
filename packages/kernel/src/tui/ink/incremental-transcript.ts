@@ -22,6 +22,7 @@ import {
   type AssistantStreamProjectionSnapshot,
 } from "../stream-projection.js";
 import { leadingSystemEnd } from "../view-model.js";
+import { hasSemanticZoomMutationReview } from "../tool-card.js";
 
 export type IncrementalStaticUnit =
   | { readonly id: string; readonly kind: "user"; readonly item: ConversationTurnBlock["user"] }
@@ -401,6 +402,9 @@ function advanceIncrementalTurn(
     // make the later receipt an unavoidable duplicate in terminal scrollback. If no receipt follows,
     // `awaiting-input` is itself a settlement boundary and the raw notice is committed fail-safely.
     if (!finalized && isTerminalRunNotice(item)) continue;
+    // Semantic zoom can change while this turn is still live. Hold the successful mutation card
+    // until settlement so Ink Static owns exactly the compact or detailed final representation.
+    if (!finalized && item.kind === "tool" && hasSemanticZoomMutationReview(item)) break;
     // Immutable history keeps source order. A synthetic aggregate whose final count is not stable is
     // a commit barrier; settled real tools use the presentation visible when they settle.
     if (synthetic && !finalized) break;

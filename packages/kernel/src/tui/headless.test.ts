@@ -2869,6 +2869,39 @@ describe("HeadlessUI streaming sink (C-stream)", () => {
     s: "running" | "ok" | "error",
     summary = "",
   ): ViewModel["items"][number] => ({ kind: "tool", id: name, name, status: s, summary }) as const;
+  const observedMutation = (): ViewModel["items"][number] => ({
+    kind: "tool",
+    id: "edit-1",
+    name: "edit",
+    status: "ok",
+    summary: "src/example.ts",
+    mutationPresentation: {
+      status: "available",
+      operation: "edit",
+      displayPath: "src/example.ts",
+      observedBefore: {
+        status: "file-observed",
+        bytes: 6,
+        mode: 0o644,
+        contentClass: "text",
+        finalNewline: true,
+      },
+      verifiedInstalledAfter: {
+        status: "file-observed",
+        bytes: 5,
+        mode: 0o644,
+        contentClass: "text",
+        finalNewline: true,
+      },
+      coverage: "complete",
+      observedBeforeLines: 1,
+      installedAfterLines: 1,
+      shownLines: 2,
+      hiddenLines: 0,
+      transitionBinding: "not-atomic",
+      concurrentMutation: "not-excluded",
+    },
+  });
 
   it("keeps stream/frame parity when density changes after consequential evidence settles", () => {
     const chunks: string[] = [];
@@ -2903,6 +2936,40 @@ describe("HeadlessUI streaming sink (C-stream)", () => {
     expect(chunks.join("")).toBe(`${renderFrame(finished, false, false)}\n`);
     expect(chunks.join("").match(/first 64 KiB shown/gu)).toHaveLength(1);
   });
+
+  it.each([
+    ["normal to verbose", { density: "normal" }, { density: "verbose" }, true],
+    ["verbose to normal", { density: "verbose" }, { density: "normal" }, false],
+    ["compact to full", { diffMode: "compact" }, { diffMode: "full" }, true],
+    ["full to compact", { diffMode: "full" }, { diffMode: "compact" }, false],
+  ] as const)(
+    "keeps append-only mutation output aligned when semantic zoom changes from %s",
+    (_scenario, activePresentation, finalPresentation, expectsDetail) => {
+      const chunks: string[] = [];
+      const ui = new HeadlessUI((chunk) => chunks.push(chunk), false, false);
+      const active: ViewModel = {
+        items: [user("make the edit"), observedMutation()],
+        status,
+        streaming: true,
+        ...activePresentation,
+      };
+      ui.render(active);
+
+      const finished: ViewModel = {
+        ...active,
+        items: [...active.items, asst("The edit is complete.")],
+        streaming: false,
+        awaitingInput: true,
+        ...finalPresentation,
+      };
+      ui.render(finished);
+      ui.finalize();
+
+      const output = chunks.join("");
+      expect(output).toBe(`${renderFrame(finished, false, false)}\n`);
+      expect(output.includes("review  src/example.ts")).toBe(expectsDetail);
+    },
+  );
 
   it("preserves execution order across mixed consequential outcomes", () => {
     const chunks: string[] = [];
@@ -3001,6 +3068,162 @@ describe("HeadlessUI streaming sink (C-stream)", () => {
     expect(chunks.join("")).toContain("you  q2");
   });
 
+  it("streams a settled successful mutation before an abrupt stop", () => {
+    const chunks: string[] = [];
+    const ui = new HeadlessUI((chunk) => chunks.push(chunk), false, false);
+
+    ui.render({
+      items: [user("edit it"), observedMutation()],
+      status,
+      streaming: true,
+      density: "normal",
+    });
+
+    // No finalize() — emulate a provider hang followed by SIGKILL after the governed edit settled.
+    expect(chunks.join("")).toContain("tool  ✓ edit  done");
+    expect(chunks.join("")).toContain("result: src/example.ts");
+    expect(chunks.join("")).not.toContain("review  src/example.ts");
+  });
+
+  it.each([
+    [
+      "failed",
+      "permission denied",
+      "✗",
+      "failed",
+      "action did not complete cleanly",
+      "fix the request or command",
+    ],
+    [
+      "partial",
+      "write only partly applied",
+      "~",
+      "partial",
+      "execution failed after mutation began; final target state is unknown",
+      "inspect the target",
+    ],
+    [
+      "limited",
+      "first 64 KiB shown",
+      "~",
+      "limited",
+      "output was bounded; this result is incomplete",
+      "narrow the request",
+    ],
+    [
+      "review",
+      "approval required",
+      "!",
+      "review needed",
+      "the warden required a human decision; this result was not executed",
+      "no live approval",
+    ],
+    [
+      "blocked",
+      "policy denied",
+      "✗",
+      "blocked",
+      "the warden denied the action before execution",
+      "fix the request or command",
+    ],
+  ] as const)(
+    "streams a consequential %s tool card after a mutation and keeps final output exact",
+    (outcome, summary, glyph, statusLabel, why, next) => {
+      const chunks: string[] = [];
+      const ui = new HeadlessUI((chunk) => chunks.push(chunk), false, false);
+      const problem =
+        outcome === "limited"
+          ? markToolPresentationOutcome(
+              {
+                kind: "tool" as const,
+                id: "bash-1",
+                name: "bash",
+                status: "ok" as const,
+                summary,
+              },
+              outcome,
+            )
+          : problemTool("bash-1", "bash", summary, outcome);
+      const active: ViewModel = {
+        items: [user("edit and verify"), observedMutation(), problem],
+        status,
+        streaming: true,
+        density: "normal",
+      };
+
+      ui.render(active);
+
+      // No finalize yet: both settled outcomes must survive a provider hang followed by SIGKILL.
+      const partial = chunks.join("");
+      expect(partial).toContain("tool  ✓ edit  done");
+      expect(partial).toContain(`tool  ${glyph} bash  ${statusLabel}`);
+      expect(partial).toContain(`what: bash: ${summary}`);
+      expect(partial).toContain(`why: ${why}`);
+      expect(partial).toContain(`next: ${next}`);
+
+      const finished: ViewModel = {
+        ...active,
+        items: [...active.items, asst("The edit succeeded, but verification did not.")],
+        streaming: false,
+        awaitingInput: true,
+      };
+      ui.render(finished);
+      ui.finalize();
+
+      const output = chunks.join("");
+      expect(output).toBe(`${renderFrame(finished, false, false)}\n`);
+      expect(output.match(new RegExp(summary, "gu"))).toHaveLength(1);
+      expect(output.split(why)).toHaveLength(2);
+      expect(output.split(next)).toHaveLength(2);
+      expect(output.match(/file evidence: src\/example\.ts/gu)).toHaveLength(1);
+    },
+  );
+
+  it("uses bounded controller evidence for a retained Warden review card", () => {
+    const rawReview =
+      "warden review required (not executed): command review: command review for make in workspace /repo; [o] once [s] session [p] project (requires Project Autopilot) [d] deny [?] why; exact command envelope only; allow: keel approve command_review_1 --scope once --command-key sha256:" +
+      "a".repeat(64);
+    const review = problemTool("bash-review", "bash", rawReview, "review");
+    const active: ViewModel = {
+      items: [user("edit and verify"), observedMutation(), review],
+      status,
+      streaming: true,
+      density: "normal",
+    };
+    const chunks: string[] = [];
+    const ui = new HeadlessUI((chunk) => chunks.push(chunk), false, false);
+
+    ui.render(active);
+
+    const safeWhat =
+      "what: bash: warden review required (not executed): command review: command review for make in workspace /repo";
+    const assertBoundedReview = (output: string): void => {
+      expect(output).toContain(safeWhat);
+      expect(output).not.toContain("[o] once");
+      expect(output).not.toContain("[s] session");
+      expect(output).not.toContain("exact command envelope only");
+      expect(output).not.toContain("allow:");
+      expect(output).not.toContain("command-key");
+      expect(output).not.toContain("a".repeat(64));
+    };
+
+    assertBoundedReview(chunks.join(""));
+
+    const finished: ViewModel = {
+      ...active,
+      items: [...active.items, asst("The edit succeeded, but the command needs review.")],
+      streaming: false,
+      awaitingInput: true,
+    };
+    ui.render(finished);
+    ui.finalize();
+
+    const output = chunks.join("");
+    expect(output).toBe(`${renderFrame(finished, false, false)}\n`);
+    assertBoundedReview(output);
+    expect(output.split(safeWhat)).toHaveLength(2);
+  });
+
   it("streams a settled provider failure before finalize and never duplicates it", () => {
     const chunks: string[] = [];
     const ui = new HeadlessUI((chunk) => chunks.push(chunk), false, false);
@@ -3089,6 +3312,51 @@ describe("HeadlessUI streaming sink (C-stream)", () => {
     expect(chunks.join("")).toBe(`${renderFrame(view, false, false)}\n`);
     expect(chunks.join("").match(/fixture provider failure/gu)).toHaveLength(1);
     expect(chunks.join("").match(/Fallback completed cleanly\./gu)).toHaveLength(1);
+  });
+
+  it("flushes a prior mutation supplement before an immediately continuing turn", () => {
+    const chunks: string[] = [];
+    const ui = new HeadlessUI((chunk) => chunks.push(chunk), false, false);
+    const firstTurn: ViewModel = {
+      items: [user("edit the file"), observedMutation()],
+      status,
+      streaming: true,
+      density: "verbose",
+    };
+
+    ui.render(firstTurn);
+
+    const continuing: ViewModel = {
+      ...firstTurn,
+      items: [
+        ...firstTurn.items,
+        asst("The edit is complete."),
+        user("now summarize it"),
+        asst("Working on the summary"),
+      ],
+    };
+    ui.render(continuing);
+
+    const atBoundary = chunks.join("");
+    expect(atBoundary).toContain("file evidence: src/example.ts");
+    expect(atBoundary).toContain("review  src/example.ts");
+    expect(atBoundary.indexOf("file evidence: src/example.ts")).toBeLessThan(
+      atBoundary.indexOf("you  now summarize it"),
+    );
+    expect(atBoundary.indexOf("review  src/example.ts")).toBeLessThan(
+      atBoundary.indexOf("you  now summarize it"),
+    );
+
+    const finished: ViewModel = {
+      ...continuing,
+      items: [...continuing.items.slice(0, -1), asst("The file now contains the requested edit.")],
+      streaming: false,
+      awaitingInput: true,
+    };
+    ui.render(finished);
+    ui.finalize();
+
+    expect(chunks.join("")).toBe(`${renderFrame(finished, false, false)}\n`);
   });
 
   it("finalize() flushes the trailer so a completed run's stream equals frame() + newline", () => {

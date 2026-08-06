@@ -31,7 +31,7 @@ import { responseSurfaceColumns } from "./row-budget.js";
 import { terminalDisplayWidth, wrapDisplayLine } from "./display-cells.js";
 import { compactStat, effectiveDiffMode, moreHint, visibleDiffText } from "./diff.js";
 import { hintFooter } from "./hints.js";
-import { toolCardPlan } from "./tool-card.js";
+import { hasSemanticZoomMutationReview, toolCardPlan } from "./tool-card.js";
 import { toolOutcome } from "./tool-outcome.js";
 import { visibleTerminalText } from "./visible-text.js";
 import { renderPendingReviewCount } from "../warden/approval.js";
@@ -87,6 +87,8 @@ function renderItem(
     readonly livePreview?: boolean;
     readonly assistantRole?: AssistantPresentationRole | undefined;
     readonly terminalColumns?: number;
+    readonly includeSemanticMutationReview?: boolean;
+    readonly includeControllerEvidence?: boolean;
   } = {},
 ): string {
   if (it.kind === "message") {
@@ -116,15 +118,26 @@ function renderItem(
   const compact = card.diff?.compact ? compactStat(card.diff.compact) : "";
   const head = `tool  ${card.glyph} ${card.title}  ${card.statusLabel}${compact}`;
   const lines: string[] = [head];
-  if (card.summary !== undefined && card.summaryLabel !== undefined) {
+  const controllerEvidence =
+    options.includeControllerEvidence === true && toolOutcome(it) !== "done"
+      ? toolEvidenceLineForItem(it)
+      : undefined;
+  if (controllerEvidence !== undefined) {
+    lines.push(`  what: ${controllerEvidence.text}`);
+  } else if (card.summary !== undefined && card.summaryLabel !== undefined) {
     lines.push(`  ${card.summaryLabel}: ${card.summary}`);
   }
   if (card.diff?.triage !== undefined) {
     const t = card.diff.triage;
     lines.push(`  triage: ${t.kind} ${t.collapsed ? "collapsed" : "expanded"} — ${t.reason}`);
   }
-  if (card.recovery !== undefined) lines.push(`  ${card.recovery}`);
-  if (card.mutationReview !== undefined) {
+  if (controllerEvidence?.why !== undefined) lines.push(`  why: ${controllerEvidence.why}`);
+  if (controllerEvidence?.next !== undefined) lines.push(`  next: ${controllerEvidence.next}`);
+  else if (card.recovery !== undefined) lines.push(`  ${card.recovery}`);
+  if (
+    card.mutationReview !== undefined &&
+    (options.includeSemanticMutationReview !== false || !hasSemanticZoomMutationReview(it))
+  ) {
     lines.push(...card.mutationReview.lines.map((line) => `  ${line}`));
   }
   // Non-TTY/headless mutation review is summary-only by default: never emit comparison lines.
@@ -165,9 +178,13 @@ function renderExpandedItems(
   retainSuccessfulTools = false,
   suppressExploratoryFailures = false,
   terminalColumns = 80,
+  retainConsequentialTools = false,
 ): string {
   const lines: string[] = [];
   let prevKind = initialPrevKind;
+  const retainConsequentialEvidence =
+    retainConsequentialTools &&
+    items.some((item) => item.kind === "tool" && hasSemanticZoomMutationReview(item));
   for (const { item, index, assistantRole } of visibleTurnItemsWithIndexes(items, view.density, {
     suppressFailedTools,
     suppressEvidenceItems,
@@ -175,6 +192,7 @@ function renderExpandedItems(
     suppressExploratoryFailures,
     retainDiffTools: view.diffMode === "full",
     retainSuccessfulTools,
+    retainConsequentialTools: retainConsequentialEvidence,
   })) {
     const livePreview =
       view.streaming &&
@@ -185,6 +203,8 @@ function renderExpandedItems(
       livePreview,
       assistantRole,
       terminalColumns,
+      includeSemanticMutationReview: false,
+      includeControllerEvidence: retainConsequentialEvidence,
     });
     if (rendered.length === 0) continue;
     if (lines.length > 0 && !(item.kind === "tool" && prevKind === "tool")) lines.push("");
@@ -194,12 +214,29 @@ function renderExpandedItems(
   return lines.join("\n");
 }
 
+/** Headless streaming owns the stable mutation result as soon as execution settles. Semantic-zoom
+ *  integrity rows are a monotonic turn supplement, so a later density change never requires stdout
+ *  to retract a completed mutation or lose it on hard kill. */
+function renderSemanticMutationReviews(items: readonly ViewItem[], view: ViewModel): string {
+  return items
+    .flatMap((item) => {
+      if (item.kind !== "tool" || !hasSemanticZoomMutationReview(item)) return [];
+      return (
+        toolCardPlan(item, effectiveDiffMode(view.density, view.diffMode)).mutationReview?.lines ??
+        []
+      );
+    })
+    .map((line) => `  ${line}`)
+    .join("\n");
+}
+
 function evidenceForMode(
   card: TurnEvidencePresentation,
   interactive: boolean,
   retainSuccessfulTools: boolean,
   items: readonly ViewItem[],
   density: ViewModel["density"],
+  retainConsequentialTools = false,
 ): TurnEvidencePresentation | undefined {
   const rawToolEvidenceKind = (item: Extract<ViewItem, { kind: "tool" }>): string | undefined => {
     const outcome = toolOutcome(item);
@@ -224,7 +261,15 @@ function evidenceForMode(
   const lines = card.lines.filter((line) => {
     if (!interactive && retainSuccessfulTools && (line.kind === "ran" || line.kind === "tool"))
       return false;
-    if (!detailed) return true;
+    const consequential =
+      line.kind === "limited" ||
+      line.kind === "partial" ||
+      line.kind === "review" ||
+      line.kind === "blocked" ||
+      line.kind === "skipped" ||
+      line.kind === "failed" ||
+      line.kind === "stopped";
+    if (!detailed && !(retainConsequentialTools && consequential)) return true;
     return !items.some((item) => {
       if (item.kind !== "tool" || rawToolEvidenceKind(item) !== line.kind) return false;
       const rawEvidence = toolEvidenceLineForItem(item);
@@ -258,6 +303,7 @@ function renderConversationPlan(
         retainSuccessfulTools,
         false,
         terminalColumns,
+        true,
       );
       const parts = rendered.length > 0 ? [rendered] : [];
       const evidence =
@@ -269,8 +315,13 @@ function renderConversationPlan(
               retainSuccessfulTools,
               block.items,
               view.density,
+              block.items.some(
+                (item) => item.kind === "tool" && hasSemanticZoomMutationReview(item),
+              ),
             );
       if (evidence !== undefined) parts.push(renderTurnEvidence(evidence, terminalColumns));
+      const mutationReviews = renderSemanticMutationReviews(block.items, view);
+      if (mutationReviews.length > 0) parts.push(mutationReviews);
       return parts.length > 0 ? [parts.join("\n\n")] : [];
     }
     if (block.mode === "compact") {
@@ -288,6 +339,7 @@ function renderConversationPlan(
       retainSuccessfulTools,
       block.suppressExploratoryFailures,
       terminalColumns,
+      true,
     );
     if (body.length > 0) parts.push(body);
     const evidence =
@@ -299,8 +351,11 @@ function renderConversationPlan(
             retainSuccessfulTools,
             block.items,
             view.density,
+            block.items.some((item) => item.kind === "tool" && hasSemanticZoomMutationReview(item)),
           );
     if (evidence !== undefined) parts.push(renderTurnEvidence(evidence, terminalColumns));
+    const mutationReviews = renderSemanticMutationReviews(block.items, view);
+    if (mutationReviews.length > 0) parts.push(mutationReviews);
     if (!interactive && block.runControlReceipt !== undefined)
       parts.push(renderRunControlReceipt(block.runControlReceipt));
     if (interactive && block.currentTurn !== undefined)
@@ -576,6 +631,7 @@ export class HeadlessUI implements UIPort {
   #streamedCount = 0; // leading items already written to the sink, in order
   #streamedPrevKind = ""; // kind of the last EMITTED item — for separator continuity
   #streamedEvidenceByBlock = new Map<string, Map<string, string>>();
+  #streamedMutationReviewsByBlock = new Set<string>();
   #streamedRunControlReceipts = new Set<string>();
   #lastView: ViewModel | undefined;
   #finalized = false; // finalize() flushes the trailer exactly once
@@ -600,10 +656,21 @@ export class HeadlessUI implements UIPort {
     const sink = this.#sink;
     if (sink === undefined) return;
     const skip = this.#verbose ? 0 : leadingSystemEnd(view.items);
+    const semanticMutationIndexes = new Set<number>();
+    for (const block of conversationPlan(view, {
+      verbose: this.#verbose,
+      compactHistory: false,
+    }).blocks) {
+      if (block.items.some((item) => item.kind === "tool" && hasSemanticZoomMutationReview(item))) {
+        for (let index = block.startIndex; index <= block.endIndex; index += 1)
+          semanticMutationIndexes.add(index);
+      }
+    }
     const visibleItems = new Map(
       visibleConversationItemsWithIndexes(view, {
         verbose: this.#verbose,
         retainSuccessfulTools: !this.#interactive && this.#verbose,
+        retainConsequentialTools: true,
       }).map((entry) => [
         entry.index,
         {
@@ -678,6 +745,8 @@ export class HeadlessUI implements UIPort {
       if (!flushAll && isLast && visible.synthetic) break;
       const rendered = renderItem(visibleItem, view.diffMode, view.density, {
         assistantRole: visible.assistantRole,
+        includeSemanticMutationReview: false,
+        includeControllerEvidence: semanticMutationIndexes.has(i),
       });
       if (rendered.length === 0) {
         this.#streamedCount += 1;
@@ -696,12 +765,18 @@ export class HeadlessUI implements UIPort {
     const sink = this.#sink;
     if (sink === undefined) return;
     const options = { verbose: this.#verbose, compactHistory: false } as const;
+    const commitPlan = transcriptCommitPlan(view, options);
+    const committedBlockIds = new Set(commitPlan.staticBlocks.map((block) => block.id));
     const blocks =
-      flushAll || view.streaming
-        ? conversationPlan(view, options).blocks
-        : transcriptCommitPlan(view, options).staticBlocks;
+      flushAll || view.streaming ? conversationPlan(view, options).blocks : commitPlan.staticBlocks;
     for (const block of blocks) {
       if (block.endIndex >= this.#streamedCount) continue;
+      const semanticMutation = block.items.some(
+        (item) => item.kind === "tool" && hasSemanticZoomMutationReview(item),
+      );
+      // The stable result has already streamed. Hold the mode-dependent receipt/detail suffix until
+      // settlement so normal↔verbose and compact↔full remain monotonic and byte-identical to frame().
+      if (semanticMutation && !flushAll && !committedBlockIds.has(block.id)) continue;
       if (block.evidence !== undefined) {
         const evidence = evidenceForMode(
           block.evidence,
@@ -709,6 +784,7 @@ export class HeadlessUI implements UIPort {
           !this.#interactive && this.#verbose,
           block.items,
           view.density,
+          semanticMutation,
         );
         if (evidence !== undefined) {
           const streamedLines =
@@ -735,6 +811,16 @@ export class HeadlessUI implements UIPort {
             }
           }
         }
+      }
+      if (semanticMutation && !this.#streamedMutationReviewsByBlock.has(block.id)) {
+        const rendered = renderSemanticMutationReviews(block.items, view);
+        if (rendered.length > 0) {
+          const chunk = (this.#streamedPrevKind === "" ? "" : "\n\n") + rendered;
+          this.#streamedNonEmpty = true;
+          sink(chunk);
+          this.#streamedPrevKind = "mutation-review";
+        }
+        this.#streamedMutationReviewsByBlock.add(block.id);
       }
       if (
         !this.#interactive &&

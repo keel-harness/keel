@@ -21,10 +21,13 @@ import { SPINNER_FRAMES, THEME } from "../theme.js";
 import { App, assistantHeadingStyle, assistantLabelStyle } from "./app.js";
 import {
   AppendOnlyStaticItems,
+  commitIncrementalTranscriptCandidate,
   commitStaticEntryAppends,
+  createIncrementalTranscriptLedger,
   incrementalAssistantRangeEntries,
   incrementalLiveLineLimit,
   incrementalStreamingCommitTarget,
+  planIncrementalTranscript,
 } from "./incremental-transcript.js";
 import { assistantStreamingProjection } from "../assistant-prose.js";
 import {
@@ -49,6 +52,42 @@ function problemTool(
   outcome: ToolPresentationOutcome,
 ): ViewItem {
   return markToolPresentationOutcome({ kind: "tool", id, name, status: "error", summary }, outcome);
+}
+
+function observedMutationTool(): ViewItem {
+  return {
+    kind: "tool",
+    id: "edit-1",
+    name: "edit",
+    status: "ok",
+    summary: "src/example.ts",
+    mutationPresentation: {
+      status: "available",
+      operation: "edit",
+      displayPath: "src/example.ts",
+      observedBefore: {
+        status: "file-observed",
+        bytes: 6,
+        mode: 0o644,
+        contentClass: "text",
+        finalNewline: true,
+      },
+      verifiedInstalledAfter: {
+        status: "file-observed",
+        bytes: 5,
+        mode: 0o644,
+        contentClass: "text",
+        finalNewline: true,
+      },
+      coverage: "complete",
+      observedBeforeLines: 1,
+      installedAfterLines: 1,
+      shownLines: 2,
+      hiddenLines: 0,
+      transitionBinding: "not-atomic",
+      concurrentMutation: "not-excluded",
+    },
+  };
 }
 
 function setTerminalEnv(next: {
@@ -3028,6 +3067,111 @@ describe("Ink App (frame snapshots via ink-testing-library)", () => {
       rendered.unmount();
     }
   });
+
+  it.each([
+    ["normal to verbose", { density: "normal" }, { density: "verbose" }, true],
+    ["verbose to normal", { density: "verbose" }, { density: "normal" }, false],
+    ["compact to full", { diffMode: "compact" }, { diffMode: "full" }, true],
+    ["full to compact", { diffMode: "full" }, { diffMode: "compact" }, false],
+  ] as const)(
+    "commits a settled mutation with final semantic zoom after %s",
+    async (_scenario, activePresentation, finalPresentation, expectsDetail) => {
+      const active: ViewModel = {
+        items: [
+          { kind: "message", role: "user", content: "make the governed edit" },
+          observedMutationTool(),
+        ],
+        status,
+        streaming: true,
+        ...activePresentation,
+      };
+      const { stdout, rendered } = renderWithRealStatic(active);
+
+      try {
+        await rendered.waitUntilRenderFlush();
+        stdout.clear();
+        rendered.rerender(
+          <App
+            view={{
+              ...active,
+              items: [
+                ...active.items,
+                { kind: "message", role: "assistant", content: "The edit is complete." },
+              ],
+              streaming: false,
+              awaitingInput: true,
+              ...finalPresentation,
+            }}
+          />,
+        );
+        await rendered.waitUntilRenderFlush();
+
+        const committed = stdout.output();
+        expect(committed).toContain("src/example.ts");
+        expect(committed.includes("review  src/example.ts")).toBe(expectsDetail);
+        if (expectsDetail) expect(committed).toContain("tool");
+      } finally {
+        rendered.unmount();
+      }
+    },
+  );
+
+  it.each([
+    ["normal to verbose", { density: "normal" }, { density: "verbose" }, true],
+    ["verbose to normal", { density: "verbose" }, { density: "normal" }, false],
+    ["compact to full", { diffMode: "compact" }, { diffMode: "full" }, true],
+    ["full to compact", { diffMode: "full" }, { diffMode: "compact" }, false],
+  ] as const)(
+    "withholds mutation Static ownership until final semantic zoom for %s",
+    (_scenario, activePresentation, finalPresentation, _expectsDetail) => {
+      const active: ViewModel = {
+        items: [
+          { kind: "message", role: "user", content: "make the governed edit" },
+          observedMutationTool(),
+        ],
+        status,
+        streaming: true,
+        ...activePresentation,
+      };
+      const first = planIncrementalTranscript({
+        previousLedger: createIncrementalTranscriptLedger(),
+        previousProjectionCache: new Map(),
+        view: active,
+        verbose: false,
+        wrapColumns: 98,
+      });
+      const ownsMutation = (candidate: typeof first): boolean =>
+        candidate.staticEntries.appends.some(
+          (entry) =>
+            entry.kind === "incremental" &&
+            entry.unit.kind === "item" &&
+            entry.unit.item.kind === "tool" &&
+            entry.unit.item.id === "edit-1",
+        );
+
+      expect(ownsMutation(first)).toBe(false);
+      commitIncrementalTranscriptCandidate(first);
+
+      const finished = planIncrementalTranscript({
+        previousLedger: first.ledger,
+        previousProjectionCache: first.projectionCache,
+        view: {
+          ...active,
+          items: [
+            ...active.items,
+            { kind: "message", role: "assistant", content: "The edit is complete." },
+          ],
+          streaming: false,
+          awaitingInput: true,
+          ...finalPresentation,
+        },
+        verbose: false,
+        wrapColumns: 98,
+      });
+
+      expect(ownsMutation(finished)).toBe(true);
+    },
+  );
 
   it("assigns an active turn to immutable history before a short stream crosses the long-output threshold", async () => {
     const active = (lines: number): ViewModel => ({
