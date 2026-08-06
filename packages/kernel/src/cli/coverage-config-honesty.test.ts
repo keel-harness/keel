@@ -10,6 +10,15 @@ function readRepoFile(path: string): string {
 }
 
 describe("coverage configuration honesty", () => {
+  it("caps test concurrency below the measured child-process contention limit", () => {
+    const config = readRepoFile("vitest.config.ts");
+
+    expect(config).toContain("const MAX_RELIABLE_TEST_WORKERS = 4;");
+    expect(config).toMatch(
+      /maxWorkers:\s*Math\.max\(\s*1,\s*Math\.min\(MAX_RELIABLE_TEST_WORKERS, availableParallelism\(\) - 1\),?\s*\)/u,
+    );
+  });
+
   it("describes the live Warden coverage gate instead of a future activation", () => {
     const config = readRepoFile("vitest.config.ts");
     const excludeBlock = config.match(/exclude:\s*\[(?<body>[\s\S]*?)\n\s*\],/u)?.groups?.["body"];
