@@ -106,15 +106,16 @@ import {
 import {
   buildMcpOpaquePolicyInput,
   buildMcpSandboxProfile,
+  createActiveWardenPolicy,
   mcpSandboxResultIsError,
   mcpSandboxCommand,
   mcpExactRedactionsForEnvKeys,
   modelTextFromMcpSandboxResult,
   mcpHasSecretSensitiveArgs,
   sanitizeMcpText,
+  type ActiveWardenPolicy,
   type TrustedMcpServerConfig,
   type TrustedMcpServers,
-  withMcpSensitivityPolicy,
 } from "./mcp/local-stdio.js";
 import {
   createPendingMcpReview,
@@ -269,6 +270,7 @@ interface RpcContext {
   interactiveConsoleState: ConsoleRuntimeState;
   interactiveConsoleBroker?: ConsoleBrokerPort;
   interactiveConsoleNowMs: () => number;
+  activePolicy: ActiveWardenPolicy;
   policy: PolicyPort;
   auditWriter?: AuditSink;
   auditDir?: string;
@@ -7367,6 +7369,7 @@ async function buildRpcContext(options: WardenRpcHandlerOptions = {}): Promise<R
   if (options.interactiveConsoleHeadlessGrants !== undefined) {
     installHeadlessConsoleGrants(interactiveConsoleState, options.interactiveConsoleHeadlessGrants);
   }
+  const activePolicy = createActiveWardenPolicy(options.policy ?? (await getDefaultPolicyPort()));
   return {
     sandbox: options.sandbox ?? missingSandboxPort,
     workspaceRoot,
@@ -7390,7 +7393,8 @@ async function buildRpcContext(options: WardenRpcHandlerOptions = {}): Promise<R
       ? { interactiveConsoleBroker: options.interactiveConsoleBroker }
       : {}),
     interactiveConsoleNowMs: options.interactiveConsoleNowMs ?? Date.now,
-    policy: withMcpSensitivityPolicy(options.policy ?? (await getDefaultPolicyPort())),
+    activePolicy,
+    policy: activePolicy.policy,
     ...(options.auditWriter === undefined ? {} : { auditWriter: options.auditWriter }),
     ...(options.auditDir === undefined ? {} : { auditDir: options.auditDir }),
     workspaceTrusted,

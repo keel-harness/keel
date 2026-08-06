@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve, join } from "node:path";
-import { isInside, isInsideCanonical } from "./path-util.js";
+import { isInside, isInsideCanonical, isInsideFolded } from "./path-util.js";
 
 describe("isInside", () => {
   it("treats a path as inside its own root", () => {
@@ -24,6 +24,14 @@ describe("isInside", () => {
   it("resolves relative roots and candidates to absolute paths before comparing", () => {
     expect(isInside(".", resolve(".", "child"))).toBe(true);
     expect(isInside("a/b", "a/b/../c")).toBe(false);
+  });
+});
+
+describe("isInsideFolded", () => {
+  it("compares pre-canonicalized paths across case and Unicode spellings without filesystem I/O", () => {
+    expect(isInsideFolded("/USERS", "/Users/alice/.ssh")).toBe(true);
+    expect(isInsideFolded("/users/confé", "/users/confé/alice/.ssh")).toBe(true);
+    expect(isInsideFolded("/a/b", "/A/BC")).toBe(false);
   });
 });
 

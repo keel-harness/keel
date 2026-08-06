@@ -25,7 +25,7 @@ import {
   searchExecutionScopeFromGlob,
 } from "@keel/shared";
 import type { PolicyPackSnapshotT } from "./audit/bundle.js";
-import { DEFAULT_CAPABILITY_MANIFEST } from "./capability-manifest.js";
+import { DEFAULT_CAPABILITY_MANIFEST, homeCredentialSecretRoots } from "./capability-manifest.js";
 import { extractExplicitEgressTarget } from "./egress-review.js";
 import { isInside } from "./path-util.js";
 import { renderProcessRunArgv } from "./process-run.js";
@@ -84,6 +84,46 @@ export interface PolicyDecision {
 export interface PolicyPort {
   readonly packRef: PolicyPackRefT;
   evaluate(input: PolicyInputT): Promise<PolicyDecision>;
+}
+
+const BUILTIN_STARTER_POLICY_IDENTITY_BRAND: unique symbol = Symbol(
+  "keel.builtin-starter-policy-identity",
+);
+
+/** Process-local authority proving that a PolicyPort was constructed by the compiled starter-pack
+ * loader. Pack metadata alone cannot mint this identity. */
+export interface RegisteredBuiltinStarterPolicyIdentity {
+  readonly [BUILTIN_STARTER_POLICY_IDENTITY_BRAND]: true;
+}
+
+const BUILTIN_STARTER_POLICY_IDENTITY: RegisteredBuiltinStarterPolicyIdentity = Object.freeze({
+  [BUILTIN_STARTER_POLICY_IDENTITY_BRAND]: true as const,
+});
+const registeredBuiltinStarterPolicyPorts = new WeakSet<PolicyPort>();
+
+export function registeredBuiltinStarterPolicyIdentity(
+  policy: PolicyPort,
+): RegisteredBuiltinStarterPolicyIdentity | undefined {
+  return registeredBuiltinStarterPolicyPorts.has(policy)
+    ? BUILTIN_STARTER_POLICY_IDENTITY
+    : undefined;
+}
+
+export function isRegisteredBuiltinStarterPolicyIdentity(
+  identity: RegisteredBuiltinStarterPolicyIdentity | undefined,
+): identity is RegisteredBuiltinStarterPolicyIdentity {
+  return identity === BUILTIN_STARTER_POLICY_IDENTITY;
+}
+
+export function registeredBuiltinStarterPolicyIdentityMatchesPack(
+  identity: RegisteredBuiltinStarterPolicyIdentity | undefined,
+  packRef: PolicyPackRefT,
+): boolean {
+  return (
+    isRegisteredBuiltinStarterPolicyIdentity(identity) &&
+    packRef.name === DEFAULT_POLICY_PACK_NAME &&
+    packRef.hash === DEFAULT_POLICY_WASM_SHA256
+  );
 }
 
 export interface PolicyInputBuildOptions {
@@ -212,10 +252,12 @@ export async function createDefaultPolicyPort(): Promise<PolicyPort> {
   if (hash === ZERO_HASH) {
     throw new PolicyEvaluationError("embedded starter policy pack hash is zero");
   }
-  return new OpaWasmPolicyPort(await loadPolicy(bytes), {
+  const policy = new OpaWasmPolicyPort(await loadPolicy(bytes), {
     name: DEFAULT_POLICY_PACK_NAME,
     hash,
   });
+  registeredBuiltinStarterPolicyPorts.add(policy);
+  return policy;
 }
 
 export function defaultPolicyPackRef(): PolicyPackRefT {
@@ -512,14 +554,7 @@ function workspaceDotenvDenyRoots(workspaceRoot: string): string[] {
 }
 
 function homeSecretDenyRoots(env: NodeJS.ProcessEnv): string[] {
-  const home = homeRoot(env);
-  return [
-    resolve(home, ".ssh"),
-    resolve(home, ".aws"),
-    resolve(home, ".gnupg"),
-    resolve(home, ".netrc"),
-    resolve(home, ".npmrc"),
-  ];
+  return homeCredentialSecretRoots(homeRoot(env)).map((root) => resolve(root));
 }
 
 // Delegates to the canonical, cross-process resolution (P1-11) so the deny-write roots that protect
@@ -905,11 +940,18 @@ function isTempRoot(path: string): boolean {
 function rootsContainedToWorkspaceOrTemp(
   roots: readonly string[] | undefined,
   workspaceRoot: string,
+  declaredTempRoots: readonly string[] = [],
 ): boolean {
   const normalized = uniqueResolved(roots);
+  const declared = uniqueResolved(declaredTempRoots);
   return (
     normalized.length > 0 &&
-    normalized.every((root) => isInside(workspaceRoot, root) || isTempRoot(root))
+    normalized.every(
+      (root) =>
+        isInside(workspaceRoot, root) ||
+        declared.some((declaredRoot) => isInside(declaredRoot, root)) ||
+        isTempRoot(root),
+    )
   );
 }
 
@@ -929,16 +971,28 @@ function networkBlocksAllEgress(profile: SandboxProfile): boolean {
   );
 }
 
-function sandboxProofIsContained(
+export function sandboxProofIsContained(
   proof: SandboxContainmentProof,
-  options: { readonly workspaceRoot: string; readonly env: NodeJS.ProcessEnv },
+  options: {
+    readonly workspaceRoot: string;
+    readonly env: NodeJS.ProcessEnv;
+    readonly declaredTempRoots?: readonly string[];
+  },
 ): boolean {
   if (!proof.status.available || !proof.status.enforcementTier.startsWith("sandbox:")) return false;
   const filesystem = proof.profile.filesystem;
   if (filesystem === undefined) return false;
   return (
-    rootsContainedToWorkspaceOrTemp(filesystem.allowRead, options.workspaceRoot) &&
-    rootsContainedToWorkspaceOrTemp(filesystem.allowWrite, options.workspaceRoot) &&
+    rootsContainedToWorkspaceOrTemp(
+      filesystem.allowRead,
+      options.workspaceRoot,
+      options.declaredTempRoots,
+    ) &&
+    rootsContainedToWorkspaceOrTemp(
+      filesystem.allowWrite,
+      options.workspaceRoot,
+      options.declaredTempRoots,
+    ) &&
     proof.workspaceSecretDenyReadComplete === true &&
     rootsContainAll(filesystem.denyRead, [
       ...homeSecretDenyRoots(options.env),
@@ -2950,7 +3004,7 @@ function pushObfuscatedExecSegment(segments: SideEffectSegmentT[], command: stri
   );
 }
 
-function commandDependsOnMutableExecutionMetadata(argv: readonly string[]): boolean {
+export function processArgvDependsOnMutableExecutionMetadata(argv: readonly string[]): boolean {
   if (["pnpm", "npm", "bun", "yarn"].includes(argv[0] ?? "")) {
     return ["build", "format", "lint", "test", "typecheck"].includes(argv[1] ?? "");
   }
@@ -3000,10 +3054,10 @@ function knownSafeFallbackCommand(
     ].includes(argv[0] ?? "")
   ) {
     if (argv[0] !== "git") return true;
-    return safeCommandMetadataTrusted && commandDependsOnMutableExecutionMetadata(argv);
+    return safeCommandMetadataTrusted && processArgvDependsOnMutableExecutionMetadata(argv);
   }
   if (["pnpm", "npm", "bun", "yarn"].includes(argv[0] ?? "")) {
-    return safeCommandMetadataTrusted && commandDependsOnMutableExecutionMetadata(argv);
+    return safeCommandMetadataTrusted && processArgvDependsOnMutableExecutionMetadata(argv);
   }
   return extractExplicitEgressTarget(command).kind === "invalid";
 }
@@ -3406,7 +3460,7 @@ function classifierForCommand(
   if (segments.some((entry) => entry.modifiers.includes("unknown"))) {
     if (
       !options.safeCommandMetadataTrusted &&
-      commandDependsOnMutableExecutionMetadata(argvFromCommand(command))
+      processArgvDependsOnMutableExecutionMetadata(argvFromCommand(command))
     ) {
       return {
         confidence: "unknown" as const,
@@ -3445,7 +3499,7 @@ function classifierForProcessArgv(
     };
   }
   if (segments.some((entry) => entry.modifiers.includes("unknown"))) {
-    if (!options.safeCommandMetadataTrusted && commandDependsOnMutableExecutionMetadata(argv)) {
+    if (!options.safeCommandMetadataTrusted && processArgvDependsOnMutableExecutionMetadata(argv)) {
       return {
         confidence: "unknown" as const,
         reasons: ["mutable_execution_metadata"],

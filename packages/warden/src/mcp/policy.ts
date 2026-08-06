@@ -8,7 +8,13 @@ import {
   type SideEffectTargetT,
   type WARDEN_METHODS,
 } from "@keel/shared";
-import type { PolicyDecision, PolicyInputBuildOptions, PolicyPort } from "../policy.js";
+import {
+  registeredBuiltinStarterPolicyIdentity,
+  type PolicyDecision,
+  type PolicyInputBuildOptions,
+  type PolicyPort,
+  type RegisteredBuiltinStarterPolicyIdentity,
+} from "../policy.js";
 import { isInside } from "../path-util.js";
 
 type ExecuteParams = ReturnType<(typeof WARDEN_METHODS)["warden.execute"]["params"]["parse"]>;
@@ -202,8 +208,86 @@ function applyMcpSensitivityDecision(
 }
 
 export function withMcpSensitivityPolicy(policy: PolicyPort): PolicyPort {
-  return {
-    packRef: policy.packRef,
-    evaluate: async (input) => applyMcpSensitivityDecision(input, await policy.evaluate(input)),
-  };
+  const evaluate = policy.evaluate.bind(policy);
+  return Object.freeze({
+    packRef: Object.freeze({ ...policy.packRef }),
+    evaluate: async (input: PolicyInputT) =>
+      applyMcpSensitivityDecision(input, await evaluate(input)),
+  });
+}
+
+interface ActiveWardenPolicyState {
+  readonly evaluate: (input: PolicyInputT) => Promise<PolicyDecision>;
+  readonly policyPack: PolicyPort["packRef"];
+  readonly builtinPolicyIdentity: RegisteredBuiltinStarterPolicyIdentity | undefined;
+}
+
+const activeWardenPolicies = new WeakMap<object, ActiveWardenPolicyState>();
+const activeWardenPolicyEvaluations = new WeakSet<object>();
+
+/** The exact base-policy identity and Warden-owned wrapper that jointly make policy decisions. */
+export interface ActiveWardenPolicy {
+  readonly policy: PolicyPort;
+  readonly builtinPolicyIdentity: RegisteredBuiltinStarterPolicyIdentity | undefined;
+}
+
+/** Immutable evidence that the active Warden policy produced this exact decision for this input. */
+export interface ActiveWardenPolicyEvaluation {
+  readonly policyPack: PolicyPort["packRef"];
+  readonly policyInput: PolicyInputT;
+  readonly decision: PolicyDecision;
+  readonly builtinPolicyIdentity: RegisteredBuiltinStarterPolicyIdentity | undefined;
+}
+
+function deepFreeze<T>(value: T): T {
+  if (value === null || typeof value !== "object" || Object.isFrozen(value)) return value;
+  for (const child of Object.values(value)) deepFreeze(child);
+  return Object.freeze(value);
+}
+
+function jsonSnapshot<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T;
+}
+
+export function createActiveWardenPolicy(basePolicy: PolicyPort): ActiveWardenPolicy {
+  // Capture the compiled-policy identity from the exact base before applying the Warden-owned MCP
+  // wrapper. The wrapper is intentionally not itself a registered compiled starter policy.
+  const wrappedPolicy = Object.freeze(withMcpSensitivityPolicy(basePolicy));
+  const builtinPolicyIdentity = registeredBuiltinStarterPolicyIdentity(basePolicy);
+  const active = Object.freeze({
+    policy: wrappedPolicy,
+    builtinPolicyIdentity,
+  });
+  activeWardenPolicies.set(
+    active,
+    Object.freeze({
+      evaluate: wrappedPolicy.evaluate.bind(wrappedPolicy),
+      policyPack: deepFreeze(jsonSnapshot(wrappedPolicy.packRef)),
+      builtinPolicyIdentity,
+    }),
+  );
+  return active;
+}
+
+export async function evaluateActiveWardenPolicy(
+  active: ActiveWardenPolicy,
+  input: PolicyInputT,
+): Promise<ActiveWardenPolicyEvaluation> {
+  const state = activeWardenPolicies.get(active);
+  if (state === undefined) {
+    throw new Error("active Warden policy authority was not minted by createActiveWardenPolicy");
+  }
+  const decision = await state.evaluate(input);
+  const evaluation = deepFreeze({
+    policyPack: jsonSnapshot(state.policyPack),
+    policyInput: jsonSnapshot(input),
+    decision: jsonSnapshot(decision),
+    builtinPolicyIdentity: state.builtinPolicyIdentity,
+  });
+  activeWardenPolicyEvaluations.add(evaluation);
+  return evaluation;
+}
+
+export function isActiveWardenPolicyEvaluation(evaluation: ActiveWardenPolicyEvaluation): boolean {
+  return activeWardenPolicyEvaluations.has(evaluation);
 }

@@ -75,6 +75,8 @@ import { AuditChainWriter, type AuditSink } from "./audit/writer.js";
 import { SessionAuditLog } from "./audit/session-log.js";
 import { createTypedToolState, TypedToolDeniedError, TypedToolError } from "./typed-tools.js";
 import {
+  createExecutionMetadataState,
+  executionMetadataGeneration,
   packageManagerExecutionMetadataPaths,
   vcsExecutionMetadataPaths,
 } from "./execution-metadata.js";
@@ -1346,6 +1348,7 @@ describe("keel-warden stdio JSON-RPC server", () => {
     try {
       const writer = auditWriter(join(dir, "audit.jsonl"));
       const failingIntentWriter = auditWriterFailingOnAppend(writer, 1);
+      const executionMetadataState = createExecutionMetadataState();
       const executions: unknown[] = [];
       const fakeSandbox: SandboxPort = {
         status: () => ({
@@ -1367,12 +1370,19 @@ describe("keel-warden stdio JSON-RPC server", () => {
             sandbox: fakeSandbox,
             policy: ALLOW_POLICY,
             auditWriter: failingIntentWriter,
+            executionMetadataState,
           },
         ),
       );
 
       expect(raw.error.data?.code).toBe("AUDIT_WRITE_FAILED");
       expect(raw.error.data?.["actionMayHaveExecuted"]).toBeUndefined();
+      expect(
+        executionMetadataGeneration(executionMetadataState, "ses_01ARZ3NDEKTSV4RRFFQ69G5FAV"),
+      ).toEqual({
+        generation: 1,
+        poisoned: false,
+      });
       expect(executions).toEqual([]);
     } finally {
       rmSync(dir, { recursive: true, force: true });
