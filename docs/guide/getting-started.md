@@ -1,13 +1,13 @@
 # Getting started
 
-A one-page tour of how to run keel: authenticate, launch a session, and the commands
-you can type. For what keel *is*, read the [architecture one-pager](../architecture.md)
-first. For install, see the top-level [`README.md`](../../README.md).
+How to run keel: authenticate, launch a session, and use the commands. For what keel *is*, read
+the [architecture one-pager](../architecture.md) first. For install, see the top-level
+[`README.md`](../../README.md).
 
 ## 1. Authenticate
 
-keel talks to a model provider with a key you supply. Store it once in keel's
-`0600` credentials file:
+keel talks to a model provider with a key you supply. Store it once in keel's `0600` credentials
+file:
 
 ```sh
 keel auth set anthropic      # prompts for the key, no echo
@@ -15,15 +15,15 @@ keel auth list               # show which providers have a key
 keel auth remove anthropic   # delete a stored key
 ```
 
-Providers: `anthropic` (default), `openai`, `google`, `openai-compatible`. Select a
-different one with `KEEL_PROVIDER`. A key in the environment
-(`ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `GOOGLE_GENERATIVE_AI_API_KEY`) is used as a
-fallback when nothing is stored.
+Four providers are supported: `anthropic` (the default), `openai`, `google`, and
+`openai-compatible`. Select one with `KEEL_PROVIDER`. Every provider except `anthropic` also needs
+a model id in `KEEL_MODEL`. If nothing is stored, keel falls back to a key in the environment
+(`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, or `GOOGLE_GENERATIVE_AI_API_KEY`).
 
-Credentials are resolved when a Keel process starts. Replacing a key does not reload an already
-running session; restart from that session's workspace with `keel --continue`.
+keel reads credentials when the process starts. Replacing a key does not reload a running session.
+Restart from that session's workspace with `keel --continue`.
 
-Before your first run, check your machine has the tools keel needs:
+Before your first run, check that your machine has the tools keel needs:
 
 ```sh
 keel doctor                  # verifies node, ripgrep, and the OS sandbox
@@ -53,9 +53,8 @@ state remain `bash` work; `process.run` does not make the invoked program inhere
 
 ## 3. Autonomy at a glance
 
-keel runs in a **policy posture**, evaluated by the warden — not a model setting.
-Higher autonomy means *fewer prompts inside enforced boundaries*, never weaker
-enforcement.
+keel runs in a **policy posture** that the warden evaluates. It is not a model setting. Higher
+autonomy means fewer prompts inside enforced boundaries. It never means weaker enforcement.
 
 | Posture | What it means |
 | --- | --- |
@@ -63,7 +62,7 @@ enforcement.
 | `autopilot` | Auto-approves contained in-workspace actions; boundary expansion still prompts. Requires a **trusted** workspace and an explicit human opt-in. |
 | `project-autopilot` | `autopilot` plus persisted, revocable project-scope grants. Trusted projects only. |
 
-Set it per run with `--autopilot`, or persist it:
+Set the posture per run with `--autopilot`, or persist it:
 
 ```sh
 keel autopilot mode status
@@ -73,9 +72,8 @@ keel autopilot grants list                 # persisted project grants
 keel autopilot grants revoke --domain <domain>
 ```
 
-There is **no YOLO / "enforcement-off" mode** — it is deliberately not wired. Autopilot
-is high autonomy inside enforced boundaries, not the absence of a warden. For the full
-model — mode labels, live approvals, and grant scopes — read the
+There is **no YOLO or "enforcement-off" mode**. It is deliberately not wired. For the full model —
+mode labels, live approvals, and grant scopes — read the
 [policy and approval guide](policy-guide.md).
 
 ## 4. Inside the session: slash commands
@@ -98,9 +96,9 @@ Type `/` at the prompt to open the command palette. The everyday commands:
 | `/about` | Product basics. |
 | `/exit` | End the session. |
 
-When the warden is waiting on a decision, respond in place — `/approve`, `/deny`, or
-`/why` (or the one-key `a` / `d` / `?`). To steer mid-run: `/now`,
-`/before-next-edit`, `/stop-after-current`.
+When the warden waits on a decision, respond in place with `/approve`, `/deny`, or `/why`. The
+one-key forms are `a`, `d`, and `?`. To steer mid-run, use `/now`, `/before-next-edit`, or
+`/stop-after-current`.
 
 ## 5. Keyboard essentials
 
@@ -115,42 +113,9 @@ When the warden is waiting on a decision, respond in place — `/approve`, `/den
 
 Standard Emacs line editing (`Ctrl-A/E/U/K/W/Y`, `Alt-B/F`) works at the prompt.
 
-## 6. Command reference
-
-| Command | Purpose |
-| --- | --- |
-| `keel` | Interactive session. |
-| `keel run -p <prompt>` | One-shot run, honest exit code. |
-| `keel autopilot mode …` | Read/set/clear the persisted autonomy posture. |
-| `keel autopilot grants …` | List/revoke persisted project grants. |
-| `keel autopilot plan preview …` | Preview exact Plan-Autopilot resources (grants nothing). |
-| `keel egress exception add\|list\|remove …` | Manage exact private-address exceptions for one workspace. |
-| `keel audit export <session>` | Export a signed evidence bundle. |
-| `keel audit verify <bundle>` | Verify a bundle offline. |
-| `keel sessions <list\|resume\|answer\|branch>` | Inspect session ledgers and retained bounded-answer originals. |
-| `keel mcp review <server>` | Review and pin a local-stdio MCP server. |
-| `keel auth <set\|list\|remove>` | Manage provider keys. |
-| `keel doctor` | Check required local tools. |
-| `keel --version` / `--help` | Version / help. |
-
-Reviewing what keel did afterward — audit logs, evidence bundles, past sessions — has
-its own guide: [reviewing what keel did](audit-and-sessions.md).
-
-## 7. Environment variables
-
-| Variable | Purpose |
-| --- | --- |
-| `KEEL_PROVIDER` | `anthropic` (default), `openai`, `google`, `openai-compatible`. |
-| `KEEL_MODEL` | Model id. Optional for anthropic (has a default); required for other providers. |
-| `KEEL_BASE_URL` | Endpoint URL; required for `openai-compatible`. |
-| `KEEL_CACHE_TTL` | Anthropic prompt-cache TTL: `5m` (default) or `1h`. |
-| `KEEL_HOME` | Where keel stores state (`KEEL_HOME` → `$XDG_CONFIG_HOME/keel` → `~/.config/keel`). |
-| `KEEL_TRUST=1` | Trust the workspace without the `--trust` flag. |
-| `VISUAL` / `EDITOR` | External editor for the `Ctrl-G` draft editor. |
-| `NO_COLOR` | Disable colored output. |
-
 ## Going deeper
 
+- [Reference](reference.md) — every CLI command, run flag, environment variable, and file.
 - [Policy and approval guide](policy-guide.md) — modes, live reviews, grant scopes.
 - [Reviewing what keel did](audit-and-sessions.md) — audit logs, evidence bundles, sessions.
 - [Architecture one-pager](../architecture.md) and the [`MASTER_SPEC.md`](../../MASTER_SPEC.md).

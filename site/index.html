@@ -972,13 +972,16 @@
       .npm .body {
         padding: 20px;
       }
-      .npm .strike {
+      .npm pre {
+        margin: 0;
         font-family: var(--mono);
         font-size: 0.82rem;
         line-height: 1.7;
-        color: var(--faint);
-        text-decoration: line-through;
-        text-decoration-color: var(--strike);
+        color: var(--head);
+        overflow-x: auto;
+      }
+      .npm pre .c {
+        color: var(--dim);
       }
       .npm .why {
         margin: 16px 0 0;
@@ -1321,7 +1324,7 @@
               </div>
               <div class="row">
                 <dt>npm</dt>
-                <dd class="off">placeholder only</dd>
+                <dd>keel-harness@0.1.1</dd>
               </div>
             </dl>
             <p class="note">
@@ -1563,12 +1566,15 @@
         <div class="foot">
           <p class="lbl">Scope</p>
           <p class="txt">
-            Governed today: <code>bash</code>, the trusted typed file tools (<code>read</code>,
+            Governed today: <code>bash</code>, capability-negotiated trusted direct-argv
+            <code>process.run</code>, the trusted typed file tools (<code>read</code>,
             <code>search</code>, <code>write</code>, <code>edit</code>), <code>lifecycle.run</code>,
-            the interactive console tools, and reviewed, pinned local-stdio MCP calls. The typed
-            file tools and MCP are advertised only in a trusted workspace. An untrusted workspace
-            gets governed <code>bash</code> alone. Provider API calls do not route through the
-            warden. The session helpers (<code>plan</code>, <code>skill</code>,
+            the interactive console tools, and reviewed, pinned local-stdio MCP calls.
+            <code>process.run</code> takes one literal argv vector; it adds no shell, environment,
+            working-directory, stdin, or background authority. The typed file tools,
+            <code>process.run</code>, and MCP are advertised only in a trusted workspace. An
+            untrusted workspace gets governed <code>bash</code> alone. Provider API calls do not
+            route through the warden. The session helpers (<code>plan</code>, <code>skill</code>,
             <code>retrieve</code>) are internal and a release binary never advertises them, so they
             are not counted as governed execution proof. Full detail:
             <a href="https://github.com/keel-harness/keel/blob/main/docs/architecture.md"
@@ -1898,8 +1904,9 @@
           </li>
           <li>
             <span class="t"
-              ><strong>No published npm release.</strong> Run from source. See the quickstart
-              below.</span
+              ><strong>The npm release is pre-alpha.</strong> <code>keel-harness@0.1.1</code> is
+              published and installable, but it is not a stable or public-alpha release. Expect
+              breaking changes.</span
             >
           </li>
           <li>
@@ -1916,48 +1923,58 @@
         <div class="head">
           <p class="eyebrow">07 / Quickstart</p>
           <div>
-            <h2 class="sec">Run it from source</h2>
+            <h2 class="sec">Install and run</h2>
             <p class="sub">
-              You need Node 20 or later and ripgrep. <code>pnpm keel doctor</code> checks your
-              machine and prints one fix per problem.
+              You need Node 20 or later and ripgrep. <code>keel doctor</code> checks your machine
+              and prints one fix per problem. keel is pre-alpha — read the limits above first.
             </p>
           </div>
         </div>
 
         <div class="start">
           <div class="code">
-            <p class="ch">from source / supported path</p>
+            <p class="ch">install from npm</p>
             <pre
               role="region"
               aria-label="Quickstart commands"
               tabindex="0"
-            ><span class="c"># 1 · get the code</span>
-git clone https://github.com/keel-harness/keel.git
-cd keel
+            ><span class="c"># 1 · install (or run any command below as: npx keel-harness …)</span>
+npm i -g keel-harness
 
-<span class="c"># 2 · install (corepack pins the exact pnpm version)</span>
-corepack enable &amp;&amp; pnpm install
+<span class="c"># 2 · check your machine: node, ripgrep, OS sandbox</span>
+keel doctor
 
-<span class="c"># 3 · check your machine</span>
-pnpm keel doctor
+<span class="c"># 3 · add a provider key (stored 0600, never echoed)</span>
+keel auth set anthropic
 
-<span class="c"># 4 · add a provider key (stored 0600, never echoed)</span>
-pnpm keel auth set anthropic
+<span class="c"># 4 · start a session</span>
+keel
 
-<span class="c"># 5 · run a task</span>
-pnpm keel run -p <span class="s">"fix the failing test in src/foo.ts"</span></pre>
+<span class="c"># …or run one task and exit</span>
+keel run -p <span class="s">"fix the failing test in src/foo.ts"</span></pre>
           </div>
 
           <div class="npm">
-            <p class="ch">Install from npm</p>
+            <p class="ch">choose a provider</p>
             <div class="body">
-              <p class="strike">npm i -g keel-harness</p>
+              <pre>
+<span class="c"># anthropic is the default</span>
+keel auth set anthropic
+
+<span class="c"># or: openai · google · openai-compatible</span>
+keel auth set openai
+export KEEL_PROVIDER=openai
+export KEEL_MODEL=&lt;model-id&gt;</pre>
               <p class="why">
-                <strong>Not yet available.</strong> The name is reserved on the registry. The
-                <code>0.0.1</code> there is a placeholder, not a release. A real package requires
-                five gates: a curated public repository, a protected release configuration,
-                byte-level inspection of the staged tarball, human 2FA approval, and verification
-                against the live registry.
+                <strong>Keys stay local.</strong> <code>keel auth set</code> prompts without echo
+                and writes to a <code>0600</code> file under your keel home. A key in the
+                environment is used as a fallback. <code>KEEL_MODEL</code> is required for every
+                provider except anthropic, which has a pinned default.
+              </p>
+              <p class="why">
+                <strong>From source instead.</strong>
+                <code>corepack enable &amp;&amp; pnpm install</code>, then run the same commands as
+                <code>pnpm keel …</code>.
               </p>
             </div>
           </div>

@@ -1,103 +1,124 @@
 # Policy and approval guide
 
-Keel's safety model is structural: the model requests work, and the out-of-process warden decides what runs. The TUI should make that visible without implying that a status panel, receipt, or model answer can change policy.
+keel's safety model is structural: the model requests work, and the out-of-process warden decides
+what runs. Nothing you see in the TUI — a status panel, a receipt, or a model answer — can change
+policy.
 
-Use this guide when you need to understand what the footer, `/policies`, live review prompts, Autopilot, and YOLO mean.
+Read this when you need to know what the footer, `/policies`, live review prompts, Autopilot, and
+YOLO actually mean.
 
 ## What `/policies` shows
 
-`/policies` is a read-only inspection panel. It reports only the protection facts the TUI has already received from the runtime:
+`/policies` is a read-only inspection panel. It reports only what the runtime has already told the
+TUI:
 
-- active policy label, if one was carried by status;
-- sandbox and network on/off posture, plus audit on/unseen/off evidence state;
-- live or last-known review count, when available;
-- fields the TUI cannot currently prove are omitted or explicitly marked unavailable; they are never inferred.
+- the active policy label, if status carried one;
+- sandbox and network posture, plus the audit evidence state;
+- the live or last-known review count, when available.
 
-It does not edit policy, approve a review, trust a workspace, change Autopilot mode, or prove stronger enforcement than the footer already shows. If `/policies` and the footer disagree, treat that as a bug and trust the weaker reading until it is investigated.
+Anything keel cannot currently prove is omitted or marked unavailable. It is never inferred.
 
-`egress on` means the active warden advertised `egress-address-guard/v1` after the SRT proxy,
-resolver, classifier, exception snapshot, and audit sink initialized. A domain allowlist by itself is
-not enough for that label. A backend that does not advertise the capability must report the weaker
-state.
+`/policies` cannot edit policy, approve a review, trust a workspace, or change Autopilot mode. It
+never shows stronger enforcement than the footer. **If `/policies` and the footer disagree, treat it
+as a bug and trust the weaker reading** until it is investigated.
 
-`audit unseen` means warden protections are active but the TUI has not observed a non-empty audit head. It is an evidence statement, not queued work or a promise that a write will occur. `audit on` appears only after the runtime has observed evidence in the chain.
+Two labels are easy to over-read:
+
+| Label | What it actually means |
+| --- | --- |
+| `egress on` | The active warden advertised `egress-address-guard/v1` after its SRT proxy, resolver, classifier, exception snapshot, and audit sink all started. A domain allowlist alone does not earn this label, and a backend that does not advertise the capability reports a weaker state. |
+| `audit unseen` | Warden protections are active, but keel has not yet observed a non-empty audit head. It is a statement about evidence, not queued work, and not a promise that a write will happen. `audit on` appears only once evidence is observed in the chain. |
 
 ## Where policy is configured
 
-The warden owns runtime policy evaluation. The built-in starter pack is named `phase2a-starter-policy-pack`; it is the default pack used by the current governed runtime unless a future owner-approved policy-pack selection path says otherwise.
+The warden owns runtime policy evaluation. The built-in starter pack is
+`phase2a-starter-policy-pack`, and it is the default for the current governed runtime.
 
-Mode and grant choices that users can set today are stored in keel-owned user configuration, not in project files:
+The mode and grant choices you can set today live in keel-owned user configuration, never in project
+files:
 
 ```sh
 keel autopilot mode status
-keel autopilot mode set guided
-keel autopilot mode set autopilot
-keel autopilot mode set project-autopilot
+keel autopilot mode set guided | autopilot | project-autopilot
 keel autopilot mode clear
 keel autopilot grants list
 keel autopilot grants revoke --domain <domain>
 keel autopilot grants revoke --command-key <sha256:key>
 ```
 
-Project files cannot raise autonomy, mark themselves trusted, or approve reviews. A workspace must be trusted before non-Guided mode configuration can become active, and already-running sessions do not silently change after a config edit.
+A project cannot raise its own autonomy, mark itself trusted, or approve its own reviews. A
+workspace must be trusted before any non-Guided mode takes effect, and a running session does not
+silently change when you edit config.
 
-Policy-pack authoring, alternate policy-pack loading, and organization-wide admin policy distribution are not TUI features in this preview. Until those surfaces exist, the footer and `/policies` are status displays, not policy editors.
+Policy-pack authoring, loading an alternate pack, and organization-wide policy distribution do not
+exist yet. Until they do, the footer and `/policies` are status displays, not policy editors.
 
 ## Mode labels
 
-`Guided` is the default posture. Keel works under warden policy and may ask before risky, broad, external, destructive, or provenance-sensitive actions. Denials still deny.
+| Mode | What it means |
+| --- | --- |
+| `Guided` *(default)* | keel works under warden policy and may ask before risky, broad, external, destructive, or provenance-sensitive actions. Denials still deny. |
+| `Autopilot` | High autonomy inside enforced boundaries. It reduces prompts for actions the warden can already prove are contained and low-risk. It does not relax sandboxing, turn a deny into an allow, trust project files, or consult model confidence. |
+| `Project Autopilot` | Autopilot plus persisted project-scope grants, for trusted projects only. It shows the exact authority granted; list and revoke with `keel autopilot grants`. |
+| `YOLO` | The design term for reduced or absent enforcement. **keel does not expose a YOLO switch.** Attempts to reach one are rejected rather than silently weakening protection. |
 
-`Autopilot` is high autonomy inside enforced boundaries. It can reduce prompts for actions the warden can already prove are contained and low-risk. It does not relax sandboxing, change a deny into an allow, trust project files, or rely on model confidence.
+If a future YOLO surface is ever built, the spec requires it to be explicit, persistent, audited
+where possible, never the default, never a security claim, and visibly different from Autopilot.
 
-`Project Autopilot` is Autopilot plus persisted project-scope grants. It is for trusted projects only. It should display the exact authority granted, and those grants can be listed or revoked with `keel autopilot grants`.
-
-`YOLO` is the design term for reduced or absent enforcement. The current preview CLI and TUI do not expose a YOLO switch; unsupported attempts are rejected rather than silently weakening protection. The governing spec still requires any future YOLO surface to be explicit, persistent, audited where possible, never the default, never a security claim, and visibly different from Autopilot.
-
-Locked-down or stricter labels are policy/profile labels. They are meaningful only when they come from the warden-carried runtime status. The TUI must not infer a stricter mode from naming alone.
+Stricter-sounding labels such as "locked down" are policy or profile labels. They mean something
+only when the warden's runtime status carries them. A name alone never implies a stricter mode.
 
 ## Live review decisions
 
-A review is actionable only while the warden has a live unresolved review. The TUI shows a focused `approval required` prompt for that current decision and says that Keel is paused until you choose.
+A review is actionable only while the warden holds it open. keel shows a focused
+`approval required` prompt and pauses until you choose:
 
-Supported live decisions:
+| Key | Command | Effect |
+| --- | --- | --- |
+| `a` | `/approve once` | Allow only the current pending action. |
+| `s` | `/approve session` | Allow the exact domain or command envelope for this session only. Offered only when the review carries an exact resource. |
+| `d` | `/deny` | The action does not run. |
+| `?` | `/why` | Explain the decision before you make it. |
 
-- `a` or `/approve once`: allow only the current pending action.
-- `d` or `/deny`: deny the current action; it does not run.
-- `?` or `/why`: explain the decision.
-- `s` or `/approve session`: allow the exact domain or command envelope for this session only, when the review contains an exact resource.
-
-`/reviews` is read-only. It is useful for seeing what happened, but stale receipts are not buttons. If a turn has already ended, the old review line cannot be approved from the transcript.
+`/reviews` is read-only. It is useful for seeing what happened, but **stale receipts are not
+buttons** — once a turn has ended, an old review line cannot be approved from the transcript.
 
 ## Once, session, and project scope
 
-Once scope releases only the current pending review. It does not remember anything.
+| Scope | Reach |
+| --- | --- |
+| Once | Releases only the current pending review. Remembers nothing. |
+| Session | The exact domain or command envelope from that review, until the session exits. Not a glob, not a directory grant, not project-wide trust. |
+| Project | Persisted only through the explicit Project Autopilot grant path. Names the exact stored authority and stays revocable. |
 
-Session exact-resource scope applies only to the exact domain or command envelope from that review, and only until the session exits. It is not a glob, a directory grant, or a project-wide trust decision.
-
-Project scope is persisted only through the explicit Project Autopilot grant path. It must name the exact stored authority and remain revocable. The TUI should not offer a generic "approve and remember" button unless the warden has supplied an exact, supported grant path.
+There is no generic "approve and remember" button. Project scope is never granted from a live
+review.
 
 ## Address exceptions are not grants
 
 A hostname grant answers whether a domain may be contacted. A private-address exception answers a
 different question: whether one exact hostname and port, for one resolved workspace, may use an
-address inside one restricted CIDR. Both must match before the SRT connect-time guard allows the
+address inside one restricted CIDR. **Both must match** before the SRT connect-time guard allows the
 connection.
 
-Only a human manages exceptions through `keel egress exception add|list|remove`. They live in
+Only a human manages exceptions, through `keel egress exception add|list|remove`. They live in
 keel-owned user configuration, not the project, and they cannot cover loopback, metadata, or other
 hard-denied destinations. A running warden keeps its startup snapshot, so changing an exception does
-not silently widen a live session; restart it to activate the new revision. Exact syntax and storage
-details are in the [reference](reference.md#egress-address-exceptions).
+not widen a live session — restart it to activate the new revision. Syntax and storage are in the
+[reference](reference.md#egress-address-exceptions).
 
 ## Admin checklist
 
-1. Start with `keel autopilot mode status` to see configured mode and whether the workspace is trusted.
-2. Use `keel autopilot grants list` to inspect persisted project grants.
-3. Use `keel egress exception list --workspace <path>` to inspect separate private-address authority.
-4. Use `/policies` in the TUI to inspect what the live session actually knows.
-5. Use `/reviews` to audit review-needed receipts, but do not treat it as an approval surface.
-6. Prefer Guided for unfamiliar or sensitive repos; use Autopilot only where the warden status, trust state, and grant scope are understood.
+1. `keel autopilot mode status` — the configured mode, and whether the workspace is trusted.
+2. `keel autopilot grants list` — persisted project grants.
+3. `keel egress exception list --workspace <path>` — private-address authority, which is separate.
+4. `/policies` in the TUI — what the live session actually knows.
+5. `/reviews` — audit review receipts, but do not treat it as an approval surface.
 
-## Non-claims
+Prefer Guided for unfamiliar or sensitive repos. Use Autopilot only where you understand the warden
+status, the trust state, and the grant scope.
 
-This guide does not add a new policy engine, approval authority, sandbox claim, audit guarantee, policy-pack selector, admin console, or frozen protocol. It documents the current user/admin surfaces and the honesty rules they must preserve.
+---
+
+This guide documents existing surfaces. It does not add a policy engine, an approval authority, a
+sandbox claim, an audit guarantee, a policy-pack selector, or an admin console.
