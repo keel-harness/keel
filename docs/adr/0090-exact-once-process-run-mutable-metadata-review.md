@@ -1,9 +1,9 @@
 # ADR-0090 — Exact-once `process.run` review after mutable execution input
 
-- **Status:** **Proposed.** Public issue
-  [#157](https://github.com/keel-harness/keel/issues/157) authorizes this design pass but separately
-  requires maintainer acceptance of this exact authority decision before implementation. No behavior
-  code is authorized by this proposed status.
+- **Status:** **Accepted.** The keel maintainer accepted this exact authority decision on 2026-08-06
+  and authorized the corresponding amendment to public issue
+  [#157](https://github.com/keel-harness/keel/issues/157). Implementation remains constrained by
+  this ADR's required evidence and stop conditions.
 - **Date:** 2026-08-06.
 - **Decider:** keel maintainer.
 - **Governs:** a narrowly actionable review for ADR-0089 `process.run` requests whose sole review
@@ -11,19 +11,19 @@
   §4.9, Appendix A, Appendix D, and SEC-028; ADR-0017, ADR-0024, ADR-0033, ADR-0038, ADR-0056,
   ADR-0076, ADR-0080, ADR-0081, ADR-0084, ADR-0087, ADR-0088, and ADR-0089.
 
-## Acceptance and issue-alignment gate
+## Acceptance and issue alignment
 
-Issue #157's post-edit inspection test originally requires the accepted path to be structurally
-read-only. This proposal does **not** meet that oracle: it allows a human to approve exact
+Issue #157's post-edit inspection test originally required the accepted path to be structurally
+read-only. This decision does **not** meet that original oracle: it allows a human to approve exact
 repository-controlled argv inside a strict process sandbox, and the approved process may write within
 the displayed workspace and Warden temporary roots. Containment and informed exact-once consent are
 not equivalent to read-only execution.
 
-Before this ADR can become Accepted, the maintainer must explicitly accept this authority tradeoff and
-amend that issue test from a read-only-inspection requirement to the contained exact-once process
-review defined here. Until then, MASTER_SPEC and implementation remain unchanged. If the maintainer
-retains the read-only oracle, reject this option and pursue a separately designed Warden-native inspection
-surface instead.
+On 2026-08-06, the maintainer explicitly accepted this authority tradeoff and authorized amending the
+issue oracle from a read-only-inspection requirement to the contained exact-once process review
+defined here. This acceptance authorizes implementation only inside the eligibility, binding,
+revalidation, containment, evidence, and stop boundaries below. It does not authorize generic
+`process.run` review, reusable grants, weaker SEC-028 behavior, or a frozen wire/audit change.
 
 ## Context
 
@@ -328,8 +328,8 @@ This ADR resolves one known cause, not generic `POL-003` approval.
 
 ## Required implementation evidence
 
-After the acceptance gate above amends it, issue #157 is the public implementation plan.
-Implementation is red-first and must prove at least:
+Issue #157, as amended for this accepted decision, is the public implementation plan. Implementation
+is red-first and must prove at least:
 
 1. typed write/edit → recognized `process.run` package/VCS command creates one pending, once-only
    review and executes no child before approval;
