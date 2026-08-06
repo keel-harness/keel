@@ -22,8 +22,13 @@ import { mcpExactRedactionsForEnvKeys, modelTextFromMcpSandboxResult } from "./r
 import { buildMcpSandboxProfile } from "./sandbox-profile.js";
 
 export {
+  createActiveWardenPolicy,
   buildMcpOpaquePolicyInput,
+  evaluateActiveWardenPolicy,
+  isActiveWardenPolicyEvaluation,
   mcpHasSecretSensitiveArgs,
+  type ActiveWardenPolicy,
+  type ActiveWardenPolicyEvaluation,
   withMcpSensitivityPolicy,
 } from "./policy.js";
 export {

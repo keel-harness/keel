@@ -1,3 +1,4 @@
+import { realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, parse, resolve } from "node:path";
 import {
@@ -16,6 +17,7 @@ import {
   packageManagerExecutionMetadataPaths,
   vcsExecutionMetadataPaths,
 } from "./execution-metadata.js";
+import { canonicalExistingPath, isInsideCanonical, isInsideFolded } from "./path-util.js";
 import type { SandboxProfile } from "./sandbox.js";
 
 const BASH_EFFECT_ENVELOPE = [
@@ -177,6 +179,7 @@ export interface SandboxProfileProjectionOptions {
   readonly auditDir?: string;
   readonly policyDir?: string;
   readonly env?: NodeJS.ProcessEnv;
+  readonly realpath?: (path: string) => string;
 }
 
 export class InvalidSandboxProfileError extends Error {
@@ -214,16 +217,34 @@ function homeRootFromEnv(env: NodeJS.ProcessEnv): string {
   return home === undefined || home === "" ? homedir() : home;
 }
 
+function canonicalHomeRoot(
+  homeRoot: string,
+  realpath: (path: string) => string,
+): { readonly path: string; readonly exact: boolean } {
+  try {
+    return { path: normalizePath(realpath(homeRoot)), exact: true };
+  } catch {
+    return { path: normalizePath(homeRoot), exact: false };
+  }
+}
+
 function isFilesystemRoot(path: string): boolean {
   const normalized = normalizePath(path);
   return normalized === parse(normalized).root;
 }
 
-function assertSafeWorkspaceRoot(workspaceRoot: string, homeRoot: string): void {
+function assertSafeWorkspaceRoot(
+  workspaceRoot: string,
+  homeRoot: string,
+  realpath: (path: string) => string,
+): void {
   if (isFilesystemRoot(workspaceRoot)) {
     throw new InvalidSandboxProfileError("workspace root must not be the filesystem root");
   }
-  if (workspaceRoot === homeRoot) {
+  if (
+    isInsideCanonical(homeRoot, workspaceRoot, realpath) &&
+    isInsideCanonical(workspaceRoot, homeRoot, realpath)
+  ) {
     throw new InvalidSandboxProfileError("workspace root must not be the user home directory");
   }
 }
@@ -314,7 +335,7 @@ function assertDefaultBroadProcessConformance(tool: CapabilityManifestToolT): vo
 interface ProjectionContext {
   readonly workspaceRoot: string;
   readonly declaredTempRoots: readonly string[];
-  readonly homeRoot: string;
+  readonly homeSecretRoots: readonly string[];
   readonly keelConfigDir: string;
   readonly auditDir: string;
   readonly policyDir: string;
@@ -338,24 +359,29 @@ function expandWriteAllowToken(token: SandboxWriteAllowTokenT, ctx: ProjectionCo
   }
 }
 
+/** Canonical home credential roots protected by both policy classification and sandbox projection. */
+export function homeCredentialSecretRoots(homeRoot: string): string[] {
+  return [
+    join(homeRoot, ".ssh"),
+    join(homeRoot, ".aws"),
+    join(homeRoot, ".gnupg"),
+    join(homeRoot, ".netrc"),
+    join(homeRoot, ".npmrc"),
+    join(homeRoot, ".git-credentials"),
+    join(homeRoot, ".pypirc"),
+    join(homeRoot, ".dockercfg"),
+    join(homeRoot, ".docker"),
+    join(homeRoot, ".kube"),
+    join(homeRoot, ".config", "gh"),
+    join(homeRoot, ".config", "gcloud"),
+  ];
+}
+
 // Kept in lockstep with `secretPath()` in policy.ts (QC §1): the whole root is ro-bound readable
 // in the sandbox, so every credential store must be an explicit deny. Shared by deny-read and (QC
 // §4) deny-write so a secret file's confidentiality AND integrity are both protected.
 function homeSecretRoots(ctx: ProjectionContext): string[] {
-  return [
-    join(ctx.homeRoot, ".ssh"),
-    join(ctx.homeRoot, ".aws"),
-    join(ctx.homeRoot, ".gnupg"),
-    join(ctx.homeRoot, ".netrc"),
-    join(ctx.homeRoot, ".npmrc"),
-    join(ctx.homeRoot, ".git-credentials"),
-    join(ctx.homeRoot, ".pypirc"),
-    join(ctx.homeRoot, ".dockercfg"),
-    join(ctx.homeRoot, ".docker"),
-    join(ctx.homeRoot, ".kube"),
-    join(ctx.homeRoot, ".config", "gh"),
-    join(ctx.homeRoot, ".config", "gcloud"),
-  ];
+  return [...ctx.homeSecretRoots];
 }
 
 function workspaceDotenvFiles(ctx: ProjectionContext): string[] {
@@ -437,42 +463,62 @@ export function buildSandboxProfileFromCapabilityManifest(
   assertDefaultBroadProcessConformance(tool);
 
   const env = options.env ?? process.env;
+  const realpath = options.realpath ?? realpathSync;
   const workspaceRoot = normalizePath(options.workspaceRoot);
   const declaredTempRoots = uniqueNormalized(options.declaredTempRoots ?? []);
   const homeRoot = normalizePath(homeRootFromEnv(env));
-  assertSafeWorkspaceRoot(workspaceRoot, homeRoot);
+  assertSafeWorkspaceRoot(workspaceRoot, homeRoot, realpath);
+  const canonicalHome = canonicalHomeRoot(homeRoot, realpath);
+  const homeSecretSpellings = uniqueNormalized([
+    ...homeCredentialSecretRoots(homeRoot),
+    ...homeCredentialSecretRoots(canonicalHome.path),
+  ]);
+  const protectedHomeSecretRoots = uniqueNormalized([
+    ...homeSecretSpellings,
+    ...(canonicalHome.exact
+      ? homeSecretSpellings.map((path) => canonicalExistingPath(path, realpath))
+      : []),
+  ]);
   const keelConfigDir = normalizePath(resolveWardenKeelHome(env));
   const auditDir = normalizePath(options.auditDir ?? join(keelConfigDir, "audit"));
   const policyDir = normalizePath(options.policyDir ?? join(keelConfigDir, "policy"));
   const ctx: ProjectionContext = {
     workspaceRoot,
     declaredTempRoots,
-    homeRoot,
+    homeSecretRoots: protectedHomeSecretRoots,
     keelConfigDir,
     auditDir,
     policyDir,
   };
 
+  const allowRead = uniqueNormalized(
+    projectTokens(tool.sandbox.filesystem.allowRead, (token) => expandReadAllowToken(token, ctx)),
+  );
+  const allowWrite = uniqueNormalized(
+    projectTokens(tool.sandbox.filesystem.allowWrite, (token) => expandWriteAllowToken(token, ctx)),
+  );
+  const homeSecrets = homeSecretRoots(ctx);
+  const canonicalAllowWrite = allowWrite.map((path) => canonicalExistingPath(path, realpath));
+  const homeWriteOverlap = homeSecrets.some((credentialRoot) =>
+    [...allowWrite, ...canonicalAllowWrite].some(
+      (allowedRoot) =>
+        isInsideFolded(allowedRoot, credentialRoot) || isInsideFolded(credentialRoot, allowedRoot),
+    ),
+  );
+
   return {
     filesystem: {
-      allowRead: uniqueNormalized(
-        projectTokens(tool.sandbox.filesystem.allowRead, (token) =>
-          expandReadAllowToken(token, ctx),
-        ),
-      ),
-      allowWrite: uniqueNormalized(
-        projectTokens(tool.sandbox.filesystem.allowWrite, (token) =>
-          expandWriteAllowToken(token, ctx),
-        ),
-      ),
+      allowRead,
+      allowWrite,
       denyRead: uniqueNormalized(
         projectTokens(tool.sandbox.filesystem.denyRead, (token) => expandReadDenyToken(token, ctx)),
       ),
-      denyWrite: uniqueNormalized(
-        projectTokens(tool.sandbox.filesystem.denyWrite, (token) =>
+      denyWrite: uniqueNormalized([
+        ...projectTokens(tool.sandbox.filesystem.denyWrite, (token) =>
           expandWriteDenyToken(token, ctx),
         ),
-      ),
+        ...(homeWriteOverlap ? homeSecrets : []),
+      ]),
     },
     network: buildEgressNetworkProfile({
       allowedDomains: tool.sandbox.network.allowedDomains,

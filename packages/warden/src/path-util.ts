@@ -22,7 +22,10 @@ export function isInside(root: string, candidate: string): boolean {
  * exist yet. Deny roots routinely name files that are absent (an unwritten `.env.local`), so a
  * plain `realpathSync` would throw and force the caller back to a byte comparison.
  */
-function realExistingPath(path: string, realpath: (value: string) => string): string {
+export function canonicalExistingPath(
+  path: string,
+  realpath: (value: string) => string = realpathSync,
+): string {
   let current = resolve(path);
   const tail: string[] = [];
   for (;;) {
@@ -50,6 +53,16 @@ function foldPath(path: string): string {
   return path.normalize("NFC").toLowerCase();
 }
 
+/** Compare already-canonicalized path spellings without additional filesystem access. */
+export function isInsideFolded(root: string, candidate: string): boolean {
+  const normalizedRoot = foldPath(resolve(root));
+  const normalizedCandidate = foldPath(resolve(candidate));
+  return (
+    normalizedCandidate === normalizedRoot ||
+    normalizedCandidate.startsWith(`${normalizedRoot}${sep}`)
+  );
+}
+
 /**
  * Like {@link isInside}, but compares the FILES rather than the spellings: both sides are resolved
  * through symlinks (longest existing prefix) and then case/Unicode folded.
@@ -67,9 +80,7 @@ export function isInsideCanonical(
   realpath: (value: string) => string = realpathSync,
 ): boolean {
   if (isInside(root, candidate)) return true;
-  const canonicalRoot = foldPath(realExistingPath(root, realpath));
-  const canonicalCandidate = foldPath(realExistingPath(candidate, realpath));
-  return (
-    canonicalCandidate === canonicalRoot || canonicalCandidate.startsWith(`${canonicalRoot}${sep}`)
-  );
+  const canonicalRoot = foldPath(canonicalExistingPath(root, realpath));
+  const canonicalCandidate = foldPath(canonicalExistingPath(candidate, realpath));
+  return isInsideFolded(canonicalRoot, canonicalCandidate);
 }

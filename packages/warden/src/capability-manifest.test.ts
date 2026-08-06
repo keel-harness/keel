@@ -1,3 +1,5 @@
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
@@ -9,6 +11,7 @@ import { InvalidEgressConfigError } from "./egress-profile.js";
 import {
   DEFAULT_CAPABILITY_MANIFEST,
   InvalidCapabilityManifestError,
+  InvalidSandboxProfileError,
   buildSandboxProfileFromCapabilityManifest,
   capabilityManifestWithEgressDomains,
 } from "./capability-manifest.js";
@@ -18,10 +21,103 @@ const baseOptions = {
   workspaceRoot: "/repo",
   declaredTempRoots: ["/tmp/keel-task"],
   env: { HOME: "/home/alice", XDG_CONFIG_HOME: "/xdg" },
+  realpath: (path: string) => path,
 } as const;
 const defaultBashTool = DEFAULT_CAPABILITY_MANIFEST.tools[0]!;
 
 describe("warden capability manifest projection", () => {
+  it("rejects a workspace that aliases the user home through a symlink", () => {
+    const root = mkdtempSync(join(tmpdir(), "keel-capability-home-alias-"));
+    try {
+      const home = join(root, "home");
+      const workspaceAlias = join(root, "workspace-link");
+      mkdirSync(home);
+      symlinkSync(home, workspaceAlias);
+
+      expect(() =>
+        buildSandboxProfileFromCapabilityManifest(DEFAULT_CAPABILITY_MANIFEST, {
+          ...baseOptions,
+          workspaceRoot: workspaceAlias,
+          env: { ...baseOptions.env, HOME: home },
+          realpath: realpathSync,
+        }),
+      ).toThrow(InvalidSandboxProfileError);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("denies both HOME spellings when workspace or declared-temp writes overlap an aliased home", () => {
+    const root = mkdtempSync(join(tmpdir(), "keel-capability-home-overlap-"));
+    try {
+      const home = join(root, "home");
+      const homeAlias = join(root, "home-link");
+      const workspace = join(root, "workspace");
+      mkdirSync(home);
+      mkdirSync(workspace);
+      symlinkSync(home, homeAlias);
+
+      for (const options of [
+        { workspaceRoot: root, declaredTempRoots: [join(root, "temp")] },
+        { workspaceRoot: workspace, declaredTempRoots: [homeAlias] },
+      ]) {
+        const filesystem = buildSandboxProfileFromCapabilityManifest(DEFAULT_CAPABILITY_MANIFEST, {
+          ...baseOptions,
+          ...options,
+          env: { ...baseOptions.env, HOME: homeAlias },
+          realpath: realpathSync,
+        }).filesystem;
+        for (const credentialRoot of [join(homeAlias, ".ssh"), join(realpathSync(home), ".ssh")]) {
+          expect(filesystem?.denyRead).toContain(credentialRoot);
+          expect(filesystem?.denyWrite).toContain(credentialRoot);
+        }
+      }
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it.each([
+    ["case", "/USERS", "/Users/alice"],
+    ["Unicode normalization", "/users/confé", "/users/confé/alice"],
+  ])(
+    "denies HOME writes across %s aliases after one-time canonicalization",
+    (_name, workspace, home) => {
+      const filesystem = buildSandboxProfileFromCapabilityManifest(DEFAULT_CAPABILITY_MANIFEST, {
+        ...baseOptions,
+        workspaceRoot: workspace,
+        env: { ...baseOptions.env, HOME: home },
+      }).filesystem;
+
+      expect(filesystem?.denyWrite).toContain(join(home, ".ssh"));
+    },
+  );
+
+  it("denies lexical and canonical credential-child spellings when credential roots are symlinks", () => {
+    const root = mkdtempSync(join(realpathSync("/tmp"), "keel-capability-secret-alias-"));
+    try {
+      const home = join(root, "home");
+      const workspace = join(root, "workspace");
+      mkdirSync(join(home, ".config"), { recursive: true });
+      mkdirSync(workspace);
+      symlinkSync(workspace, join(home, ".ssh"));
+      symlinkSync(workspace, join(home, ".config", "gh"));
+
+      const filesystem = buildSandboxProfileFromCapabilityManifest(DEFAULT_CAPABILITY_MANIFEST, {
+        ...baseOptions,
+        workspaceRoot: workspace,
+        env: { ...baseOptions.env, HOME: home },
+        realpath: realpathSync,
+      }).filesystem;
+      for (const credentialRoot of [join(home, ".ssh"), join(home, ".config", "gh"), workspace]) {
+        expect(filesystem?.denyRead).toContain(credentialRoot);
+        expect(filesystem?.denyWrite).toContain(credentialRoot);
+      }
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("generates the current default bash sandbox profile from the manifest source of truth", () => {
     const profile = buildSandboxProfileFromCapabilityManifest(
       DEFAULT_CAPABILITY_MANIFEST,

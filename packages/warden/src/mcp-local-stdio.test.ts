@@ -99,6 +99,26 @@ describe("MCP local-stdio policy and result boundaries", () => {
     expect(decision).toMatchObject({ verdict: "review", matchedRules: ["POL-012-MCP"] });
   });
 
+  it("captures and freezes the exact base evaluator when the wrapper is minted", async () => {
+    const basePolicy: PolicyPort = {
+      packRef: { name: "test", hash: `sha256:${"1".repeat(64)}` },
+      evaluate: async () => ({ verdict: "allow", matchedRules: [] }),
+    };
+    const wrapped = withMcpSensitivityPolicy(basePolicy);
+    basePolicy.evaluate = async () => ({ verdict: "deny", matchedRules: ["FORGED"] });
+    const decision = await wrapped.evaluate(
+      buildMcpOpaquePolicyInput(baseParams, {
+        workspaceRoot: "/workspace",
+        workspaceTrusted: true,
+        env: { USER: "tester" },
+      }),
+    );
+
+    expect(Object.isFrozen(wrapped)).toBe(true);
+    expect(Object.isFrozen(wrapped.packRef)).toBe(true);
+    expect(decision).toEqual({ verdict: "allow", matchedRules: [] });
+  });
+
   it("preserves POL-012-MCP guidance when another policy rule also reviews the opaque call", async () => {
     const basePolicy: PolicyPort = {
       packRef: { name: "test", hash: `sha256:${"1".repeat(64)}` },
