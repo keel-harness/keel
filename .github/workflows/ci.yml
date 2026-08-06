@@ -666,8 +666,12 @@ jobs:
           MISSING_SEARCH_OUT=$(KEEL_HOME="$MISSING_KEEL_HOME" "$MISSING_KEEL" run -p "search for keel" --trust --replay "$MISSING_SEARCH_REC" 2>&1)
           MISSING_SEARCH_STATUS=$?
           set -e
-          if [ "$MISSING_SEARCH_STATUS" -ne 1 ] || ! echo "$MISSING_SEARCH_OUT" | grep -Fq 'bundled ripgrep is unavailable'; then
-            printf 'missing-optional search did not fail closed (exit %s):\n%s\n' "$MISSING_SEARCH_STATUS" "$MISSING_SEARCH_OUT"
+          # A failed tool is returned to the model so it can explain recovery; a clean final model
+          # stop therefore exits 0. Prove the tool itself failed closed and the human saw the fix.
+          if [ "$MISSING_SEARCH_STATUS" -ne 0 ] \
+            || [[ "$MISSING_SEARCH_OUT" != *"bundled ripgrep is unavailable"* ]] \
+            || [[ "$MISSING_SEARCH_OUT" != *"Search could not run because its bundled runtime is unavailable"* ]]; then
+            printf 'missing-optional search did not fail closed with recovery guidance (exit %s):\n%s\n' "$MISSING_SEARCH_STATUS" "$MISSING_SEARCH_OUT"
             exit 1
           fi
 

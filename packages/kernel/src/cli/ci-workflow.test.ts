@@ -596,7 +596,9 @@ describe("CI packaging workflow", () => {
     expect(workflow).toContain(
       'MISSING_SEARCH_OUT=$(KEEL_HOME="$MISSING_KEEL_HOME" "$MISSING_KEEL" run -p "search for keel" --trust --replay "$MISSING_SEARCH_REC" 2>&1)',
     );
+    expect(workflow).toContain('if [ "$MISSING_SEARCH_STATUS" -ne 0 ]');
     expect(workflow).toContain("bundled ripgrep is unavailable");
+    expect(workflow).toContain("Search could not run because its bundled runtime is unavailable");
   });
 
   it("typechecks the Bun packaging script before CI packaging builds (ER-030d)", () => {
