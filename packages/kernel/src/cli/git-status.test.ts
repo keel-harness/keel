@@ -50,6 +50,17 @@ describe("gitStatus — cockpit git segment (fail-soft, injectable runner)", () 
     expect(g?.branch).toBeUndefined(); // not the confusing literal "HEAD"
   });
 
+  it.each([
+    ["empty output", ""],
+    ["headerless output", " M file.ts\n"],
+    ["empty branch header", "## \n?? file.ts\n"],
+    ["unrecognized HEAD header", "## HEAD unexpected\n?? file.ts\n"],
+  ])("fails soft for successful malformed porcelain: %s", async (_scenario, output) => {
+    await expect(
+      gitStatusAsync("/w", fakeRun({ "status --porcelain --branch": output })),
+    ).resolves.toBeUndefined();
+  });
+
   it("uses one status probe for both branch and porcelain counts", async () => {
     const calls: string[] = [];
     let release: ((value: string | undefined) => void) | undefined;

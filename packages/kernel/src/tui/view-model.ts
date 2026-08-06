@@ -552,11 +552,17 @@ function formatGitStatus(git: UiGitStatus | undefined): string {
   const add = finiteNumber(git.added) ? Math.max(0, Math.trunc(git.added)) : 0;
   const modified = finiteNumber(git.modified) ? Math.max(0, Math.trunc(git.modified)) : 0;
   const deleted = finiteNumber(git.deleted) ? Math.max(0, Math.trunc(git.deleted)) : 0;
+  if (branch.length === 0) {
+    const changes = add + modified + deleted;
+    if (!Number.isSafeInteger(changes)) return "git detached · changes present";
+    return changes === 0
+      ? "git detached"
+      : `git detached · ${String(changes)} ${changes === 1 ? "change" : "changes"}`;
+  }
   if (add > 0) deltas.push(`+${add}`);
   if (modified > 0) deltas.push(`~${modified}`);
   if (deleted > 0) deltas.push(`-${deleted}`);
-  if (branch.length === 0 && deltas.length === 0) return "git n/a";
-  return ["git", branch.length > 0 ? branch : "n/a", ...deltas].join(" ");
+  return ["git", branch, ...deltas].join(" ");
 }
 
 function formatContextStatus(s: UiStatus): string {

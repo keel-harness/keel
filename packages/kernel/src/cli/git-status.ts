@@ -103,19 +103,25 @@ export function createGitRunner(cwd: string, options: GitRunnerOptions = {}): Gi
 function gitStatusFromOutput(porcelain: string | undefined): UiGitStatus | undefined {
   if (porcelain === undefined) return undefined;
   const lines = porcelain.split("\n");
-  const branchSummary =
-    lines[0]?.startsWith("## ") === true ? lines.shift()?.slice(3).trim() : undefined;
-  const branchCandidate = branchSummary?.startsWith("No commits yet on ")
+  const header = lines.shift();
+  if (header?.startsWith("## ") !== true) return undefined;
+  const branchSummary = header.slice(3).trim();
+  if (branchSummary.length === 0) return undefined;
+  const detached = branchSummary === "HEAD (no branch)";
+  const branchCandidate = branchSummary.startsWith("No commits yet on ")
     ? branchSummary.slice("No commits yet on ".length)
-    : branchSummary?.split("...", 1)[0];
-  // Detached porcelain headers begin with `HEAD`; that is not a branch name, so omit it rather than
-  // rendering a confusing `git HEAD (no branch)` in the cockpit (CLI-5).
-  const branch =
-    branchCandidate === undefined ||
-    branchCandidate === "HEAD" ||
-    branchCandidate.startsWith("HEAD ")
-      ? undefined
-      : branchCandidate;
+    : (branchSummary.split("...", 1)[0] ?? "");
+  // Only Git's explicit detached marker may omit the branch. An unknown `HEAD ...` header fails soft
+  // instead of manufacturing detached state from malformed or future porcelain output (CLI-5).
+  if (
+    !detached &&
+    (branchCandidate.length === 0 ||
+      branchCandidate === "HEAD" ||
+      branchCandidate.startsWith("HEAD "))
+  ) {
+    return undefined;
+  }
+  const branch = detached ? undefined : branchCandidate;
   let added = 0;
   let modified = 0;
   let deleted = 0;

@@ -1236,6 +1236,29 @@ describe("view-model reducer", () => {
     expect(rows.join("\n")).not.toMatch(/posture|autopilot|trusted|approved|n\/a/i);
   });
 
+  it.each([
+    [{ added: 0, modified: 0, deleted: 0 }, "git detached"],
+    [{ added: 1, modified: 0, deleted: 0 }, "git detached · 1 change"],
+    [{ added: 2, modified: 1, deleted: 1 }, "git detached · 4 changes"],
+    [{ added: Number.NaN, modified: Number.POSITIVE_INFINITY, deleted: -1 }, "git detached"],
+    [{ added: -1, modified: 2.9, deleted: 1 }, "git detached · 3 changes"],
+    [
+      { added: Number.MAX_VALUE, modified: Number.MAX_VALUE, deleted: Number.MAX_VALUE },
+      "git detached · changes present",
+    ],
+  ])("renders detached Git with truthful aggregate copy", (git, expected) => {
+    const rows = compactStatusRows({
+      model: "sonnet",
+      tokens: 0,
+      posture: ALL_OFF_POSTURE,
+      git,
+    });
+
+    expect(rows[0]).toContain(expected);
+    expect(rows[0]).not.toContain("git n/a");
+    expect(rows[0]).not.toMatch(/\+\d|~\d|-\d|untracked/u);
+  });
+
   it("keeps production-length compact identity metadata within every known terminal width", () => {
     const status = initialView([], {
       model: "openai-compatible/r20-no-provider",
@@ -1315,8 +1338,9 @@ describe("view-model reducer", () => {
 
     expect(rows).toHaveLength(3);
     expect(rows.every((line) => line.length <= 40)).toBe(true);
-    expect(rows[0]).toContain("git n/a ~2 -1");
+    expect(rows[0]).toContain("keel-harness");
     expect(rows[0]).toContain("12 tokens");
+    expect(rows[0]).not.toContain("git n/a");
     expect(rows[0]).not.toContain("context 16k");
     expect(rows[1]).toBe("protection: governed · sbx:on · net:off");
     expect(rows[2]).toBe("policy Guided · audit on");

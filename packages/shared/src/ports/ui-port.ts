@@ -135,7 +135,9 @@ export interface UiPosture {
   readonly audit: boolean;
 }
 
-/** Git state for the cockpit HUD. Omitted fields render as "n/a"; renderers must not infer them. */
+/** Git state for the cockpit HUD. Omit the whole value when unavailable. The production producer
+ * supplies all counters and may omit `branch` only after explicitly establishing a detached HEAD;
+ * renderers normalize counters defensively for source compatibility. */
 export interface UiGitStatus {
   readonly branch?: string;
   readonly added?: number;
