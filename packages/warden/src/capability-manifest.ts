@@ -78,6 +78,24 @@ export const DEFAULT_CAPABILITY_MANIFEST: CapabilityManifestT = CapabilityManife
       policyRules: [...DEFAULT_BASH_POLICY_RULES],
     },
     {
+      toolName: "process.run",
+      staticCapability: {
+        toolName: "process.run",
+        effectEnvelope: [...BASH_EFFECT_ENVELOPE],
+        broad: true,
+      },
+      sandbox: {
+        filesystem: {
+          allowRead: ["workspace", "declared_temp"],
+          allowWrite: ["workspace", "declared_temp"],
+          denyRead: [...DEFAULT_DENY_READ],
+          denyWrite: [...BASH_DENY_WRITE],
+        },
+        network: { allowedDomains: [] },
+      },
+      policyRules: [...DEFAULT_BASH_POLICY_RULES],
+    },
+    {
       toolName: "read",
       staticCapability: {
         toolName: "read",
@@ -251,16 +269,19 @@ function assertRequiredTokens<T extends string>(
   }
 }
 
-function assertDefaultBashConformance(tool: CapabilityManifestToolT): void {
-  if (tool.toolName !== "bash") return;
+function assertDefaultBroadProcessConformance(tool: CapabilityManifestToolT): void {
+  if (tool.toolName !== "bash" && tool.toolName !== "process.run") return;
+  const label = tool.toolName;
   const effectEnvelope = new Set(tool.staticCapability.effectEnvelope);
   for (const effect of BASH_EFFECT_ENVELOPE) {
     if (!effectEnvelope.has(effect)) {
-      throw new InvalidCapabilityManifestError(`bash static capability missing effect: ${effect}`);
+      throw new InvalidCapabilityManifestError(
+        `${label} static capability missing effect: ${effect}`,
+      );
     }
   }
   if (!tool.staticCapability.broad) {
-    throw new InvalidCapabilityManifestError("bash static capability must be broad");
+    throw new InvalidCapabilityManifestError(`${label} static capability must be broad`);
   }
   assertRequiredTokens("allowRead", tool.sandbox.filesystem.allowRead, [
     "workspace",
@@ -394,7 +415,7 @@ export function capabilityManifestWithEgressDomains(
   return CapabilityManifest.parse({
     ...DEFAULT_CAPABILITY_MANIFEST,
     tools: DEFAULT_CAPABILITY_MANIFEST.tools.map((tool) =>
-      tool.toolName === "bash"
+      tool.toolName === "bash" || tool.toolName === "process.run"
         ? {
             ...tool,
             sandbox: {
@@ -413,7 +434,7 @@ export function buildSandboxProfileFromCapabilityManifest(
 ): SandboxProfile {
   const parsed = parseManifest(manifest);
   const tool = findTool(parsed, options.toolName);
-  assertDefaultBashConformance(tool);
+  assertDefaultBroadProcessConformance(tool);
 
   const env = options.env ?? process.env;
   const workspaceRoot = normalizePath(options.workspaceRoot);

@@ -11,6 +11,12 @@
  * command) and tool outputs (which carry the harness-prepended `TEST SUMMARY (...): PASS|FAIL` banner).
  */
 import { READ_ONLY_COMMAND_NAMES, type ModelMessageT } from "@keel/shared";
+import {
+  governedProcessEnvelope,
+  processRunArgv,
+  renderToolCommand,
+  toolCommandIsReadOnly,
+} from "./tool-command.js";
 
 /** Commands that only observe state. Deliberately CONSERVATIVE: anything not on this list is treated as
  *  execution, so we only ever class a command read-only when we are confident — biasing toward NOT
@@ -133,10 +139,51 @@ function isGenericTestPass(output: string): boolean {
   return true;
 }
 
-function bashCommand(call: { name: string; args: unknown }): string | undefined {
-  if (call.name !== "bash") return undefined;
-  const cmd = (call.args as { command?: unknown } | null | undefined)?.command;
-  return typeof cmd === "string" ? cmd : undefined;
+interface CompletionCommandEvidence {
+  readonly command: string;
+  readonly process: boolean;
+  readonly readOnly: boolean;
+  readonly exactArgv?: readonly string[];
+}
+
+function completionCommandEvidence(call: {
+  readonly name: string;
+  readonly args: unknown;
+}): CompletionCommandEvidence | undefined {
+  const args =
+    typeof call.args === "object" && call.args !== null && !Array.isArray(call.args)
+      ? (call.args as Readonly<Record<string, unknown>>)
+      : undefined;
+  if (args === undefined) return undefined;
+  const command = renderToolCommand({ name: call.name, args });
+  if (command === undefined) return undefined;
+  const exactArgv = processRunArgv({ name: call.name, args });
+  return {
+    command,
+    process: exactArgv !== undefined,
+    ...(exactArgv === undefined ? {} : { exactArgv }),
+    readOnly:
+      call.name === "bash"
+        ? isReadOnlyCommand(command)
+        : toolCommandIsReadOnly({ name: call.name, args }),
+  };
+}
+
+function completionEvidenceOutput(
+  output: string,
+  evidence: CompletionCommandEvidence | undefined,
+): { readonly output: string; readonly authoritative: boolean } {
+  if (evidence?.process !== true) return { output, authoritative: true };
+  const envelope = governedProcessEnvelope(output);
+  if (
+    envelope === undefined ||
+    !envelope.cleanContained ||
+    envelope.exitCode !== 0 ||
+    envelope.signal !== null
+  ) {
+    return { output: "", authoritative: false };
+  }
+  return { output: `${envelope.stdout}\n${envelope.stderr}`, authoritative: true };
 }
 
 export type CompletionVerdict = "skip" | "sharpen" | "standard";
@@ -144,6 +191,7 @@ export type CompletionVerdict = "skip" | "sharpen" | "standard";
 export interface KnownRedCompletionEvidence {
   readonly toolCallId: string;
   readonly command: string;
+  readonly exactArgv?: readonly string[];
   readonly verdict: "FAIL";
   readonly source: "test-summary" | "pytest-summary";
   readonly detail: string;
@@ -160,7 +208,11 @@ function sameVerificationCommand(a: string, b: string): boolean {
 }
 
 export function knownRedCompletionEvidenceKey(evidence: KnownRedCompletionEvidence): string {
-  return `${evidence.source}:${normalizeVerificationCommand(evidence.command)}`;
+  return `${evidence.source}:${
+    evidence.exactArgv === undefined
+      ? normalizeVerificationCommand(evidence.command)
+      : JSON.stringify(evidence.exactArgv)
+  }`;
 }
 
 interface PytestCommandRelation {
@@ -350,6 +402,50 @@ function parsePytestRelation(command: string): PytestCommandRelation | undefined
   return undefined;
 }
 
+function parsePytestArgvRelation(argv: readonly string[]): PytestCommandRelation | undefined {
+  const lower = argv.map((token) => token.toLowerCase());
+  const invocation = findPytestInvocation(lower);
+  if (invocation === undefined || invocation.commandStartIndex !== 0) return undefined;
+  const targets: string[] = [];
+  let collectionAltering = false;
+  let skipNext = false;
+  for (let index = invocation.pytestIndex + 1; index < argv.length; index += 1) {
+    const raw = argv[index]!;
+    const token = lower[index]!;
+    if (skipNext) {
+      skipNext = false;
+      continue;
+    }
+    if (COLLECTION_ALTERING_FLAGS_NO_VALUE.has(token)) {
+      collectionAltering = true;
+      continue;
+    }
+    const eqIndex = token.indexOf("=");
+    const flagName = eqIndex >= 0 ? token.slice(0, eqIndex) : token;
+    if (COLLECTION_ALTERING_FLAGS.has(flagName)) collectionAltering = true;
+    if (
+      token.startsWith("-") &&
+      !BENIGN_PYTEST_FLAGS.has(flagName) &&
+      !OPTION_VALUE_FLAGS.has(flagName)
+    ) {
+      collectionAltering = true;
+    }
+    if (OPTION_VALUE_FLAGS.has(flagName)) {
+      if (eqIndex < 0) skipNext = true;
+      continue;
+    }
+    if (token.startsWith("-")) continue;
+    const target = normalizePathToken(raw);
+    if (target.length > 0) targets.push(target);
+  }
+  return {
+    interpreter: invocation.interpreter,
+    runnerSignature: "",
+    targets,
+    collectionAltering,
+  };
+}
+
 function isBroadPytestTarget(target: string): boolean {
   if (target.length === 0 || target === ".") return true;
   if (/\.(?:py|pyx|js|ts|tsx|jsx|rs|go|java|c|cc|cpp|h)$/iu.test(target)) return false;
@@ -465,23 +561,25 @@ export function classifyCompletion(
   let ranExecution = false;
   // Map each bash tool-call id → its verbatim command, so a banner's provenance (the command that
   // produced it) can be checked. Assistant turns precede their tool results, so this is populated first.
-  const commandById = new Map<string, string>();
+  const commandById = new Map<string, CompletionCommandEvidence>();
 
   for (const m of messages) {
     if (m.role === "tool") {
       // Recognize a passing test from the harness banner OR a generic pytest summary; a FAIL banner
       // still records a (failing) verdict so a later pass cannot be skipped past it. The generic
       // recognizer only ADDS pass signals — it never overrides a recorded harness FAIL.
-      const banner = TEST_SUMMARY_RE.exec(m.content);
-      const genericPass = genericSkip && isGenericTestPass(m.content);
+      const evidence = m.toolCallId !== undefined ? commandById.get(m.toolCallId) : undefined;
+      const presented = completionEvidenceOutput(m.content, evidence);
+      const banner = TEST_SUMMARY_RE.exec(presented.output);
+      const genericPass = genericSkip && isGenericTestPass(presented.output);
       if (banner || genericPass) {
         // A harness FAIL banner takes precedence over a co-located generic pass line (don't skip past a
         // failure); otherwise the verdict is PASS (banner PASS, or a generic all-green summary).
         lastVerdict = banner ? (banner[1] as "PASS" | "FAIL") : "PASS";
-        const cmd = m.toolCallId !== undefined ? commandById.get(m.toolCallId) : undefined;
+        const cmd = evidence;
         // Trust the signal only if a real (non-read-only) command produced it — an echoed/cat'd banner
         // or pytest summary does not count as a verified run.
-        lastVerdictFromRealRun = cmd !== undefined && !isReadOnlyCommand(cmd);
+        lastVerdictFromRealRun = cmd !== undefined && presented.authoritative && !cmd.readOnly;
         activityAfterTest = false;
       } else if (lastVerdict !== undefined) {
         activityAfterTest = true;
@@ -489,10 +587,10 @@ export function classifyCompletion(
     } else if (m.role === "assistant" && "toolCalls" in m && m.toolCalls !== undefined) {
       if (lastVerdict !== undefined) activityAfterTest = true;
       for (const call of m.toolCalls) {
-        const cmd = bashCommand(call);
+        const cmd = completionCommandEvidence(call);
         if (cmd === undefined) continue;
         commandById.set(call.id, cmd);
-        if (cmd.length > 0 && !isReadOnlyCommand(cmd)) ranExecution = true;
+        if (cmd.command.length > 0 && !cmd.readOnly) ranExecution = true;
       }
     }
   }
@@ -504,7 +602,7 @@ export function classifyCompletion(
 export function findKnownRedCompletionEvidence(
   messages: readonly ModelMessageT[],
 ): KnownRedCompletionEvidence | undefined {
-  const commandById = new Map<string, string>();
+  const commandById = new Map<string, CompletionCommandEvidence>();
   const openReds = new Map<
     string,
     { readonly evidence: KnownRedCompletionEvidence; readonly order: number }
@@ -514,22 +612,47 @@ export function findKnownRedCompletionEvidence(
   for (const m of messages) {
     if (m.role === "assistant" && "toolCalls" in m && m.toolCalls !== undefined) {
       for (const call of m.toolCalls) {
-        const cmd = bashCommand(call);
+        const cmd = completionCommandEvidence(call);
         if (cmd !== undefined) commandById.set(call.id, cmd);
       }
       continue;
     }
     if (m.role !== "tool" || m.toolCallId === undefined) continue;
-    const command = commandById.get(m.toolCallId);
-    if (command === undefined || isReadOnlyCommand(command)) continue;
-
-    const pytestRelation = parsePytestRelation(command);
-    const banner = TEST_SUMMARY_RE.exec(m.content);
-    const pytestPass = pytestRelation !== undefined && isGenericTestPass(m.content);
+    const commandEvidence = commandById.get(m.toolCallId);
+    if (commandEvidence === undefined || commandEvidence.readOnly) continue;
+    const processEnvelope = commandEvidence.process
+      ? governedProcessEnvelope(m.content)
+      : undefined;
+    if (
+      commandEvidence.process &&
+      (processEnvelope === undefined || !processEnvelope.cleanContained)
+    ) {
+      continue;
+    }
+    const output =
+      processEnvelope === undefined
+        ? m.content
+        : `${processEnvelope.stdout}\n${processEnvelope.stderr}`;
+    const pytestRelation =
+      commandEvidence.exactArgv === undefined
+        ? parsePytestRelation(commandEvidence.command)
+        : parsePytestArgvRelation(commandEvidence.exactArgv);
+    const banner = TEST_SUMMARY_RE.exec(output);
+    const pytestPass =
+      pytestRelation !== undefined &&
+      isGenericTestPass(output) &&
+      (processEnvelope === undefined ||
+        (processEnvelope.exitCode === 0 && processEnvelope.signal === null));
     if ((banner !== null && banner[1] === "PASS") || pytestPass) {
       for (const [key, red] of openReds) {
+        const sameExactCommand =
+          commandEvidence.exactArgv !== undefined && red.evidence.exactArgv !== undefined
+            ? JSON.stringify(commandEvidence.exactArgv) === JSON.stringify(red.evidence.exactArgv)
+            : commandEvidence.exactArgv === undefined &&
+              red.evidence.exactArgv === undefined &&
+              sameVerificationCommand(commandEvidence.command, red.evidence.command);
         if (
-          sameVerificationCommand(command, red.evidence.command) ||
+          sameExactCommand ||
           (pytestRelation !== undefined && canClearResidualPytestRed(pytestRelation, red.evidence))
         ) {
           openReds.delete(key);
@@ -539,10 +662,13 @@ export function findKnownRedCompletionEvidence(
     }
     if (banner !== null && banner[1] === "FAIL") {
       const residualFailure =
-        pytestRelation !== undefined ? extractPytestResidualFailure(m.content) : undefined;
+        pytestRelation !== undefined ? extractPytestResidualFailure(output) : undefined;
       const evidence: KnownRedCompletionEvidence = {
         toolCallId: m.toolCallId,
-        command,
+        command: commandEvidence.command,
+        ...(commandEvidence.exactArgv === undefined
+          ? {}
+          : { exactArgv: commandEvidence.exactArgv }),
         verdict: "FAIL",
         source: "test-summary",
         detail: banner[0],
@@ -554,12 +680,15 @@ export function findKnownRedCompletionEvidence(
     }
     if (pytestRelation === undefined) continue;
 
-    const pytestFailure = PYTEST_FAILURE_SUMMARY_RE.exec(m.content);
+    const pytestFailure = PYTEST_FAILURE_SUMMARY_RE.exec(output);
     if (pytestFailure !== null) {
-      const residualFailure = extractPytestResidualFailure(m.content);
+      const residualFailure = extractPytestResidualFailure(output);
       const evidence: KnownRedCompletionEvidence = {
         toolCallId: m.toolCallId,
-        command,
+        command: commandEvidence.command,
+        ...(commandEvidence.exactArgv === undefined
+          ? {}
+          : { exactArgv: commandEvidence.exactArgv }),
         verdict: "FAIL",
         source: "pytest-summary",
         detail: pytestFailure[0],

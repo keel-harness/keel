@@ -1,5 +1,6 @@
 import type { JsonObjectT } from "@keel/shared";
 import { buildProgressLedgerEntry } from "./progress-ledger.js";
+import { governedProcessEnvelope, processRunArgv } from "../tool-command.js";
 
 export interface FinalizeOnlyEvidence {
   readonly kind: "direct-check";
@@ -92,13 +93,39 @@ export function finalizeOnlyEvidenceForToolResult(
   call: { readonly name: string; readonly args: JsonObjectT },
   result: ToolResultObservation,
 ): FinalizeOnlyEvidence | undefined {
-  if (call.name !== "bash" || result.ok !== true) return undefined;
-  const command = call.args["command"];
-  if (typeof command !== "string" || directNodeCheckPath(command) === undefined) return undefined;
+  if (result.ok !== true) return undefined;
+  const processArgv = processRunArgv(call);
+  if (call.name === "process.run") {
+    const executable = processArgv?.[0]?.split(/[\\/]/u).at(-1);
+    const path = processArgv?.[1];
+    if (
+      processArgv === undefined ||
+      processArgv.length !== 2 ||
+      executable !== "node" ||
+      path === undefined ||
+      directNodeCheckPath(`node ${path}`) === undefined
+    ) {
+      return undefined;
+    }
+    const envelope = governedProcessEnvelope(result.output);
+    if (
+      envelope === undefined ||
+      !envelope.cleanContained ||
+      envelope.exitCode !== 0 ||
+      envelope.signal !== null
+    ) {
+      return undefined;
+    }
+  } else {
+    if (call.name !== "bash") return undefined;
+    const command = call.args["command"];
+    if (typeof command !== "string" || directNodeCheckPath(command) === undefined) return undefined;
+  }
 
   const entry = buildProgressLedgerEntry(call, result.output, { ok: result.ok });
   if (entry.exitCode !== 0 || entry.errorFingerprint !== undefined) return undefined;
-  if (governedBashEnvelopeSucceeded(result.output) === false) return undefined;
+  if (call.name === "bash" && governedBashEnvelopeSucceeded(result.output) === false)
+    return undefined;
 
   return {
     kind: "direct-check",

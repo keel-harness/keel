@@ -41,6 +41,11 @@ import type {
   ProcessLeaseScope,
 } from "../tools/process-lease.js";
 import { SPEC as BASH_SPEC } from "../tools/bash.js";
+import {
+  PROCESS_RUN_CAPABILITY_V1,
+  PROCESS_RUN_TOOL_NAME,
+  SPEC as PROCESS_RUN_SPEC,
+} from "../tools/process-run.js";
 import { SPEC as EDIT_SPEC } from "../tools/edit.js";
 import { SPEC as READ_SPEC } from "../tools/read.js";
 import { resolveRgPath, SPEC as SEARCH_SPEC } from "../tools/search.js";
@@ -967,6 +972,9 @@ export async function createProductionWardenRuntime(
       executor,
       tools: [
         GOVERNED_BASH_SPEC,
+        ...(trustedWorkspace && client.hello.capabilities.includes(PROCESS_RUN_CAPABILITY_V1)
+          ? [PROCESS_RUN_SPEC]
+          : []),
         ...governedTypedToolsFor(options),
         ...governedInteractiveConsoleToolsFor(options, client.hello.capabilities),
         ...lifecycleToolsFor(lifecycleManifest),
@@ -974,6 +982,7 @@ export async function createProductionWardenRuntime(
       ],
       isMutating: (name: string) =>
         name === "bash" ||
+        name === PROCESS_RUN_TOOL_NAME ||
         name === "write" ||
         name === "edit" ||
         name === "lifecycle.run" ||

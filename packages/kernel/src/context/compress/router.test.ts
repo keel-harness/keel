@@ -34,6 +34,12 @@ describe("selectCompressor (name-based routing + bounded bash sniff)", () => {
     expect(selectCompressor(tool("bash", plainLong)).kind).toBe("log");
   });
 
+  it("routes process.run through its structure-preserving generic compressor", () => {
+    const selected = selectCompressor(tool("process.run", "plain"));
+    expect(selected.kind).toBe("generic");
+    expect(selected).not.toBe(selectCompressor(tool("read", "plain")));
+  });
+
   it("routes unknown/other tools → generic", () => {
     expect(selectCompressor(tool("mystery")).kind).toBe("generic");
   });

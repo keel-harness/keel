@@ -247,6 +247,10 @@ function lifecycleExecuteFrame(id: string | number, args: Record<string, unknown
   });
 }
 
+function processExecuteFrame(id: string | number, argv: readonly string[]): unknown {
+  return toolExecuteFrame(id, "process.run", { argv: [...argv] });
+}
+
 function readExecuteFrame(id: string | number, args: Record<string, unknown>): unknown {
   return toolExecuteFrame(id, "read", args);
 }
@@ -1153,6 +1157,498 @@ describe("keel-warden stdio JSON-RPC server", () => {
       expect(
         Object.keys(WARDEN_METHODS["warden.status"].result.parse(status.result)).sort(),
       ).toEqual(["auditHead", "enforcementTier", "pendingReviews", "policyPack", "sandboxBackend"]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("advertises process-run/v1 only across the trusted, audited, enforced sandbox boundary", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "keel-rpc-process-capability-"));
+    try {
+      const writer = auditWriter(join(dir, "audit.jsonl"));
+      const enforcingSandbox = sandbox({
+        available: true,
+        backend: "fake-sandbox",
+        enforcementTier: "sandbox:fake",
+      });
+      const capabilitySet = async (id: string, options: WardenRpcHandlerOptions = {}) => {
+        const hello = JsonRpcSuccessResponse.parse(
+          await handleRpcLine(JSON.stringify(helloFrame(id)), options),
+        );
+        return WARDEN_METHODS["warden.hello"].result.parse(hello.result).capabilities;
+      };
+
+      await expect(capabilitySet("process-cap-default")).resolves.not.toContain("process-run/v1");
+      await expect(
+        capabilitySet("process-cap-untrusted", {
+          auditWriter: writer,
+          sandbox: enforcingSandbox,
+        }),
+      ).resolves.not.toContain("process-run/v1");
+      await expect(
+        capabilitySet("process-cap-no-audit", {
+          workspaceTrusted: true,
+          sandbox: enforcingSandbox,
+        }),
+      ).resolves.not.toContain("process-run/v1");
+      await expect(
+        capabilitySet("process-cap-unavailable", {
+          workspaceTrusted: true,
+          auditWriter: writer,
+          sandbox: sandbox({
+            available: false,
+            backend: "fake-sandbox",
+            enforcementTier: "none",
+            reason: "sandbox unavailable",
+          }),
+        }),
+      ).resolves.not.toContain("process-run/v1");
+      await expect(
+        capabilitySet("process-cap-non-enforcing", {
+          workspaceTrusted: true,
+          auditWriter: writer,
+          sandbox: sandbox({
+            available: true,
+            backend: "fake-sandbox",
+            enforcementTier: "none",
+          }),
+        }),
+      ).resolves.not.toContain("process-run/v1");
+      await expect(
+        capabilitySet("process-cap-manifest-absent", {
+          workspaceTrusted: true,
+          auditWriter: writer,
+          sandbox: enforcingSandbox,
+          capabilityManifest: {
+            ...DEFAULT_CAPABILITY_MANIFEST,
+            tools: DEFAULT_CAPABILITY_MANIFEST.tools.filter(
+              (tool) => tool.toolName !== "process.run",
+            ),
+          },
+        }),
+      ).resolves.not.toContain("process-run/v1");
+      await expect(
+        capabilitySet("process-cap-manifest-invalid", {
+          workspaceTrusted: true,
+          auditWriter: writer,
+          sandbox: enforcingSandbox,
+          capabilityManifest: {
+            ...DEFAULT_CAPABILITY_MANIFEST,
+            tools: DEFAULT_CAPABILITY_MANIFEST.tools.map((tool) =>
+              tool.toolName === "process.run"
+                ? {
+                    ...tool,
+                    staticCapability: { ...tool.staticCapability, broad: false },
+                  }
+                : tool,
+            ),
+          },
+        }),
+      ).resolves.not.toContain("process-run/v1");
+      await expect(
+        capabilitySet("process-cap-ready", {
+          workspaceTrusted: true,
+          auditWriter: writer,
+          sandbox: enforcingSandbox,
+        }),
+      ).resolves.toContain("process-run/v1");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("executes process.run with exact argv through policy, sandbox, and durable intent/outcome audit", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "keel-rpc-process-allow-"));
+    try {
+      const auditPath = join(dir, "audit.jsonl");
+      const writer = auditWriter(auditPath);
+      const executions: unknown[] = [];
+      const policyInputs: PolicyInputT[] = [];
+      const policy: PolicyPort = {
+        packRef: { name: "test-process-allow", hash: `sha256:${"9".repeat(64)}` },
+        evaluate: async (input) => {
+          policyInputs.push(input);
+          return { verdict: "allow", matchedRules: [] };
+        },
+      };
+      const fakeSandbox: SandboxPort = {
+        status: () => ({
+          available: true,
+          backend: "fake-sandbox",
+          enforcementTier: "sandbox:fake",
+        }),
+        execute: async (invocation, profile) => {
+          executions.push({ invocation, profile });
+          return { exitCode: 0, signal: null, stdout: "223 passed\n", stderr: "warning\n" };
+        },
+      };
+      const argv = ["python3", "-m", "pytest", "-o", "pythonpath=src", "", "literal;not-shell"];
+
+      const raw = JsonRpcSuccessResponse.parse(
+        await handleRpcLine(JSON.stringify(processExecuteFrame("process-allow", argv)), {
+          workspaceTrusted: true,
+          sandbox: fakeSandbox,
+          policy,
+          auditWriter: writer,
+        }),
+      );
+
+      const result = WARDEN_METHODS["warden.execute"].result.parse(raw.result);
+      expect(result).toMatchObject({
+        verdict: "allow",
+        result: { exitCode: 0, signal: null, stdout: "223 passed\n", stderr: "warning\n" },
+        provenanceTag: "untrusted",
+        auditSeq: 1,
+      });
+      expect(policyInputs).toHaveLength(1);
+      expect(policyInputs[0]?.tool).toEqual({ name: "process.run", args: { argv } });
+      expect(policyInputs[0]?.normalized.argv).toEqual(argv);
+      expect(policyInputs[0]?.sideEffect.dynamic.composition).toMatchObject({
+        kind: "atomic",
+        edges: [],
+      });
+      expect(executions).toEqual([
+        expect.objectContaining({
+          invocation: {
+            command: "python3",
+            argv,
+            cwd: process.cwd(),
+          },
+        }),
+      ]);
+
+      const records = loadAuditRecords(auditPath);
+      expect(records).toHaveLength(2);
+      expect(records[0]).toMatchObject({
+        eventType: "tool.execute",
+        payload: {
+          toolName: "process.run",
+          args: { argv },
+          execution: "requested",
+        },
+      });
+      expect(records[1]).toMatchObject({
+        eventType: "tool.execute",
+        payload: {
+          toolName: "process.run",
+          args: { argv },
+          result: { exitCode: 0, signal: null, stdout: "223 passed\n", stderr: "warning\n" },
+        },
+      });
+      expect(verifyChain(toChainRecords(records)).ok).toBe(true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("fails closed before process.run child execution when the intent audit append fails", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "keel-rpc-process-intent-fail-"));
+    try {
+      const writer = auditWriter(join(dir, "audit.jsonl"));
+      const failingIntentWriter = auditWriterFailingOnAppend(writer, 1);
+      const executions: unknown[] = [];
+      const fakeSandbox: SandboxPort = {
+        status: () => ({
+          available: true,
+          backend: "fake-sandbox",
+          enforcementTier: "sandbox:fake",
+        }),
+        execute: async (invocation) => {
+          executions.push(invocation);
+          return { exitCode: 0, signal: null, stdout: "should-not-run", stderr: "" };
+        },
+      };
+
+      const raw = JsonRpcErrorResponse.parse(
+        await handleRpcLine(
+          JSON.stringify(processExecuteFrame("process-intent-audit-fail", ["python3", "-V"])),
+          {
+            workspaceTrusted: true,
+            sandbox: fakeSandbox,
+            policy: ALLOW_POLICY,
+            auditWriter: failingIntentWriter,
+          },
+        ),
+      );
+
+      expect(raw.error.data?.code).toBe("AUDIT_WRITE_FAILED");
+      expect(raw.error.data?.["actionMayHaveExecuted"]).toBeUndefined();
+      expect(executions).toEqual([]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("reports possible process.run mutation when the outcome audit append fails", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "keel-rpc-process-outcome-fail-"));
+    try {
+      const writer = auditWriter(join(dir, "audit.jsonl"));
+      const failingOutcomeWriter = auditWriterFailingOnAppend(writer, 2);
+      const executions: unknown[] = [];
+      const fakeSandbox: SandboxPort = {
+        status: () => ({
+          available: true,
+          backend: "fake-sandbox",
+          enforcementTier: "sandbox:fake",
+        }),
+        execute: async (invocation) => {
+          executions.push(invocation);
+          return { exitCode: 0, signal: null, stdout: "ran", stderr: "" };
+        },
+      };
+
+      const raw = JsonRpcErrorResponse.parse(
+        await handleRpcLine(
+          JSON.stringify(processExecuteFrame("process-outcome-audit-fail", ["python3", "-V"])),
+          {
+            workspaceTrusted: true,
+            sandbox: fakeSandbox,
+            policy: ALLOW_POLICY,
+            auditWriter: failingOutcomeWriter,
+          },
+        ),
+      );
+
+      expect(raw.error.data?.code).toBe("AUDIT_WRITE_FAILED");
+      expect(raw.error.data?.["actionMayHaveExecuted"]).toBe(true);
+      expect(raw.error.data?.["mutationPossible"]).toBe(true);
+      expect(raw.error.message).toMatch(/mutation may have occurred/i);
+      expect(executions).toHaveLength(1);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("reports possible process.run mutation when sandbox execution fails after intent", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "keel-rpc-process-sandbox-fail-"));
+    try {
+      const auditPath = join(dir, "audit.jsonl");
+      const writer = auditWriter(auditPath);
+      const fakeSandbox: SandboxPort = {
+        status: () => ({
+          available: true,
+          backend: "fake-sandbox",
+          enforcementTier: "sandbox:fake",
+        }),
+        execute: async () => {
+          throw new Error("sandbox transport lost");
+        },
+      };
+
+      const raw = JsonRpcErrorResponse.parse(
+        await handleRpcLine(
+          JSON.stringify(processExecuteFrame("process-sandbox-fail", ["python3", "-V"])),
+          {
+            workspaceTrusted: true,
+            sandbox: fakeSandbox,
+            policy: ALLOW_POLICY,
+            auditWriter: writer,
+          },
+        ),
+      );
+
+      expect(raw.error.data?.code).toBe("SANDBOX_EXECUTION_FAILED");
+      expect(raw.error.data?.["actionMayHaveExecuted"]).toBe(true);
+      expect(raw.error.data?.["mutationPossible"]).toBe(true);
+      const records = loadAuditRecords(auditPath);
+      expect(records).toHaveLength(2);
+      expect(records[1]?.payload["result"]).toMatchObject({
+        kind: "sandbox_execution_failed",
+        actionMayHaveExecuted: true,
+        mutationPossible: true,
+      });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("denies forged untrusted and malformed process.run calls before policy or sandbox execution", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "keel-rpc-process-denied-"));
+    try {
+      const auditPath = join(dir, "audit.jsonl");
+      const writer = auditWriter(auditPath);
+      let policyCalls = 0;
+      let sandboxCalls = 0;
+      const policy: PolicyPort = {
+        packRef: { name: "must-not-run", hash: `sha256:${"8".repeat(64)}` },
+        evaluate: async () => {
+          policyCalls += 1;
+          return { verdict: "allow", matchedRules: [] };
+        },
+      };
+      const fakeSandbox: SandboxPort = {
+        status: () => ({
+          available: true,
+          backend: "fake-sandbox",
+          enforcementTier: "sandbox:fake",
+        }),
+        execute: async () => {
+          sandboxCalls += 1;
+          return { exitCode: 0, signal: null, stdout: "", stderr: "" };
+        },
+      };
+
+      const untrusted = JsonRpcErrorResponse.parse(
+        await handleRpcLine(JSON.stringify(processExecuteFrame("process-untrusted", ["true"])), {
+          workspaceTrusted: false,
+          sandbox: fakeSandbox,
+          policy,
+          auditWriter: writer,
+        }),
+      );
+      expect(untrusted.error.data?.code).toBe("WARDEN_NOT_READY");
+
+      const malformed = JsonRpcErrorResponse.parse(
+        await handleRpcLine(
+          JSON.stringify(toolExecuteFrame("process-malformed", "process.run", { argv: [] })),
+          {
+            workspaceTrusted: true,
+            sandbox: fakeSandbox,
+            policy,
+            auditWriter: writer,
+          },
+        ),
+      );
+      expect(malformed.error.data?.code).toBe("INVALID_PARAMS");
+      expect(policyCalls).toBe(0);
+      expect(sandboxCalls).toBe(0);
+      const records = loadAuditRecords(auditPath);
+      expect(records).toHaveLength(2);
+      expect(records[0]?.eventType).toBe("tool.deny");
+      expect(records[0]?.payload["toolName"]).toBe("process.run");
+      expect(records[1]?.eventType).toBe("tool.deny");
+      expect(records[1]?.payload["toolName"]).toBe("process.run");
+      expect(records[1]?.payload["args"]).toEqual({ invalid: "process.run args rejected" });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps process.run policy review terminal and policy modification non-executing in V1", async () => {
+    const cases = [
+      {
+        id: "process-review-terminal",
+        decision: {
+          verdict: "review" as const,
+          matchedRules: ["POL-TEST-REVIEW"],
+          guidance: "human review required",
+        },
+        expectedVerdict: "review",
+        auditKey: "processRunReview",
+      },
+      {
+        id: "process-modify-terminal",
+        decision: {
+          verdict: "modify" as const,
+          matchedRules: ["POL-TEST-MODIFY"],
+          guidance: "rewrite requested",
+          modifiedArgs: { argv: ["rm", "-rf", "/"] },
+        },
+        expectedVerdict: "deny",
+        auditKey: "processRunModify",
+      },
+    ];
+
+    for (const testCase of cases) {
+      const dir = mkdtempSync(join(tmpdir(), `${testCase.id}-`));
+      try {
+        const auditPath = join(dir, "audit.jsonl");
+        const writer = auditWriter(auditPath);
+        const executions: unknown[] = [];
+        const raw = JsonRpcSuccessResponse.parse(
+          await handleRpcLine(
+            JSON.stringify(processExecuteFrame(testCase.id, ["python3", "-m", "pytest", "-q"])),
+            {
+              workspaceTrusted: true,
+              auditWriter: writer,
+              policy: {
+                packRef: { name: testCase.id, hash: `sha256:${"7".repeat(64)}` },
+                evaluate: async () => testCase.decision,
+              },
+              sandbox: {
+                status: () => ({
+                  available: true,
+                  backend: "fake-sandbox",
+                  enforcementTier: "sandbox:fake",
+                }),
+                execute: async (invocation) => {
+                  executions.push(invocation);
+                  return { exitCode: 0, signal: null, stdout: "", stderr: "" };
+                },
+              },
+            },
+          ),
+        );
+        const result = WARDEN_METHODS["warden.execute"].result.parse(raw.result);
+        expect(result.verdict).toBe(testCase.expectedVerdict);
+        expect(result).not.toHaveProperty("review");
+        expect(executions).toEqual([]);
+        const records = loadAuditRecords(auditPath);
+        expect(records).toHaveLength(1);
+        expect(records[0]?.eventType).toBe("tool.deny");
+        expect(records[0]?.payload["toolName"]).toBe("process.run");
+        expect(records[0]?.payload["args"]).toEqual({
+          argv: ["python3", "-m", "pytest", "-q"],
+        });
+        expect(records[0]?.payload[testCase.auditKey]).toBeDefined();
+        if (testCase.auditKey === "processRunModify") {
+          expect(records[0]?.payload[testCase.auditKey]).toMatchObject({
+            status: "not-executed",
+            originalArgs: { argv: ["python3", "-m", "pytest", "-q"] },
+            proposedArgs: { argv: ["rm", "-rf", "/"] },
+          });
+        }
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    }
+  });
+
+  it("keeps ungranted process.run egress terminal instead of creating an inexact pending review", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "keel-rpc-process-egress-terminal-"));
+    try {
+      const auditPath = join(dir, "audit.jsonl");
+      const writer = auditWriter(auditPath);
+      let executions = 0;
+      const reviewState = createEgressReviewState();
+      const raw = JsonRpcSuccessResponse.parse(
+        await handleRpcLine(
+          JSON.stringify(
+            processExecuteFrame("process-egress-terminal", [
+              "curl",
+              "https://ungranted.example/path",
+            ]),
+          ),
+          {
+            workspaceTrusted: true,
+            auditWriter: writer,
+            policy: ALLOW_POLICY,
+            reviewState,
+            sandbox: {
+              status: () => ({
+                available: true,
+                backend: "fake-sandbox",
+                enforcementTier: "sandbox:fake",
+              }),
+              execute: async () => {
+                executions += 1;
+                return { exitCode: 0, signal: null, stdout: "", stderr: "" };
+              },
+            },
+          },
+        ),
+      );
+
+      const result = WARDEN_METHODS["warden.execute"].result.parse(raw.result);
+      expect(result.verdict).toBe("review");
+      expect(result).not.toHaveProperty("review");
+      expect(executions).toBe(0);
+      expect(reviewState.pending.size).toBe(0);
+      const records = loadAuditRecords(auditPath);
+      expect(records).toHaveLength(1);
+      expect(records[0]?.eventType).toBe("tool.deny");
+      expect(records[0]?.payload["toolName"]).toBe("process.run");
+      expect(records[0]?.payload["processRunReview"]).toMatchObject({ status: "terminal" });
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

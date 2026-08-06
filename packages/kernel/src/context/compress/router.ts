@@ -2,6 +2,7 @@ import type { ModelMessageT } from "@keel/shared";
 import { genericCompressor } from "./generic.js";
 import { logCompressor } from "./log.js";
 import { searchCompressor } from "./search.js";
+import { processResultCompressor } from "./process-result.js";
 import { isErrorLine } from "./error-keywords.js";
 import type { ContentCompressor } from "./types.js";
 
@@ -29,6 +30,8 @@ export function selectCompressor(message: ModelMessageT): ContentCompressor {
       return searchCompressor;
     case "bash":
       return looksLikeLog(message.content) ? logCompressor : genericCompressor;
+    case "process.run":
+      return processResultCompressor;
     default:
       return genericCompressor;
   }

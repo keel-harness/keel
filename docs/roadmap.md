@@ -26,8 +26,9 @@ The parts of keel you can rely on now:
 - **Multiple model providers** — Anthropic, OpenAI, Google, and OpenAI-compatible
   endpoints behind a stable `ModelPort`.
 - **Session persistence** — append-only session ledgers with `--continue` / `--resume`.
-- **Governed tool surface** — governed bash, trusted file tools, and reviewed
-  local-stdio MCP route through the warden; unreviewed tools fail closed.
+- **Governed tool surface** — governed bash, capability-negotiated trusted direct-argv process
+  execution, trusted file tools, and reviewed local-stdio MCP route through the warden; unreviewed
+  tools fail closed.
 - **Connect-time egress address guard** — the vendored SRT TCP path resolves destinations in the
   warden immediately before each connection, rejects unsafe or mixed answer sets, and pins the
   vetted addresses to the final dial. The claim is backend-specific.

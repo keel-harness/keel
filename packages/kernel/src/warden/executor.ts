@@ -326,7 +326,7 @@ function verifiedSandboxContainment(
   result: ExecuteResult | ResolveReviewResult,
   toolName: string,
 ): { readonly warningGuidance?: string } | undefined {
-  if (toolName !== "bash") return undefined;
+  if (toolName !== "bash" && toolName !== "process.run") return undefined;
   const guidance = resultGuidance(result);
   if (guidance === VERIFIED_SANDBOX_CONTAINMENT_GUIDANCE) return {};
   const prefix = `${VERIFIED_SANDBOX_CONTAINMENT_GUIDANCE}\n`;
@@ -417,7 +417,7 @@ function renderVerdict(result: ExecuteResult | ResolveReviewResult, toolName: st
     );
   }
   const body = withUntrustedMarker(result, renderJsonValue(result.result));
-  const bashLimited = trustedBashResultIsLimited(result, toolName);
+  const bashLimited = trustedCommandResultIsLimited(result, toolName);
   const containment = verifiedSandboxContainment(result, toolName);
   const allowedResult = (output: string): ToolResultT => {
     const rendered = { ok: true, output } as const;
@@ -546,11 +546,11 @@ function typedToolLimitedOutput(
   return typeof output === "string" ? output : undefined;
 }
 
-function trustedBashResultIsLimited(
+function trustedCommandResultIsLimited(
   result: ExecuteResult | ResolveReviewResult,
   toolName: string,
 ): boolean {
-  if (toolName !== "bash") return false;
+  if (toolName !== "bash" && toolName !== "process.run") return false;
   if ("provenanceTag" in result && result.provenanceTag !== undefined) return false;
   return isObject(result.result) && result.result["limited"] === true;
 }

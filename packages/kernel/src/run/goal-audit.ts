@@ -3,6 +3,7 @@ import { GoalCompletionAudit, RUN_CONTROL_SCHEMA_VERSION } from "@keel/shared";
 import { commandCriterionMatchesArgv } from "@keel/shared";
 import { commandResultIndicatesFailure } from "../context/derive.js";
 import { isReadOnlyCommand } from "../verify-gate.js";
+import { renderToolCommand, toolCommandArgv, toolCommandIsReadOnly } from "../tool-command.js";
 
 // TEST SUMMARY banners are a goal-audit-specific extension over the canonical
 // `commandResultIndicatesFailure` (isError / `[exit code: N]`) helper. EXIT_CODE_RE stays local for
@@ -30,36 +31,48 @@ interface CommandEvidence {
   readonly toolCallId: string;
   readonly command: string;
   readonly argv: readonly string[];
+  readonly readOnly: boolean;
   readonly output: string;
   /** `true` when the executor returned `!ok` (warden deny/review, timeout, abort, execution error). */
   readonly isError: boolean;
 }
 
-function shellWords(command: string): readonly string[] {
-  return command
-    .trim()
-    .split(/\s+/u)
-    .filter((part) => part.length > 0);
-}
-
 function commandEvidence(events: readonly SessionEventT[]): CommandEvidence[] {
-  const commandById = new Map<string, string>();
+  const commandById = new Map<
+    string,
+    {
+      readonly name: string;
+      readonly command: string;
+      readonly argv: readonly string[];
+      readonly readOnly: boolean;
+    }
+  >();
   const evidence: CommandEvidence[] = [];
   for (const event of events) {
     if (event.type === "assistant") {
       for (const call of event.toolCalls ?? []) {
-        if (call.name !== "bash") continue;
-        const command = (call.args as { command?: unknown }).command;
-        if (typeof command === "string") commandById.set(call.id, command);
+        if (call.name !== "bash" && call.name !== "process.run") continue;
+        const command = renderToolCommand(call);
+        const argv = toolCommandArgv(call);
+        if (command !== undefined && argv !== undefined) {
+          commandById.set(call.id, {
+            name: call.name,
+            command,
+            argv,
+            readOnly:
+              call.name === "bash" ? isReadOnlyCommand(command) : toolCommandIsReadOnly(call),
+          });
+        }
       }
     }
     if (event.type === "tool_result") {
       const command = commandById.get(event.toolCallId);
-      if (event.name !== "bash" || command === undefined) continue;
+      if (command === undefined || event.name !== command.name) continue;
       evidence.push({
         toolCallId: event.toolCallId,
-        command,
-        argv: shellWords(command),
+        command: command.command,
+        argv: command.argv,
+        readOnly: command.readOnly,
         output: event.output,
         isError: event.isError === true,
       });
@@ -105,7 +118,7 @@ export function evaluateGoalCompletion(
         };
       }
       const ref = { kind: "session_event" as const, ref: `tool_result:${match.toolCallId}` };
-      if (isReadOnlyCommand(match.command)) {
+      if (match.readOnly) {
         return {
           criterionId: criterion.id,
           status: "unsatisfied" as const,

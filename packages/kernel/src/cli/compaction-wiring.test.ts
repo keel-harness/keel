@@ -106,7 +106,7 @@ const BIG = (tag: string): string =>
 // (never-enlarge guard skips it), so the model FOLD is what acts: it drops the aged body into the
 // derived facts summary. This drives the production fold path (deterministicFactsSummary) end-to-end.
 const INCOMPRESSIBLE = (tag: string): string => tag + "x".repeat(4000);
-const GOVERNED_TYPED_FILE_TOOLS = ["bash", "read", "search", "write", "edit"];
+const GOVERNED_TOOLS = ["bash", "process.run", "read", "search", "write", "edit"];
 
 /** A 3-turn model: bash-cat a.txt, bash-cat b.txt, then stop. Captures each turn's advertised tools + messages
  *  so a test can assert what reached the model (post-compaction) on the re-drive. */
@@ -166,7 +166,7 @@ describe("Epic 1.6c PR-d slice 5 — production flip wiring proof (runKeelComman
     );
 
     // (3) governed mode advertises only warden-hosted product tools; retrieve is still withheld.
-    expect((model.tools[0] ?? []).map((t) => t.name)).toEqual(GOVERNED_TYPED_FILE_TOOLS);
+    expect((model.tools[0] ?? []).map((t) => t.name)).toEqual(GOVERNED_TOOLS);
 
     // (4) the model drove the re-driven turn from the typed summary, NOT the raw aged body.
     const lastTurn = model.turns.at(-1)!;
@@ -191,7 +191,7 @@ describe("Epic 1.6c PR-d slice 5 — production flip wiring proof (runKeelComman
     expect(
       file.events.some((e) => e.type === "context_compression" || e.type === "compaction"),
     ).toBe(false);
-    expect((model.tools[0] ?? []).map((t) => t.name)).toEqual(GOVERNED_TYPED_FILE_TOOLS);
+    expect((model.tools[0] ?? []).map((t) => t.name)).toEqual(GOVERNED_TOOLS);
     // the model saw the FULL body on every turn — nothing was compressed
     const sawFull = model.turns.some((t) =>
       t.some((m) => m.role === "tool" && m.content.includes("AAA duplicate")),

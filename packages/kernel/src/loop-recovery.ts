@@ -2,6 +2,7 @@ import type { ToolInvocationT, ToolResultT } from "@keel/shared";
 import { bashFullFileRewriteTarget } from "./loop-detection.js";
 import { redactText } from "./secrets/redact.js";
 import { isReadOnlyCommand } from "./verify-gate.js";
+import { governedProcessEnvelope, processRunArgv, toolCommandIsReadOnly } from "./tool-command.js";
 
 const MAX_EVIDENCE_CHARS = 1600;
 const TRACEBACK_RE = /^Traceback \(most recent call last\):/m;
@@ -47,6 +48,11 @@ export function extractLoopFailureEvidence(
 }
 
 function commandCanCarryStrongSuccess(call: ToolInvocationT, mode: "pytest" | "banner"): boolean {
+  const processArgv = processRunArgv(call);
+  if (processArgv !== undefined) {
+    if (toolCommandIsReadOnly(call) || processLooksInlineScript(processArgv)) return false;
+    return processLooksLikeTestRun(processArgv, mode);
+  }
   const command = bashCommand(call);
   if (command === undefined) return false;
   if (isReadOnlyCommand(command)) return false;
@@ -56,6 +62,36 @@ function commandCanCarryStrongSuccess(call: ToolInvocationT, mode: "pytest" | "b
   if (mode === "pytest") return /\bpytest\b/.test(command);
   if (mode === "banner") return commandLooksLikeTestRun(command);
   return false;
+}
+
+function processLooksInlineScript(argv: readonly string[]): boolean {
+  const executable = argv[0]!.split(/[\\/]/u).at(-1)?.toLowerCase() ?? "";
+  return (
+    (/^(?:python(?:\d+(?:\.\d+)?)?|node|ruby|perl|php)$/u.test(executable) &&
+      ["-c", "-e"].includes(argv[1]?.toLowerCase() ?? "")) ||
+    ((executable === "bash" || executable === "sh") && argv[1] === "-c")
+  );
+}
+
+function processLooksLikeTestRun(argv: readonly string[], mode: "pytest" | "banner"): boolean {
+  const lower = argv.map((arg) => arg.toLowerCase());
+  const executable = lower[0]!.split(/[\\/]/u).at(-1) ?? "";
+  const pytest =
+    executable === "pytest" ||
+    executable === "py.test" ||
+    (/^python(?:\d+(?:\.\d+)?)?$/u.test(executable) &&
+      lower[1] === "-m" &&
+      (lower[2] === "pytest" || lower[2] === "py.test"));
+  if (mode === "pytest") return pytest;
+  return (
+    pytest ||
+    ["vitest", "jest"].includes(executable) ||
+    (executable === "cargo" && lower[1] === "test") ||
+    (executable === "go" && lower[1] === "test") ||
+    (["npm", "pnpm", "yarn", "bun"].includes(executable) &&
+      (lower[1] === "test" || (lower[1] === "run" && lower[2] === "test"))) ||
+    (executable === "make" && lower.slice(1).includes("test"))
+  );
 }
 
 function commandLooksInlineScript(command: string): boolean {
@@ -86,7 +122,21 @@ export function extractStrongSuccessEvidence(
 ): string | undefined {
   if (!result.ok) return undefined;
 
-  const output = result.output;
+  const processEnvelope =
+    processRunArgv(call) === undefined ? undefined : governedProcessEnvelope(result.output);
+  if (
+    processRunArgv(call) !== undefined &&
+    (processEnvelope === undefined ||
+      !processEnvelope.cleanContained ||
+      processEnvelope.exitCode !== 0 ||
+      processEnvelope.signal !== null)
+  ) {
+    return undefined;
+  }
+  const output =
+    processEnvelope === undefined
+      ? result.output
+      : `${processEnvelope.stdout}\n${processEnvelope.stderr}`;
   if (TEST_SUMMARY_FAIL_RE.test(output) || PYTEST_FAILURE_OUTPUT_RE.test(output)) {
     return undefined;
   }

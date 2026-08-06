@@ -3053,6 +3053,58 @@ describe("runner — mid-run steering (§4.10 e2e, simulator-driven)", () => {
     expect(r.pendingSteering).toEqual([]);
   });
 
+  it("urgent: /now is applied before a governed process starts", async () => {
+    const e = env();
+    const store = SessionStore.create({ cwd: "/w" }, e);
+    const ui = new QueueUI();
+    const readStarted = deferred();
+    const releaseRead = deferred();
+    let processCalled = false;
+    const executor: ExecutorPort = {
+      execute(call: ToolInvocationT): Promise<ToolResultT> {
+        if (call.name === "read") {
+          readStarted.resolve();
+          return releaseRead.promise.then(() => ({ ok: true, output: "read out" }));
+        }
+        if (call.name === "process.run") {
+          processCalled = true;
+          return Promise.resolve({ ok: true, output: "should not run" });
+        }
+        return Promise.resolve({ ok: false, output: "unexpected" });
+      },
+    };
+
+    const done = runSession({
+      model: new ScriptedModel({
+        turns: [
+          { toolCalls: [{ name: "read", args: {} }] },
+          {
+            text: "I'll run the check directly",
+            toolCalls: [{ name: "process.run", args: { argv: ["pnpm", "test"] } }],
+          },
+          { text: "holding off on the command per your note" },
+        ],
+      }),
+      executor,
+      ui,
+      store,
+      seed,
+      env: e,
+    });
+
+    await readStarted.promise;
+    ui.push({ kind: "command", name: "/now", args: "do not run tests yet" });
+    await ui.awaitRender((v) => (v.pendingInputs ?? 0) >= 1);
+    releaseRead.resolve();
+    await done;
+    store.close();
+
+    expect(processCalled).toBe(false);
+    const frame = renderFrame(ui.view());
+    expect(frame).toContain("you  do not run tests yet");
+    expect(frame).toContain("holding off on the command per your note");
+  });
+
   it("keeps urgent steering pending when the controller budget cannot dispatch another turn", async () => {
     const e = env();
     const store = SessionStore.create({ cwd: "/w" }, e);

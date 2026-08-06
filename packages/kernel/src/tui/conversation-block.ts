@@ -427,7 +427,7 @@ function toolCounts(
     } else if (item.status === "ok" && typedMutation) {
       // The explicit observation-unavailable count above owns this successful mutation. Do not
       // relabel the request/result as a changed-file or generic-tool fact.
-    } else if (item.status === "ok" && item.name === "bash") {
+    } else if (item.status === "ok" && (item.name === "bash" || item.name === "process.run")) {
       ran += 1;
     } else if (item.status === "ok") {
       otherTools += 1;
@@ -928,7 +928,7 @@ function toolEvidenceLine(
       text: evidence.text,
     };
   }
-  if (item.name === "bash") {
+  if (item.name === "bash" || item.name === "process.run") {
     const text = `${name}: ${summary.length > 0 ? summary : "done"}`;
     return options.checked.has(text) ? undefined : { kind: "ran", text };
   }
@@ -2047,7 +2047,10 @@ export function isRoutineSuccessfulTool(item: ViewItem): boolean {
     item.kind === "tool" &&
     toolOutcome(item) === "done" &&
     item.mutationPresentation === undefined &&
-    (item.name === "read" || item.name === "search" || item.name === "bash")
+    (item.name === "read" ||
+      item.name === "search" ||
+      item.name === "bash" ||
+      item.name === "process.run")
   );
 }
 

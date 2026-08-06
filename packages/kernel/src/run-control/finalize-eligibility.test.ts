@@ -16,6 +16,10 @@ function evidence(command: string | null, output = WARDEN_SUCCESS, ok = true) {
   return finalizeOnlyEvidenceForToolResult({ name: "bash", args: { command } }, { ok, output });
 }
 
+function processEvidence(argv: string[], output: string, ok = true) {
+  return finalizeOnlyEvidenceForToolResult({ name: "process.run", args: { argv } }, { ok, output });
+}
+
 function independentlyMatchesStrictGrammar(command: string): boolean {
   const match = /^ *node +(?:(["'])([A-Za-z0-9._/-]+)\1|([A-Za-z0-9._/-]+)) *$/u.exec(command);
   if (match === null) return false;
@@ -25,6 +29,24 @@ function independentlyMatchesStrictGrammar(command: string): boolean {
 }
 
 describe("finalize-only direct Node check eligibility", () => {
+  it("accepts only an exact clean-contained process.run Node check", () => {
+    const contained =
+      "warden containment: writes limited to workspace/temp; network egress deny-all";
+    const output = `${contained}\n\n${UNTRUSTED_MARKER}\n${WARDEN_SUCCESS}`;
+    expect(processEvidence(["node", "checks/goal-check.mjs"], output)).toMatchObject({
+      kind: "direct-check",
+      successSignal: "exit-zero",
+    });
+    expect(processEvidence(["node", "checks/goal-check.mjs", "--watch"], output)).toBeUndefined();
+    expect(processEvidence(["node", "checks/goal-check.mjs"], output, false)).toBeUndefined();
+    expect(
+      processEvidence(
+        ["node", "checks/goal-check.mjs"],
+        `warden warning: check\n\n${UNTRUSTED_MARKER}\n${WARDEN_SUCCESS}`,
+      ),
+    ).toBeUndefined();
+  });
+
   it.each([
     "node goal-check.mjs",
     " node  goal-check.mjs ",

@@ -3,6 +3,7 @@ export * from "./interactive-console/index.js";
 export * from "./sandbox.js";
 export * from "./capability-manifest.js";
 export * from "./policy.js";
+export * from "./process-run.js";
 export {
   createVendoredSrtSandboxPort,
   detectVendoredSrtHostDependencyErrors,

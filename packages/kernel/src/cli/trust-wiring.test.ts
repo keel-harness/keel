@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { mkdtempSync, realpathSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { tmpdir as systemTmpdir } from "node:os";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import type {
   ModelMessageT,
   ModelPort,
@@ -12,9 +14,64 @@ import type {
 import { HeadlessUI } from "../tui/headless.js";
 import { runKeelCommand } from "./session-entry.js";
 import { createToolRuntime } from "./runtime.js";
+import type { ProductionWardenStartOptions } from "../warden/runtime.js";
 
 const tmp = (): string => mkdtempSync(join(realpathSync(systemTmpdir()), "keel-trust-"));
-const GOVERNED_TYPED_FILE_TOOLS = ["bash", "read", "search", "write", "edit"];
+const GOVERNED_TOOLS = ["bash", "process.run", "read", "search", "write", "edit"];
+const ROOT = process.cwd();
+const requireFromWarden = createRequire(join(ROOT, "packages/warden/src/bin.ts"));
+const TSX_ESM_LOADER = pathToFileURL(requireFromWarden.resolve("tsx/esm")).href;
+const WARDEN_RPC_SERVER_URL = pathToFileURL(join(ROOT, "packages/warden/src/rpc-server.ts")).href;
+const WARDEN_SESSION_LOG_URL = pathToFileURL(
+  join(ROOT, "packages/warden/src/audit/session-log.ts"),
+).href;
+
+function processCapabilityWarden(auditDir: string): ProductionWardenStartOptions {
+  return {
+    command: process.execPath,
+    args: [
+      "--import",
+      TSX_ESM_LOADER,
+      "--conditions=@keel/source",
+      "--input-type=module",
+      "-e",
+      `
+        import { runStdioWardenServer } from ${JSON.stringify(WARDEN_RPC_SERVER_URL)};
+        import { SessionAuditLog } from ${JSON.stringify(WARDEN_SESSION_LOG_URL)};
+
+        const auditLog = new SessionAuditLog({
+          auditDir: process.env.KEEL_WARDEN_AUDIT_DIR,
+          principal: {
+            osUser: "trust-wiring-test",
+            configuredId: null,
+            authProvider: "local",
+            assurance: "local-os-user"
+          }
+        });
+        runStdioWardenServer({
+          auditWriter: auditLog,
+          auditDir: process.env.KEEL_WARDEN_AUDIT_DIR,
+          workspaceRoot: process.env.KEEL_WARDEN_WORKSPACE_ROOT,
+          workspaceTrusted: process.env.KEEL_WARDEN_WORKSPACE_TRUSTED === "1",
+          sandbox: {
+            status: () => ({
+              available: true,
+              backend: "fake-trust-wiring-sandbox",
+              enforcementTier: "sandbox:fake"
+            }),
+            execute: async () => ({ exitCode: 0, signal: null, stdout: "", stderr: "" })
+          },
+          onShutdown: () => {
+            auditLog.close();
+            setImmediate(() => process.exit(0));
+          }
+        });
+      `,
+    ],
+    env: { FORCE_COLOR: "0", KEEL_WARDEN_AUDIT_DIR: auditDir },
+    requestTimeoutMs: 15_000,
+  };
+}
 
 /** Captures the messages + tools handed to the model on the first turn (the seed). */
 class CapturingModel implements ModelPort {
@@ -117,8 +174,9 @@ describe("runKeelCommand trust-gates the environment snapshot (trust-before-pars
       ui: new HeadlessUI(),
       cwd,
       env: { KEEL_HOME: cwd, KEEL_TRUST: "1" },
+      warden: processCapabilityWarden(tmp()),
     });
-    expect(model.firstTools?.map((t) => t.name)).toEqual(GOVERNED_TYPED_FILE_TOOLS);
+    expect(model.firstTools?.map((t) => t.name)).toEqual(GOVERNED_TOOLS);
     expect(model.firstTools?.map((t) => t.name)).not.toContain("skill");
     expect(seededSystem(model)).toMatch(/# Skills/); // the stub list header
     expect(seededSystem(model)).toMatch(/commit-message/); // a built-in skill stub

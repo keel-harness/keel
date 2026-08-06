@@ -3,6 +3,7 @@ import type { ToolSpecT } from "@keel/shared";
 import { SPEC as bashSpec } from "../tools/bash.js";
 import { SPEC as editSpec } from "../tools/edit.js";
 import { SPEC as planSpec } from "../tools/plan.js";
+import { SPEC as processRunSpec } from "../tools/process-run.js";
 import { SPEC as realReadSpec } from "../tools/read.js";
 import { createRetrieveTool } from "../tools/retrieve.js";
 import { SPEC as realSearchSpec } from "../tools/search.js";
@@ -42,6 +43,7 @@ const optionalRuntimeSpecs = [
 ];
 const realAdvertisedSpecs = [
   bashSpec,
+  processRunSpec,
   realReadSpec,
   realSearchSpec,
   writeSpec,
@@ -111,6 +113,7 @@ describe("toSdkTools — keel ToolSpecT[] → SDK tools object", () => {
     const projected = toSdkToolsProjection([
       { name: "interactive_console.open", description: "Open console." },
       { name: "lifecycle.run" },
+      processRunSpec,
       { name: "bash" },
     ]);
     const wireNames = Object.keys(projected.tools).sort();
@@ -122,6 +125,7 @@ describe("toSdkTools — keel ToolSpecT[] → SDK tools object", () => {
       "interactive_console.open",
     );
     expect(projected.keelNameBySdkName.get(toSdkToolName("lifecycle.run"))).toBe("lifecycle.run");
+    expect(projected.keelNameBySdkName.get(toSdkToolName("process.run"))).toBe("process.run");
     expect(projected.keelNameBySdkName.get("bash")).toBe("bash");
   });
 

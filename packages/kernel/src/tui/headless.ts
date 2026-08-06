@@ -28,6 +28,7 @@ import {
   type TurnSummaryPresentation,
 } from "./conversation-block.js";
 import { responseSurfaceColumns } from "./row-budget.js";
+import { terminalDisplayWidth, wrapDisplayLine } from "./display-cells.js";
 import { compactStat, effectiveDiffMode, moreHint, visibleDiffText } from "./diff.js";
 import { hintFooter } from "./hints.js";
 import { toolCardPlan } from "./tool-card.js";
@@ -48,6 +49,26 @@ import {
 
 const DIFF_SIGN = { context: " ", add: "+", del: "-" } as const;
 
+function wrapHeadlessLine(line: string, columns: number): readonly string[] {
+  if (terminalDisplayWidth(line) <= columns) return [line];
+  const rows: string[] = [];
+  let remainder = line;
+  const indent = /^\s*/u.exec(line)?.[0] ?? "";
+  while (terminalDisplayWidth(remainder) > columns) {
+    const hard = wrapDisplayLine(remainder, columns)[0]?.text ?? remainder;
+    const boundary = hard.lastIndexOf(" ");
+    if (boundary > Math.max(indent.length, 12)) {
+      rows.push(hard.slice(0, boundary));
+      remainder = `${indent}${remainder.slice(boundary + 1).trimStart()}`;
+    } else {
+      rows.push(hard);
+      remainder = `${indent}${remainder.slice(hard.length).trimStart()}`;
+    }
+  }
+  if (remainder.length > 0) rows.push(remainder);
+  return rows;
+}
+
 function indentBlock(text: string, prefix = "  "): string {
   return text
     .split("\n")
@@ -64,6 +85,7 @@ function renderItem(
   options: {
     readonly livePreview?: boolean;
     readonly assistantRole?: AssistantPresentationRole | undefined;
+    readonly terminalColumns?: number;
   } = {},
 ): string {
   if (it.kind === "message") {
@@ -106,7 +128,9 @@ function renderItem(
     lines.push(`   ${moreHint(card.diff.hidden, card.diff.hiddenHunks)}`);
   }
   if (density === "debug") lines.push(`  id: ${it.id}`);
-  return lines.join("\n");
+  if (it.name !== "process.run") return lines.join("\n");
+  const columns = Math.max(1, Math.floor(options.terminalColumns ?? 80));
+  return lines.flatMap((line) => wrapHeadlessLine(line, columns)).join("\n");
 }
 
 /** The trust HUD (§4.9.1): normal output uses the same compact rows as Ink; debug uses the full cockpit. */
@@ -132,6 +156,7 @@ function renderExpandedItems(
   suppressProblemTools = false,
   retainSuccessfulTools = false,
   suppressExploratoryFailures = false,
+  terminalColumns = 80,
 ): string {
   const lines: string[] = [];
   let prevKind = initialPrevKind;
@@ -151,6 +176,7 @@ function renderExpandedItems(
     const rendered = renderItem(item, view.diffMode, view.density, {
       livePreview,
       assistantRole,
+      terminalColumns,
     });
     if (rendered.length === 0) continue;
     if (lines.length > 0 && !(item.kind === "tool" && prevKind === "tool")) lines.push("");
@@ -170,7 +196,7 @@ function evidenceForMode(
   const rawToolEvidenceKind = (item: Extract<ViewItem, { kind: "tool" }>): string | undefined => {
     const outcome = toolOutcome(item);
     if (outcome === "done") {
-      if (item.name === "bash") return "ran";
+      if (item.name === "bash" || item.name === "process.run") return "ran";
       if (item.name !== "edit" && item.name !== "write") return "tool";
       return undefined;
     }
@@ -222,6 +248,8 @@ function renderConversationPlan(
         false,
         block.suppressProblemTools,
         retainSuccessfulTools,
+        false,
+        terminalColumns,
       );
       const parts = rendered.length > 0 ? [rendered] : [];
       const evidence =
@@ -251,6 +279,7 @@ function renderConversationPlan(
       block.suppressProblemTools,
       retainSuccessfulTools,
       block.suppressExploratoryFailures,
+      terminalColumns,
     );
     if (body.length > 0) parts.push(body);
     const evidence =
@@ -275,7 +304,8 @@ function renderConversationPlan(
           terminalColumns,
         ),
       );
-    if (interactive && block.summary !== undefined) parts.push(renderTurnSummary(block.summary));
+    if (interactive && block.summary !== undefined)
+      parts.push(renderTurnSummary(block.summary, terminalColumns));
     return [parts.join("\n\n")];
   });
   return blocks.join("\n\n");
@@ -293,6 +323,7 @@ function renderTrailerBlocks(
   view: ViewModel,
   interactive: boolean,
   plan: ConversationPlan = conversationPlan(view),
+  terminalColumns = 80,
 ): string[] {
   const blocks: string[] = [];
   const approvalOwnsViewport = view.activeApproval !== undefined;
@@ -338,7 +369,7 @@ function renderTrailerBlocks(
       blocks.push(renderCurrentTurn(plan.standaloneCurrentTurn, view.density));
     }
     if (!approvalOwnsViewport && plan.standaloneSummary !== undefined)
-      blocks.push(renderTurnSummary(plan.standaloneSummary));
+      blocks.push(renderTurnSummary(plan.standaloneSummary, terminalColumns));
   } else if (plan.standaloneRunControlReceipt !== undefined) {
     blocks.push(renderRunControlReceipt(plan.standaloneRunControlReceipt));
   }
@@ -379,7 +410,7 @@ function renderRunControlReceipt(lines: readonly string[]): string {
   ].join("\n");
 }
 
-function renderTurnSummary(card: TurnSummaryPresentation): string {
+function renderTurnSummary(card: TurnSummaryPresentation, terminalColumns = 80): string {
   // Re-strip at the renderer (ER-020 defense-in-depth): `buildTurnSummary` already sanitizes, but the
   // Done card is the lone surface that otherwise trusts that upstream — every other surface re-strips,
   // so a crafted answer / tool receipt can never smuggle a control byte into machine output here either.
@@ -425,7 +456,12 @@ function renderTurnSummary(card: TurnSummaryPresentation): string {
     );
   }
   if (card.answer !== undefined) lines.push(`  answer: ${stripControlLine(card.answer)}`);
-  return lines.join("\n");
+  const columns = Math.max(1, Math.floor(terminalColumns));
+  return lines
+    .flatMap((line) =>
+      line.startsWith("  ran: process.run:") ? wrapHeadlessLine(line, columns) : [line],
+    )
+    .join("\n");
 }
 
 /** Serialize a view to deterministic plain text (no ANSI) — for `keel run -p`, CI, and goldens.
@@ -453,7 +489,7 @@ export function renderFrame(
       ? ""
       : renderConversationPlan(view, plan, interactive, !interactive && verbose, terminalColumns);
   if (items.length > 0) blocks.push(items);
-  const trailer = renderTrailerBlocks(view, interactive, plan);
+  const trailer = renderTrailerBlocks(view, interactive, plan, terminalColumns);
   // Foreground overlays are one compact shell surface in Ink; keep their status/composer rows
   // adjacent here as well so headless goldens measure the same complete 80x24 hierarchy.
   if (view.activeApproval === undefined && view.overlay !== undefined)

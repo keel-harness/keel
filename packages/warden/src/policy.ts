@@ -28,6 +28,7 @@ import type { PolicyPackSnapshotT } from "./audit/bundle.js";
 import { DEFAULT_CAPABILITY_MANIFEST } from "./capability-manifest.js";
 import { extractExplicitEgressTarget } from "./egress-review.js";
 import { isInside } from "./path-util.js";
+import { renderProcessRunArgv } from "./process-run.js";
 import {
   DEFAULT_POLICY_WASM_SHA256,
   defaultPolicyWasmBytes,
@@ -2312,9 +2313,11 @@ function pushRmSegment(
   basePath: string,
   env: NodeJS.ProcessEnv,
   workspaceRoot = basePath,
-  options: { readonly workspaceTrusted: boolean; readonly realpath?: (path: string) => string } = {
-    workspaceTrusted: false,
-  },
+  options: {
+    readonly workspaceTrusted: boolean;
+    readonly realpath?: (path: string) => string;
+    readonly exactOperands?: boolean;
+  } = { workspaceTrusted: false },
 ): void {
   if (argv[0] !== "rm" || argv.at(-1) === undefined) return;
   const targets = rmTargets(argv);
@@ -2323,7 +2326,7 @@ function pushRmSegment(
     : ["destructive"];
   for (const rawTarget of targets) {
     const target = destructivePathTarget(
-      stripShellPathToken(rawTarget),
+      options.exactOperands === true ? rawTarget : stripShellPathToken(rawTarget),
       basePath,
       env,
       workspaceRoot,
@@ -2685,9 +2688,14 @@ function pushUploadReadSegments(
   basePath: string,
   env: NodeJS.ProcessEnv,
   workspaceRoot: string,
+  exactOperands = false,
 ): void {
   for (const raw of uploadOperandTokens(argv)) {
-    const token = cleanPathOperand(raw);
+    const token = exactOperands
+      ? raw === "" || raw === "-"
+        ? undefined
+        : raw
+      : cleanPathOperand(raw);
     if (token === undefined) continue;
     pushFileReadSegment(segments, token, basePath, env, workspaceRoot);
   }
@@ -3122,6 +3130,109 @@ function classifyShellPart(
   };
 }
 
+function pushStructuredFileReadSegments(
+  segments: SideEffectSegmentT[],
+  argv: readonly string[],
+  basePath: string,
+  env: NodeJS.ProcessEnv,
+  workspaceRoot: string,
+): void {
+  if (!FILE_READ_VERBS.includes(argv[0] as (typeof FILE_READ_VERBS)[number])) return;
+  let optionsEnded = false;
+  for (const arg of argv.slice(1)) {
+    if (!optionsEnded && arg === "--") {
+      optionsEnded = true;
+      continue;
+    }
+    if (!optionsEnded && arg.startsWith("-")) continue;
+    if (arg === "" || arg === "-") continue;
+    pushFileReadSegment(segments, arg, basePath, env, workspaceRoot);
+  }
+}
+
+function classifyProcessArgv(
+  argv: readonly string[],
+  command: string,
+  options: {
+    readonly workspaceRoot: string;
+    readonly env: NodeJS.ProcessEnv;
+    readonly workspaceTrusted: boolean;
+    readonly realpath?: (path: string) => string;
+    readonly safeCommandMetadataTrusted: boolean;
+  },
+): ClassifiedShell {
+  const segments: SideEffectSegmentT[] = [];
+  const beforeRm = segments.length;
+  pushRmSegment(segments, argv, options.workspaceRoot, options.env, options.workspaceRoot, {
+    workspaceTrusted: options.workspaceTrusted,
+    exactOperands: true,
+    ...(options.realpath === undefined ? {} : { realpath: options.realpath }),
+  });
+  const rmModeled = segments.length > beforeRm;
+  const beforeGitPush = segments.length;
+  pushGitPushSegment(segments, argv);
+  const gitPushModeled = segments.length > beforeGitPush;
+  const beforeGitRemote = segments.length;
+  pushGitRemoteMutationSegment(segments, argv);
+  const gitRemoteModeled = segments.length > beforeGitRemote;
+  const beforePackageInstall = segments.length;
+  pushPackageInstallSegment(segments, argv);
+  const packageInstallModeled = segments.length > beforePackageInstall;
+  const beforeEgress = segments.length;
+  pushExplicitEgressSegment(segments, command);
+  pushUploadReadSegments(
+    segments,
+    argv,
+    options.workspaceRoot,
+    options.env,
+    options.workspaceRoot,
+    true,
+  );
+  const egressModeled = segments.length > beforeEgress;
+  const beforePrivilege = segments.length;
+  pushPrivilegeSegment(segments, argv);
+  const privilegeModeled = segments.length > beforePrivilege;
+  const beforeEnv = segments.length;
+  pushEnvDumpSegment(segments, argv);
+  const envModeled = segments.length > beforeEnv;
+  const beforeDangerousSystem = segments.length;
+  pushDangerousSystemSegment(segments, argv);
+  const dangerousSystemModeled = segments.length > beforeDangerousSystem;
+  const beforeArbitraryCode = segments.length;
+  pushArbitraryCodeSegment(segments, command, argv);
+  const arbitraryCodeModeled = segments.length > beforeArbitraryCode;
+  if (arbitraryCodeModeled && ["bash", "sh", "zsh"].includes(argv[0] ?? "")) {
+    pushEmbeddedPrivilegeSegments(segments, argv.slice(1).join(" "));
+  }
+  pushStructuredFileReadSegments(
+    segments,
+    argv,
+    options.workspaceRoot,
+    options.env,
+    options.workspaceRoot,
+  );
+  pushUtilitySegments(segments, argv, options.workspaceRoot, options.env, options.workspaceRoot);
+
+  const processModeled =
+    rmModeled ||
+    gitPushModeled ||
+    gitRemoteModeled ||
+    packageInstallModeled ||
+    egressModeled ||
+    privilegeModeled ||
+    envModeled ||
+    dangerousSystemModeled ||
+    arbitraryCodeModeled;
+  if (
+    segments.length === 0 ||
+    (!processModeled &&
+      !knownSafeFallbackCommand(command, argv, options.safeCommandMetadataTrusted))
+  ) {
+    segments.push(fallbackProcessSegment(command, argv, options.safeCommandMetadataTrusted));
+  }
+  return { segments, edges: [], kind: "atomic" };
+}
+
 function unknownShellSyntaxSegment(command: string): SideEffectSegmentT {
   return segment({
     effectKinds: ["process_exec", "unknown"],
@@ -3315,6 +3426,39 @@ function classifierForCommand(
   };
 }
 
+function classifierForProcessArgv(
+  argv: readonly string[],
+  segments: readonly SideEffectSegmentT[],
+  options: {
+    readonly sandboxContainedArbitraryCode: boolean;
+    readonly safeCommandMetadataTrusted: boolean;
+  },
+) {
+  const arbitraryReason = arbitraryCodeReason(renderProcessRunArgv(argv), argv);
+  if (options.sandboxContainedArbitraryCode) {
+    return {
+      confidence: "conservative" as const,
+      reasons: [
+        "sandbox_contained_arbitrary_code",
+        ...(arbitraryReason === undefined ? [] : [arbitraryReason]),
+      ],
+    };
+  }
+  if (segments.some((entry) => entry.modifiers.includes("unknown"))) {
+    if (!options.safeCommandMetadataTrusted && commandDependsOnMutableExecutionMetadata(argv)) {
+      return {
+        confidence: "unknown" as const,
+        reasons: ["mutable_execution_metadata"],
+      };
+    }
+    return { confidence: "unknown" as const, reasons: ["fail_closed_argv_shape"] };
+  }
+  return {
+    confidence: "conservative" as const,
+    reasons: ["adr-0089-structured-argv"],
+  };
+}
+
 export function buildPolicyInputForBash(
   params: ExecuteParams | PolicyExplainParams,
   options: PolicyInputBuildOptions,
@@ -3402,6 +3546,82 @@ export function buildPolicyInputForBash(
         "sessionId" in params
           ? params.sessionId
           : (options.sessionId ?? DEFAULT_EXPLAIN_SESSION_ID),
+      mode: "enforced",
+      promptCountThisSession: 0,
+    },
+    principal: { osUser: env["USER"] ?? "local" },
+  });
+}
+
+export function buildPolicyInputForProcessRun(
+  params: ExecuteParams,
+  argv: readonly string[],
+  options: PolicyInputBuildOptions,
+): PolicyInputT {
+  const env = options.env ?? process.env;
+  const command = renderProcessRunArgv(argv);
+  const safeCommandMetadataTrusted = options.safeCommandMetadataTrusted ?? true;
+  const classified = classifyProcessArgv(argv, command, {
+    workspaceRoot: options.workspaceRoot,
+    env,
+    workspaceTrusted: options.workspaceTrusted === true,
+    safeCommandMetadataTrusted,
+    ...(options.realpath === undefined ? {} : { realpath: options.realpath }),
+  });
+  const aggregate = aggregateSegments(classified.segments);
+  const explicitEgress = extractExplicitEgressTarget(command);
+  const unknownSegments = classified.segments.filter(isUnknownSegment);
+  const arbitraryCode =
+    arbitraryCodeReason(command, argv) !== undefined &&
+    unknownSegments.length > 0 &&
+    unknownSegments.every((entry) =>
+      entry.targets.some((target) => target.kind === "command" && target.value === command),
+    );
+  const sandboxExtensions = sandboxExtension(options.sandboxContainment, {
+    workspaceRoot: options.workspaceRoot,
+    env,
+    arbitraryCode,
+    workspaceTrusted: options.workspaceTrusted === true,
+  });
+  const classifier = classifierForProcessArgv(argv, classified.segments, {
+    sandboxContainedArbitraryCode: sandboxExtensions !== undefined,
+    safeCommandMetadataTrusted,
+  });
+
+  return PolicyInput.parse({
+    tool: { name: params.toolCall.name, args: params.toolCall.args },
+    normalized: { argv, decodedLayers: [] },
+    sideEffect: {
+      taxonomyVersion: SIDE_EFFECT_TAXONOMY_VERSION,
+      staticCapability: staticCapabilityForTool("process.run"),
+      dynamic: {
+        ...aggregate,
+        composition: {
+          kind: "atomic",
+          segments: classified.segments,
+          edges: [],
+        },
+        classifier: {
+          name: "warden-structured-argv-classifier",
+          version: "1",
+          confidence: classifier.confidence,
+          reasons: classifier.reasons,
+        },
+      },
+      ...(sandboxExtensions === undefined ? {} : { extensions: sandboxExtensions }),
+    },
+    workspace: { path: options.workspaceRoot, trusted: options.workspaceTrusted ?? false },
+    provenance: params.provenanceContext,
+    egress: {
+      isEgress: explicitEgress.kind === "domain",
+      domain: explicitEgress.kind === "domain" ? explicitEgress.domain : null,
+      gitRemote:
+        argv[0] === "git" && argv[1] === "remote" && ["add", "set-url"].includes(argv[2] ?? "")
+          ? gitRemoteHost(argv.at(-1))
+          : null,
+    },
+    session: {
+      id: params.sessionId,
       mode: "enforced",
       promptCountThisSession: 0,
     },

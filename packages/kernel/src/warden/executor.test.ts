@@ -408,27 +408,32 @@ describe("WardenExecutor", () => {
     expect(toolPresentationOutcome(result)).toBe("limited");
   });
 
-  it("keeps a trusted clamped bash result distinct from complete success", async () => {
-    const executor = new WardenExecutor({
-      client: clientReturning({
-        verdict: "allow",
-        result: {
-          exitCode: 0,
-          signal: null,
-          stdout: "head\n... [output truncated] ...\ntail",
-          stderr: "",
-          limited: true,
-        },
-        auditSeq: 6,
-      }),
-      sessionId: SESSION_ID,
-    });
+  it.each(["bash", "process.run"])(
+    "keeps a trusted clamped %s result distinct from complete success",
+    async (toolName) => {
+      const executor = new WardenExecutor({
+        client: clientReturning({
+          verdict: "allow",
+          result: {
+            exitCode: 0,
+            signal: null,
+            stdout: "head\n... [output truncated] ...\ntail",
+            stderr: "",
+            limited: true,
+          },
+          auditSeq: 6,
+        }),
+        sessionId: SESSION_ID,
+      });
 
-    const result = await executor.execute(call("bash"));
+      const result = await executor.execute(
+        call(toolName, toolName === "process.run" ? { argv: ["python3", "-m", "pytest"] } : {}),
+      );
 
-    expect(result.ok).toBe(true);
-    expect(toolPresentationOutcome(result)).toBe("limited");
-  });
+      expect(result.ok).toBe(true);
+      expect(toolPresentationOutcome(result)).toBe("limited");
+    },
+  );
 
   it.each([
     ["warn", "warden warning: read was narrowed"],
