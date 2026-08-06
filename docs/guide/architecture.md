@@ -55,8 +55,11 @@ swapped without touching the contract:
    secret read and denied.
 5. The verdict routes:
    - **deny**: a `tool.deny` audit record, nothing executed.
-   - **review**: a pending review plus a `review.requested` record; the run
-     pauses for a human.
+   - **review**: a pending review plus a `review.requested` record. Exact session or Plan grants and
+     eligible Autopilot routing may resolve the review first. Otherwise an interactive terminal run
+     pauses for a human. If a one-shot/headless review is still pending, keel attempts to close it as
+     denied and exits nonzero. Only a confirmed denial proves the action did not run. A failed or
+     indeterminate settlement is labeled; do not retry automatically, and inspect the audit record.
    - **modify**: the rewritten command is re-evaluated and re-denied if the new
      form is blocked.
    - **warn / allow**: execution proceeds. A cross-check denies anything policy
