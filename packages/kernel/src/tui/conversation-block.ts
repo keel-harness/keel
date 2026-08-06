@@ -15,6 +15,7 @@ import { truncateDisplayCells } from "./display-cells.js";
 import { oneLineText } from "../control-strip.js";
 import { visibleTerminalText } from "./visible-text.js";
 import {
+  COMPLETION_TRUTH_NOTICE_PREFIX,
   isHiddenInDensity,
   leadingSystemEnd,
   mutationReceiptEvidence,
@@ -309,7 +310,18 @@ function turnBlockId(startIndex: number, user: UserMessage): string {
  * canonical what/why/next evidence card. */
 export function isTerminalRunNotice(item: ViewItem): boolean {
   return (
-    item.kind === "message" && item.role === "system" && item.content.startsWith("⚠ run ended —")
+    item.kind === "message" &&
+    item.role === "system" &&
+    (item.content.startsWith("⚠ run ended —") ||
+      item.content.startsWith(COMPLETION_TRUTH_NOTICE_PREFIX))
+  );
+}
+
+function isCompletionTruthNotice(item: ViewItem): boolean {
+  return (
+    item.kind === "message" &&
+    item.role === "system" &&
+    item.content.startsWith(COMPLETION_TRUTH_NOTICE_PREFIX)
   );
 }
 
@@ -1986,7 +1998,7 @@ export function visibleTurnItemsWithIndexes(
       continue;
     }
     if (options.suppressEvidenceItems === true) {
-      if (isTerminalRunNotice(item)) continue;
+      if (isTerminalRunNotice(item) && !isCompletionTruthNotice(item)) continue;
       if (
         item.kind === "tool" &&
         item.status !== "running" &&

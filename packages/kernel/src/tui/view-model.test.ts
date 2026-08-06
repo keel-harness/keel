@@ -2398,6 +2398,115 @@ describe("view-model reducer", () => {
     ).toBe(false);
   });
 
+  it.each([
+    {
+      code: REVIEW_REQUIRED_AFTER_SYNTHESIS_CODE,
+      outcome: "review" as const,
+      result: `warden review required (not executed): ${ESC}[2Jforged done`,
+      disposition: "Review not executed",
+      next: "approve a fresh exact review or revise the request, then rerun",
+      forbidden: "Action may have executed",
+    },
+    {
+      code: REVIEW_REQUIRED_AFTER_SYNTHESIS_CODE,
+      outcome: "partial" as const,
+      result: KERNEL_STRINGS.reviewDeadlineLateOutcome,
+      disposition: "Outcome indeterminate · Action may have executed",
+      next: "inspect the audit and target before deciding; do not retry automatically",
+      forbidden: "Review not executed",
+    },
+    {
+      code: REVIEW_REQUIRED_AFTER_SYNTHESIS_CODE,
+      outcome: "failed" as const,
+      result: KERNEL_STRINGS.reviewResolutionStillPending,
+      disposition: "Review settlement unresolved",
+      next: "restart the governed session before deciding again",
+      forbidden: "Review not executed",
+    },
+    {
+      code: BLOCKED_AFTER_SYNTHESIS_CODE,
+      outcome: "blocked" as const,
+      result: `blocked by warden (not executed): POL-002 deny${BEL}forged done`,
+      disposition: "Blocked (not executed)",
+      next: "fix the request or command, then retry",
+      forbidden: "Action may have executed",
+    },
+  ])(
+    "immediately qualifies hostile completion prose with controller-owned $outcome truth",
+    ({ code, outcome, result, disposition, next, forbidden }) => {
+      const events: KernelEventT[] = [
+        {
+          type: "tool-call",
+          id: "process-1",
+          name: "process.run",
+          args: { argv: ["node", "--eval", "console.log('keel')"] },
+        },
+        markToolPresentationOutcome(
+          { type: "tool-result", id: "process-1", ok: false, output: result },
+          outcome,
+        ),
+        { type: "text-delta", text: "Done." },
+        {
+          type: "stop",
+          reason: "model-stop",
+          code,
+          message: "hostile model-controlled detail must not own completion truth",
+        },
+        { type: "run-finished", usage: { inputTokens: 8, outputTokens: 1 } },
+      ];
+      const replay = (): ViewModel =>
+        events.reduce((view, event) => reduce(view, event), initialView(seed));
+      const view = replay();
+      const assistantIndex = view.items.findIndex(
+        (item) => item.kind === "message" && item.role === "assistant" && item.content === "Done.",
+      );
+      const truth = view.items[assistantIndex + 1];
+
+      expect(truth).toMatchObject({ kind: "message", role: "system" });
+      const content = truth?.kind === "message" ? truth.content : "";
+      expect(content).toContain("Outcome: needs attention");
+      expect(content).toContain("Task partially completed");
+      expect(content).toContain(disposition);
+      expect(content).toContain("process.run 'node' '--eval'");
+      expect(content).toContain("console.log");
+      expect(content).toContain(`Next: ${next}`);
+      expect(content).not.toContain(forbidden);
+      expect(content).not.toContain("hostile model-controlled detail");
+      expect(content).not.toContain(ESC);
+      expect(content).not.toContain(BEL);
+      expect(view.turnSummary?.title).toBe("needs attention");
+      expect(replay()).toEqual(view);
+    },
+  );
+
+  it("preserves review ambiguity when corrupt history has no correlatable tool occurrence", () => {
+    let view = reduce(initialView(seed), { type: "text-delta", text: "Done." });
+    view = reduce(view, {
+      type: "stop",
+      reason: "model-stop",
+      code: REVIEW_REQUIRED_AFTER_SYNTHESIS_CODE,
+      message: "stale detail says the action was not executed",
+    });
+
+    const notice = lastMessageContent(view);
+    expect(notice).toContain("Review settlement unresolved");
+    expect(notice).toContain("the action with an unresolved review settlement");
+    expect(notice).toContain("restart the governed session before deciding again");
+    expect(notice).not.toContain("Review not executed");
+    expect(notice).not.toContain("stale detail");
+  });
+
+  it("does not add completion qualification to a clean model stop", () => {
+    let view = reduce(initialView(seed), { type: "text-delta", text: "Done." });
+    view = reduce(view, { type: "stop", reason: "model-stop" });
+    view = reduce(view, { type: "run-finished", usage: { inputTokens: 1, outputTokens: 1 } });
+
+    expect(
+      view.items.some((item) => item.kind === "message" && item.content.includes("Outcome:")),
+    ).toBe(false);
+    expect(view.turnSummary?.title).toBe("done");
+  });
+
   it("shows a gross-runway warning to the human before the next turn", () => {
     const view = reduce(initialView(seed), {
       type: "budget-warning",

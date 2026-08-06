@@ -25,7 +25,14 @@ import {
   type ResumeState,
 } from "../session/resume.js";
 import { readSession } from "../session/store.js";
-import { firstRunView, initialView, leadingSystemEnd, modelPanel, reduce } from "./view-model.js";
+import {
+  buildTurnSummary,
+  firstRunView,
+  initialView,
+  leadingSystemEnd,
+  modelPanel,
+  reduce,
+} from "./view-model.js";
 import type { ViewConfig } from "./view-model.js";
 import { goalPrompt } from "../run/goal-session.js";
 import { runBoundedLoopSession } from "../run/loop-session.js";
@@ -39,6 +46,7 @@ import { requestDiffViewer } from "./diff-viewer-control.js";
 import { visibleTerminalText } from "./visible-text.js";
 import { seedInputHistory } from "./input-history.js";
 import { latestFinalAnswerOriginal } from "../session/final-answer-inspection.js";
+import { stopCodeNeedsAttention } from "../events.js";
 
 export interface InteractivePlanApprovalResult {
   readonly ok: boolean;
@@ -131,6 +139,11 @@ export interface RunReplOpts extends Omit<RunSessionOpts, "seed" | "recordSeed" 
   readonly resumedInterruptedFinalAnswerSettlementIds?: NonNullable<
     RunSessionOpts["seedPresentation"]
   >["interruptedFinalAnswerSettlementIds"];
+  /** Durable controller stop truth paired with `resumed`. Presentation-only; model prose and tool
+   * result text cannot set it. */
+  readonly resumedLastStop?: StopReasonT;
+  readonly resumedLastStopCode?: string;
+  readonly resumedLastStopMessage?: string;
   /** How many still-pending steering inputs (queued/urgent) were re-applied while rebuilding the
    *  resumed context (P1-3). Surfaced in the resume header so the carry-over is acknowledged, not
    *  silently folded into the message count (ADR-0034 "visibly acknowledge · no silent absorption").
@@ -280,6 +293,9 @@ export async function runRepl(opts: RunReplOpts): Promise<RunOutcome> {
     resumedFinalAnswerOccurrences,
     resumedFinalAnswerSettlements,
     resumedInterruptedFinalAnswerSettlementIds,
+    resumedLastStop,
+    resumedLastStopCode,
+    resumedLastStopMessage,
     resumedSteeringApplied = 0,
     resumedUrgentSteeringApplied = 0,
     historicOnceApprovalReceipt,
@@ -301,7 +317,7 @@ export async function runRepl(opts: RunReplOpts): Promise<RunOutcome> {
   // state. `idleView` is the latest idle view — transient hints (Ctrl-C warn, /context) render on top.
   let idleView: ViewModel;
   if (resumed.length > 0) {
-    const base = initialView(resumed, opts.view ?? {}, {
+    const resumedBase = initialView(resumed, opts.view ?? {}, {
       ...(resumedFailedToolMessageIndexes !== undefined
         ? { failedToolMessageIndexes: resumedFailedToolMessageIndexes }
         : {}),
@@ -319,6 +335,20 @@ export async function runRepl(opts: RunReplOpts): Promise<RunOutcome> {
         : {}),
       originalInspectionCommand: `keel sessions answer ${opts.store.id} --original`,
     });
+    const withCompletionTruth =
+      resumedLastStop === "model-stop" && stopCodeNeedsAttention(resumedLastStopCode)
+        ? reduce(resumedBase, {
+            type: "stop",
+            reason: resumedLastStop,
+            ...(resumedLastStopCode !== undefined ? { code: resumedLastStopCode } : {}),
+            ...(resumedLastStopMessage !== undefined ? { message: resumedLastStopMessage } : {}),
+          })
+        : resumedBase;
+    const completionSummary = buildTurnSummary(withCompletionTruth);
+    const base =
+      completionSummary === undefined
+        ? withCompletionTruth
+        : { ...withCompletionTruth, turnSummary: completionSummary };
     // Acknowledge any re-applied pending steering explicitly (ADR-0034 · P1-3) so a carried-over
     // mid-run comment is not silently folded into the message count.
     const steeringLabel = resumedSteeringLabel(

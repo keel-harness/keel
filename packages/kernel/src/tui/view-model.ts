@@ -27,9 +27,12 @@ import type {
   ViewItem,
   ViewModel,
 } from "@keel/shared";
+import { redactText } from "@keel/shared";
 import { basename } from "node:path";
 import {
+  BLOCKED_AFTER_SYNTHESIS_CODE,
   GROSS_RUNWAY_PREFLIGHT_CODE,
+  REVIEW_REQUIRED_AFTER_SYNTHESIS_CODE,
   stopCodeNeedsAttention,
   type KernelEventT,
 } from "../events.js";
@@ -411,6 +414,68 @@ const TERMINAL_FAILURE: Partial<Record<string, string>> = {
   length: "the model hit its output-length limit",
   deadline: "it reached the wall-clock budget (raise KEEL_MAX_WALL_SEC to allow more time)",
 };
+
+export const COMPLETION_TRUTH_NOTICE_PREFIX = "⚠ Outcome: needs attention";
+
+function completionTruthNotice(
+  items: readonly ViewItem[],
+  code: string | undefined,
+): string | undefined {
+  if (code !== REVIEW_REQUIRED_AFTER_SYNTHESIS_CODE && code !== BLOCKED_AFTER_SYNTHESIS_CODE) {
+    return undefined;
+  }
+  const latestItems = latestTurnItems(items);
+  let action: Extract<ViewItem, { kind: "tool" }> | undefined;
+  let actionOutcome: ReturnType<typeof toolOutcome> | undefined;
+  for (let index = latestItems.length - 1; index >= 0; index -= 1) {
+    const item = latestItems[index];
+    if (item?.kind !== "tool") continue;
+    const outcome = toolOutcome(item);
+    const matches =
+      code === BLOCKED_AFTER_SYNTHESIS_CODE
+        ? outcome === "blocked"
+        : outcome === "review" || outcome === "partial" || outcome === "failed";
+    if (matches) {
+      action = item;
+      actionOutcome = outcome;
+      break;
+    }
+  }
+  const fallback =
+    code === BLOCKED_AFTER_SYNTHESIS_CODE
+      ? "the policy-blocked action"
+      : actionOutcome === "review"
+        ? "the reviewed action"
+        : actionOutcome === "partial"
+          ? "the action with an indeterminate review outcome"
+          : "the action with an unresolved review settlement";
+  const exactAction =
+    action === undefined
+      ? fallback
+      : oneLineText(
+          redactText(
+            action.subject === undefined
+              ? action.summary.startsWith(`${action.name}:`)
+                ? action.summary
+                : `${action.name}: ${action.summary || "request"}`
+              : `${action.name} ${action.subject}`,
+          ),
+        );
+  const boundedAction = truncateDisplayCells(exactAction || fallback, 192, { tailCells: 48 });
+  let disposition = "Review settlement unresolved";
+  let next = "restart the governed session before deciding again";
+  if (code === BLOCKED_AFTER_SYNTHESIS_CODE) {
+    disposition = "Blocked (not executed)";
+    next = "fix the request or command, then retry";
+  } else if (actionOutcome === "review") {
+    disposition = "Review not executed";
+    next = "approve a fresh exact review or revise the request, then rerun";
+  } else if (actionOutcome === "partial") {
+    disposition = "Outcome indeterminate · Action may have executed";
+    next = "inspect the audit and target before deciding; do not retry automatically";
+  }
+  return `${COMPLETION_TRUTH_NOTICE_PREFIX} · Task partially completed · ${disposition}: ${boundedAction} · Next: ${next}`;
+}
 
 /** Neutral all-off facts. Route meaning comes only from controller-owned `protectionRoute`. */
 export const ALL_OFF_POSTURE: UiPosture = { sandbox: false, egress: false, audit: false };
@@ -2044,6 +2109,12 @@ export function buildTurnSummary(view: ViewModel): UiTurnSummary | undefined {
     .map((it) => truncateLine(it.content, 96))
     .slice(0, 1);
   const attention = [...failedTools, ...terminalNotices];
+  const completionNeedsAttention = items.some(
+    (item) =>
+      item.kind === "message" &&
+      item.role === "system" &&
+      item.content.startsWith(COMPLETION_TRUTH_NOTICE_PREFIX),
+  );
   if (
     answer === undefined &&
     fileEvidence.length === 0 &&
@@ -2054,7 +2125,7 @@ export function buildTurnSummary(view: ViewModel): UiTurnSummary | undefined {
     return undefined;
   }
   return {
-    title: attention.length > 0 ? "needs attention" : "done",
+    title: attention.length > 0 || completionNeedsAttention ? "needs attention" : "done",
     ...(answer !== undefined ? { answer } : {}),
     changed: [],
     checked: [],
@@ -3300,6 +3371,13 @@ export function reduce(view: ViewModel, ev: KernelEventT | UiInputEventT): ViewM
       // and `aborted` is the user interrupt (noticed via the `interrupted` event) — neither adds a
       // notice; every other reason ended the run WITHOUT finishing and must be visible.
       const base = view.streaming ? withDerived({ ...view, streaming: false }) : view;
+      const completionTruth = completionTruthNotice(base.items, ev.code);
+      if (completionTruth !== undefined) {
+        return withDerived({
+          ...base,
+          items: [...base.items, { kind: "message", role: "system", content: completionTruth }],
+        });
+      }
       // The warden-death halt (P0-3) reuses reason "error" (no frozen StopReason change) but must NOT
       // be misattributed to the model/provider — its message is already a complete honest sentence.
       if (ev.code === "WARDEN_UNAVAILABLE" && ev.message) {

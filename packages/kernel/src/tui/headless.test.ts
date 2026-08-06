@@ -20,6 +20,7 @@ import {
   associateExactProcessRunReviewInformation,
   exactProcessRunReviewSummaryForInformation,
 } from "../warden/process-run-review-presentation.js";
+import { BLOCKED_AFTER_SYNTHESIS_CODE, REVIEW_REQUIRED_AFTER_SYNTHESIS_CODE } from "../events.js";
 
 const ESC = String.fromCharCode(27); // ANSI escapes start with this byte
 const BEL = String.fromCharCode(7);
@@ -2060,6 +2061,108 @@ describe("headless renderer", () => {
     for (const frame of frames) {
       expect(frame).toContain(`next: ${guidance}`);
       expect(frame).not.toContain(ESC);
+    }
+  });
+
+  it("immediately qualifies hostile completion prose in narrow headless output", () => {
+    let view = initialView([{ role: "user", content: "run the exact command" }]);
+    view = reduce(view, {
+      type: "tool-call",
+      id: "process-review",
+      name: "process.run",
+      args: { argv: ["node", "--eval", "console.log('keel')"] },
+    });
+    view = reduce(
+      view,
+      markToolPresentationOutcome(
+        {
+          type: "tool-result",
+          id: "process-review",
+          ok: false,
+          output: "warden review required (not executed): exact process review",
+        },
+        "review",
+      ),
+    );
+    view = reduce(view, { type: "text-delta", text: "Done." });
+    view = reduce(view, {
+      type: "stop",
+      reason: "model-stop",
+      code: REVIEW_REQUIRED_AFTER_SYNTHESIS_CODE,
+      message: "answered from prior evidence; reviewed action was not executed",
+    });
+    view = reduce(view, { type: "run-finished", usage: { inputTokens: 8, outputTokens: 1 } });
+
+    const frame = renderFrame({ ...view, awaitingInput: true }, false, false, 40);
+    const normalized = frame.replace(/\s+/gu, " ");
+    expect(normalized).toMatch(
+      /Done\. .*Outcome: needs attention .*Task partially completed .*process\.run .*Next:/u,
+    );
+    expect(normalized.indexOf("Outcome: needs attention")).toBeGreaterThan(
+      normalized.indexOf("Done."),
+    );
+    expect(frame).not.toContain(ESC);
+    for (const line of frame.split("\n").filter((line) => !line.startsWith("protection:"))) {
+      expect(terminalDisplayWidth(line), line).toBeLessThanOrEqual(40);
+    }
+  });
+
+  it.each([
+    {
+      label: "indeterminate review",
+      outcome: "partial" as const,
+      code: REVIEW_REQUIRED_AFTER_SYNTHESIS_CODE,
+      output: "review outcome indeterminate; action may have executed",
+      expected: "Outcome indeterminate · Action may have executed",
+      next: "do not retry automatically",
+      forbidden: "Review not executed",
+    },
+    {
+      label: "policy block",
+      outcome: "blocked" as const,
+      code: BLOCKED_AFTER_SYNTHESIS_CODE,
+      output: "blocked by warden (not executed): POL-001 deny",
+      expected: "Blocked (not executed)",
+      next: "fix the request or command, then retry",
+      forbidden: "Action may have executed",
+    },
+  ])("keeps $label completion truth honest in narrow headless output", (scenario) => {
+    let view = initialView([{ role: "user", content: "run the exact command" }]);
+    view = reduce(view, {
+      type: "tool-call",
+      id: "process-attention",
+      name: "process.run",
+      args: { argv: ["node", "--eval", "console.log('keel')"] },
+    });
+    view = reduce(
+      view,
+      markToolPresentationOutcome(
+        {
+          type: "tool-result",
+          id: "process-attention",
+          ok: false,
+          output: scenario.output,
+        },
+        scenario.outcome,
+      ),
+    );
+    view = reduce(view, { type: "text-delta", text: "Done." });
+    view = reduce(view, {
+      type: "stop",
+      reason: "model-stop",
+      code: scenario.code,
+      message: "model-controlled or stale stop detail",
+    });
+    view = reduce(view, { type: "run-finished", usage: { inputTokens: 8, outputTokens: 1 } });
+
+    const frame = renderFrame({ ...view, awaitingInput: true }, false, false, 40);
+    const normalized = frame.replace(/\s+/gu, " ");
+    expect(normalized).toContain(scenario.expected);
+    expect(normalized).toContain("process.run 'node' '--eval'");
+    expect(normalized).toContain(scenario.next);
+    expect(normalized).not.toContain(scenario.forbidden);
+    for (const line of frame.split("\n").filter((line) => !line.startsWith("protection:"))) {
+      expect(terminalDisplayWidth(line), line).toBeLessThanOrEqual(40);
     }
   });
 

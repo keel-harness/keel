@@ -37,6 +37,7 @@ import { visibleTerminalText } from "./visible-text.js";
 import { renderPendingReviewCount } from "../warden/approval.js";
 import { approvalNoticePlan, approvalNoticeRows } from "./approval-notice.js";
 import {
+  COMPLETION_TRUTH_NOTICE_PREFIX,
   HELP_LINES,
   statusRows,
   leadingSystemEnd,
@@ -101,6 +102,13 @@ function renderItem(
       ].filter((line) => line.length > 0);
       const label = options.assistantRole === "progress" ? "keel · working" : "keel";
       return `${label}\n${indentBlock(lines.join("\n"))}`;
+    }
+    if (it.content.startsWith(COMPLETION_TRUTH_NOTICE_PREFIX)) {
+      const columns = Math.max(1, Math.floor(options.terminalColumns ?? 80));
+      const body = indentBlock(it.content)
+        .split("\n")
+        .flatMap((line) => wrapHeadlessLine(line, columns));
+      return ["note", ...body].join("\n");
     }
     return `note\n${indentBlock(it.content)}`;
   }
@@ -262,7 +270,7 @@ function renderConversationPlan(
               block.items,
               view.density,
             );
-      if (evidence !== undefined) parts.push(renderTurnEvidence(evidence));
+      if (evidence !== undefined) parts.push(renderTurnEvidence(evidence, terminalColumns));
       return parts.length > 0 ? [parts.join("\n\n")] : [];
     }
     if (block.mode === "compact") {
@@ -292,7 +300,7 @@ function renderConversationPlan(
             block.items,
             view.density,
           );
-    if (evidence !== undefined) parts.push(renderTurnEvidence(evidence));
+    if (evidence !== undefined) parts.push(renderTurnEvidence(evidence, terminalColumns));
     if (!interactive && block.runControlReceipt !== undefined)
       parts.push(renderRunControlReceipt(block.runControlReceipt));
     if (interactive && block.currentTurn !== undefined)
@@ -393,14 +401,17 @@ function renderCurrentTurn(
   );
 }
 
-function renderTurnEvidence(card: TurnEvidencePresentation): string {
+function renderTurnEvidence(card: TurnEvidencePresentation, terminalColumns = 80): string {
   const lines: string[] = [stripControlLine(card.title)];
   for (const line of card.lines) {
     lines.push(`  what: ${line.kind.replaceAll("-", " ")}: ${stripControlLine(line.text)}`);
     if (line.why !== undefined) lines.push(`  why: ${stripControlLine(line.why)}`);
     if (line.next !== undefined) lines.push(`  next: ${stripControlLine(line.next)}`);
   }
-  return lines.join("\n");
+  const columns = Math.max(1, Math.floor(terminalColumns));
+  return (columns < 80 ? lines.flatMap((line) => wrapHeadlessLine(line, columns)) : lines).join(
+    "\n",
+  );
 }
 
 function renderRunControlReceipt(lines: readonly string[]): string {

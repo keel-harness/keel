@@ -7,6 +7,7 @@ import type {
   ModelMessageT,
   ModelPort,
   SessionEventT,
+  StopReasonT,
   ToolSpecT,
   UiGitStatus,
   UIPort,
@@ -1151,6 +1152,11 @@ export interface KeelSessionOpts {
   readonly resumedInterruptedFinalAnswerSettlementIds?: NonNullable<
     RunSessionOpts["seedPresentation"]
   >["interruptedFinalAnswerSettlementIds"];
+  /** Durable controller outcome paired with resumed history. Presentation-only; never added to
+   * provider context or the session schema. */
+  readonly resumedLastStop?: StopReasonT;
+  readonly resumedLastStopCode?: string;
+  readonly resumedLastStopMessage?: string;
   /** Number of pending steering comments applied during resume, surfaced in the resume notice. */
   readonly resumedSteeringApplied?: number;
   /** Subset of resumed steering whose durable class is urgent; presentation-only. */
@@ -1261,6 +1267,13 @@ export async function runKeelSession(opts: KeelSessionOpts): Promise<RunOutcome>
           resumedInterruptedFinalAnswerSettlementIds:
             opts.resumedInterruptedFinalAnswerSettlementIds,
         }
+      : {}),
+    ...(opts.resumedLastStop !== undefined ? { resumedLastStop: opts.resumedLastStop } : {}),
+    ...(opts.resumedLastStopCode !== undefined
+      ? { resumedLastStopCode: opts.resumedLastStopCode }
+      : {}),
+    ...(opts.resumedLastStopMessage !== undefined
+      ? { resumedLastStopMessage: opts.resumedLastStopMessage }
       : {}),
     ...(opts.resumedSteeringApplied !== undefined
       ? { resumedSteeringApplied: opts.resumedSteeringApplied }
@@ -1720,6 +1733,15 @@ export async function runKeelCommand(
               resumedFinalAnswerSettlements: resumeState.finalAnswerSettlements,
               resumedInterruptedFinalAnswerSettlementIds:
                 resumeState.interruptedFinalAnswerSettlementIds,
+              ...(resumeState.lastStop !== undefined
+                ? { resumedLastStop: resumeState.lastStop }
+                : {}),
+              ...(resumeState.lastStopCode !== undefined
+                ? { resumedLastStopCode: resumeState.lastStopCode }
+                : {}),
+              ...(resumeState.lastStopMessage !== undefined
+                ? { resumedLastStopMessage: resumeState.lastStopMessage }
+                : {}),
             }
           : {}),
         ...(resumedSteeringApplied > 0 ? { resumedSteeringApplied } : {}),

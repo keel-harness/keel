@@ -35,6 +35,10 @@ import {
   associateExactProcessRunReviewInformation,
   exactProcessRunReviewSummaryForInformation,
 } from "../../warden/process-run-review-presentation.js";
+import {
+  BLOCKED_AFTER_SYNTHESIS_CODE,
+  REVIEW_REQUIRED_AFTER_SYNTHESIS_CODE,
+} from "../../events.js";
 
 const status = { model: "sonnet", tokens: 12, posture: ALL_OFF_POSTURE };
 
@@ -779,6 +783,129 @@ describe("Ink App (frame snapshots via ink-testing-library)", () => {
       expect(frame).not.toContain('"exitCode"');
       for (const line of frame.split("\n")) {
         expect(terminalDisplayWidth(line), line).toBeLessThanOrEqual(100);
+      }
+    } finally {
+      rendered.unmount();
+    }
+  });
+
+  it("immediately qualifies hostile completion prose in a real narrow Ink terminal", async () => {
+    let view = initialView([{ role: "user", content: "run the exact command" }], {
+      model: "sonnet",
+    });
+    view = reduce(view, {
+      type: "tool-call",
+      id: "process-review",
+      name: "process.run",
+      args: { argv: ["node", "--eval", "console.log('keel')"] },
+    });
+    view = reduce(
+      view,
+      markToolPresentationOutcome(
+        {
+          type: "tool-result",
+          id: "process-review",
+          ok: false,
+          output: "warden review required (not executed): exact process review",
+        },
+        "review",
+      ),
+    );
+    view = reduce(view, { type: "text-delta", text: "Done." });
+    view = reduce(view, {
+      type: "stop",
+      reason: "model-stop",
+      code: REVIEW_REQUIRED_AFTER_SYNTHESIS_CODE,
+      message: "answered from prior evidence; reviewed action was not executed",
+    });
+    view = reduce(view, { type: "run-finished", usage: { inputTokens: 8, outputTokens: 1 } });
+
+    const { stdout, rendered } = renderWithRealStatic(
+      { ...view, status, streaming: false, awaitingInput: true },
+      { columns: 40, rows: 24 },
+    );
+    try {
+      await rendered.waitUntilRenderFlush();
+      const frame = stripAnsiCsi(stdout.output());
+      const normalized = frame.replace(/\s+/gu, " ");
+      expect(normalized).toMatch(
+        /Done\. .*Outcome: needs attention .*Task partially completed .*process\.run .*Next:/u,
+      );
+      expect(normalized.indexOf("Outcome: needs attention")).toBeGreaterThan(
+        normalized.indexOf("Done."),
+      );
+      for (const line of frame.split("\n")) {
+        expect(terminalDisplayWidth(line), line).toBeLessThanOrEqual(40);
+      }
+    } finally {
+      rendered.unmount();
+    }
+  });
+
+  it.each([
+    {
+      label: "indeterminate review",
+      outcome: "partial" as const,
+      code: REVIEW_REQUIRED_AFTER_SYNTHESIS_CODE,
+      output: "review outcome indeterminate; action may have executed",
+      expected: "Outcome indeterminate · Action may have executed",
+      next: "do not retry automatically",
+      forbidden: "Review not executed",
+    },
+    {
+      label: "policy block",
+      outcome: "blocked" as const,
+      code: BLOCKED_AFTER_SYNTHESIS_CODE,
+      output: "blocked by warden (not executed): POL-001 deny",
+      expected: "Blocked (not executed)",
+      next: "fix the request or command, then retry",
+      forbidden: "Action may have executed",
+    },
+  ])("keeps $label completion truth honest through real narrow Ink", async (scenario) => {
+    let view = initialView([{ role: "user", content: "run the exact command" }], {
+      model: "sonnet",
+    });
+    view = reduce(view, {
+      type: "tool-call",
+      id: "process-attention",
+      name: "process.run",
+      args: { argv: ["node", "--eval", "console.log('keel')"] },
+    });
+    view = reduce(
+      view,
+      markToolPresentationOutcome(
+        {
+          type: "tool-result",
+          id: "process-attention",
+          ok: false,
+          output: scenario.output,
+        },
+        scenario.outcome,
+      ),
+    );
+    view = reduce(view, { type: "text-delta", text: "Done." });
+    view = reduce(view, {
+      type: "stop",
+      reason: "model-stop",
+      code: scenario.code,
+      message: "model-controlled or stale stop detail",
+    });
+    view = reduce(view, { type: "run-finished", usage: { inputTokens: 8, outputTokens: 1 } });
+
+    const { stdout, rendered } = renderWithRealStatic(
+      { ...view, status, streaming: false, awaitingInput: true },
+      { columns: 40, rows: 24 },
+    );
+    try {
+      await rendered.waitUntilRenderFlush();
+      const frame = stripAnsiCsi(stdout.output());
+      const normalized = frame.replace(/\s+/gu, " ");
+      expect(normalized).toContain(scenario.expected);
+      expect(normalized).toContain("process.run 'node' '--eval'");
+      expect(normalized).toContain(scenario.next);
+      expect(normalized).not.toContain(scenario.forbidden);
+      for (const line of frame.split("\n")) {
+        expect(terminalDisplayWidth(line), line).toBeLessThanOrEqual(40);
       }
     } finally {
       rendered.unmount();

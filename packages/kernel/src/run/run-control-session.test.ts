@@ -1786,7 +1786,7 @@ describe("run-control sessions (Epic 2.12 product path)", () => {
               { name: "bash", args: { command: "node -e 'console.log(1)'" } },
             ],
           },
-          { text: "Keel is a governed agent harness." },
+          { text: "Done." },
         ],
       }),
       executor,
@@ -1806,7 +1806,17 @@ describe("run-control sessions (Epic 2.12 product path)", () => {
         (event) => event.type === "loop_stopped" && event.reason === "error",
       ),
     ).toBe(true);
-    expect(renderFrame(outcome.finalView)).toMatch(/loop stopped · error/i);
+    const frame = renderFrame(outcome.finalView);
+    const normalized = frame.replace(/\s+/gu, " ");
+    expect(normalized).toContain("Done.");
+    expect(normalized).toContain("Outcome: needs attention");
+    expect(normalized).toContain("Task partially completed");
+    expect(normalized).toContain("Review not executed: bash:");
+    expect(normalized).toContain("Next: approve a fresh exact review");
+    expect(normalized.indexOf("Outcome: needs attention")).toBeGreaterThan(
+      normalized.indexOf("Done."),
+    );
+    expect(frame).toMatch(/loop stopped · error/i);
   });
 
   it("preserves direct blocked terminal-review detail after a loop_stopped error marker", async () => {

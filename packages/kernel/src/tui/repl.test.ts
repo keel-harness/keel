@@ -21,6 +21,7 @@ import { COMMANDS } from "./commands.js";
 import { staticModelRouteRuntime } from "../model-routing/controller.js";
 import { renderFrame } from "./headless.js";
 import { REVIEW_REQUIRED_AFTER_SYNTHESIS_CODE } from "../events.js";
+import { KERNEL_STRINGS } from "../strings.js";
 import { terminalReviewResult } from "../warden/terminal-review.js";
 import { LOCAL_INPUT_ACTIVITY, LocalInputActivityRegistry } from "./input-activity.js";
 import { DIFF_VIEWER_CONTROL, type DiffViewerOpenResult } from "./diff-viewer-control.js";
@@ -2417,6 +2418,122 @@ describe("runRepl — resume seeding (Epic 1.23 slice 2)", () => {
     ui.endInput();
     await done;
     store.close();
+  });
+
+  it("rehydrates controller-owned completion truth for a resumed hostile synthesis", async () => {
+    const e = env();
+    const store = SessionStore.create({ cwd: "/w" }, e);
+    const ui = new ReplUI();
+    const resumed: ModelMessageT[] = [
+      { role: "user", content: "run the exact command" },
+      {
+        role: "assistant",
+        content: "",
+        toolCalls: [
+          {
+            id: "process-review",
+            name: "process.run",
+            args: { argv: ["node", "--eval", "console.log('keel')"] },
+          },
+        ],
+      },
+      {
+        role: "tool",
+        content: "warden review required (not executed): exact process review",
+        toolCallId: "process-review",
+        name: "process.run",
+      },
+      { role: "assistant", content: "Done." },
+    ];
+    const done = runRepl({
+      model: new ScriptedModel({ turns: [{ text: "unreached" }] }),
+      executor: { execute: () => Promise.resolve({ ok: true, output: "unused" }) },
+      ui,
+      store,
+      env: e,
+      resumed,
+      resumedFailedToolMessageIndexes: new Set([2]),
+      resumedLastStop: "model-stop",
+      resumedLastStopCode: REVIEW_REQUIRED_AFTER_SYNTHESIS_CODE,
+      resumedLastStopMessage: "answered from prior evidence; reviewed action was not executed",
+    });
+
+    const frame = renderFrame(ui.latest!, false);
+    ui.endInput();
+    await done;
+    store.close();
+
+    const normalized = frame.replace(/\s+/gu, " ");
+    expect(frame.indexOf("Outcome: needs attention")).toBeGreaterThan(frame.indexOf("Done."));
+    expect(normalized).toContain("Task partially completed");
+    expect(normalized).toContain("process.run 'node' '--eval'");
+    expect(normalized).toContain("Next: approve a fresh exact review");
+  });
+
+  it.each([
+    {
+      label: "execution ambiguity",
+      result: KERNEL_STRINGS.reviewDeadlineLateOutcome,
+      expected: "Outcome indeterminate · Action may have executed",
+      next: "do not retry automatically",
+      forbidden: "Review not executed",
+    },
+    {
+      label: "unresolved settlement",
+      result: KERNEL_STRINGS.reviewResolutionStillPending,
+      expected: "Review settlement unresolved",
+      next: "restart the governed session before deciding again",
+      forbidden: "Review not executed",
+    },
+  ])("rehydrates $label without inventing non-execution on resume", async (scenario) => {
+    const e = env();
+    const store = SessionStore.create({ cwd: "/w" }, e);
+    const ui = new ReplUI();
+    const resumed: ModelMessageT[] = [
+      { role: "user", content: "run the exact command" },
+      {
+        role: "assistant",
+        content: "",
+        toolCalls: [
+          {
+            id: "process-attention",
+            name: "process.run",
+            args: { argv: ["node", "--eval", "console.log('keel')"] },
+          },
+        ],
+      },
+      {
+        role: "tool",
+        content: scenario.result,
+        toolCallId: "process-attention",
+        name: "process.run",
+      },
+      { role: "assistant", content: "Done." },
+    ];
+    const done = runRepl({
+      model: new ScriptedModel({ turns: [{ text: "unreached" }] }),
+      executor: { execute: () => Promise.resolve({ ok: true, output: "unused" }) },
+      ui,
+      store,
+      env: e,
+      resumed,
+      resumedFailedToolMessageIndexes: new Set([2]),
+      resumedLastStop: "model-stop",
+      resumedLastStopCode: REVIEW_REQUIRED_AFTER_SYNTHESIS_CODE,
+      resumedLastStopMessage: "hostile persisted detail says not executed",
+    });
+
+    const frame = renderFrame(ui.latest!, false);
+    ui.endInput();
+    await done;
+    store.close();
+
+    const normalized = frame.replace(/\s+/gu, " ");
+    expect(normalized).toContain(scenario.expected);
+    expect(normalized).toContain("process.run 'node' '--eval'");
+    expect(normalized).toContain(scenario.next);
+    expect(normalized).not.toContain(scenario.forbidden);
+    expect(normalized).not.toContain("hostile persisted detail");
   });
 
   it("keeps a historic spent-authority receipt visible after the next turn without making it model-visible or durable", async () => {

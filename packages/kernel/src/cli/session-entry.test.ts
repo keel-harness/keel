@@ -53,6 +53,7 @@ import { InputQueue } from "./input-queue.js";
 import { saveProjectAutopilotMode } from "../autopilot/mode-store.js";
 import { saveTrustDecision } from "../trust/trust-store.js";
 import { shouldExitNonZeroForRunOutcome } from "./exit-code.js";
+import { REVIEW_REQUIRED_AFTER_SYNTHESIS_CODE } from "../events.js";
 import {
   HELP_TEXT,
   KEEL_RUN_SESSION_ID_ENV,
@@ -3163,6 +3164,65 @@ describe("runKeelCommand resume (Epic 1.23 slice 2 — --continue / --resume con
 
     ui.queue.close();
     await run;
+  });
+
+  it("threads durable attention-coded completion truth into the product resume view", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "keel-resume-completion-truth-"));
+    const e: NodeJS.ProcessEnv = { KEEL_HOME: cwd };
+    const store = SessionStore.create({ cwd }, e);
+    const ts = new Date().toISOString();
+    store.append({ type: "user", v: 1, ts, content: "run the exact command" });
+    store.append({
+      type: "assistant",
+      v: 1,
+      ts,
+      content: "",
+      toolCalls: [
+        {
+          id: "process-review",
+          name: "process.run",
+          args: { argv: ["node", "--eval", "console.log('keel')"] },
+        },
+      ],
+    });
+    store.append({
+      type: "tool_result",
+      v: 1,
+      ts,
+      toolCallId: "process-review",
+      name: "process.run",
+      output: "warden review required (not executed): exact process review",
+      isError: true,
+    });
+    store.append({ type: "assistant", v: 1, ts, content: "Done." });
+    store.append({
+      type: "run_status",
+      v: 1,
+      ts,
+      reason: "model-stop",
+      code: REVIEW_REQUIRED_AFTER_SYNTHESIS_CODE,
+      message: "answered from prior evidence; reviewed action was not executed",
+      usage: { inputTokens: 8, outputTokens: 1 },
+    });
+    store.close();
+
+    const ui = new TestUI();
+    const run = runKeelCommand(undefined, {
+      model: new ScriptedModel({ turns: [] }),
+      ui,
+      cwd,
+      env: e,
+      resume: { kind: "id", id: store.id },
+    });
+    await ui.awaitRender((view) => view.awaitingInput === true && asstSaid(view, "Done."));
+    const frame = renderFrame(ui.latest!, false).replace(/\s+/gu, " ");
+    ui.queue.close();
+    await run;
+
+    expect(frame.indexOf("Outcome: needs attention")).toBeGreaterThan(frame.indexOf("Done."));
+    expect(frame).toContain("Task partially completed");
+    expect(frame).toContain("process.run 'node' '--eval'");
+    expect(frame).toContain("Next: approve a fresh exact review");
   });
 
   it("loads the verified Warden audit receipt for spent once-only authority into the resume view only", async () => {
