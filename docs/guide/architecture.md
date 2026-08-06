@@ -73,6 +73,21 @@ swapped without touching the contract:
 9. The verdict envelope returns to the kernel. A deny becomes a
    "blocked by warden (not executed)" message with guidance for self-correction.
 
+## One direct argv call, end to end
+
+Trusted sessions whose Warden advertises `process-run/v1` also expose `process.run`. The model supplies
+one bounded literal argv vector. The Warden validates every Unicode scalar and byte bound, constructs
+policy input from the structured vector, and applies the same broad governed-bash sandbox envelope and
+policy authority. The existing `SandboxInvocation.argv` path launches that exact vector; a canonical
+single-quoted rendering is display and audit context, never reparsed authority.
+
+Shell-looking values such as `$(...)`, `;`, `&&`, pipes, redirects, globs, quotes, and empty arguments
+therefore reach the child only as argument data. This removes accidental shell composition; it does
+not make the executable harmless. Destructive, install, privilege, egress, arbitrary-code, mutable
+metadata, unknown-effect, review, audit, and sandbox rules still apply. Policy `modify` cannot rewrite
+argv in V1 and becomes an audited fail-closed denial. V1 adds no environment, cwd, stdin, timeout,
+background, or service authority. See [ADR-0089](../adr/0089-governed-argv-only-process-execution.md).
+
 ## One governed TCP connection, end to end
 
 The vendored SRT backend applies two separate egress gates. The ordinary grant or allowlist decides

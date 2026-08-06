@@ -40,10 +40,16 @@ keel --resume <id>           # resume a specific session by id
 ```
 
 **Trust.** On first use in a directory keel asks whether to trust the workspace. Trust
-is a human-only act — it unlocks project context (`AGENTS.md`, skills) and the trusted
-file tools (`read`/`write`/`edit`/`search`). Governed bash routes through the warden
-either way. keel **fails closed**: an untrusted or non-interactive run stays untrusted
+is a human-only act — it unlocks project context (`AGENTS.md`, skills), the trusted
+file tools (`read`/`write`/`edit`/`search`), and capability-negotiated direct-argv
+`process.run`. Governed bash routes through the warden either way. keel **fails closed**:
+an untrusted or non-interactive run stays untrusted
 unless you pass `--trust` (or set `KEEL_TRUST=1`).
+
+For one direct executable invocation, especially a build, test, lint, typecheck, or status check,
+`process.run` passes a literal argument vector through Warden policy, audit, and the OS sandbox.
+Shell-looking arguments stay data. Deliberate pipelines, redirection, expansion, or persistent shell
+state remain `bash` work; `process.run` does not make the invoked program inherently safe.
 
 ## 3. Autonomy at a glance
 

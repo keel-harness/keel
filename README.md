@@ -76,8 +76,8 @@ Exact values, fractions, commands, and the staleness window live in the
 > and we want the report — see [CONTRIBUTING.md](CONTRIBUTING.md#a-note-on-load-sensitive-test-suites).
 
 > **Status: pre-alpha; open-source preparation.** The default `keel` CLI routes governed
-> `bash` plus trusted `read`/`search`/`write`/`edit` actions through the out-of-process warden for
-> policy, sandbox/profile checks, and per-session audit. Phase 2B signed offline evidence bundles are
+> `bash`, trusted direct-argv `process.run`, and trusted `read`/`search`/`write`/`edit` actions through
+> the out-of-process warden for policy, sandbox/profile checks, and per-session audit. Phase 2B signed offline evidence bundles are
 > implemented for exported audit evidence. Reviewed, pinned local-stdio MCP calls also route through
 > the spawned Warden under the bounded ADR-0084 contract. This is **not a stable or public-alpha
 > release**: provider API egress; remote, localhost, and unreviewed MCP; general plugin/registry
@@ -95,8 +95,10 @@ is the supported path on Windows. `keel doctor` checks the OS sandbox (`bubblewr
 on Linux, `sandbox-exec` on macOS) and prints one copy-paste fix per platform when
 something is missing.
 
-Governed mode covers `bash`, the trusted typed file tools (`read`, `search`, `write`, `edit`), and
-reviewed, pinned local-stdio MCP calls through the spawned Warden. The MCP proof is deliberately
+Governed mode covers `bash`, capability-negotiated trusted direct-argv `process.run`, the trusted typed
+file tools (`read`, `search`, `write`, `edit`), and reviewed, pinned local-stdio MCP calls through the
+spawned Warden. `process.run` accepts one literal argv vector for a direct executable; it does not add
+shell composition, environment, cwd, stdin, or background authority. The MCP proof is deliberately
 narrow: remote, localhost, and unreviewed MCP transports, general plugin/registry APIs, reusable
 grants, and MCP resources, prompts, sampling, and elicitation are not claimed. Session-helper/internal
 surfaces such as `plan`, `skill`, and `retrieve`, provider API calls, and future tools are likewise
@@ -168,7 +170,7 @@ release remains gated on protected stage-only OIDC, staged-byte inspection, huma
 live-registry verification; see the [release runbook](docs/guide/releasing.md).
 
 ## Layout
-- `packages/kernel`: the agent: loop, five tools, providers, sessions, TUI, context, CLI
+- `packages/kernel`: the agent: loop, six governed product tools, providers, sessions, TUI, context, CLI
 - `packages/shared`: frozen RPC/audit/memory/policy/simulator schemas (zod)
 - `packages/simulator`: scripted ModelPort for deterministic tests
 - `packages/eval`: benchmark runner wrapper + trajectory store
