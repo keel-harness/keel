@@ -5467,4 +5467,22 @@ describe("Ink App (frame snapshots via ink-testing-library)", () => {
     expect(frame).toContain("tools halted");
     expect(frame).not.toMatch(/sandbox on|network on|policy Guided|audit on|phase 1/i);
   });
+
+  it("attributes a typed Warden protection failure correctly in real narrow Ink", () => {
+    const halted = reduce(initialView([{ role: "user", content: "run the check" }]), {
+      type: "stop",
+      reason: "error",
+      code: "TIER_UNAVAILABLE",
+      message: "sandbox tier unavailable; run keel doctor",
+    });
+    const { stdout, rendered } = renderWithRealStatic(halted, { columns: 40, rows: 24 });
+    try {
+      const frame = stripAnsiCsi(stdout.output()).replace(/\s+/gu, " ");
+      expect(frame).toContain("Warden/protection failure");
+      expect(frame).toContain("sandbox tier unavailable");
+      expect(frame).not.toContain("model/provider error");
+    } finally {
+      rendered.unmount();
+    }
+  });
 });

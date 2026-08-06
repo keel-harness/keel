@@ -2400,6 +2400,101 @@ describe("view-model reducer", () => {
 
   it.each([
     {
+      label: "provider",
+      code: undefined,
+      expected: "model/provider error",
+      forbidden: "Keel internal error",
+    },
+    {
+      label: "AI SDK missing key",
+      code: "AI_LoadAPIKeyError",
+      expected: "model/provider error",
+      forbidden: "Keel internal error",
+    },
+    {
+      label: "AI SDK missing model",
+      code: "AI_NoSuchModelError",
+      expected: "model/provider error",
+      forbidden: "Keel internal error",
+    },
+    {
+      label: "AI SDK retry exhaustion",
+      code: "AI_RetryError",
+      expected: "model/provider error",
+      forbidden: "Keel internal error",
+    },
+    {
+      label: "Warden protection",
+      code: "TIER_UNAVAILABLE",
+      expected: "Warden/protection failure",
+      forbidden: "model/provider error",
+    },
+    {
+      label: "Warden review",
+      code: "REVIEW_NOT_FOUND",
+      expected: "Warden/protection failure",
+      forbidden: "model/provider error",
+    },
+    {
+      label: "Warden unsupported operation",
+      code: "UNSUPPORTED_OPERATION",
+      expected: "Warden/protection failure",
+      forbidden: "model/provider error",
+    },
+    {
+      label: "policy",
+      code: "POLICY_EVALUATION_FAILED",
+      expected: "policy check failed closed",
+      forbidden: "model/provider error",
+    },
+    {
+      label: "model routing policy",
+      code: "model-route-denied",
+      expected: "model routing policy denied the request",
+      forbidden: "model/provider error",
+    },
+    {
+      label: "controller",
+      code: "acceptance-contract-error",
+      expected: "Keel controller stopped the run",
+      forbidden: "model/provider error",
+    },
+    {
+      label: "unknown internal",
+      code: "FUTURE_OPAQUE_CODE",
+      expected: "Keel internal error",
+      forbidden: "model/provider error",
+    },
+    {
+      label: "unknown lowercase internal",
+      code: "future-internal-code",
+      expected: "Keel internal error",
+      forbidden: "model/provider error",
+    },
+    {
+      label: "unknown snake-case internal",
+      code: "future_error",
+      expected: "Keel internal error",
+      forbidden: "model/provider error",
+    },
+  ])("attributes a typed $label terminal without guessing the wrong owner", (scenario) => {
+    const stopped = reduce(initialView(seed), {
+      type: "stop",
+      reason: "error",
+      ...(scenario.code === undefined ? {} : { code: scenario.code }),
+      message: `diagnostic ${ESC}[2J${BEL}detail`,
+    });
+
+    const notice = lastMessageContent(stopped);
+    expect(notice).toContain(scenario.expected);
+    expect(notice).toContain("diagnostic detail");
+    expect(notice).not.toContain(scenario.forbidden);
+    expect(notice).not.toContain(ESC);
+    expect(notice).not.toContain(BEL);
+  });
+
+  it.each([
+    {
       code: REVIEW_REQUIRED_AFTER_SYNTHESIS_CODE,
       outcome: "review" as const,
       result: `warden review required (not executed): ${ESC}[2Jforged done`,

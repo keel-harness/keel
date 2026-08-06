@@ -406,7 +406,6 @@ export function isHiddenInDensity(item: ViewItem, density: ViewModel["density"])
 /** Human-readable reason for abnormal terminals. Clean `model-stop` and `aborted` add no notice;
  *  attention-coded `model-stop` uses the stop detail instead of this map. */
 const TERMINAL_FAILURE: Partial<Record<string, string>> = {
-  error: "the model/provider returned an error",
   "max-turns": "it hit the turn limit before finishing",
   budget:
     "it reached the token budget (raise KEEL_MAX_TOKENS / KEEL_MAX_GROSS_TOKENS / KEEL_MAX_OUTPUT_TOKENS to allow more)",
@@ -414,6 +413,59 @@ const TERMINAL_FAILURE: Partial<Record<string, string>> = {
   length: "the model hit its output-length limit",
   deadline: "it reached the wall-clock budget (raise KEEL_MAX_WALL_SEC to allow more time)",
 };
+
+const PROVIDER_TERMINAL_CODES = new Set([
+  "empty-assistant-stop",
+  "malformed-tool-call-delta",
+  "malformed-tool-call-terminal",
+  "no-terminal",
+  "provider-terminal-finish",
+  "stream-error",
+  "tool-call-args",
+  "tools-unsupported",
+]);
+
+const CONTROLLER_TERMINAL_CODES = new Set([
+  "acceptance-contract-error",
+  "acceptance-contract-failed",
+  "duplicate-tool-call-id",
+  "final-answer-rewrite-error",
+  "final-answer-rewrite-tool-call",
+  "known-red-completion-evidence",
+  "KEEL_TOOL_INFRA_DEADLINE",
+]);
+
+function typedTerminalFailure(code: string | undefined): string {
+  if (code !== undefined && CONTROLLER_TERMINAL_CODES.has(code)) {
+    return "Keel controller stopped the run";
+  }
+  if (code === "model-route-denied") {
+    return "model routing policy denied the request";
+  }
+  if (
+    code === undefined ||
+    PROVIDER_TERMINAL_CODES.has(code) ||
+    code === "malformed-chunk" ||
+    code.startsWith("provider-") ||
+    code.startsWith("stream-") ||
+    /^AI_[A-Za-z][A-Za-z0-9]*Error$/u.test(code) ||
+    /^[A-Z][A-Za-z]*Error$/u.test(code) ||
+    /^\d{3}$/u.test(code)
+  ) {
+    return "model/provider error";
+  }
+  if (code.startsWith("POLICY_") || code.startsWith("POL_")) {
+    return "policy check failed closed";
+  }
+  if (
+    /^(?:AUDIT_|E(?:ACCES|EXIST|IO|ISDIR|NOENT|PERM|PIPE|UNKNOWN)$|ERR_|FATAL_|FRAME_|INTERACTIVE_CONSOLE_|INTERNAL_|INVALID_|MCP_|MODULE_|ONCE_ONLY_|PROCESS_RUN_|PROJECT_|PROTOCOL_|REVIEW_|RPC_|SANDBOX_|STATUS_|TIER_|TOOL_|UNSUPPORTED_|UNTRUSTED_WORKSPACE_|WARDEN_)/u.test(
+      code,
+    )
+  ) {
+    return "Warden/protection failure";
+  }
+  return "Keel internal error";
+}
 
 export const COMPLETION_TRUTH_NOTICE_PREFIX = "⚠ Outcome: needs attention";
 
@@ -3394,7 +3446,7 @@ export function reduce(view: ViewModel, ev: KernelEventT | UiInputEventT): ViewM
             {
               kind: "message",
               role: "system",
-              content: `⚠ run ended — ${stripControl(ev.message)}`,
+              content: `⚠ run ended — ${oneLineText(ev.message)}`,
             },
           ],
         });
@@ -3416,9 +3468,11 @@ export function reduce(view: ViewModel, ev: KernelEventT | UiInputEventT): ViewM
           ],
         });
       }
-      const why = TERMINAL_FAILURE[ev.reason];
+      const why =
+        ev.reason === "error" ? typedTerminalFailure(ev.code) : TERMINAL_FAILURE[ev.reason];
       if (why === undefined) return base;
-      const detail = ev.reason === "error" && ev.message ? `: ${stripControl(ev.message)}` : "";
+      const cleanedDetail = ev.reason === "error" && ev.message ? oneLineText(ev.message) : "";
+      const detail = cleanedDetail.length > 0 ? `: ${cleanedDetail}` : "";
       return withDerived({
         ...base,
         items: [
