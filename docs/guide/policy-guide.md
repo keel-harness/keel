@@ -70,8 +70,9 @@ only when the warden's runtime status carries them. A name alone never implies a
 
 ## Live review decisions
 
-A review is actionable only while the warden holds it open. keel shows a focused
-`approval required` prompt and pauses until you choose:
+Existing scoped authority resolves the review first when an exact session or Plan grant matches, or
+when an eligible Autopilot rule applies. If a live human decision remains, an interactive terminal
+session shows a focused `approval required` prompt and pauses until you choose:
 
 | Key | Command | Effect |
 | --- | --- | --- |
@@ -82,6 +83,11 @@ A review is actionable only while the warden holds it open. keel shows a focused
 
 `/reviews` is read-only. It is useful for seeing what happened, but **stale receipts are not
 buttons** — once a turn has ended, an old review line cannot be approved from the transcript.
+
+If a one-shot `keel run -p` still needs a live human decision, it cannot ask. keel attempts to close
+the review as denied and exits nonzero. A confirmed denial means the action did not run. A failed or
+indeterminate settlement is labeled; do not retry automatically, and inspect the audit record. Run
+`keel` interactively when you need to decide a review.
 
 ## Once, session, and project scope
 

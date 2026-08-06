@@ -22,10 +22,14 @@ because the process that runs actions is not the process the model talks through
 The policy pack is hash-pinned; the warden refuses to start if the pack on disk
 does not match the pinned hash.
 
-A `review` verdict pauses the run and asks you. A `deny` returns an honest
-"blocked by warden (not executed)" message to the model, with guidance, so the
-model can self-correct. Denied actions are recorded with the same fidelity as
-allowed ones.
+A `review` verdict is not automatically a prompt. A matching scoped grant or eligible Autopilot
+rule may resolve the review first. If a live human decision remains, an interactive terminal asks
+you. A one-shot run cannot ask: it attempts to close the review as denied and stops nonzero. Only a
+confirmed denial proves the action did not run; failed or indeterminate settlement is labeled and
+requires audit inspection instead of an automatic retry.
+
+A `deny` returns an honest "blocked by warden (not executed)" message to the model, with guidance,
+so the model can self-correct. Denied actions are recorded with the same fidelity as allowed ones.
 
 ## Trust is a human act
 
@@ -45,8 +49,8 @@ Modes change how often keel asks you, never what is enforced:
 
 | Mode | What changes |
 | --- | --- |
-| `guided` (default) | Consequential actions pause for your approval. |
-| `autopilot` | Reviews for already-contained, in-workspace actions resolve automatically. Boundary expansion still asks. Requires a trusted workspace and an explicit human opt-in. |
+| `guided` (default) | An unresolved review can pause an interactive terminal for your approval; a one-shot stops nonzero instead. |
+| `autopilot` | Eligible reviews for already-contained, in-workspace actions can resolve automatically. Boundary expansion still requires a live review; a one-shot stops nonzero if that review remains unresolved. Requires a trusted workspace and an explicit human opt-in. |
 | `project-autopilot` | `autopilot` plus persisted, revocable project-scope grants. |
 
 A mode is set by a human, from the CLI (`--autopilot`, or
@@ -60,8 +64,8 @@ keel says so in a persistent banner instead of showing a trust word.
 
 ## Reviews and scopes
 
-When the warden wants a human decision, keel shows one focused approval card and
-pauses. Your options:
+When the warden still needs a human decision and an interactive terminal is available, keel shows
+one focused approval card and pauses. Your options:
 
 - `a` or `/approve once`: this exact action, one time.
 - `s` or `/approve session`: the exact resource (a domain or a command key) for

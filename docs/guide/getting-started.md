@@ -34,7 +34,7 @@ keel doctor                  # verifies node, ripgrep, and the OS sandbox
 ```sh
 keel                         # interactive multi-turn session (the usual way in)
 keel --trust                 # start already trusting this workspace (see below)
-keel run -p "fix the failing test"   # one-shot: run a single prompt and exit
+keel run -p "fix the failing test"   # one-shot: unresolved live review stops nonzero
 keel --continue              # resume the most recent session in this directory
 keel --resume <id>           # resume a specific session by id
 ```
@@ -59,7 +59,7 @@ autonomy means fewer prompts inside enforced boundaries. It never means weaker e
 | Posture | What it means |
 | --- | --- |
 | `guided` *(default)* | The warden may ask before risky, broad, external, or destructive actions. |
-| `autopilot` | Auto-approves contained in-workspace actions; boundary expansion still prompts. Requires a **trusted** workspace and an explicit human opt-in. |
+| `autopilot` | May auto-resolve eligible contained in-workspace actions. Boundary expansion still requires a live review; a one-shot stops nonzero if that review remains unresolved. Requires a **trusted** workspace and an explicit human opt-in. |
 | `project-autopilot` | `autopilot` plus persisted, revocable project-scope grants. Trusted projects only. |
 
 Set the posture per run with `--autopilot`, or persist it:

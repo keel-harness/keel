@@ -209,6 +209,32 @@ function findOverclaims(text: string): { term: string; line: string }[] {
 }
 
 describe("public docs claim consistency", () => {
+  it("distinguishes interactive review decisions from headless one-shot denial", () => {
+    const readme = readRepoFile("README.md");
+    const architecture = readRepoFile("docs/guide/architecture.md");
+    const concepts = readRepoFile("docs/guide/concepts.md");
+    const gettingStarted = readRepoFile("docs/guide/getting-started.md");
+    const policyGuide = readRepoFile("docs/guide/policy-guide.md");
+    const reference = readRepoFile("docs/guide/reference.md");
+
+    expect(readme).toMatch(/existing.*authority.*resolve.*review.*before.*prompt/is);
+    expect(readme).toMatch(
+      /one-shot.*still needs a live human\s+decision.*close.*denied.*nonzero/is,
+    );
+    expect(readme).toMatch(/failed or indeterminate.*inspect.*audit/is);
+    expect(architecture).toMatch(/session.*plan.*Autopilot.*resolve.*review.*first/is);
+    expect(architecture).toMatch(/one-shot.*still pending.*close.*denied.*nonzero/is);
+    expect(architecture).toMatch(/failed or\s+indeterminate.*not.*retry.*audit/is);
+    expect(concepts).toMatch(/scoped grant.*Autopilot.*resolve.*review.*first/is);
+    expect(concepts).toMatch(/live human decision remains.*one-shot.*close.*denied.*nonzero/is);
+    expect(gettingStarted).toMatch(/one-shot.*unresolved live review.*nonzero/is);
+    expect(gettingStarted).toMatch(/boundary expansion.*live review.*one-shot.*nonzero/is);
+    expect(policyGuide).toMatch(/existing.*authority.*resolves.*first/is);
+    expect(policyGuide).toMatch(/one-shot.*still needs.*human.*close.*denied.*nonzero/is);
+    expect(reference).toMatch(/one-shot review behavior.*existing.*authority.*first/is);
+    expect(reference).toMatch(/still pending.*close.*denied.*nonzero.*unconfirmed/is);
+  });
+
   it("keeps README status aligned with open-source preparation evidence and limitations", () => {
     const readme = readRepoFile("README.md");
     // The full limitation set moved to docs/status.md so the README could lead with what keel is

@@ -103,10 +103,17 @@ Autonomy in keel is a set of **policy postures over the warden's enforcement**, 
 about how the model behaves. In every mode the model can only *request*; the out-of-process
 **warden decides** under a hash-pinned policy the model cannot rewrite.
 
-- **Guided** (default): consequential actions pause for your approval; the warden still enforces.
+- **Guided** (default): in an interactive terminal session, consequential actions may pause for your
+  approval; the warden still enforces.
 - **Autopilot**: the model acts *without a prompt*, but only for actions the warden has already
   proven contained and low-risk. It never lets the model declare itself safe, raise its own mode,
-  change policy, or turn a `deny` into an `allow`.
+  change policy, or turn a `deny` into an `allow`. Boundary expansion still routes to review.
+
+Existing scoped authority, such as an exact session or Plan grant or an eligible Autopilot rule,
+may resolve a review before any prompt. If a one-shot `keel run -p` still needs a live human
+decision, keel cannot ask: it attempts to close the review as denied and exits nonzero. A confirmed
+denial means the action did not run. A failed or indeterminate settlement is labeled; do not retry
+automatically, and inspect the audit record.
 
 "YOLO" means reduced or absent enforcement. keel never conflates the two in the UI, receipts, or
 docs. See the [policy guide](docs/guide/policy-guide.md) for modes, approvals, and grant scopes.

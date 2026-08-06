@@ -11,7 +11,7 @@ same CLI.
 | Command | What it does |
 | --- | --- |
 | `keel` | Start an interactive session. Prompts for workspace trust on first use in a directory. |
-| `keel run -p "<prompt>"` | Run one prompt headless and exit. `--print` is an alias of `-p`. |
+| `keel run -p "<prompt>"` | Run one prompt as a one-shot/headless command and exit. `--print` is an alias of `-p`. |
 | `keel --continue` / `-c` | Resume the most recent session in this directory (interactive only). |
 | `keel --resume <id>` / `-r <id>` | Resume a specific session (interactive only). |
 | `keel doctor` | Check Node, ripgrep, and the OS sandbox for this platform. |
@@ -33,6 +33,12 @@ for any reason other than the model finishing normally (provider error, turn cap
 budget, deadline). `doctor` exits non-zero if any check is missing (warnings do
 not fail). Usage errors and unknown flags exit non-zero. One known gap: `keel auth`
 usage errors print a message but exit zero today.
+
+**One-shot review behavior.** Existing scoped authority, including an exact session or Plan grant or
+an eligible Autopilot rule, gets the first chance to resolve a review. If it is still pending,
+one-shot cannot ask for a live decision: keel attempts to close the review as denied and exits
+nonzero. Only a confirmed denial proves the action did not run. An unconfirmed, failed, or
+indeterminate settlement is labeled; do not retry automatically, and inspect the audit record.
 
 ## Run flags
 

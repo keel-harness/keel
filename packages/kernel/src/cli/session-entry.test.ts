@@ -52,6 +52,7 @@ import { INPUT_HISTORY_SEED } from "../tui/input-history.js";
 import { InputQueue } from "./input-queue.js";
 import { saveProjectAutopilotMode } from "../autopilot/mode-store.js";
 import { saveTrustDecision } from "../trust/trust-store.js";
+import { shouldExitNonZeroForRunOutcome } from "./exit-code.js";
 import {
   HELP_TEXT,
   KEEL_RUN_SESSION_ID_ENV,
@@ -302,11 +303,14 @@ function failingStartupWarden(): ProductionWardenStartOptions {
   };
 }
 
-function fakeAutopilotReviewWarden(review: {
-  readonly reviewId: string;
-  readonly summary: string;
-  readonly allowCommand: string;
-}): ProductionWardenStartOptions {
+function fakeAutopilotReviewWarden(
+  review: {
+    readonly reviewId: string;
+    readonly summary: string;
+    readonly allowCommand: string;
+  },
+  resolveCapturePath?: string,
+): ProductionWardenStartOptions {
   const activeHash = `sha256:${"a".repeat(64)}`;
   return {
     command: process.execPath,
@@ -315,6 +319,8 @@ function fakeAutopilotReviewWarden(review: {
       `
         const activeHash = ${JSON.stringify(activeHash)};
         const review = ${JSON.stringify(review)};
+        const resolveCapturePath = ${JSON.stringify(resolveCapturePath)};
+        const { writeFileSync } = require("node:fs");
         const captured = [];
         let buffer = "";
         function send(id, result) {
@@ -364,7 +370,12 @@ function fakeAutopilotReviewWarden(review: {
               });
             } else if (req.method === "warden.resolveReview") {
               captured.push({ method: req.method, params: req.params });
-              if (req.params.scope === "project") {
+              if (resolveCapturePath !== undefined) {
+                writeFileSync(resolveCapturePath, JSON.stringify(req.params));
+              }
+              if (req.params.approved === false) {
+                send(req.id, { verdict: "deny", auditSeq: 5 });
+              } else if (req.params.scope === "project") {
                 fail(
                   req.id,
                   "project command grants require active Project Autopilot",
@@ -399,12 +410,17 @@ function fakeAutopilotCommandReviewWarden(): ProductionWardenStartOptions {
   });
 }
 
-function fakeAutopilotDomainReviewWarden(): ProductionWardenStartOptions {
-  return fakeAutopilotReviewWarden({
-    reviewId: "egress_review_1",
-    summary: "egress to example.com requires review: curl https://example.com",
-    allowCommand: "keel approve egress_review_1 --scope once --domain example.com",
-  });
+function fakeAutopilotDomainReviewWarden(
+  resolveCapturePath?: string,
+): ProductionWardenStartOptions {
+  return fakeAutopilotReviewWarden(
+    {
+      reviewId: "egress_review_1",
+      summary: "egress to example.com requires review: curl https://example.com",
+      allowCommand: "keel approve egress_review_1 --scope once --domain example.com",
+    },
+    resolveCapturePath,
+  );
 }
 
 describe("selectRenderer (TTY/CI routing)", () => {
@@ -1201,7 +1217,12 @@ describe("parseKeelArgs", () => {
     expect(HELP_TEXT).toContain("keel doctor");
     expect(HELP_TEXT).toContain("keel --help | -h");
     expect(HELP_TEXT).toContain("--autopilot");
-    expect(HELP_TEXT).toContain("warden still asks on boundary expansion");
+    expect(HELP_TEXT).toContain(
+      "one-shot/headless; unresolved live reviews stop nonzero; use interactive keel to decide",
+    );
+    expect(HELP_TEXT).toContain("boundary expansion still routes to review");
+    expect(HELP_TEXT).toContain("unresolved one-shot review stops nonzero");
+    expect(HELP_TEXT).not.toContain("warden still asks on boundary expansion");
     expect(HELP_TEXT).toContain("reviewed local-stdio MCP route through the warden");
     expect(HELP_TEXT).toContain("unreviewed tools fail closed");
     expect(HELP_TEXT).not.toMatch(/secure by construction|approved|yolo|skip all prompts/i);
@@ -2274,6 +2295,42 @@ describe("runKeelCommand (bin orchestration: build runtime + store, run, dispose
     const msgs = rebuild(readSession(sessions[0]!.id, e)).messages;
     expect(msgs[0]?.role).toBe("system");
     expect(msgs[0]?.content).toMatch(/governance-native coding agent/);
+  });
+
+  it("one-shot without matching authority denies the unresolved review and exits nonzero", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "keel-cmd-headless-review-"));
+    const e: NodeJS.ProcessEnv = {
+      KEEL_HOME: join(cwd, ".keel"),
+      KEEL_NO_SNAPSHOT: "1",
+    };
+    const resolveCapturePath = join(cwd, "review-resolution.json");
+    const ui = new HeadlessUI(undefined, false, false);
+    const model = new ScriptedModel({
+      turns: [{ toolCalls: [{ name: "bash", args: { command: "curl https://example.com" } }] }],
+    } satisfies SimulatorScriptT);
+
+    const outcome = await runKeelCommand("fetch example.com", {
+      model,
+      ui,
+      cwd,
+      env: e,
+      trustFlag: true,
+      warden: fakeAutopilotDomainReviewWarden(resolveCapturePath),
+    });
+
+    expect(outcome).toMatchObject({
+      lastStop: "error",
+      lastStopCode: "BLOCKED",
+    });
+    expect(shouldExitNonZeroForRunOutcome(outcome)).toBe(true);
+    expect(JSON.parse(readFileSync(resolveCapturePath, "utf8"))).toMatchObject({
+      reviewId: "egress_review_1",
+      approved: false,
+    });
+    expect(ui.frame()).toContain("review closed as denied");
+    expect(ui.frame()).toContain("no review remains pending");
+    expect(ui.frame()).toContain("rerun with a live approval surface");
+    expect(ui.frame()).not.toContain("runtime-autopilot-ok");
   });
 
   it("threads human CLI Autopilot into the production warden runtime only after trust", async () => {
