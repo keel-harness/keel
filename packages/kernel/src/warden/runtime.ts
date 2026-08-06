@@ -609,8 +609,12 @@ function searchChildEnv(
   env: NodeJS.ProcessEnv,
   start: ProductionWardenStartOptions | undefined,
 ): NodeJS.ProcessEnv {
-  if (start?.env?.["KEEL_RG_PATH"] !== undefined || env["KEEL_RG_PATH"] !== undefined) return {};
-  return { KEEL_RG_PATH: resolveRgPath(env) };
+  const effectiveEnv = { ...env, ...start?.env };
+  const override = effectiveEnv["KEEL_RG_PATH"];
+  if (override !== undefined && override !== "") return {};
+  const compiledBinary =
+    process.versions["bun"] !== undefined || start?.env?.[INTERNAL_WARDEN_STDIO_ENV] === "1";
+  return { KEEL_RG_PATH: resolveRgPath(effectiveEnv, undefined, undefined, compiledBinary) ?? "" };
 }
 
 /** Build the warden child process's environment. Exported for the P1-11 test that pins the resolved

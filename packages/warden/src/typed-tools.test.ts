@@ -1476,6 +1476,23 @@ describe("warden typed search tool", () => {
   it("normalizes ripgrep spawn, timeout, and exit errors", async () => {
     const workspace = tempDir("keel-typed-search-errors-");
 
+    const unavailableSpawn = vi.fn(() => {
+      throw new Error("spawn must not run");
+    });
+    await expect(
+      executeSearchTool(
+        { pattern: "needle" },
+        {
+          workspaceRoot: workspace,
+          env: { KEEL_RG_PATH: "" },
+          spawn: unavailableSpawn,
+        },
+      ),
+    ).rejects.toThrow(
+      "search: bundled ripgrep is unavailable — run `keel doctor` for one repair action",
+    );
+    expect(unavailableSpawn).not.toHaveBeenCalled();
+
     await expect(
       executeSearchTool(
         { pattern: "needle" },

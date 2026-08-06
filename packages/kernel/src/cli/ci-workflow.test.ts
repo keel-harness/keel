@@ -552,8 +552,11 @@ describe("CI packaging workflow", () => {
 
     const workRoot = "WORK=$(mktemp -d)";
     const canonicalWorkRoot = `${workRoot}\n          WORK=$(realpath "$WORK")`;
-    expect(occurrenceCount(workflow, workRoot)).toBe(3);
+    expect(occurrenceCount(workflow, workRoot)).toBe(4);
     expect(occurrenceCount(workflow, canonicalWorkRoot)).toBe(3);
+    expect(workflow).toContain(
+      'MISSING_WORK=$(mktemp -d)\n          MISSING_WORK=$(realpath "$MISSING_WORK")',
+    );
     expect(releaseSmoke).toContain(`${workRoot}\nWORK=$(realpath "$WORK")`);
     expect(productionRendererSmoke).toContain("root = Path(directory).resolve()");
     expect(urgentSteeringSmoke).toContain("root = Path(directory).resolve()");
@@ -582,6 +585,20 @@ describe("CI packaging workflow", () => {
     expect(workflow).toContain(
       'KEEL_HOME="$DOCTOR_KEEL_HOME" PATH="$NODE_BIN:$WORK/node_modules/.bin:/usr/bin:/bin:/usr/sbin:/sbin" ./node_modules/.bin/keel doctor',
     );
+    expect(workflow).toContain('npm install --ignore-scripts --omit=optional "$TGZ"');
+    expect(workflow).toContain('MISSING_KEEL_HOME="$MISSING_WORK/keel-home"');
+    expect(workflow).toContain('"$MISSING_KEEL" --help');
+    expect(workflow).toContain('"$MISSING_KEEL" --version');
+    expect(workflow).toContain(
+      'MISSING_DOCTOR_OUT=$(KEEL_HOME="$MISSING_KEEL_HOME" "$MISSING_KEEL" doctor 2>&1)',
+    );
+    expect(workflow).toContain("bundled package unavailable");
+    expect(workflow).toContain(
+      'MISSING_SEARCH_OUT=$(KEEL_HOME="$MISSING_KEEL_HOME" "$MISSING_KEEL" run -p "search for keel" --trust --replay "$MISSING_SEARCH_REC" 2>&1)',
+    );
+    expect(workflow).toContain('if [ "$MISSING_SEARCH_STATUS" -ne 0 ]');
+    expect(workflow).toContain("bundled ripgrep is unavailable");
+    expect(workflow).toContain("Search could not run because its bundled runtime is unavailable");
   });
 
   it("typechecks the Bun packaging script before CI packaging builds (ER-030d)", () => {

@@ -1,7 +1,7 @@
 import { type ChildProcess, type SpawnOptions, spawn as defaultSpawn } from "node:child_process";
 import { existsSync, statSync } from "node:fs";
+import { createRequire } from "node:module";
 import { isAbsolute, relative, sep } from "node:path";
-import { rgPath } from "@vscode/ripgrep";
 import { z } from "zod";
 import {
   escapeSearchGlobLiteral,
@@ -18,6 +18,21 @@ import { ToolError } from "./errors.js";
 import { staticCapability, type CoreTool } from "./registry.js";
 import { truncateHeadTail, truncateHeadUtf8 } from "./truncate.js";
 import { Workspace } from "./workspace.js";
+
+const requireFromSearch = createRequire(import.meta.url);
+
+function resolveBundledRgPath(env: NodeJS.ProcessEnv): string {
+  // Resolve the native optional package from the umbrella package's dependency scope. This works
+  // with strict/non-hoisted installs and, unlike importing the umbrella module, cannot throw during
+  // this module's initialization when an install has been copied across platforms.
+  const umbrellaEntry = requireFromSearch.resolve("@vscode/ripgrep");
+  const requireFromRipgrep = createRequire(umbrellaEntry);
+  const arch = env["npm_config_arch"] ?? process.arch;
+  const binaryName = process.platform === "win32" ? "rg.exe" : "rg";
+  return requireFromRipgrep.resolve(
+    `@vscode/ripgrep-${process.platform}-${arch}/bin/${binaryName}`,
+  );
+}
 
 /** Hard cap on results returned to the model (head-only; refine to narrow). */
 export const SEARCH_MAX_RESULTS = 200;
@@ -284,25 +299,36 @@ function filenameMatchesVisibleSearchGlob(path: string, glob: string): boolean {
 /**
  * Resolve the ripgrep binary to run. The npx/dev install carries `@vscode/ripgrep` (a native rg
  * binary under `node_modules`); the `bun --compile` standalone binary cannot embed that native
- * binary, so it relies on **system `rg` on PATH** (which `keel doctor` checks). Order: an explicit
- * `KEEL_RG_PATH` override → the bundled binary when it exists on disk → bare `"rg"` (PATH lookup).
+ * binary, so it relies on **system `rg` on PATH** (which `keel doctor` checks). The npm carrier
+ * fails closed when its optional platform package is unavailable: silently consulting PATH there
+ * would let a workspace-controlled shim execute with Warden authority. Order: an explicit
+ * `KEEL_RG_PATH` override → bare `"rg"` for the standalone carrier only → the npm-bundled binary.
  * Pure + injectable for tests (Epic 1.10 / ADR-0040).
  */
 export function resolveRgPath(
   env: NodeJS.ProcessEnv = process.env,
   exists: (p: string) => boolean = existsSync,
-): string {
+  loadBundled: (env: NodeJS.ProcessEnv) => string = resolveBundledRgPath,
+  standalone = process.versions["bun"] !== undefined,
+): string | undefined {
   const override = env["KEEL_RG_PATH"];
   if (override !== undefined && override !== "") return override;
-  if (exists(rgPath)) return rgPath; // bundled @vscode/ripgrep (npx/dev)
-  return "rg"; // system rg on PATH (the standalone binary)
+  if (standalone) return "rg";
+  try {
+    const bundled = loadBundled(env);
+    if (exists(bundled)) return bundled; // bundled platform package (npx/dev)
+  } catch {
+    // An npm install copied across platforms can legitimately lack this optional package. Keep
+    // recovery commands loadable, but do not widen the Warden's executable source to PATH.
+  }
+  return undefined;
 }
 
 /** Injection seam for tests: override the spawn call (spawn-error branch) and/or the rg binary path. */
 export interface SearchToolDeps {
   readonly spawn?: (cmd: string, args: string[], opts: SpawnOptions) => ChildProcess;
-  /** Override the resolved ripgrep binary (defaults to `resolveRgPath()`). */
-  readonly rgPath?: string;
+  /** Override the resolved ripgrep binary; `null` represents an unavailable npm carrier in tests. */
+  readonly rgPath?: string | null;
   /** Override the per-search wall-clock cap (defaults to `SEARCH_TIMEOUT_MS`). */
   readonly timeoutMs?: number;
 }
@@ -470,10 +496,15 @@ function runRg(
 
 export function createSearchTool(workspace: Workspace, deps: SearchToolDeps = {}): CoreTool {
   const spawnFn = deps.spawn ?? defaultSpawn;
-  const rgBin = deps.rgPath ?? resolveRgPath();
+  const rgBin = deps.rgPath === null ? undefined : (deps.rgPath ?? resolveRgPath());
   const timeoutMs = deps.timeoutMs ?? SEARCH_TIMEOUT_MS;
   const handler = async (raw: JsonObjectT, opts?: { signal?: AbortSignal }): Promise<string> => {
     const args = parseArgs("search", SearchArgs, normalizeSearchArgs(workspace, raw));
+    if (rgBin === undefined) {
+      throw new ToolError(
+        "search: bundled ripgrep is unavailable — run `keel doctor` for one repair action",
+      );
+    }
     const cap = Math.min(args.maxResults ?? SEARCH_MAX_RESULTS, SEARCH_MAX_RESULTS);
     const root = workspace.root;
     // Reuse the Workspace containment guard so `search` honours the same protections as read/write/edit

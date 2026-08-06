@@ -1756,6 +1756,12 @@ export async function executeSearchTool(
     }
   };
   const rgBin = options.rgPath ?? env["KEEL_RG_PATH"] ?? "rg";
+  if (rgBin === "") {
+    throw new TypedToolError(
+      "TOOL_ERROR",
+      "search: bundled ripgrep is unavailable — run `keel doctor` for one repair action",
+    );
+  }
   const spawnFn = options.spawn ?? defaultSpawn;
   const timeoutMs = options.timeoutMs ?? SEARCH_TIMEOUT_MS;
 

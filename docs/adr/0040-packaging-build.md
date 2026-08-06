@@ -1,6 +1,6 @@
 # 0040 — Packaging build: bun-compile binaries + npx bundle
 
-**Status:** accepted
+**Status:** accepted; amended 2026-08-06 for fail-closed optional-ripgrep bootstrap
 **Date:** 2026-06-16
 **Relates to:** ADR-0009 (bun-compile packaging — the format decision this implements), ADR-0031
 (full-fidelity recording — the replay one-task smoke), ADR-0037 (avoid native modules that fight
@@ -48,13 +48,14 @@ left open:
      license evidence fails the build closed. This graph inventory is deliberately broader than the
      four-package externalization exception.
    - **`build/bin/`** — `bun --compile` binaries per target, everything bundled.
-2. **The compiled binary uses system ripgrep.** `search` gains `resolveRgPath` (KEEL_RG_PATH
-   override → bundled `@vscode/ripgrep` when present on disk → bare `"rg"` on PATH). For the binary,
-   the build **stubs at bundle time**: `@vscode/ripgrep` → `export const rgPath = "rg"` (so
-   `resolveRgPath` falls through to PATH) and `react-devtools-core` → empty (an optional ink peer the
-   bundler eagerly follows but that only loads under `DEV=true`, never in a shipped build). `keel
-   doctor` checks for system rg and emits the one-line install fix — so the binary's rg dependency is
-   honest and self-diagnosing.
+2. **Ripgrep resolution is carrier-specific and fail-closed.** `search` gains `resolveRgPath`.
+   An explicit operator `KEEL_RG_PATH` wins. The detected standalone binary then selects bare `"rg"`
+   on PATH, which `keel doctor` checks. The npm carrier instead resolves its native optional package
+   from the `@vscode/ripgrep` umbrella's dependency scope without executing the umbrella module. If
+   that optional package is absent, help/version/doctor remain usable, doctor gives one reinstall
+   action, and governed search fails before spawn; npm never silently widens to PATH. The binary build
+   stubs only `react-devtools-core`, an optional Ink peer the bundler eagerly follows but that loads
+   only under `DEV=true`, never in a shipped build.
 3. **The `npx` mechanism is proven via a packed tarball** (`npm pack` → install into a fresh prefix
    → run `--version`/`doctor`), in CI on ubuntu + macOS. The one-task replay smoke (ADR-0031
    `Recording`, hermetic, no key) is part of the package-generation slice.

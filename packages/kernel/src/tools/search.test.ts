@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { execFileSync, type ChildProcess } from "node:child_process";
 import { EventEmitter } from "node:events";
@@ -7,7 +7,6 @@ import { join } from "node:path";
 import type { JsonObjectT } from "@keel/shared";
 import { Workspace } from "./workspace.js";
 import { ToolError } from "./errors.js";
-import { rgPath } from "@vscode/ripgrep";
 import {
   SEARCH_MAX_LINE_BYTES,
   SEARCH_MAX_OUTPUT_BYTES,
@@ -630,7 +629,19 @@ describe("search tool — spawn-error branch (injection seam)", () => {
         return fakeChild as unknown as ChildProcess;
       },
     });
-    await expect(tool.handler({ pattern: "x" }) as Promise<string>).rejects.toThrow(ToolError);
+    await expect(tool.handler({ pattern: "x" }) as Promise<string>).rejects.toThrow(
+      "search: cannot run ripgrep: ENOENT: spawn failed",
+    );
+  });
+
+  it("fails before spawn with one recovery action when bundled ripgrep is unavailable", async () => {
+    const spawn = vi.fn();
+    const tool = createSearchTool(new Workspace(root), { rgPath: null, spawn });
+
+    await expect(tool.handler({ pattern: "x" }) as Promise<string>).rejects.toThrow(
+      "search: bundled ripgrep is unavailable — run `keel doctor` for one repair action",
+    );
+    expect(spawn).not.toHaveBeenCalled();
   });
 });
 
@@ -752,17 +763,60 @@ describe("search tool — minimal child env (EXEC-2) + cancellation/timeout (EXE
 
 describe("resolveRgPath — bundled (npx/dev) vs system rg (standalone binary)", () => {
   it("honors an explicit KEEL_RG_PATH override", () => {
-    expect(resolveRgPath({ KEEL_RG_PATH: "/opt/rg" }, () => true)).toBe("/opt/rg");
+    const loadBundled = (): string => {
+      throw new Error("must not resolve a bundled package for an explicit override");
+    };
+    expect(resolveRgPath({ KEEL_RG_PATH: "/opt/rg" }, () => true, loadBundled)).toBe("/opt/rg");
     // An empty override is ignored (falls through to detection).
-    expect(resolveRgPath({ KEEL_RG_PATH: "" }, () => true)).toBe(rgPath);
+    expect(
+      resolveRgPath(
+        { KEEL_RG_PATH: "" },
+        () => true,
+        () => "/bundled/rg",
+      ),
+    ).toBe("/bundled/rg");
   });
 
   it("uses the bundled @vscode/ripgrep when it exists on disk (npx/dev)", () => {
-    expect(resolveRgPath({}, () => true)).toBe(rgPath);
+    expect(
+      resolveRgPath(
+        {},
+        () => true,
+        () => "/bundled/rg",
+      ),
+    ).toBe("/bundled/rg");
   });
 
-  it("falls back to system rg on PATH when the bundled binary is absent (compiled binary)", () => {
-    expect(resolveRgPath({}, () => false)).toBe("rg");
+  it.each([
+    {
+      label: "the platform package is not installed",
+      exists: () => true,
+      loadBundled: () => {
+        throw Object.assign(new Error("missing optional package"), { code: "MODULE_NOT_FOUND" });
+      },
+    },
+    {
+      label: "the resolved bundled binary is absent",
+      exists: () => false,
+      loadBundled: () => "/missing/bundled/rg",
+    },
+  ])("fails closed instead of consulting PATH when $label", ({ exists, loadBundled }) => {
+    expect(resolveRgPath({}, exists, loadBundled)).toBeUndefined();
+  });
+
+  it("uses system rg only for the explicit standalone-binary carrier", () => {
+    expect(
+      resolveRgPath(
+        {},
+        () => {
+          throw new Error("must not probe a bundled path for the standalone carrier");
+        },
+        () => {
+          throw new Error("must not load a bundled package for the standalone carrier");
+        },
+        true,
+      ),
+    ).toBe("rg");
   });
 });
 

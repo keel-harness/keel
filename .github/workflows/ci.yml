@@ -571,6 +571,7 @@ jobs:
         run: |
           set -euo pipefail
           REC="$PWD/packaging/smoke.recording.json"   # absolute — the install runs from a temp dir
+          MISSING_SEARCH_REC="$PWD/packaging/smoke-missing-ripgrep.recording.json"
           PRODUCTION_RENDERER_SMOKE="$PWD/packaging/smoke-npx-production-renderer.py"
           MCP_REVIEW_SMOKE="$PWD/packaging/smoke-npx-mcp-review.mjs"
           LOOP_CONTINUATION_SMOKE="$PWD/packaging/smoke-loop-continuation.mjs"
@@ -638,6 +639,39 @@ jobs:
           fi
           if ! echo "$OUT" | grep -q replay-smoke-complete; then
             printf 'npx replay output missing replay-smoke-complete:\n%s\n' "$OUT"
+            exit 1
+          fi
+
+          # A copied/cross-platform install can lack npm's native optional package. Recovery
+          # commands must still boot, and governed search must fail before consulting system PATH.
+          MISSING_WORK=$(mktemp -d)
+          MISSING_WORK=$(realpath "$MISSING_WORK")
+          cd "$MISSING_WORK"
+          npm init -y >/dev/null 2>&1
+          npm_config_engine_strict=true npm install --ignore-scripts --omit=optional "$TGZ"
+          MISSING_KEEL="$MISSING_WORK/node_modules/.bin/keel"
+          MISSING_KEEL_HOME="$MISSING_WORK/keel-home"
+          mkdir -m 700 -- "$MISSING_KEEL_HOME"
+          "$MISSING_KEEL" --help | grep -Fq 'usage: keel [command]'
+          "$MISSING_KEEL" --version | grep -qE '^keel [0-9]+\.[0-9]+\.[0-9]+'
+          set +e
+          MISSING_DOCTOR_OUT=$(KEEL_HOME="$MISSING_KEEL_HOME" "$MISSING_KEEL" doctor 2>&1)
+          MISSING_DOCTOR_STATUS=$?
+          set -e
+          if [ "$MISSING_DOCTOR_STATUS" -ne 1 ] || ! echo "$MISSING_DOCTOR_OUT" | grep -Fq 'bundled package unavailable'; then
+            printf 'missing-optional doctor was not actionable (exit %s):\n%s\n' "$MISSING_DOCTOR_STATUS" "$MISSING_DOCTOR_OUT"
+            exit 1
+          fi
+          set +e
+          MISSING_SEARCH_OUT=$(KEEL_HOME="$MISSING_KEEL_HOME" "$MISSING_KEEL" run -p "search for keel" --trust --replay "$MISSING_SEARCH_REC" 2>&1)
+          MISSING_SEARCH_STATUS=$?
+          set -e
+          # A failed tool is returned to the model so it can explain recovery; a clean final model
+          # stop therefore exits 0. Prove the tool itself failed closed and the human saw the fix.
+          if [ "$MISSING_SEARCH_STATUS" -ne 0 ] \
+            || [[ "$MISSING_SEARCH_OUT" != *"bundled ripgrep is unavailable"* ]] \
+            || [[ "$MISSING_SEARCH_OUT" != *"Search could not run because its bundled runtime is unavailable"* ]]; then
+            printf 'missing-optional search did not fail closed with recovery guidance (exit %s):\n%s\n' "$MISSING_SEARCH_STATUS" "$MISSING_SEARCH_OUT"
             exit 1
           fi
 

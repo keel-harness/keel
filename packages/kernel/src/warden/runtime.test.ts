@@ -728,6 +728,54 @@ describe("resolveProductionWardenStart", () => {
 });
 
 describe("childEnvFor — the warden receives the kernel's RESOLVED absolute keel home (P1-11)", () => {
+  it("does not turn a missing npm ripgrep package into a PATH-resolved Warden executable", () => {
+    const env = childEnvFor(
+      {
+        cwd: "/workspace",
+        env: { HOME: "/home/y", npm_config_arch: "keel-missing-optional" },
+      },
+      undefined,
+    );
+
+    expect(env["KEEL_RG_PATH"]).toBe("");
+  });
+
+  it("uses PATH ripgrep only for the explicit standalone-binary carrier", () => {
+    const env = childEnvFor(
+      { cwd: "/workspace", env: { HOME: "/home/y" } },
+      {
+        command: "/opt/keel/keel",
+        args: [],
+        env: { KEEL_INTERNAL_WARDEN_STDIO: "1" },
+      },
+    );
+
+    expect(env["KEEL_RG_PATH"]).toBe("rg");
+  });
+
+  it("preserves an explicit operator ripgrep override for every carrier", () => {
+    const env = childEnvFor(
+      { cwd: "/workspace", env: { HOME: "/home/y", KEEL_RG_PATH: "/opt/operator/rg" } },
+      undefined,
+    );
+
+    expect(env["KEEL_RG_PATH"]).toBe("/opt/operator/rg");
+  });
+
+  it("treats an empty ripgrep override as absent so Kernel and doctor select the bundled carrier", () => {
+    const baseEmpty = childEnvFor(
+      { cwd: "/workspace", env: { HOME: "/home/y", KEEL_RG_PATH: "" } },
+      undefined,
+    );
+    const startEmpty = childEnvFor(
+      { cwd: "/workspace", env: { HOME: "/home/y", KEEL_RG_PATH: "/stale/rg" } },
+      { command: "node", args: ["warden.mjs"], env: { KEEL_RG_PATH: "" } },
+    );
+
+    expect(baseEmpty["KEEL_RG_PATH"]).toMatch(/@vscode[/+]ripgrep/u);
+    expect(startEmpty["KEEL_RG_PATH"]).toMatch(/@vscode[/+]ripgrep/u);
+  });
+
   it("resolves a relative kernel KEEL_HOME to absolute for the warden (so it can't drift on the warden's cwd)", () => {
     const env = childEnvFor(
       { cwd: "/workspace", env: { KEEL_HOME: "relstate", HOME: "/home/x" } },
