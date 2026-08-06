@@ -66,6 +66,7 @@ import {
 } from "./purposeful-liveness.js";
 import { GROSS_RUNWAY_PREFLIGHT_CODE } from "../events.js";
 import { createFinalAnswerPresentation } from "./final-answer-presentation.js";
+import { exactProcessRunReviewSummaryForInformation } from "../warden/process-run-review-presentation.js";
 
 export interface RunSessionOpts {
   readonly model: ModelPort;
@@ -501,14 +502,34 @@ async function runSessionImpl(
   const disconnectReviewDecisions = opts.reviewDecisions?.connect({
     presentation: (event) => {
       switch (event.kind) {
-        case "opened":
+        case "opened": {
+          const processRunPresentationExpected =
+            event.losslessProcessRunSummary !== undefined ||
+            (event.information.requestedAction.status === "available" &&
+              event.information.requestedAction.value === "process.run");
           view = reduce(view, {
             type: "approval-opened",
             detail: event.detail,
             sessionAvailable: event.sessionAvailable,
             information: event.information,
+            ...(event.losslessProcessRunSummary === undefined
+              ? {}
+              : { losslessProcessRunSummary: event.losslessProcessRunSummary }),
           });
+          if (
+            processRunPresentationExpected &&
+            (event.losslessProcessRunSummary === undefined ||
+              event.detail !== event.losslessProcessRunSummary ||
+              view.activeApproval?.detail !== event.losslessProcessRunSummary ||
+              view.activeApproval.state !== "pending" ||
+              view.activeApproval.sessionAvailable ||
+              exactProcessRunReviewSummaryForInformation(view.activeApproval.information) !==
+                event.losslessProcessRunSummary)
+          ) {
+            opts.reviewDecisions?.cancelPending();
+          }
           break;
+        }
         case "message":
           view = reduce(view, { type: "approval-message", content: event.content });
           break;

@@ -10,6 +10,7 @@ import {
   terminalDisplayWidth,
   truncateDisplayCells,
   wrapDisplayLine,
+  wrapLosslessDisplayLine,
 } from "./display-cells.js";
 import { ALL_OFF_POSTURE, statusRows } from "./view-model.js";
 
@@ -82,6 +83,25 @@ describe("Epic 3.10 Slice 3B0 shared grapheme and display-cell contract", () => 
       "🇨🇦",
       "界",
     ]);
+  });
+
+  it("wraps exact evidence without ambiguous source whitespace at a physical row edge", () => {
+    const prefix = "exact argv: 'very-long-command-name-to-force-a-clean-argv-wrap";
+    for (let alignment = 0; alignment <= 53; alignment += 1) {
+      const value = `${prefix}${"x".repeat(alignment)}' ' leading  repeated  trailing ' ''.`;
+      const rows = wrapLosslessDisplayLine(value, 84);
+
+      expect(rows).toBeDefined();
+      expect(rows?.map((row) => row.text).join("")).toBe(value);
+      expect(rows?.every((row) => row.cells <= 84)).toBe(true);
+      expect(rows?.every((row) => !/^\s|\s$/u.test(row.text))).toBe(true);
+    }
+  });
+
+  it("refuses exact evidence whose whitespace cannot be distinguished from row padding", () => {
+    expect(wrapLosslessDisplayLine(" leading", 18)).toBeUndefined();
+    expect(wrapLosslessDisplayLine("trailing ", 18)).toBeUndefined();
+    expect(wrapLosslessDisplayLine(`left${" ".repeat(18)}right`, 18)).toBeUndefined();
   });
 
   it("reports exact hidden cells for a grapheme-safe prefix", () => {

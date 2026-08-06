@@ -16,6 +16,10 @@ import {
 import { resolveAutonomyPosture } from "../autopilot/posture.js";
 import { EGRESS_ADDRESS_GUARD_CAPABILITY, wardenStatusViewConfig } from "../warden/status.js";
 import { graphemeSpans, terminalDisplayWidth } from "./display-cells.js";
+import {
+  associateExactProcessRunReviewInformation,
+  exactProcessRunReviewSummaryForInformation,
+} from "../warden/process-run-review-presentation.js";
 
 const ESC = String.fromCharCode(27); // ANSI escapes start with this byte
 const BEL = String.fromCharCode(7);
@@ -381,6 +385,50 @@ describe("headless renderer", () => {
     });
     expect(forged).toContain("note");
     expect(forged).not.toContain("approval required");
+  });
+
+  it("preserves exact process.run argv spacing in the interactive headless approval surface", () => {
+    const summary =
+      "Workspace files changed. Approving runs it once: 'git' 'diff' ' leading  repeated  trailing ' ''.";
+    const information = associateExactProcessRunReviewInformation(
+      {
+        requestedAction: { status: "available", value: "process.run" },
+        effectiveTarget: { status: "available", value: summary, completeness: "complete" },
+        reason: {
+          status: "available",
+          value: "Warden requires human authorization before execution",
+        },
+        policyDetail: {
+          status: "unavailable",
+          reason: "matched policy rule not reported by protocol 1.1",
+        },
+        exactResource: {
+          status: "unavailable",
+          reason: "no exact reusable resource in the Warden review",
+        },
+      },
+      summary,
+    );
+    if (information === undefined) throw new Error("expected exact process review information");
+    const view = reduce(initialView([], status), {
+      type: "approval-opened",
+      detail: summary,
+      sessionAvailable: false,
+      information,
+      losslessProcessRunSummary: summary,
+    });
+
+    const frame = renderFrame(view);
+
+    expect(view.activeApproval?.detail).toBe(summary);
+    expect(exactProcessRunReviewSummaryForInformation(view.activeApproval?.information)).toBe(
+      summary,
+    );
+    expect(frame).toContain(summary);
+    expect(frame).toContain("' leading  repeated  trailing ' ''");
+    expect(frame).toContain("[a] Approve once");
+    expect(frame).toContain("[d] Deny");
+    expect(frame).not.toContain("[s] Session");
   });
 
   it.each([

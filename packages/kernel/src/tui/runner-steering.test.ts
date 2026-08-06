@@ -41,6 +41,11 @@ import { WardenClientError } from "../warden/client.js";
 import { createAgentLoopControlState } from "../loop.js";
 import { recoverableTerminalReviewResult } from "../warden/terminal-review.js";
 import { buildTurnSummary, initialView } from "./view-model.js";
+import {
+  associateExactProcessRunReviewInformation,
+  exactProcessRunReviewSummaryForInformation,
+} from "../warden/process-run-review-presentation.js";
+import type { InteractiveReviewDecisionController } from "./review-decision.js";
 
 const env = (): NodeJS.ProcessEnv => ({ KEEL_HOME: mkdtempSync(join(tmpdir(), "keel-")) });
 
@@ -530,6 +535,105 @@ describe("runner — /diff toggles the diff disclosure mode (Epic 1.5b)", () => 
     expect(durable).not.toContain("effectiveTarget");
     expect(durable).not.toContain("exactResource");
     expect(durable).not.toContain(commandKey);
+  });
+
+  it("settles an exact process.run review as denied if presentation storage changes one byte", async () => {
+    const e = env();
+    const store = SessionStore.create({ cwd: "/w" }, e);
+    const ui = new QueueUI();
+    const summary =
+      "Workspace files changed. Approving runs it once: 'git' 'diff' ' leading  repeated ' ''.";
+    const information = associateExactProcessRunReviewInformation(
+      {
+        requestedAction: { status: "available", value: "process.run" },
+        effectiveTarget: { status: "available", value: summary, completeness: "complete" },
+        reason: { status: "available", value: "Warden requires human authorization" },
+        policyDetail: { status: "unavailable", reason: "not reported" },
+        exactResource: { status: "unavailable", reason: "once only" },
+      },
+      summary,
+    );
+    if (information === undefined) throw new Error("expected exact process review information");
+
+    let present:
+      | Parameters<InteractiveReviewDecisionController["connect"]>[0]["presentation"]
+      | undefined;
+    let resolveDecision: ((decision: undefined) => void) | undefined;
+    let cancellations = 0;
+    const reviewDecisions: InteractiveReviewDecisionController = {
+      onReviewRequired: () =>
+        new Promise((resolve) => {
+          resolveDecision = resolve;
+          present?.({
+            kind: "opened",
+            detail: `${summary} `,
+            sessionAvailable: false,
+            information,
+            losslessProcessRunSummary: summary,
+          });
+        }),
+      handleInput: () => false,
+      cancelPending: () => {
+        cancellations += 1;
+        present?.({ kind: "closed", content: "presentation integrity check failed" });
+        resolveDecision?.(undefined);
+        resolveDecision = undefined;
+        return true;
+      },
+      awaitTimedOutReviewSettlement: () => Promise.resolve(undefined),
+      connect: ({ presentation }) => {
+        present = presentation;
+        return () => {
+          present = undefined;
+        };
+      },
+    };
+    const executor: ExecutorPort = {
+      execute: async (toolCall) => {
+        const decision = await reviewDecisions.onReviewRequired({
+          toolCall,
+          review: {
+            reviewId: "process_review_1",
+            summary,
+            allowCommand: "keel approve process_review_1 --scope once",
+          },
+        });
+        return decision?.approved === true
+          ? { ok: true, output: "must not execute" }
+          : { ok: false, output: "review closed as denied" };
+      },
+    };
+
+    try {
+      await runSession({
+        model: new ScriptedModel({
+          turns: [
+            { toolCalls: [{ name: "process.run", args: { argv: ["git", "diff"] } }] },
+            { text: "stopped after presentation denial" },
+          ],
+        }),
+        executor,
+        ui,
+        store,
+        seed,
+        env: e,
+        reviewDecisions,
+      });
+
+      expect(cancellations).toBe(1);
+      expect(ui.renders.some((view) => view.activeApproval?.detail === `${summary} `)).toBe(false);
+      expect(
+        ui.renders.some(
+          (view) =>
+            view.activeApproval?.state === "pending" &&
+            exactProcessRunReviewSummaryForInformation(view.activeApproval.information) === summary,
+        ),
+      ).toBe(false);
+      expect(renderFrame(ui.view())).toContain("review closed as denied");
+      expect(renderFrame(ui.view())).not.toContain("must not execute");
+    } finally {
+      store.close();
+    }
   });
 
   it("carries approved governed deny through the runner without authority or effect overclaims", async () => {

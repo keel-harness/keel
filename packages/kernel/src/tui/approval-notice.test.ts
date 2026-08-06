@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { approvalNoticePlan, approvalNoticeRows } from "./approval-notice.js";
 import { terminalDisplayWidth } from "./row-budget.js";
+import { associateExactProcessRunReviewInformation } from "../warden/process-run-review-presentation.js";
 
 function hasUnpairedSurrogate(value: string): boolean {
   for (let index = 0; index < value.length; index += 1) {
@@ -17,6 +18,76 @@ function hasUnpairedSurrogate(value: string): boolean {
 }
 
 describe("typed approval presentation", () => {
+  it("keeps authenticated process.run review bytes exact in full and compact plans", () => {
+    const summary = "exact process.run target: 'git' 'diff' ' leading  repeated  trailing ' ''.";
+    const information = associateExactProcessRunReviewInformation(
+      {
+        requestedAction: { status: "available", value: "process.run" },
+        effectiveTarget: { status: "available", value: summary, completeness: "complete" },
+        reason: {
+          status: "available",
+          value: "Warden requires human authorization before execution",
+        },
+        policyDetail: {
+          status: "unavailable",
+          reason: "matched policy rule not reported by protocol 1.1",
+        },
+        exactResource: {
+          status: "unavailable",
+          reason: "no exact reusable resource in the Warden review",
+        },
+      },
+      summary,
+    );
+    if (information === undefined) throw new Error("expected exact process review information");
+    const plan = approvalNoticePlan({
+      detail: summary,
+      sessionAvailable: false,
+      state: "pending",
+      information,
+    });
+
+    expect(plan.detail).toBe(summary);
+    expect(approvalNoticeRows(plan)).toContainEqual({ kind: "evidence", text: summary });
+    expect(approvalNoticeRows(plan, { compact: true })).toContainEqual({
+      kind: "evidence",
+      text: `Effective target · ${summary}`,
+    });
+  });
+
+  it("removes all approval actions when an exact process.run presentation loses byte identity", () => {
+    const summary = "exact process.run target: 'git' 'diff' ' repeated  spaces ' ''.";
+    const information = associateExactProcessRunReviewInformation(
+      {
+        requestedAction: { status: "available", value: "process.run" },
+        effectiveTarget: { status: "available", value: summary, completeness: "complete" },
+        reason: { status: "available", value: "Warden requires human authorization" },
+        policyDetail: { status: "unavailable", reason: "not reported" },
+        exactResource: { status: "unavailable", reason: "once only" },
+      },
+      summary,
+    );
+    if (information === undefined) throw new Error("expected exact process review information");
+
+    const plan = approvalNoticePlan({
+      detail: `${summary} `,
+      sessionAvailable: false,
+      state: "pending",
+      information,
+    });
+
+    expect(plan).toMatchObject({
+      heading: "decision not confirmed",
+      state: "failed",
+      sessionAvailable: false,
+      message: "exact process.run review presentation failed; action will be denied",
+    });
+    expect(plan.actions).toBeUndefined();
+    expect(approvalNoticeRows(plan).map((row) => row.text)).not.toContain(
+      "[a] Approve once · this action only",
+    );
+  });
+
   it("separates every informed-consent fact and state-specific next step", () => {
     const key = `sha256:${"a".repeat(64)}`;
     const plan = approvalNoticePlan({

@@ -175,6 +175,66 @@ export function wrapDisplayLine(value: string, columns: number): readonly Displa
   return rows;
 }
 
+/**
+ * Hard-wrap an exact evidence line without leaving source whitespace at a physical row edge.
+ * Callers can remove terminal padding from every row and concatenate the fragments to recover the
+ * byte-identical input. `undefined` means the value cannot be displayed unambiguously at this width.
+ */
+export function wrapLosslessDisplayLine(
+  value: string,
+  columns: number,
+): readonly DisplayCellRow[] | undefined {
+  assertCellBudget(columns, false);
+  assertSingleLine(value);
+  if (value.length === 0) return [{ text: "", cells: 0 }];
+
+  const spans = graphemeSpans(value);
+  const isWhitespace = (text: string): boolean => /^\s+$/u.test(text);
+  if (isWhitespace(spans[0]!.text) || isWhitespace(spans.at(-1)!.text)) return undefined;
+
+  const rows: DisplayCellRow[] = [];
+  let start = 0;
+  while (start < spans.length) {
+    let cells = 0;
+    let end = start;
+    while (end < spans.length) {
+      const span = spans[end]!;
+      const width = terminalCellWidth(span.text, cells);
+      if (cells + width > columns) break;
+      cells += width;
+      end += 1;
+    }
+
+    if (end === spans.length) {
+      rows.push({
+        text: spans
+          .slice(start)
+          .map((span) => span.text)
+          .join(""),
+        cells,
+      });
+      break;
+    }
+
+    let boundary = end;
+    while (
+      boundary > start &&
+      (isWhitespace(spans[boundary - 1]!.text) || isWhitespace(spans[boundary]!.text))
+    ) {
+      boundary -= 1;
+    }
+    if (boundary === start) return undefined;
+
+    const text = spans
+      .slice(start, boundary)
+      .map((span) => span.text)
+      .join("");
+    rows.push({ text, cells: terminalDisplayWidth(text) });
+    start = boundary;
+  }
+  return rows;
+}
+
 /** Largest whole-grapheme prefix within `maxCells`, including an exact hidden-cell count. */
 export function takeDisplayCells(value: string, maxCells: number): DisplayCellSlice {
   assertCellBudget(maxCells, true);

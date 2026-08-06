@@ -31,6 +31,10 @@ import {
   markToolPresentationOutcome,
   type ToolPresentationOutcome,
 } from "../../tool-presentation-outcome.js";
+import {
+  associateExactProcessRunReviewInformation,
+  exactProcessRunReviewSummaryForInformation,
+} from "../../warden/process-run-review-presentation.js";
 
 const status = { model: "sonnet", tokens: 12, posture: ALL_OFF_POSTURE };
 
@@ -2363,6 +2367,84 @@ describe("Ink App (frame snapshots via ink-testing-library)", () => {
     expect(frame).not.toContain("manual approval command");
     expect(frame).not.toMatch(/note\s+approval required/u);
   });
+
+  it.each([30, 31])(
+    "preserves exact process.run argv spacing across a terminal-edge wrap at 100x%d",
+    async (terminalRows) => {
+      const restoreEnv = setTerminalEnv({ TERM: "xterm-truecolor", FORCE_COLOR: "3" });
+      const summary =
+        "Workspace files changed. This exact argv may run changed repository-controlled code and may " +
+        "read or write the workspace and Warden temporary roots. Network access, enumerated home " +
+        "credentials, discovered `.env*` files, Warden/audit writes, and writes outside those roots " +
+        "remain denied. Other unrecognized sensitive workspace files may be readable. Approving runs " +
+        "it once: 'very-long-command-name-to-force-a-clean-argv-wrapxxxx' " +
+        "' leading  repeated  trailing ' ''.";
+      const information = associateExactProcessRunReviewInformation(
+        {
+          requestedAction: { status: "available", value: "process.run" },
+          effectiveTarget: { status: "available", value: summary, completeness: "complete" },
+          reason: {
+            status: "available",
+            value: "Warden requires human authorization before execution",
+          },
+          policyDetail: {
+            status: "unavailable",
+            reason: "matched policy rule not reported by protocol 1.1",
+          },
+          exactResource: {
+            status: "unavailable",
+            reason: "no exact reusable resource in the Warden review",
+          },
+        },
+        summary,
+      );
+      if (information === undefined) throw new Error("expected exact process review information");
+      const view = reduce(initialView([], status), {
+        type: "approval-opened",
+        detail: summary,
+        sessionAvailable: false,
+        information,
+        losslessProcessRunSummary: summary,
+      });
+      const { stdout, rendered } = renderWithRealStatic(view, {
+        columns: 100,
+        rows: terminalRows,
+      });
+
+      try {
+        await rendered.waitUntilRenderFlush();
+        const output = stripAnsiCsi(stdout.output());
+        const viewport = output.split("\n").slice(-terminalRows).join("\n");
+        const viewportRows = viewport
+          .split("\n")
+          .map((line) => (line.startsWith("│") ? line.slice(1, -1).trim() : line.trim()));
+        const viewportText = viewportRows.join(" ");
+        const exactTargetStart = viewportRows.indexOf("Effective target");
+        const exactTargetEnd = viewportRows.findIndex(
+          (line, index) => index > exactTargetStart && line.startsWith("Why ·"),
+        );
+        const renderedExactTarget = viewportRows
+          .slice(exactTargetStart + 1, exactTargetEnd)
+          .join("");
+        expect(view.activeApproval?.detail).toBe(summary);
+        expect(exactProcessRunReviewSummaryForInformation(view.activeApproval?.information)).toBe(
+          summary,
+        );
+        expect(exactTargetStart).toBeGreaterThanOrEqual(0);
+        expect(exactTargetEnd).toBeGreaterThan(exactTargetStart);
+        expect(renderedExactTarget).toBe(summary);
+        expect(viewportText).toContain("Workspace files changed.");
+        expect(renderedExactTarget).toContain("' leading  repeated  trailing ' ''.");
+        expect(viewportText).toContain("[a] Approve once");
+        expect(viewportText).toContain("[d] Deny");
+        expect(viewportText).not.toContain("[s] Session");
+        expect(viewportText).not.toContain("[p] Project");
+      } finally {
+        rendered.unmount();
+        restoreEnv();
+      }
+    },
+  );
 
   it("makes a settled once approval outrank retained pending scrollback at 120x40", async () => {
     const restoreEnv = setTerminalEnv({ TERM: "xterm-truecolor", FORCE_COLOR: "3" });

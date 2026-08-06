@@ -1,6 +1,7 @@
 import type { UiActiveApproval, UiApprovalInformation } from "@keel/shared";
 import { graphemeSpans, takeDisplayCells, terminalDisplayWidth } from "./display-cells.js";
 import { stripControlLine } from "./strip.js";
+import { exactProcessRunReviewSummaryForInformation } from "../warden/process-run-review-presentation.js";
 
 export interface ApprovalNoticePlan {
   readonly heading:
@@ -22,6 +23,7 @@ export interface ApprovalNoticePlan {
   readonly next: string;
   readonly selectedChoice?: UiActiveApproval["selectedChoice"];
   readonly message?: string;
+  readonly losslessProcessRunSummary?: string;
 }
 
 export interface ApprovalNoticeFact {
@@ -111,43 +113,72 @@ function takeDisplayEnd(value: string, maxWidth: number): string {
  * display-only by construction.
  */
 export function approvalNoticePlan(approval: UiActiveApproval): ApprovalNoticePlan {
-  const actionable = approval.state === "pending";
-  const detail = boundedLine(approval.detail);
+  const associatedProcessRunSummary = exactProcessRunReviewSummaryForInformation(
+    approval.information,
+  );
+  const losslessProcessRunSummary =
+    associatedProcessRunSummary !== undefined &&
+    approval.detail === associatedProcessRunSummary &&
+    approval.sessionAvailable === false
+      ? associatedProcessRunSummary
+      : undefined;
+  const processRunPresentationFailed =
+    approval.state === "pending" &&
+    approval.information?.requestedAction.status === "available" &&
+    approval.information.requestedAction.value === "process.run" &&
+    losslessProcessRunSummary === undefined;
+  const effectiveApproval: UiActiveApproval = processRunPresentationFailed
+    ? {
+        ...approval,
+        sessionAvailable: false,
+        state: "failed",
+        message: "exact process.run review presentation failed; action will be denied",
+      }
+    : approval;
+  const actionable = effectiveApproval.state === "pending";
+  const detail = losslessProcessRunSummary ?? boundedLine(approval.detail);
   const message =
-    approval.message === undefined
+    effectiveApproval.message === undefined
       ? undefined
       : boundedMessage(
-          approval.message,
+          effectiveApproval.message,
           actionable ? MAX_PENDING_MESSAGE_WIDTH : MAX_MESSAGE_WIDTH,
         );
   const facts =
-    approval.information === undefined ? undefined : approvalFacts(approval.information);
+    approval.information === undefined
+      ? undefined
+      : approvalFacts(approval.information, losslessProcessRunSummary);
   return {
-    heading: APPROVAL_HEADINGS[approval.state],
+    heading: APPROVAL_HEADINGS[effectiveApproval.state],
     detail,
-    sessionAvailable: approval.sessionAvailable,
-    state: approval.state,
+    sessionAvailable: effectiveApproval.sessionAvailable,
+    state: effectiveApproval.state,
     ...(facts === undefined ? {} : { facts }),
-    consequence: approvalConsequence(approval),
-    next: APPROVAL_NEXT[approval.state],
-    ...(approval.selectedChoice === undefined ? {} : { selectedChoice: approval.selectedChoice }),
+    consequence: approvalConsequence(effectiveApproval),
+    next: APPROVAL_NEXT[effectiveApproval.state],
+    ...(effectiveApproval.selectedChoice === undefined
+      ? {}
+      : { selectedChoice: effectiveApproval.selectedChoice }),
     ...(actionable
       ? {
           actions: [
             "[a] Approve once · this action only",
-            ...(approval.sessionAvailable ? ["[s] Session · exact target until exit"] : []),
+            ...(effectiveApproval.sessionAvailable
+              ? ["[s] Session · exact target until exit"]
+              : []),
             "[d] Deny · action will not run",
             "[?] Explain why",
           ],
-          ...(approval.sessionAvailable
+          ...(effectiveApproval.sessionAvailable
             ? {}
             : { sessionNote: "Broader approval unavailable · use once or deny" }),
-          confirmation: approval.sessionAvailable
+          confirmation: effectiveApproval.sessionAvailable
             ? "a/s/d Enter · ? why · Esc stops turn"
             : "a/d Enter · ? why · Esc stops turn",
         }
       : {}),
     ...(message !== undefined && message.length > 0 ? { message } : {}),
+    ...(losslessProcessRunSummary === undefined ? {} : { losslessProcessRunSummary }),
   };
 }
 
@@ -166,17 +197,32 @@ function availableOrReason(
       };
 }
 
-function approvalFacts(information: UiApprovalInformation): readonly ApprovalNoticeFact[] {
+function approvalFacts(
+  information: UiApprovalInformation,
+  losslessProcessRunSummary?: string,
+): readonly ApprovalNoticeFact[] {
   const requested = availableOrReason(information.requestedAction, MAX_REQUEST_WIDTH);
-  const effective =
+  const effective: {
+    readonly value: string;
+    readonly quoted: boolean;
+    readonly exact?: boolean;
+    readonly qualifier?: "abbreviated";
+  } =
     information.effectiveTarget.status === "available"
-      ? {
-          value: boundedLine(information.effectiveTarget.value),
-          quoted: true,
-          ...(information.effectiveTarget.completeness === "abbreviated"
-            ? { qualifier: "abbreviated" as const }
-            : {}),
-        }
+      ? losslessProcessRunSummary !== undefined &&
+        information.effectiveTarget.value === losslessProcessRunSummary
+        ? {
+            value: losslessProcessRunSummary,
+            quoted: false,
+            exact: true,
+          }
+        : {
+            value: boundedLine(information.effectiveTarget.value),
+            quoted: true,
+            ...(information.effectiveTarget.completeness === "abbreviated"
+              ? { qualifier: "abbreviated" as const }
+              : {}),
+          }
       : {
           value: boundedMessage(information.effectiveTarget.reason),
           quoted: false,
@@ -210,6 +256,7 @@ function approvalFacts(information: UiApprovalInformation): readonly ApprovalNot
       ...(effective.quoted ? { quoted: true } : {}),
       ...(effective.qualifier === undefined ? {} : { qualifier: effective.qualifier }),
       compactWrap: true,
+      ...(effective.exact === true ? { exact: true } : {}),
     },
     {
       label: "Why",
