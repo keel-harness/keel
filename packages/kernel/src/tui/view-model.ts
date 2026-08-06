@@ -90,6 +90,7 @@ import {
   resolveMutationPresentationActivity,
 } from "./mutation-presentation.js";
 import { isLoopContinuationMessage } from "../run/loop-continuation.js";
+import { oneLineText } from "../control-strip.js";
 
 // `stripControl` / `stripControlLine` (the security-critical control-byte sanitizers) are defined in
 // `./strip.js` — extracted so that one chokepoint is auditable in isolation (TUI-2) — and re-exported
@@ -1146,6 +1147,29 @@ const lastMeaningfulLine = (s: string): string => {
   return firstLine(s);
 };
 
+const NODE_RUNTIME_TRAILER = /^Node\.js v\d+(?:\.\d+){1,3}$/u;
+
+function firstMeaningfulTerminalLines(value: string, maxLines: number): readonly string[] {
+  const lines: string[] = [];
+  for (const raw of value.split("\n")) {
+    const line = oneLineText(raw);
+    if (line.length === 0) continue;
+    lines.push(line);
+    if (lines.length >= maxLines) break;
+  }
+  return lines;
+}
+
+/** Node appends a generic runtime version after its useful failure report. Preserve the normal
+ *  last-line rule for every other command, but show a short chronological excerpt for Node instead
+ *  of interpreting untrusted stderr to guess which error-shaped line is authoritative. */
+function failedCommandDiagnosticLine(stderr: string): string {
+  const fallback = oneLineText(lastMeaningfulLine(stderr));
+  if (!NODE_RUNTIME_TRAILER.test(fallback)) return fallback;
+  const excerpt = firstMeaningfulTerminalLines(stderr, 4);
+  return excerpt.length > 0 ? excerpt.join(" · ") : fallback;
+}
+
 interface BashResultEnvelope {
   readonly exitCode?: number;
   readonly signal?: string;
@@ -1279,7 +1303,9 @@ function bashEnvelopeSummary(
       }
     }
   } else {
-    const stderr = stripControlLine(lastMeaningfulLine(env.stderr)).trim().replace(/\s+/g, " ");
+    const stderr = stripControlLine(failedCommandDiagnosticLine(env.stderr))
+      .trim()
+      .replace(/\s+/g, " ");
     const stdout = stripControlLine(lastMeaningfulLine(env.stdout)).trim().replace(/\s+/g, " ");
     const detail =
       stderr.length > 0
