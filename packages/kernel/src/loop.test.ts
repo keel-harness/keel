@@ -34,6 +34,7 @@ import {
 import { associateToolDeadlineReviewResult } from "./warden/tool-deadline-review-result.js";
 import { ScopedEgressApprovals } from "./warden/approval.js";
 import { WardenExecutor, type WardenExecuteClient } from "./warden/executor.js";
+import { WardenClientError } from "./warden/client.js";
 import { R21_OVERSIZED_FINAL_ANSWER } from "./fixtures/r21-oversized-final-answer.js";
 
 const echoExec = () => new LocalExecutor({ echo: (args) => JSON.stringify(args) });
@@ -130,6 +131,72 @@ describe("runAgentLoop", () => {
       expect.objectContaining({ reason: "error", code: "TIER_UNAVAILABLE" }),
     ]);
     expect(events.some((event) => event.type === "text-delta")).toBe(false);
+  });
+
+  it("lets the model replace an audited invalid process.run argv with one fresh governed call", async () => {
+    const wardenCalls: unknown[] = [];
+    const executedArgv: unknown[] = [];
+    const client = {
+      call: async (method: string, params: unknown) => {
+        if (method !== "warden.execute") throw new Error("unexpected review resolution");
+        wardenCalls.push(params);
+        const argv = (params as { toolCall: { args: { argv: unknown } } }).toolCall.args.argv;
+        if (wardenCalls.length === 1) {
+          throw new WardenClientError(
+            "INVALID_PARAMS",
+            "process.run argv entries must not contain newline code points",
+            {
+              rpcCode: -32602,
+              details: { code: "INVALID_PARAMS", auditSeq: 17 },
+            },
+          );
+        }
+        executedArgv.push(argv);
+        return {
+          verdict: "allow",
+          result: { exitCode: 0, signal: null, stdout: "corrected\n", stderr: "" },
+          auditSeq: 18,
+        };
+      },
+    } as unknown as WardenExecuteClient;
+    const executor = new WardenExecutor({
+      client,
+      sessionId: "ses_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+    });
+    const invalidArgv = ["node", "--eval", "console.log('bad')\n"];
+    const correctedArgv = ["node", "--eval", "console.log('ok')"];
+
+    const events = await run(
+      {
+        turns: [
+          { toolCalls: [{ name: "process.run", args: { argv: invalidArgv } }] },
+          { toolCalls: [{ name: "process.run", args: { argv: correctedArgv } }] },
+          { text: "Recovered with a fresh governed call." },
+        ],
+      },
+      { messages: userMsg("run the check") },
+      executor,
+    );
+
+    const results = events.filter((event) => event.type === "tool-result");
+    expect(results).toHaveLength(2);
+    expect(results[0]).toMatchObject({ type: "tool-result", ok: false });
+    expect(results[0]?.type === "tool-result" ? results[0].output : "").toContain(
+      "not executed; correct the argv and submit a fresh process.run call",
+    );
+    expect(results[1]).toMatchObject({ ok: true });
+    expect(wardenCalls).toHaveLength(2);
+    expect(executedArgv).toEqual([correctedArgv]);
+    expect(events.filter((event) => event.type === "turn-started")).toHaveLength(3);
+    expect(events.find((event) => event.type === "stop")).toEqual({
+      type: "stop",
+      reason: "model-stop",
+    });
+    expect(
+      events.some(
+        (event) => event.type === "stop" && "code" in event && event.code === "INVALID_PARAMS",
+      ),
+    ).toBe(false);
   });
 
   it("emits synthetic skips for the turn's remaining calls when enforcement drops (P0-3)", async () => {
