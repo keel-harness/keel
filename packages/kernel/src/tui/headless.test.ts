@@ -807,16 +807,43 @@ describe("headless renderer", () => {
     expect(line).toContain("sandbox on");
     expect(line).toContain("egress guard on");
     expect(line).toContain("audit on");
-    expect(line).toContain("policy Guided · phase2a-starter-policy-pack@bbbbbbbbbbbb");
+    expect(line).toContain("policy Guided");
+    expect(line).not.toContain("phase2a-starter-policy-pack@bbbbbbbbbbbb");
     expect(line).not.toMatch(/autopilot|yolo|danger|trusted|approved|secure/i);
     expect(line.includes(ESC)).toBe(false);
+  });
+
+  it("keeps the policy revision in debug status while normal headless status hides it", () => {
+    const normal = renderStatus(governedStatus(undefined));
+    const debug = renderStatus(governedStatus(undefined), "debug");
+
+    expect(normal).not.toContain("phase2a-starter-policy-pack@bbbbbbbbbbbb");
+    expect(debug).toContain("policy Guided · phase2a-starter-policy-pack@bbbbbbbbbbbb");
+  });
+
+  it.each([
+    ["alternate revision", "starter-policy sha256:deadbeef", "starter-policy sha256:deadbeef"],
+    ["arbitrary label", "custom policy mode", "custom policy mode"],
+    ["control-derived artifact", `Guided${ESC}[31m · starter@abc`, "Guided[31m"],
+  ])("maps an unrecognized %s to active in normal status", (_scenario, label, leakedText) => {
+    const line = renderStatus({
+      tokens: 0,
+      protectionRoute: "governed",
+      posture: { sandbox: true, egress: true, audit: true },
+      policy: { active: true, label },
+    });
+
+    expect(line).toContain("policy active");
+    expect(line).not.toContain(leakedText);
+    expect(line).not.toContain(ESC);
   });
 
   it("renders Autopilot only when sandbox, network, audit, and active policy are all true", () => {
     const line = renderStatus(
       governedStatus({ mode: "autopilot", source: "human", userConfirmed: true }),
     );
-    expect(line).toContain("policy Autopilot · phase2a-starter-policy-pack@bbbbbbbbbbbb");
+    expect(line).toContain("policy Autopilot");
+    expect(line).not.toContain("phase2a-starter-policy-pack@bbbbbbbbbbbb");
     expect(line).toContain("sandbox on");
     expect(line).toContain("egress guard on");
     expect(line).toContain("audit on");
@@ -826,7 +853,8 @@ describe("headless renderer", () => {
       governedStatus({ mode: "autopilot", source: "human", userConfirmed: true }, { audit: false }),
     );
     expect(noAudit).toContain("audit unseen");
-    expect(noAudit).toContain("policy phase2a-starter-policy-pack@bbbbbbbbbbbb");
+    expect(noAudit).toContain("policy active");
+    expect(noAudit).not.toContain("phase2a-starter-policy-pack@bbbbbbbbbbbb");
     expect(noAudit).not.toContain("Autopilot");
   });
 
@@ -834,15 +862,15 @@ describe("headless renderer", () => {
     const project = renderStatus(
       governedStatus({ mode: "project-autopilot", source: "human", userConfirmed: true }),
     );
-    expect(project).toContain(
-      "policy Project Autopilot · phase2a-starter-policy-pack@bbbbbbbbbbbb",
-    );
+    expect(project).toContain("policy Project Autopilot");
+    expect(project).not.toContain("phase2a-starter-policy-pack@bbbbbbbbbbbb");
     expect(project).not.toContain("policy Autopilot ·");
 
     const danger = renderStatus(
       governedStatus({ mode: "danger", source: "human", userConfirmed: true }),
     );
-    expect(danger).toContain("policy Guided · phase2a-starter-policy-pack@bbbbbbbbbbbb");
+    expect(danger).toContain("policy Guided");
+    expect(danger).not.toContain("phase2a-starter-policy-pack@bbbbbbbbbbbb");
     expect(danger).not.toMatch(/danger|yolo|breakglass|approved|secure/i);
   });
 

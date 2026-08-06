@@ -741,14 +741,25 @@ function visiblePolicyLabel(s: UiStatus, state: UiRuntimeProtectionState): strin
 }
 
 function primaryPolicyLabel(s: UiStatus, state: UiRuntimeProtectionState): string {
-  return visiblePolicyLabel(s, state).split("·", 1)[0]?.trim() || "active";
+  if (s.policy?.active !== true) return "off";
+  if (state !== "governed") return "active";
+  const primary = visiblePolicyLabel(s, state).split("·", 1)[0]?.trim();
+  switch (primary) {
+    case "Guided":
+    case "Autopilot":
+    case "Project Autopilot":
+    case "Plan Autopilot":
+      return primary;
+    default:
+      return "active";
+  }
 }
 
 function protectionFactLine(s: UiStatus, state: UiRuntimeProtectionState): string {
   return [
     `sandbox ${onOff(s.posture.sandbox)}`,
     `egress guard ${onOff(s.posture.egress)}`,
-    `policy ${visiblePolicyLabel(s, state)}`,
+    `policy ${primaryPolicyLabel(s, state)}`,
     `audit ${auditPostureLabel(s)}`,
   ].join(" · ");
 }

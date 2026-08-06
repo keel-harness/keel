@@ -2289,7 +2289,8 @@ describe("runKeelCommand (bin orchestration: build runtime + store, run, dispose
     expect(frame).toContain("wrote made.txt");
     expect(frame).toContain("sandbox on");
     expect(frame).toContain("egress guard on");
-    expect(frame).toContain("policy Guided · phase2a-starter-policy-pack@");
+    expect(frame).toContain("policy Guided");
+    expect(frame).not.toContain("phase2a-starter-policy-pack@");
     expect(frame).not.toContain("no enforcement");
 
     // the §4.7 system prompt was seeded as the conversation's first (system) message
@@ -2359,7 +2360,9 @@ describe("runKeelCommand (bin orchestration: build runtime + store, run, dispose
       warden: fakeBashWarden(auditDir),
     });
 
-    expect(ui.frame()).toContain("policy Autopilot · phase2a-starter-policy-pack@");
+    const frame = ui.frame();
+    expect(frame).toContain("policy Autopilot");
+    expect(frame).not.toContain("phase2a-starter-policy-pack@");
     const session = listSessions(e)[0]!;
     const records = readFileSync(join(auditDir, `${session.id}.jsonl`), "utf8")
       .trimEnd()
@@ -2556,7 +2559,8 @@ describe("runKeelCommand (bin orchestration: build runtime + store, run, dispose
 
     const frame = renderFrame(ui.latest!);
     expect(frame).toContain("checked");
-    expect(frame).toContain("policy Guided · phase2a-starter-policy-pack@");
+    expect(frame).toContain("policy Guided");
+    expect(frame).not.toContain("phase2a-starter-policy-pack@");
     expect(frame).not.toContain("policy Plan Autopilot");
 
     const session = readSession(listSessions(e)[0]!.id, e);
@@ -2682,8 +2686,10 @@ describe("runKeelCommand (bin orchestration: build runtime + store, run, dispose
       warden: fakeAutopilotCommandReviewWarden(),
     });
 
-    expect(ui.frame()).toContain("policy Plan Autopilot · phase2a-starter-policy-pack@");
-    expect(ui.frame()).toContain("Plan Autopilot plan-auth-fix allowed bash");
+    const frame = ui.frame();
+    expect(frame).toContain("policy Plan Autopilot");
+    expect(frame).not.toContain("phase2a-starter-policy-pack@");
+    expect(frame).toContain("Plan Autopilot plan-auth-fix allowed bash");
     const events = readSession(listSessions(e)[0]!.id, e).events;
     const receiptEvent = events.find(
       (event): event is Extract<typeof event, { type: "warden_auto_resolved" }> =>
@@ -2732,7 +2738,8 @@ describe("runKeelCommand (bin orchestration: build runtime + store, run, dispose
     });
 
     const frame = ui.frame();
-    expect(frame).toContain("policy Guided · phase2a-starter-policy-pack@");
+    expect(frame).toContain("policy Guided");
+    expect(frame).not.toContain("phase2a-starter-policy-pack@");
     expect(frame).not.toContain("Autopilot ·");
 
     const session = listSessions(e)[0]!;
@@ -2774,7 +2781,9 @@ describe("runKeelCommand (bin orchestration: build runtime + store, run, dispose
       warden: fakeBashWarden(auditDir),
     });
 
-    expect(ui.frame()).toContain("policy Project Autopilot · phase2a-starter-policy-pack@");
+    const frame = ui.frame();
+    expect(frame).toContain("policy Project Autopilot");
+    expect(frame).not.toContain("phase2a-starter-policy-pack@");
 
     const session = listSessions(e)[0]!;
     const records = readFileSync(join(auditDir, `${session.id}.jsonl`), "utf8")
