@@ -1,4 +1,5 @@
 import type { FileStateT, SessionEventT } from "@keel/shared";
+import { governedProcessEnvelope, renderToolCommand } from "../tool-command.js";
 
 /** The factual scaffold derived deterministically from the session ledger (§4.7.6). These facts are
  *  the un-inventable ground truth a compaction summary is validated against — they come from real
@@ -51,6 +52,10 @@ function governedCommandEnvelope(
  */
 export function commandResultIndicatesFailure(output: string, isError: boolean): boolean {
   if (isError) return true;
+  const processEnvelope = governedProcessEnvelope(output);
+  if (processEnvelope !== undefined) {
+    return processEnvelope.exitCode !== 0 || processEnvelope.signal !== null;
+  }
   const envelope = governedCommandEnvelope(output);
   if (envelope !== undefined) {
     return envelope.exitCode !== 0 || (envelope.signal !== undefined && envelope.signal !== null);
@@ -69,7 +74,7 @@ const FILE_TOOL_STATUS: Record<string, "read" | "modified"> = {
 
 type ToolCallFact =
   | { readonly kind: "file"; readonly name: string; readonly path: string }
-  | { readonly kind: "bash"; readonly name: "bash"; readonly command: string }
+  | { readonly kind: "command"; readonly name: "bash" | "process.run"; readonly command: string }
   | { readonly kind: "other"; readonly name: string };
 
 const firstLine = (s: string): string => {
@@ -103,11 +108,11 @@ export function deriveTaskFacts(events: readonly SessionEventT[]): DerivedFacts 
               ? { kind: "file", name: call.name, path }
               : { kind: "other", name: call.name },
           );
-        } else if (call.name === "bash") {
-          const command = call.args["command"];
+        } else if (call.name === "bash" || call.name === "process.run") {
+          const command = renderToolCommand(call);
           queue.push(
-            typeof command === "string" && command.length > 0
-              ? { kind: "bash", name: "bash", command }
+            command !== undefined && command.length > 0
+              ? { kind: "command", name: call.name, command }
               : { kind: "other", name: call.name },
           );
         } else {
@@ -119,7 +124,7 @@ export function deriveTaskFacts(events: readonly SessionEventT[]): DerivedFacts 
     }
     if (ev.type !== "tool_result") continue;
     const call = callsById.get(ev.toolCallId)?.shift();
-    if (call?.kind === "bash" && ev.name === "bash") {
+    if (call?.kind === "command" && ev.name === call.name) {
       commandsRun.push(call.command); // confirmed run (has a result); an unconfirmed call is not a fact
       commandOutcomes.push({
         command: call.command,

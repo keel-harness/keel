@@ -374,6 +374,8 @@ function boundedCorrectionSucceeded(
   failureEvidence: string | undefined,
 ): boolean {
   if (!result.ok || failureEvidence !== undefined) return false;
+  // ADR-0088/#149 recovery credit belongs only to the model-authored bash correction lane.
+  if (call.name === "process.run") return false;
   if (call.name !== "bash") return true;
 
   const governedOutcome = governedBashCorrectionSucceeded(result.output);
@@ -637,6 +639,7 @@ function hasActionableWorkSinceLastUser(messages: readonly ModelMessageT[]): boo
     if (message?.role !== "assistant" || message.toolCalls === undefined) continue;
     for (const call of message.toolCalls) {
       if (callSuggestsArtifactWrite(call)) return true;
+      if (call.name === "process.run") return true;
       const command = bashCommandForLoop(call);
       if (command !== undefined && !isReadOnlyCommand(command)) return true;
     }
@@ -738,6 +741,7 @@ function callCanMutateAfterVerification(call: ToolInvocationT): boolean {
   if (commandClass === "mutator" || commandClass === "destructive" || commandClass === "build") {
     return true;
   }
+  if (call.name === "process.run") return true;
   if (call.name !== "bash") return false;
   const command = (call.args as { command?: unknown } | null | undefined)?.command;
   return typeof command === "string" && !isReadOnlyCommand(command) && commandClass === "unknown";

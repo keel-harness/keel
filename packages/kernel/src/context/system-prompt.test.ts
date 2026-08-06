@@ -55,6 +55,14 @@ describe("SYSTEM_PROMPT (§7 Epic 1.6 — <2,000 tokens, 4-phase protocol, hones
     expect(SYSTEM_PROMPT).toMatch(/do not append.{0,100}(?:echo|status|\$\?)/i);
   });
 
+  it("teaches the argv-only process and shell-composition division without automatic conversion", () => {
+    expect(SYSTEM_PROMPT).toMatch(/process\.run.{0,160}(?:direct|one executable)/is);
+    expect(SYSTEM_PROMPT).toMatch(/bash.{0,120}(?:shell composition|persistent shell state)/is);
+    expect(SYSTEM_PROMPT).toMatch(
+      /never.{0,80}(?:convert|translate).{0,80}(?:bash|process\.run)/is,
+    );
+  });
+
   it("keeps nonzero command failure separate from following the requested procedure", () => {
     expect(SYSTEM_PROMPT).toMatch(/non[- ]?zero exit.{0,120}(?:command|process).{0,80}fail/is);
     expect(SYSTEM_PROMPT).toMatch(/followed.{0,120}(?:request|procedure)/is);

@@ -1,4 +1,5 @@
 import type { JsonObjectT } from "@keel/shared";
+import { governedProcessEnvelope, processRunArgv } from "../tool-command.js";
 
 export type ProgressCommandClass =
   | "verifier"
@@ -81,6 +82,10 @@ export function classifyToolCall(call: {
   readonly name: string;
   readonly args: JsonObjectT;
 }): ProgressCommandClass {
+  if (call.name === "process.run") {
+    const argv = processRunArgv(call);
+    return argv === undefined ? "unknown" : classifyProcessArgv(argv);
+  }
   if (call.name !== "bash") return "unknown";
   const command = call.args["command"];
   return typeof command === "string" ? classifyBashCommand(command) : "unknown";
@@ -119,11 +124,24 @@ export function buildProgressLedgerEntry(
   options: ToolProgressEvidenceOptions = {},
 ): ProgressLedgerEntry {
   const commandClass = classifyToolCall(call);
-  const exitCode = parseExitCode(output, options.ok);
-  const failure = options.ok === false || isFailureOutput(output, exitCode);
+  const processEnvelope = call.name === "process.run" ? governedProcessEnvelope(output) : undefined;
+  const evidenceOutput =
+    processEnvelope === undefined ? output : `${processEnvelope.stdout}\n${processEnvelope.stderr}`;
+  const exitCode = processEnvelope?.exitCode ?? parseExitCode(output, options.ok);
+  const failure =
+    options.ok === false ||
+    (processEnvelope !== undefined && processEnvelope.signal !== null) ||
+    isFailureOutput(evidenceOutput, exitCode === null ? undefined : exitCode);
   const successSignal = failure
     ? undefined
-    : successSignalFor(commandClass, output, exitCode, options.metricDelta);
+    : processEnvelope !== undefined && !processEnvelope.cleanContained
+      ? undefined
+      : successSignalFor(
+          commandClass,
+          evidenceOutput,
+          exitCode === null ? undefined : exitCode,
+          options.metricDelta,
+        );
   const benignRepeat =
     !failure &&
     successSignal === undefined &&
@@ -141,7 +159,7 @@ export function buildProgressLedgerEntry(
     actionSignature: `${call.name}:${shortHash(stableStringify(call.args))}`,
     patternSignature,
     commandClass,
-    ...(exitCode !== undefined ? { exitCode } : {}),
+    ...(exitCode !== undefined && exitCode !== null ? { exitCode } : {}),
     ...(options.durationMs !== undefined
       ? { durationMs: Math.max(0, Math.floor(options.durationMs)) }
       : {}),
@@ -156,6 +174,82 @@ export function buildProgressLedgerEntry(
       ? { recoveryBoundaryId: options.recoveryBoundaryId }
       : {}),
   };
+}
+
+function classifyProcessArgv(argv: readonly string[]): ProgressCommandClass {
+  const executable = argv[0]!
+    .slice(Math.max(argv[0]!.lastIndexOf("/"), argv[0]!.lastIndexOf("\\")) + 1)
+    .toLowerCase();
+  const lower = argv.map((arg) => arg.toLowerCase());
+  if (
+    (/^(?:python(?:\d+(?:\.\d+)?)?|node|ruby|perl|php)$/u.test(executable) &&
+      ["-c", "-e"].includes(lower[1] ?? "")) ||
+    ((executable === "bash" || executable === "sh") && lower[1] === "-c")
+  ) {
+    return "unknown";
+  }
+  if (executable === "rm" && lower.slice(1).some((arg) => /^-[a-z]*r[a-z]*$/u.test(arg)))
+    return "destructive";
+  if (["kill", "pkill", "killall", "mkfs", "dd"].includes(executable)) return "destructive";
+  if (
+    ["pnpm", "npm", "yarn", "pip", "pip3", "apt", "apt-get", "brew"].includes(executable) &&
+    ["install", "add", "update"].includes(lower[1] ?? "")
+  )
+    return "mutator";
+  if (
+    executable === "pytest" ||
+    executable === "py.test" ||
+    (/^python(?:\d+(?:\.\d+)?)?$/u.test(executable) &&
+      lower[1] === "-m" &&
+      ["pytest", "py.test"].includes(lower[2] ?? ""))
+  )
+    return "verifier";
+  if (
+    [
+      "vitest",
+      "jest",
+      "mocha",
+      "tox",
+      "ctest",
+      "ruff",
+      "mypy",
+      "tsc",
+      "eslint",
+      "prettier",
+    ].includes(executable)
+  )
+    return "verifier";
+  if (executable === "cargo" && lower[1] === "test") return "verifier";
+  if (executable === "go" && lower[1] === "test") return "verifier";
+  if (
+    ["pnpm", "npm", "yarn"].includes(executable) &&
+    ["test", "lint", "typecheck", "check"].includes(
+      lower[1] === "run" ? (lower[2] ?? "") : (lower[1] ?? ""),
+    )
+  )
+    return "verifier";
+  if (executable === "make" && ["test", "check", "verify"].includes(lower[1] ?? ""))
+    return "verifier";
+  if (
+    executable === "node" &&
+    (lower[1] === "--test" ||
+      /^(?:tests?|.+\.(?:test|spec))\.[cm]?[jt]s$/u.test(
+        (lower[1] ?? "").split(/[\\/]/u).at(-1) ?? "",
+      ))
+  )
+    return "verifier";
+  if (["make", "ninja"].includes(executable)) return "build";
+  if (
+    (executable === "cargo" && lower[1] === "build") ||
+    (executable === "go" && lower[1] === "build")
+  )
+    return "build";
+  if (
+    ["pnpm", "npm", "yarn"].includes(executable) &&
+    (lower[1] === "build" || (lower[1] === "run" && lower[2] === "build"))
+  )
+    return "build";
+  return "unknown";
 }
 
 function normalizeCommand(command: string): string {

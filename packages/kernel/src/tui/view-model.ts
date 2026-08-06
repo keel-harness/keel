@@ -52,6 +52,7 @@ import {
   markToolPresentationOutcome,
   toolPresentationOutcome,
 } from "../tool-presentation-outcome.js";
+import { governedProcessEnvelope, renderToolCommand } from "../tool-command.js";
 import { formatTokens } from "./format.js";
 import { stripControl, stripControlLine } from "./strip.js";
 import { toolOutcome } from "./tool-outcome.js";
@@ -1215,6 +1216,19 @@ function parseBashResultEnvelope(output: string): BashResultEnvelope | undefined
   };
 }
 
+function parseCommandResultEnvelope(name: string, output: string): BashResultEnvelope | undefined {
+  if (name !== "process.run") return parseBashResultEnvelope(output);
+  const envelope = governedProcessEnvelope(output);
+  if (envelope === undefined) return undefined;
+  return {
+    ...(envelope.exitCode === null ? {} : { exitCode: envelope.exitCode }),
+    ...(envelope.signal === null ? {} : { signal: envelope.signal }),
+    stdout: envelope.stdout,
+    stderr: envelope.stderr,
+    complete: true,
+  };
+}
+
 function bashEnvelopeCommandFailed(env: BashResultEnvelope): boolean {
   return (
     env.complete && ((env.exitCode !== undefined && env.exitCode !== 0) || env.signal !== undefined)
@@ -1363,9 +1377,9 @@ function toolResultSummary(
       return `${prefix}${truncateLine(review, detailBudget)}${suffix}`;
     }
   }
-  if (name === "bash") {
+  if (name === "bash" || name === "process.run") {
     const containment = unwrapVerifiedSandboxContainment(output);
-    const envelope = parseBashResultEnvelope(output);
+    const envelope = parseCommandResultEnvelope(name, output);
     if (envelope !== undefined) {
       const commandFailed = bashEnvelopeCommandFailed(envelope);
       const testPresentation = bashEnvelopeTestPresentation(envelope);
@@ -1401,6 +1415,12 @@ function toolResultSummary(
 const MAX_TOOL_SUBJECT_LEN = 160;
 
 function toolInvocationSubject(name: string, args: JsonObjectT): string | undefined {
+  if (name === "process.run") {
+    const command = renderToolCommand({ name, args });
+    if (command === undefined) return undefined;
+    const subject = truncateLine(command, MAX_TOOL_SUBJECT_LEN);
+    return subject.length > 0 ? subject : undefined;
+  }
   if (name !== "read" && name !== "write" && name !== "edit") return undefined;
   const path = args["path"];
   if (typeof path !== "string") return undefined;
@@ -1960,7 +1980,7 @@ export function buildTurnSummary(view: ViewModel): UiTurnSummary | undefined {
       (it): it is Extract<ViewItem, { kind: "tool" }> =>
         it.kind === "tool" &&
         it.status === "ok" &&
-        it.name === "bash" &&
+        (it.name === "bash" || it.name === "process.run") &&
         toolOutcome(it) === "done",
     )
     .map(toolReceipt);
@@ -2164,7 +2184,8 @@ function finalAnswerSeedPlan(
   return { hidden, after };
 }
 
-function resumedBashWasLimited(content: string): boolean {
+function resumedCommandWasLimited(name: string, content: string): boolean {
+  if (name === "process.run") return governedProcessEnvelope(content)?.limited === true;
   const containedBody = unwrapVerifiedSandboxContainment(content);
   const json = containedBody.contained
     ? containedBody.body
@@ -2194,9 +2215,9 @@ function resumedToolOutcome(
   content: string,
   failed: boolean,
 ): ReturnType<typeof toolPresentationOutcome> {
-  if (name === "bash") {
-    if (!failed && resumedBashWasLimited(content)) return "limited";
-    const envelope = parseBashResultEnvelope(content);
+  if (name === "bash" || name === "process.run") {
+    if (!failed && resumedCommandWasLimited(name, content)) return "limited";
+    const envelope = parseCommandResultEnvelope(name, content);
     if (
       !failed &&
       envelope !== undefined &&
@@ -2235,7 +2256,10 @@ function workspaceEffectsUncaptured(
   outcome: ReturnType<typeof toolPresentationOutcome>,
 ): UiMutationPresentation | undefined {
   if (outcome === "review" || outcome === "blocked" || outcome === "skipped") return undefined;
-  return name === "bash" || name.startsWith("mcp__") || name.startsWith("interactive_console.")
+  return name === "bash" ||
+    name === "process.run" ||
+    name.startsWith("mcp__") ||
+    name.startsWith("interactive_console.")
     ? { status: "unavailable", reason: "workspace-effects-not-captured" }
     : undefined;
 }
@@ -3100,8 +3124,11 @@ export function reduce(view: ViewModel, ev: KernelEventT | UiInputEventT): ViewM
       const taggedOutcome = toolPresentationOutcome(ev);
       const target = view.items[targetIndex];
       const bashEnvelope =
-        taggedOutcome === undefined && ev.ok && target?.kind === "tool" && target.name === "bash"
-          ? parseBashResultEnvelope(ev.output)
+        taggedOutcome === undefined &&
+        ev.ok &&
+        target?.kind === "tool" &&
+        (target.name === "bash" || target.name === "process.run")
+          ? parseCommandResultEnvelope(target.name, ev.output)
           : undefined;
       const outcome =
         taggedOutcome ??

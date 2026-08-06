@@ -1044,6 +1044,29 @@ describe("LoopDetector", () => {
     // array ELEMENT order differs -> different signature -> must NOT collapse.
     expect(diffOrder.record({ name: "f", args: { paths: ["b", "a"] } })).toBeUndefined();
   });
+
+  it("process.run loop identity preserves exact argv boundaries and order", () => {
+    const boundaries = new LoopDetector({ maxToolRepeats: 2 });
+    expect(
+      boundaries.record({ name: "process.run", args: { argv: ["python3", "a b"] } }),
+    ).toBeUndefined();
+    expect(
+      boundaries.record({ name: "process.run", args: { argv: ["python3", "a", "b"] } }),
+    ).toBeUndefined();
+
+    const order = new LoopDetector({ maxToolRepeats: 2 });
+    expect(
+      order.record({ name: "process.run", args: { argv: ["python3", "-m", "pytest"] } }),
+    ).toBeUndefined();
+    expect(
+      order.record({ name: "process.run", args: { argv: ["python3", "pytest", "-m"] } }),
+    ).toBeUndefined();
+
+    const exact = new LoopDetector({ maxToolRepeats: 2 });
+    const call = { name: "process.run", args: { argv: ["python3", "-m", "pytest"] } };
+    expect(exact.record(call)).toBeUndefined();
+    expect(exact.record(call)).toMatchObject({ signal: "tool-repeat", detail: "process.run" });
+  });
 });
 
 describe("bashFullFileRewriteTarget (Epic 1.13 — narrowed shell full-file-rewrite extraction)", () => {

@@ -177,7 +177,7 @@ export interface TurnOutcome extends RunOutcome {
 }
 
 /** Conservative fallback: workspace-write/broad tools mutate; read/search do not (§4.8 axis-1). */
-const MUTATING_TOOLS = new Set(["edit", "write", "bash"]);
+const MUTATING_TOOLS = new Set(["edit", "write", "bash", "process.run"]);
 const defaultIsMutating = (name: string): boolean => MUTATING_TOOLS.has(name);
 
 /** A classified mid-run input. `command` (non-steering palette commands) is surfaced for the
