@@ -137,6 +137,58 @@ describe("process.run structured policy", () => {
     expect(decision.matchedRules).toContain("POL-003");
   });
 
+  it("classifies exact file operands after -- without treating empty or stdin arguments as paths", () => {
+    const argv = ["cat", "-n", "", "-", "--", "-literal", "README.md"];
+    const input = buildPolicyInputForProcessRun(processParams(argv), argv, OPTIONS);
+    const pathTargets = input.sideEffect.dynamic.composition.segments.flatMap((segment) =>
+      segment.targets.filter((target) => target.kind === "path"),
+    );
+
+    expect(pathTargets).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ value: "-literal", normalized: "/repo/-literal" }),
+        expect.objectContaining({ value: "README.md", normalized: "/repo/README.md" }),
+      ]),
+    );
+    expect(pathTargets.some((target) => target.value === "" || target.value === "-")).toBe(false);
+  });
+
+  it("keeps mutable package execution metadata fail-closed when its trust proof is absent", async () => {
+    const argv = ["pnpm", "test"];
+    const input = buildPolicyInputForProcessRun(processParams(argv), argv, {
+      ...OPTIONS,
+      safeCommandMetadataTrusted: false,
+    });
+    const decision = await (await createDefaultPolicyPort()).evaluate(input);
+
+    expect(input.sideEffect.dynamic.classifier).toMatchObject({
+      confidence: "unknown",
+      reasons: ["mutable_execution_metadata"],
+    });
+    expect(decision.verdict).toBe("review");
+    expect(decision.matchedRules).toContain("POL-003");
+  });
+
+  it("uses the supplied realpath authority for destructive direct argv targets", async () => {
+    const argv = ["rm", "-rf", "link"];
+    const input = buildPolicyInputForProcessRun(processParams(argv), argv, {
+      ...OPTIONS,
+      realpath: (path) => (path === "/repo/link" ? "/outside/target" : path),
+    });
+    const decision = await (await createDefaultPolicyPort()).evaluate(input);
+
+    expect(input.sideEffect.dynamic.targets).toContainEqual(
+      expect.objectContaining({
+        kind: "path",
+        value: "link",
+        normalized: "/outside/target",
+        withinWorkspace: false,
+      }),
+    );
+    expect(decision.verdict).toBe("deny");
+    expect(decision.matchedRules).toContain("POL-003");
+  });
+
   it("never produces a weaker starter-policy verdict or dynamic effect than equivalent direct bash", async () => {
     const policy = await createDefaultPolicyPort();
     const corpus = [
@@ -157,33 +209,35 @@ describe("process.run structured policy", () => {
       ["bash", "-c", "sudo true"],
     ] as const;
 
-    await fc.assert(
-      fc.asyncProperty(fc.constantFrom(...corpus), async (argv) => {
-        const sandboxContainment = containedSandboxProof();
-        const processInput = buildPolicyInputForProcessRun(processParams(argv), argv, {
-          ...OPTIONS,
-          sandboxContainment,
-        });
-        const bashInput = buildPolicyInputForBash(bashParams(argv), {
-          ...OPTIONS,
-          sandboxContainment,
-        });
-        const [processDecision, bashDecision] = await Promise.all([
-          policy.evaluate(processInput),
-          policy.evaluate(bashInput),
-        ]);
+    const assertParity = async (argv: readonly string[]): Promise<void> => {
+      const sandboxContainment = containedSandboxProof();
+      const processInput = buildPolicyInputForProcessRun(processParams(argv), argv, {
+        ...OPTIONS,
+        sandboxContainment,
+      });
+      const bashInput = buildPolicyInputForBash(bashParams(argv), {
+        ...OPTIONS,
+        sandboxContainment,
+      });
+      const [processDecision, bashDecision] = await Promise.all([
+        policy.evaluate(processInput),
+        policy.evaluate(bashInput),
+      ]);
 
-        expect(VERDICT_RANK[processDecision.verdict], argv.join(" ")).toBeGreaterThanOrEqual(
-          VERDICT_RANK[bashDecision.verdict],
-        );
-        expect(new Set(processInput.sideEffect.dynamic.effectKinds)).toEqual(
-          new Set(bashInput.sideEffect.dynamic.effectKinds),
-        );
-        expect(new Set(processInput.sideEffect.dynamic.modifiers)).toEqual(
-          new Set(bashInput.sideEffect.dynamic.modifiers),
-        );
-      }),
-      { numRuns: 48 },
-    );
+      expect(VERDICT_RANK[processDecision.verdict], argv.join(" ")).toBeGreaterThanOrEqual(
+        VERDICT_RANK[bashDecision.verdict],
+      );
+      expect(new Set(processInput.sideEffect.dynamic.effectKinds)).toEqual(
+        new Set(bashInput.sideEffect.dynamic.effectKinds),
+      );
+      expect(new Set(processInput.sideEffect.dynamic.modifiers)).toEqual(
+        new Set(bashInput.sideEffect.dynamic.modifiers),
+      );
+    };
+
+    // This is a finite parity corpus. Prove every member before the randomized schedule so coverage
+    // and policy evidence cannot vary with fast-check's seed.
+    for (const argv of corpus) await assertParity(argv);
+    await fc.assert(fc.asyncProperty(fc.constantFrom(...corpus), assertParity), { numRuns: 48 });
   });
 });
