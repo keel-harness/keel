@@ -118,7 +118,7 @@ describe("bin entrypoint Plan Autopilot confirmation", () => {
     }
   });
 
-  it("explains that KEEL_HOME scopes the credential store when a live key is missing", () => {
+  it("renders a short provider-setup block when a live key is missing", () => {
     const keelHome = mkdtempSync(join(tmpdir(), "keel-bin-missing-key-home-"));
     const cwd = mkdtempSync(join(tmpdir(), "keel-bin-missing-key-ws-"));
     try {
@@ -135,10 +135,20 @@ describe("bin entrypoint Plan Autopilot confirmation", () => {
       );
 
       expect(result.status).toBe(1);
-      expect(result.stdout).toContain("keel: no openai API key found");
-      expect(result.stdout).toContain("run `keel auth set openai` with the same KEEL_HOME");
-      expect(result.stdout).toContain(`current KEEL_HOME: ${keelHome}`);
-      expect(result.stdout).toContain("or set OPENAI_API_KEY");
+      expect(result.stdout).toBe(
+        [
+          "keel: provider setup needed",
+          "",
+          "No openai API key was found.",
+          "",
+          "  Store it:      keel auth set openai",
+          "  Or set env:    OPENAI_API_KEY",
+          "  Check runtime: keel doctor",
+          "",
+          `Current KEEL_HOME: ${keelHome}`,
+          "",
+        ].join("\n"),
+      );
     } finally {
       rmSync(keelHome, { recursive: true, force: true });
       rmSync(cwd, { recursive: true, force: true });
@@ -177,6 +187,7 @@ describe("bin entrypoint Plan Autopilot confirmation", () => {
       expect(result.stdout).toContain("task: ship login fix forged row");
       expect(result.stdout).toContain("exact resources requested for this run:");
       expect(result.stdout).toContain("keel: --plan-confirm requires an interactive terminal");
+      expect(result.stdout).not.toContain("provider setup needed");
       expect(result.stdout).not.toContain("no openai API key");
       expect(result.stdout).not.toContain("\nforged row");
     } finally {

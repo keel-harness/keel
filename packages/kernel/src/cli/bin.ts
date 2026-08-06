@@ -432,10 +432,17 @@ async function main(): Promise<void> {
       process.exitCode = 1;
       const currentHome = oneLineText(keelHome(process.env));
       return out(
-        `keel: no ${config.provider} API key found — run ` +
-          `\`keel auth set ${config.provider}\` with the same KEEL_HOME ` +
-          `(current KEEL_HOME: ${currentHome}) ` +
-          `(or set ${PROVIDER_KEY_ENV[config.provider]}).`,
+        [
+          "keel: provider setup needed",
+          "",
+          `No ${config.provider} API key was found.`,
+          "",
+          `  Store it:      keel auth set ${config.provider}`,
+          `  Or set env:    ${PROVIDER_KEY_ENV[config.provider]}`,
+          "  Check runtime: keel doctor",
+          "",
+          `Current KEEL_HOME: ${currentHome}`,
+        ].join("\n"),
       );
     }
     model = createModelPort(config, apiKey);
