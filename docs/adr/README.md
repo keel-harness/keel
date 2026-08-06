@@ -109,3 +109,4 @@ Six numbers are unused, and this is deliberate rather than a mistake:\n| Number 
 | [0087](0087-controller-enforced-final-answer-contracts.md) | Controller-enforced final-answer contracts and inspectable settlement | accepted |
 | [0088](0088-progress-earned-terminal-review-recovery.md) | Progress-earned terminal-review recovery | accepted |
 | [0089](0089-governed-argv-only-process-execution.md) | Governed argv-only process execution | accepted |
+| [0090](0090-exact-once-process-run-mutable-metadata-review.md) | Exact-once `process.run` review after mutable execution input | proposed |
