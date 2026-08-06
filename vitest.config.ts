@@ -5,6 +5,7 @@ import { defineConfig } from "vitest/config";
 // workspace source while avoiding the generic `module` condition: some external
 // packages publish an ESM-shaped `module` export without declaring ESM to Node.
 const nodeSourceConditions = ["@keel/source", "node", "development|production"];
+const MAX_RELIABLE_TEST_WORKERS = 4;
 
 export default defineConfig({
   // Resolve cross-package "@keel/*" imports to TypeScript source via the
@@ -41,9 +42,10 @@ export default defineConfig({
     pool: "forks",
     // Several contract/security tests exercise real child processes with intentionally bounded
     // wall-clock handshakes (for example ADR-0078's exact 250 ms presentation barrier). Leave one
-    // scheduler slot available to those children instead of letting Vitest saturate every reported
-    // CPU and turning valid product timeouts into load-dependent test flakes.
-    maxWorkers: Math.max(1, availableParallelism() - 1),
+    // scheduler slot available to those children and cap the fork pool at the measured reliable
+    // ceiling instead of turning valid product timeouts into load-dependent test flakes on
+    // higher-core hosts.
+    maxWorkers: Math.max(1, Math.min(MAX_RELIABLE_TEST_WORKERS, availableParallelism() - 1)),
     // Property-based tests generate hundreds of values per run; under v8 coverage
     // instrumentation the recursive-schema generators (e.g. SimulatorScript's
     // JsonObject args via fc.jsonValue) measured ~5.3s — over vitest's 5s default,
