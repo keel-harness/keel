@@ -1341,6 +1341,127 @@ describe("keel-warden stdio JSON-RPC server", () => {
     }
   });
 
+  it("fails closed before process.run child execution when the intent audit append fails", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "keel-rpc-process-intent-fail-"));
+    try {
+      const writer = auditWriter(join(dir, "audit.jsonl"));
+      const failingIntentWriter = auditWriterFailingOnAppend(writer, 1);
+      const executions: unknown[] = [];
+      const fakeSandbox: SandboxPort = {
+        status: () => ({
+          available: true,
+          backend: "fake-sandbox",
+          enforcementTier: "sandbox:fake",
+        }),
+        execute: async (invocation) => {
+          executions.push(invocation);
+          return { exitCode: 0, signal: null, stdout: "should-not-run", stderr: "" };
+        },
+      };
+
+      const raw = JsonRpcErrorResponse.parse(
+        await handleRpcLine(
+          JSON.stringify(processExecuteFrame("process-intent-audit-fail", ["python3", "-V"])),
+          {
+            workspaceTrusted: true,
+            sandbox: fakeSandbox,
+            policy: ALLOW_POLICY,
+            auditWriter: failingIntentWriter,
+          },
+        ),
+      );
+
+      expect(raw.error.data?.code).toBe("AUDIT_WRITE_FAILED");
+      expect(raw.error.data?.["actionMayHaveExecuted"]).toBeUndefined();
+      expect(executions).toEqual([]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("reports possible process.run mutation when the outcome audit append fails", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "keel-rpc-process-outcome-fail-"));
+    try {
+      const writer = auditWriter(join(dir, "audit.jsonl"));
+      const failingOutcomeWriter = auditWriterFailingOnAppend(writer, 2);
+      const executions: unknown[] = [];
+      const fakeSandbox: SandboxPort = {
+        status: () => ({
+          available: true,
+          backend: "fake-sandbox",
+          enforcementTier: "sandbox:fake",
+        }),
+        execute: async (invocation) => {
+          executions.push(invocation);
+          return { exitCode: 0, signal: null, stdout: "ran", stderr: "" };
+        },
+      };
+
+      const raw = JsonRpcErrorResponse.parse(
+        await handleRpcLine(
+          JSON.stringify(processExecuteFrame("process-outcome-audit-fail", ["python3", "-V"])),
+          {
+            workspaceTrusted: true,
+            sandbox: fakeSandbox,
+            policy: ALLOW_POLICY,
+            auditWriter: failingOutcomeWriter,
+          },
+        ),
+      );
+
+      expect(raw.error.data?.code).toBe("AUDIT_WRITE_FAILED");
+      expect(raw.error.data?.["actionMayHaveExecuted"]).toBe(true);
+      expect(raw.error.data?.["mutationPossible"]).toBe(true);
+      expect(raw.error.message).toMatch(/mutation may have occurred/i);
+      expect(executions).toHaveLength(1);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("reports possible process.run mutation when sandbox execution fails after intent", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "keel-rpc-process-sandbox-fail-"));
+    try {
+      const auditPath = join(dir, "audit.jsonl");
+      const writer = auditWriter(auditPath);
+      const fakeSandbox: SandboxPort = {
+        status: () => ({
+          available: true,
+          backend: "fake-sandbox",
+          enforcementTier: "sandbox:fake",
+        }),
+        execute: async () => {
+          throw new Error("sandbox transport lost");
+        },
+      };
+
+      const raw = JsonRpcErrorResponse.parse(
+        await handleRpcLine(
+          JSON.stringify(processExecuteFrame("process-sandbox-fail", ["python3", "-V"])),
+          {
+            workspaceTrusted: true,
+            sandbox: fakeSandbox,
+            policy: ALLOW_POLICY,
+            auditWriter: writer,
+          },
+        ),
+      );
+
+      expect(raw.error.data?.code).toBe("SANDBOX_EXECUTION_FAILED");
+      expect(raw.error.data?.["actionMayHaveExecuted"]).toBe(true);
+      expect(raw.error.data?.["mutationPossible"]).toBe(true);
+      const records = loadAuditRecords(auditPath);
+      expect(records).toHaveLength(2);
+      expect(records[1]?.payload["result"]).toMatchObject({
+        kind: "sandbox_execution_failed",
+        actionMayHaveExecuted: true,
+        mutationPossible: true,
+      });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("denies forged untrusted and malformed process.run calls before policy or sandbox execution", async () => {
     const dir = mkdtempSync(join(tmpdir(), "keel-rpc-process-denied-"));
     try {

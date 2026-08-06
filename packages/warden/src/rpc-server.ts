@@ -3613,7 +3613,10 @@ async function executeWithProfile(
     });
   } catch (error) {
     const mutationPossible =
-      options.audit === undefined ? false : sideEffectMayHaveMutated(options.audit.policyInput);
+      options.audit === undefined
+        ? false
+        : options.audit.params.toolCall.name === "process.run" ||
+          sideEffectMayHaveMutated(options.audit.policyInput);
     if (options.audit !== undefined && decision !== undefined) {
       const message = guidanceTextForResponse(sandboxExecutionMessage(error));
       appendAuditSeq(
@@ -3653,6 +3656,12 @@ async function executeWithProfile(
   }
   let auditSeq = 0;
   if (options.audit !== undefined && decision !== undefined) {
+    // Direct process execution remains conservatively mutation-capable even when the structured
+    // effect classifier recognizes a read-only-looking argv. The executable can still mutate by
+    // behavior, so an outcome-audit failure must never suggest that retry is known safe.
+    const mutationPossible =
+      options.audit.params.toolCall.name === "process.run" ||
+      sideEffectMayHaveMutated(options.audit.policyInput);
     auditSeq = appendAuditSeq(
       context,
       {
@@ -3678,7 +3687,10 @@ async function executeWithProfile(
         policy: auditPolicyInfo(context, decision),
         provenance: auditProvenanceInfo(options.audit.policyInput),
       },
-      { actionMayHaveExecuted: true },
+      {
+        actionMayHaveExecuted: true,
+        ...(mutationPossible ? { mutationPossible: true } : {}),
+      },
     );
   }
   const responseGuidance =
