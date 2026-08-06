@@ -221,6 +221,49 @@ suite("real SRT sandbox enforcement (opt-in: KEEL_REQUIRE_REAL_SANDBOX=1)", () =
     expect(existsSync(target)).toBe(true);
   });
 
+  it("preserves argv data literally without starting sibling shell effects", async () => {
+    const workspace = realpathSync(mkdtempSync(join(workRoot, "argv-literal-workspace-")));
+    const canary = join(workspace, "must-not-exist.txt");
+    const profile: SandboxProfile = {
+      filesystem: {
+        allowRead: [workspace],
+        allowWrite: [workspace],
+        denyRead: [],
+        denyWrite: [],
+      },
+      network: { allowedDomains: [], deniedDomains: ["*"], strictAllowlist: true },
+    };
+    const literalArgs = [
+      "space value",
+      "quote'value",
+      `$(touch ${canary})`,
+      `\`touch ${canary}\``,
+      `; touch ${canary}`,
+      "&&",
+      "||",
+      "|",
+      "2>&1",
+      "*.txt",
+      "{a,b}",
+      "-leading",
+      "",
+    ];
+    const observer = "process.stdout.write(JSON.stringify(process.argv.slice(1)))";
+
+    const result = await sandbox.execute(
+      {
+        command: process.execPath,
+        argv: [process.execPath, "-e", observer, "--", ...literalArgs],
+        cwd: workspace,
+      },
+      profile,
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(JSON.parse(result.stdout)).toEqual(literalArgs);
+    expect(existsSync(canary)).toBe(false);
+  });
+
   it("DENIES a write outside allowWrite", async () => {
     const allowedDir = join(workRoot, "allowed-2");
     mkdirSync(allowedDir);

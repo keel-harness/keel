@@ -1390,19 +1390,13 @@ describe("keel-warden stdio JSON-RPC server", () => {
       expect(malformed.error.data?.code).toBe("INVALID_PARAMS");
       expect(policyCalls).toBe(0);
       expect(sandboxCalls).toBe(0);
-      expect(loadAuditRecords(auditPath)).toEqual([
-        expect.objectContaining({
-          eventType: "tool.deny",
-          payload: expect.objectContaining({ toolName: "process.run" }),
-        }),
-        expect.objectContaining({
-          eventType: "tool.deny",
-          payload: expect.objectContaining({
-            toolName: "process.run",
-            args: { invalid: "process.run args rejected" },
-          }),
-        }),
-      ]);
+      const records = loadAuditRecords(auditPath);
+      expect(records).toHaveLength(2);
+      expect(records[0]?.eventType).toBe("tool.deny");
+      expect(records[0]?.payload["toolName"]).toBe("process.run");
+      expect(records[1]?.eventType).toBe("tool.deny");
+      expect(records[1]?.payload["toolName"]).toBe("process.run");
+      expect(records[1]?.payload["args"]).toEqual({ invalid: "process.run args rejected" });
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -1469,14 +1463,12 @@ describe("keel-warden stdio JSON-RPC server", () => {
         expect(executions).toEqual([]);
         const records = loadAuditRecords(auditPath);
         expect(records).toHaveLength(1);
-        expect(records[0]).toMatchObject({
-          eventType: "tool.deny",
-          payload: {
-            toolName: "process.run",
-            args: { argv: ["python3", "-m", "pytest", "-q"] },
-            [testCase.auditKey]: expect.any(Object),
-          },
+        expect(records[0]?.eventType).toBe("tool.deny");
+        expect(records[0]?.payload["toolName"]).toBe("process.run");
+        expect(records[0]?.payload["args"]).toEqual({
+          argv: ["python3", "-m", "pytest", "-q"],
         });
+        expect(records[0]?.payload[testCase.auditKey]).toBeDefined();
         if (testCase.auditKey === "processRunModify") {
           expect(records[0]?.payload[testCase.auditKey]).toMatchObject({
             status: "not-executed",
@@ -1530,15 +1522,11 @@ describe("keel-warden stdio JSON-RPC server", () => {
       expect(result).not.toHaveProperty("review");
       expect(executions).toBe(0);
       expect(reviewState.pending.size).toBe(0);
-      expect(loadAuditRecords(auditPath)).toEqual([
-        expect.objectContaining({
-          eventType: "tool.deny",
-          payload: expect.objectContaining({
-            toolName: "process.run",
-            processRunReview: expect.objectContaining({ status: "terminal" }),
-          }),
-        }),
-      ]);
+      const records = loadAuditRecords(auditPath);
+      expect(records).toHaveLength(1);
+      expect(records[0]?.eventType).toBe("tool.deny");
+      expect(records[0]?.payload["toolName"]).toBe("process.run");
+      expect(records[0]?.payload["processRunReview"]).toMatchObject({ status: "terminal" });
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
