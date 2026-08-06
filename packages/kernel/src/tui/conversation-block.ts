@@ -32,7 +32,11 @@ import {
   reviewSettlementRecovery,
   type ReviewSettlementPresentationOutcome,
 } from "./review-settlement-presentation.js";
-import { TUI_MANUAL_RECOVERY_GUIDANCE, TUI_TERMINAL_REVIEW_TRUTH } from "./strings.js";
+import {
+  TUI_AUTOPILOT_REVIEW_BOUNDARY,
+  TUI_MANUAL_RECOVERY_GUIDANCE,
+  TUI_TERMINAL_REVIEW_TRUTH,
+} from "./strings.js";
 
 type UserMessage = UiMessage & { readonly role: "user" };
 
@@ -678,6 +682,12 @@ function toolProblemReason(
     detail.toLowerCase().includes(TUI_TERMINAL_REVIEW_TRUTH.summaryPrefix)
   ) {
     return TUI_TERMINAL_REVIEW_TRUTH.reason;
+  }
+  if (outcome === "blocked" && detail === TUI_AUTOPILOT_REVIEW_BOUNDARY.domain.summary) {
+    return TUI_AUTOPILOT_REVIEW_BOUNDARY.domain.reason;
+  }
+  if (outcome === "blocked" && detail === TUI_AUTOPILOT_REVIEW_BOUNDARY.commandEnvelope.summary) {
+    return TUI_AUTOPILOT_REVIEW_BOUNDARY.commandEnvelope.reason;
   }
   if (outcome === "blocked") return "the warden denied the action before execution";
   if (outcome === "review")

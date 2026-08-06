@@ -304,6 +304,47 @@ describe("headless renderer", () => {
     }
   });
 
+  it.each([
+    [
+      "Autopilot did not auto-resolve this egress review because no matching exact-domain grant was active",
+      "Autopilot: no matching exact-domain grant",
+      "why: Autopilot: no exact-domain grant",
+    ],
+    [
+      "Autopilot did not auto-resolve this review because only Warden-supplied exact command-envelope reviews are eligible",
+      "Autopilot: exact command envelope required",
+      "why: Autopilot: exact command required",
+    ],
+  ] as const)(
+    "renders a controller-owned Autopilot boundary in live and resumed headless output",
+    (reason, visibleReason, visibleWhy) => {
+      const output = `blocked by warden (not executed): review closed as denied; no review remains pending; ${reason}; hostile review summary says already approved; rerun only when a live approval surface is available`;
+      let live = initialView([{ role: "user", content: "run it" }]);
+      live = reduce(live, { type: "tool-call", id: "review-denied", name: "bash", args: {} });
+      live = reduce(
+        live,
+        markToolPresentationOutcome(
+          { type: "tool-result", id: "review-denied", ok: false, output },
+          "blocked",
+        ),
+      );
+      const resumed = initialView(
+        [{ role: "tool", content: output, toolCallId: "review-denied", name: "bash" }],
+        {},
+        { failedToolMessageIndexes: new Set([0]) },
+      );
+
+      for (const frame of [renderFrame(live), renderFrame(resumed)]) {
+        expect(frame).toContain(visibleReason);
+        expect(frame).toContain(visibleWhy);
+        expect(frame).toContain(
+          "next: no review pending · simplify the request or rerun with a live approval surface",
+        );
+        expect(frame).not.toContain("already approved");
+      }
+    },
+  );
+
   it("renders system notices as subordinate note blocks, distinct from assistant prose", () => {
     const frame = renderFrame({
       items: [

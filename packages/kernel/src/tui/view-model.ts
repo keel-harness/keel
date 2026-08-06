@@ -58,6 +58,7 @@ import {
 import { governedProcessEnvelope, renderToolCommand } from "../tool-command.js";
 import { formatTokens } from "./format.js";
 import { stripControl, stripControlLine } from "./strip.js";
+import { TUI_AUTOPILOT_REVIEW_BOUNDARY } from "./strings.js";
 import { toolOutcome } from "./tool-outcome.js";
 import { mutationReviewUnavailableCopy } from "./tool-card.js";
 import {
@@ -1520,6 +1521,27 @@ function kernelReviewSettlementSummary(outcome: KernelReviewSettlementOutcome): 
   return outcome === "partial" ? REVIEW_INDETERMINATE_SUMMARY : REVIEW_PENDING_SUMMARY;
 }
 
+const SETTLED_REVIEW_DENIAL_PREFIX =
+  "blocked by warden (not executed): review closed as denied; no review remains pending; ";
+
+function settledAutopilotBoundarySummary(denial: string): string | undefined {
+  if (
+    denial.startsWith(
+      `${SETTLED_REVIEW_DENIAL_PREFIX}${KERNEL_STRINGS.autopilotEgressReviewBoundary};`,
+    )
+  ) {
+    return TUI_AUTOPILOT_REVIEW_BOUNDARY.domain.summary;
+  }
+  if (
+    denial.startsWith(
+      `${SETTLED_REVIEW_DENIAL_PREFIX}${KERNEL_STRINGS.autopilotIneligibleReviewBoundary};`,
+    )
+  ) {
+    return TUI_AUTOPILOT_REVIEW_BOUNDARY.commandEnvelope.summary;
+  }
+  return undefined;
+}
+
 function toolResultSummary(
   name: string,
   priorSummary: string,
@@ -1538,6 +1560,8 @@ function toolResultSummary(
     const denialFirstLine = stripControlLine(firstLine(output)).trim();
     if (outcome === "blocked" && denialFirstLine.startsWith("blocked by warden (not executed):")) {
       if (denialFirstLine.includes("no review remains pending")) {
+        const autopilotBoundary = settledAutopilotBoundarySummary(denialFirstLine);
+        if (autopilotBoundary !== undefined) return autopilotBoundary;
         return "blocked by warden (not executed): review closed as denied · no review remains pending";
       }
       return truncateLine(denialFirstLine, MAX_LIVE_OUTPUT_LEN);

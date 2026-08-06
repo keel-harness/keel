@@ -32,6 +32,7 @@ import {
   type PlanApprovalSummary,
   ScopedEgressApprovals,
   type ScopedApprovalResolution,
+  reviewApprovalPresentation,
   reviewHasSessionGrantResource,
   renderScopedApprovalLine,
   type ResolveReviewClient,
@@ -356,10 +357,25 @@ function renderSettledReviewDenial(result: ExecuteResult, reason: string): ToolR
   const summary = oneLineControlStripped(
     result.review?.summary ?? result.guidance ?? "human approval required",
   );
+  const closureReason = oneLineControlStripped(reason);
   return terminalReviewResult(
-    `blocked by warden (not executed): review closed as denied; no review remains pending; ${summary}; ${oneLineControlStripped(reason)}; rerun only when a live approval surface is available`,
+    `blocked by warden (not executed): review closed as denied; no review remains pending; ${closureReason}; ${summary}; rerun only when a live approval surface is available`,
     "blocked",
   );
+}
+
+function reviewClosureReason(
+  review: ReviewRequired,
+  fallback: string,
+  autopilotReviewRouting: boolean,
+): string {
+  if (!autopilotReviewRouting) return fallback;
+  const resource = reviewApprovalPresentation(review).exactResource;
+  const boundary =
+    resource.status === "available" && resource.kind === "domain"
+      ? KERNEL_STRINGS.autopilotEgressReviewBoundary
+      : KERNEL_STRINGS.autopilotIneligibleReviewBoundary;
+  return `${boundary}; ${fallback}`;
 }
 
 function terminalReviewFailure(result: ExecuteResult, message: string): ToolResultT {
@@ -1071,7 +1087,11 @@ export class WardenExecutor implements ExecutorPort {
           ? await this.#denyPendingReview(
               result,
               this.#executeCallOptions(undefined),
-              "automated validators cannot open live approvals",
+              reviewClosureReason(
+                result.review,
+                "automated validators cannot open live approvals",
+                this.#autopilotReviewRouting,
+              ),
             )
           : undefined;
       if (terminalResolved !== undefined) return finish(terminalResolved.result);
@@ -1098,7 +1118,11 @@ export class WardenExecutor implements ExecutorPort {
         const closed = await this.#denyPendingReview(
           result,
           this.#executeCallOptions(undefined),
-          "no live approval surface accepted the request",
+          reviewClosureReason(
+            result.review,
+            "no live approval surface accepted the request",
+            this.#autopilotReviewRouting,
+          ),
         );
         return finish(closed.result);
       }

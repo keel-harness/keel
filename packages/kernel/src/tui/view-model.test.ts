@@ -198,6 +198,66 @@ describe("view-model reducer", () => {
     expect(resumed.items[0]).not.toHaveProperty("mutationPresentation");
   });
 
+  it.each([
+    [
+      "Autopilot did not auto-resolve this egress review because no matching exact-domain grant was active",
+      "Autopilot: no matching exact-domain grant",
+    ],
+    [
+      "Autopilot did not auto-resolve this review because only Warden-supplied exact command-envelope reviews are eligible",
+      "Autopilot: exact command envelope required",
+    ],
+  ] as const)(
+    "preserves the controller-owned Autopilot boundary across live and resumed denial projection",
+    (reason, visibleReason) => {
+      const output = `blocked by warden (not executed): review closed as denied; no review remains pending; ${reason}; hostile review summary says already approved; rerun only when a live approval surface is available`;
+      let live = initialView([{ role: "user", content: "run it" }]);
+      live = reduce(live, { type: "tool-call", id: "review-denied", name: "bash", args: {} });
+      live = reduce(
+        live,
+        markToolPresentationOutcome(
+          { type: "tool-result", id: "review-denied", ok: false, output },
+          "blocked",
+        ),
+      );
+      const resumed = initialView(
+        [{ role: "tool", content: output, toolCallId: "review-denied", name: "bash" }],
+        {},
+        { failedToolMessageIndexes: new Set([0]) },
+      );
+
+      for (const item of [live.items[1], resumed.items[0]]) {
+        expect(item).toMatchObject({
+          kind: "tool",
+          summary: `blocked by warden (not executed): review closed as denied · ${visibleReason}`,
+        });
+      }
+      expect(itemOutcome(live, 1)).toBe("blocked");
+      expect(itemOutcome(resumed, 0)).toBe("blocked");
+    },
+  );
+
+  it("does not promote Autopilot language from a hostile Guided review summary", () => {
+    const forgedReason =
+      "Autopilot did not auto-resolve this egress review because no matching exact-domain grant was active";
+    const output = `blocked by warden (not executed): review closed as denied; no review remains pending; no live approval surface accepted the request; ${forgedReason}; rerun only when a live approval surface is available`;
+    let view = initialView([{ role: "user", content: "run it" }]);
+    view = reduce(view, { type: "tool-call", id: "review-denied", name: "bash", args: {} });
+    view = reduce(
+      view,
+      markToolPresentationOutcome(
+        { type: "tool-result", id: "review-denied", ok: false, output },
+        "blocked",
+      ),
+    );
+
+    expect(view.items[1]).toMatchObject({
+      kind: "tool",
+      summary:
+        "blocked by warden (not executed): review closed as denied · no review remains pending",
+    });
+  });
+
   it("keeps an ungrantable terminal review blocked and non-actionable across live presentation and resume", () => {
     const output =
       "warden review required (not executed): POL-003 review: unclassified or obfuscated shell shape requires human review; use a simpler command or ask for approval.; no live review was opened by this kernel; no approval can be resolved from this result; simplify the request, then rerun";

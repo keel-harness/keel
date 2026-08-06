@@ -52,6 +52,21 @@ export const TUI_TERMINAL_REVIEW_TRUTH = {
   recovery: "no live decision · simplify the request, then rerun",
 } as const;
 
+/** Controller-derived Autopilot review boundaries. The compact reason is short enough to remain
+ * visible in a 40-column receipt when the fuller summary is truncated from the `what` line. */
+export const TUI_AUTOPILOT_REVIEW_BOUNDARY = {
+  domain: {
+    summary:
+      "blocked by warden (not executed): review closed as denied · Autopilot: no matching exact-domain grant",
+    reason: "Autopilot: no exact-domain grant",
+  },
+  commandEnvelope: {
+    summary:
+      "blocked by warden (not executed): review closed as denied · Autopilot: exact command envelope required",
+    reason: "Autopilot: exact command required",
+  },
+} as const;
+
 /** ADR-0079's fixed, non-destructive recovery boundary. Shared by the completion receipt and the
  * focused diff surface so neither renderer invents a stronger undo claim. */
 export const TUI_MANUAL_RECOVERY_GUIDANCE =
