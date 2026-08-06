@@ -1301,7 +1301,9 @@ export function turnSummaryPresentation(summary: UiTurnSummary): TurnSummaryPres
   const hasControllerVerification =
     checked.length > 0 || receipt.some((line) => /^verification\s*·/iu.test(line));
   const verification =
-    fileEvidence.length > 0 && !hasControllerVerification ? ["verification not run"] : [];
+    fileEvidence.length > 0 && !hasControllerVerification && ranCount === 0
+      ? ["verification not run"]
+      : [];
   const recovery = fileEvidence.length > 0 ? [TUI_MANUAL_RECOVERY_GUIDANCE] : [];
   return {
     title:

@@ -1247,7 +1247,9 @@ describe("conversationPlan", () => {
       "bash: failure 2",
     ]);
     expect(presentation.attentionCount).toBe(4);
-    expect(presentation.verification).toEqual(["verification not run"]);
+    expect(presentation.verification).toBeUndefined();
+    expect(presentation.ran).toContain("bash: command 0");
+    expect(JSON.stringify(presentation)).not.toContain("verification not run");
     expect(presentation.recovery).toEqual([
       "automatic undo unavailable — review file evidence and recover deliberately from version control or a backup",
     ]);

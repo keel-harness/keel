@@ -463,4 +463,25 @@ describe("focused diff viewer — bounded viewport plan", () => {
       ].length,
     ).toBeLessThanOrEqual(18);
   });
+
+  it("does not claim verification was not run when the latest turn has a command receipt", () => {
+    const collection = collectDiffViewerFiles(
+      [
+        { kind: "message", role: "user", content: "latest task" },
+        unavailableTool("budget", "capture-budget"),
+      ],
+      {
+        title: "done",
+        changed: [],
+        checked: [],
+        ran: ["process.run: tests passed"],
+        attention: [],
+      },
+    );
+
+    const plan = planUnavailableDiffViewer(collection, { columns: 40, rows: 18 });
+
+    expect(plan.verificationLines).toEqual([]);
+    expect(JSON.stringify(plan)).not.toContain("verification not run");
+  });
 });

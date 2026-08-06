@@ -807,7 +807,7 @@ describe("Ink App (frame snapshots via ink-testing-library)", () => {
 
     const frame = render(<App view={view} />).lastFrame() ?? "";
     expect(frame).toContain("what file evidence src/app.ts · observed absent before");
-    expect(frame).toContain("verification not run");
+    expect(frame).not.toContain("verification not run");
     expect(frame).not.toContain("not verified verification");
     expect(frame).toContain("ran bash: tests passed");
     expect(frame).toContain(
