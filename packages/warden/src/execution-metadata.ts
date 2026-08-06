@@ -20,10 +20,59 @@ const VCS_SANDBOX_DENY_PATHS = [".git/config", ".git/config.worktree", ".git/hoo
 
 export interface ExecutionMetadataState {
   readonly invalidatedSessions: Set<string>;
+  readonly mutationGenerations: Map<string, number>;
+  readonly poisonedSessions: Set<string>;
 }
 
 export function createExecutionMetadataState(): ExecutionMetadataState {
-  return { invalidatedSessions: new Set<string>() };
+  return {
+    invalidatedSessions: new Set<string>(),
+    mutationGenerations: new Map<string, number>(),
+    poisonedSessions: new Set<string>(),
+  };
+}
+
+export interface ExecutionMetadataGeneration {
+  readonly generation: number;
+  readonly poisoned: boolean;
+}
+
+export function executionMetadataGeneration(
+  state: ExecutionMetadataState,
+  sessionId: string,
+): ExecutionMetadataGeneration {
+  const generation = state.mutationGenerations.get(sessionId) ?? 0;
+  const poisoned = state.poisonedSessions.has(sessionId);
+  if (
+    poisoned ||
+    !Number.isSafeInteger(generation) ||
+    generation < 0 ||
+    generation >= Number.MAX_SAFE_INTEGER
+  ) {
+    state.mutationGenerations.set(sessionId, Number.MAX_SAFE_INTEGER);
+    state.poisonedSessions.add(sessionId);
+    state.invalidatedSessions.add(sessionId);
+    return { generation: Number.MAX_SAFE_INTEGER, poisoned: true };
+  }
+  return {
+    generation,
+    poisoned: false,
+  };
+}
+
+function advanceExecutionMetadataGeneration(
+  state: ExecutionMetadataState,
+  sessionId: string,
+): void {
+  const currentState = executionMetadataGeneration(state, sessionId);
+  if (currentState.poisoned) return;
+  if (currentState.generation >= Number.MAX_SAFE_INTEGER - 1) {
+    state.mutationGenerations.set(sessionId, Number.MAX_SAFE_INTEGER);
+    state.poisonedSessions.add(sessionId);
+    state.invalidatedSessions.add(sessionId);
+    return;
+  }
+  state.mutationGenerations.set(sessionId, currentState.generation + 1);
 }
 
 export function packageManagerExecutionMetadataPaths(workspaceRoot: string): string[] {
@@ -47,6 +96,10 @@ export function invalidateExecutionMetadataForPotentialWrite(
   sessionId: string,
   policyInput: PolicyInputT,
 ): void {
+  // Every admitted execution attempt can make a concurrently displayed process review stale, even
+  // when the classifier describes the attempt as read-only. Advance before the write predicate while
+  // preserving the existing rule that only a classified workspace write revokes metadata trust.
+  advanceExecutionMetadataGeneration(state, sessionId);
   // Package scripts, test discovery, tool configs, attributes, and plugin loading can turn an
   // otherwise ordinary workspace file into executable input. Enumerating those paths would leave
   // the review boundary dependent on every supported toolchain, so any governed workspace write
@@ -56,9 +109,23 @@ export function invalidateExecutionMetadataForPotentialWrite(
   }
 }
 
+/** An exact reviewed process can execute repository-controlled helpers whose writes are not visible
+ * in the request classifier. Admission therefore invalidates unconditionally before durable intent,
+ * staling every sibling review in the same session even for a read-only-looking argv. */
+export function invalidateExecutionMetadataForReviewedProcess(
+  state: ExecutionMetadataState,
+  sessionId: string,
+): void {
+  state.invalidatedSessions.add(sessionId);
+  advanceExecutionMetadataGeneration(state, sessionId);
+}
+
 export function executionMetadataTrusted(
   state: ExecutionMetadataState,
   sessionId: string,
 ): boolean {
-  return !state.invalidatedSessions.has(sessionId);
+  return (
+    !state.invalidatedSessions.has(sessionId) &&
+    !executionMetadataGeneration(state, sessionId).poisoned
+  );
 }
