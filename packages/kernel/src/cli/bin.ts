@@ -245,7 +245,14 @@ function gatherDoctorInput(): DoctorInput {
   // Probe the EXACT ripgrep the `search` tool resolves (bundled on npx/dev, system `rg` on the
   // standalone binary, or a KEEL_RG_PATH override) — so doctor reports the binary keel will actually
   // run, never a different one (QC: doctor/search must agree).
-  const rgVersionRaw = probe(resolveRgPath(process.env), ["--version"]);
+  const rgPath = resolveRgPath(process.env, undefined, undefined, runtime === "standalone");
+  const rgVersionRaw = rgPath === undefined ? null : probe(rgPath, ["--version"]);
+  const ripgrepSource =
+    process.env["KEEL_RG_PATH"] !== undefined && process.env["KEEL_RG_PATH"] !== ""
+      ? "override"
+      : runtime === "standalone"
+        ? "system"
+        : "bundled";
   const osReleaseRaw = process.platform === "linux" ? readFileOrNull("/etc/os-release") : null;
   const procVersionRaw = process.platform === "linux" ? readFileOrNull("/proc/version") : null;
   const bwrapVersionRaw =
@@ -257,6 +264,7 @@ function gatherDoctorInput(): DoctorInput {
     runtime,
     nodeVersionRaw,
     rgVersionRaw,
+    ripgrepSource,
     bwrapVersionRaw,
     socatVersionRaw,
     sandboxExecPresent,
@@ -269,13 +277,13 @@ function gatherDoctorInput(): DoctorInput {
     // keel's own executable bytes. The warden entry executes as the process that decides policy;
     // ripgrep is spawned by it. Doctor REPORTS (never enforces) when any of them sits inside the
     // model-writable workspace — see `harnessOutsideWorkspaceCheck`.
-    harnessExecutablePaths: harnessExecutablePaths(),
+    harnessExecutablePaths: harnessExecutablePaths(rgPath),
   };
 }
 
 /** Resolve keel's own executable bytes for the doctor posture check (impure; the check is pure). */
-function harnessExecutablePaths(): readonly string[] {
-  const paths: string[] = [resolveRgPath(process.env)];
+function harnessExecutablePaths(rgPath: string | undefined): readonly string[] {
+  const paths: string[] = rgPath === undefined ? [] : [rgPath];
   try {
     paths.push(...resolveProductionWardenStart().args.filter((arg) => arg.includes(sep)));
   } catch {

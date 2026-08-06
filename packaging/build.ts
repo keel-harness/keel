@@ -11,12 +11,11 @@
  *     bundled; other npm deps left EXTERNAL and declared in a generated `package.json` so `npm`/`npx`
  *     installs them (incl. native `@vscode/ripgrep`). This is the `npx keel-harness` mechanism.
  *   • `build/bin/`  — `bun --compile` self-contained binaries per target. These carry no
- *     `node_modules`, so two optional/native imports are stubbed at bundle time:
+ *     `node_modules`, so one optional import is stubbed at bundle time:
  *       - `react-devtools-core` — an optional peer of ink, loaded only under `DEV=true` (never in a
  *         shipped build), but the bundler eagerly follows ink's dynamic import → stub to empty.
- *       - `@vscode/ripgrep` — its index throws when its platform binary is absent; the binary uses
- *         **system ripgrep** by design (`keel doctor` checks it), so stub `rgPath` to bare `"rg"`
- *         and let `resolveRgPath` fall through to PATH.
+ *     The resolver selects **system ripgrep** only for the explicit standalone carrier; it does not
+ *     import `@vscode/ripgrep` or consult npm package state on that path.
  *
  * Usage:
  *   bun packaging/build.ts npx                 # the npx package only
@@ -212,9 +211,9 @@ const stubInkDevtools: Bun.Plugin = {
   },
 };
 
-/** Bundle-time stubs for the standalone binary (no node_modules at runtime). */
-const stubForBinary: Bun.Plugin = {
-  name: "keel-binary-stubs",
+/** Bundle-time optional-peer stub for the standalone binary (no node_modules at runtime). */
+const stubInkDevtoolsForBinary: Bun.Plugin = {
+  name: "keel-binary-ink-devtools-stub",
   setup(build) {
     build.onResolve({ filter: /^react-devtools-core$/ }, (a) => ({
       path: a.path,
@@ -222,14 +221,6 @@ const stubForBinary: Bun.Plugin = {
     }));
     build.onLoad({ filter: /.*/, namespace: "stub-empty" }, () => ({
       contents: "export default {};",
-      loader: "js",
-    }));
-    build.onResolve({ filter: /^@vscode\/ripgrep$/ }, (a) => ({
-      path: a.path,
-      namespace: "stub-rg",
-    }));
-    build.onLoad({ filter: /.*/, namespace: "stub-rg" }, () => ({
-      contents: 'export const rgPath = "rg";',
       loader: "js",
     }));
   },
@@ -519,7 +510,7 @@ async function buildBinaries(
       // `packaging/smoke-dotenv-isolation.mjs` compiled-binary probe (a unit test can't — Node doesn't
       // autoload). @types/bun lags on these fields; they're declared in packaging/bun-build.d.ts.
       compile: { target, outfile, autoloadDotenv: false, autoloadBunfig: false },
-      plugins: [stubForBinary],
+      plugins: [stubInkDevtoolsForBinary],
       metafile: true,
       define: { __KEEL_EVAL_DIRECT_EXEC_BUILD__: evalDirectExecBuild ? "true" : "false" },
     };

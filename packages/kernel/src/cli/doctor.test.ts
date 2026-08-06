@@ -316,6 +316,31 @@ describe("runDoctor — ripgrep missing (required → failure)", () => {
     expect(r.exitCode).toBe(1);
   });
 
+  it("repairs a missing npm-carried optional package instead of silently switching to PATH", () => {
+    const rg = check(
+      { rgVersionRaw: null, ripgrepSource: "bundled", platform: "darwin" },
+      "ripgrep",
+    );
+    expect(rg).toMatchObject({
+      status: "missing",
+      detail: "bundled package unavailable",
+      why: "required by the search tool; the npm carrier does not execute PATH fallbacks",
+      fix: `npm install --global --ignore-scripts --include=optional keel-harness@${KEEL_VERSION}`,
+    });
+  });
+
+  it("recovers from an unavailable explicit KEEL_RG_PATH without installing a second ripgrep", () => {
+    expect(
+      check({ rgVersionRaw: null, ripgrepSource: "override", platform: "darwin" }, "ripgrep"),
+    ).toMatchObject({
+      detail: "KEEL_RG_PATH is unavailable",
+      fix: "unset KEEL_RG_PATH && keel doctor",
+    });
+    expect(
+      check({ rgVersionRaw: null, ripgrepSource: "override", platform: "win32" }, "ripgrep")?.fix,
+    ).toBe("Remove-Item Env:KEEL_RG_PATH; keel doctor");
+  });
+
   it("emits the right one-line fix per distro/OS", () => {
     expect(check({ rgVersionRaw: null, platform: "darwin" }, "ripgrep")?.fix).toBe(
       "brew install ripgrep",

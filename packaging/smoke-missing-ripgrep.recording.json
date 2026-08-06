@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "provider": "replay",
+  "model": "keel-missing-ripgrep-smoke",
+  "turns": [
+    {
+      "chunks": [
+        { "type": "text-delta", "text": "I'll search the workspace." },
+        {
+          "type": "tool-call",
+          "id": "call_missing_rg_1",
+          "name": "search",
+          "args": { "pattern": "keel" }
+        },
+        {
+          "type": "finish",
+          "reason": "tool-calls",
+          "usage": { "inputTokens": 8, "outputTokens": 6 }
+        }
+      ]
+    },
+    {
+      "chunks": [
+        {
+          "type": "text-delta",
+          "text": "Search could not run because its bundled runtime is unavailable. Run keel doctor for the repair action."
+        },
+        { "type": "finish", "reason": "stop", "usage": { "inputTokens": 12, "outputTokens": 9 } }
+      ]
+    }
+  ]
+}

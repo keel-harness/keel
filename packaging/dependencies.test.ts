@@ -31,7 +31,7 @@ describe("packaging dependency projection", () => {
         "node_modules/.pnpm/string-width@5.1.2/node_modules/string-width/index.js",
         "node_modules/.pnpm/string-width@8.2.1/node_modules/string-width/index.js",
         "packages/kernel/src/tui/ink/app.tsx",
-        "stub-rg:@vscode/ripgrep",
+        "stub-empty:react-devtools-core",
       ]),
     ).toEqual([
       "node_modules/.pnpm/@pondwader+socks5-server@1.0.10/node_modules/@pondwader/socks5-server/package.json",

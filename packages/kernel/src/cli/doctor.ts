@@ -51,6 +51,8 @@ export interface DoctorInput {
   readonly nodeVersionRaw: string | null;
   /** `rg --version` first line (e.g. `"ripgrep 14.1.1 (rev …)"`); `null` if absent. */
   readonly rgVersionRaw: string | null;
+  /** How this carrier selected ripgrep; omitted retains standalone/system repair semantics. */
+  readonly ripgrepSource?: "bundled" | "system" | "override";
   /** `bwrap --version` output on Linux; `null` if absent or not relevant to this platform. */
   readonly bwrapVersionRaw: string | null;
   /** `socat -V` output on Linux; `null` if absent or not relevant to this platform. */
@@ -246,6 +248,29 @@ function nodeCheck(input: DoctorInput): DoctorCheck {
 
 function ripgrepCheck(input: DoctorInput): DoctorCheck {
   if (input.rgVersionRaw === null) {
+    if (input.ripgrepSource === "bundled") {
+      return {
+        id: "ripgrep",
+        label: "ripgrep",
+        status: "missing",
+        detail: "bundled package unavailable",
+        why: "required by the search tool; the npm carrier does not execute PATH fallbacks",
+        fix: `npm install --global --ignore-scripts --include=optional keel-harness@${KEEL_VERSION}`,
+      };
+    }
+    if (input.ripgrepSource === "override") {
+      return {
+        id: "ripgrep",
+        label: "ripgrep",
+        status: "missing",
+        detail: "KEEL_RG_PATH is unavailable",
+        why: "required by the search tool",
+        fix:
+          input.platform === "win32"
+            ? "Remove-Item Env:KEEL_RG_PATH; keel doctor"
+            : "unset KEEL_RG_PATH && keel doctor",
+      };
+    }
     return {
       id: "ripgrep",
       label: "ripgrep",

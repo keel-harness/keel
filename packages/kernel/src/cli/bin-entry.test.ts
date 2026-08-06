@@ -66,6 +66,37 @@ function binEnv(keelHome: string): NodeJS.ProcessEnv {
 }
 
 describe("bin entrypoint Plan Autopilot confirmation", () => {
+  it.each([
+    { args: ["--help"], expectedStatus: 0, expected: /usage: keel \[command\]/i },
+    { args: ["--version"], expectedStatus: 0, expected: /^keel \d+\.\d+\.\d+/m },
+    {
+      args: ["doctor"],
+      expectedStatus: 1,
+      expected: /keel doctor[\s\S]*ripgrep/i,
+    },
+  ])(
+    "keeps recovery command $args bootstrap-independent when optional ripgrep imports are unavailable",
+    ({ args, expectedStatus, expected }) => {
+      const keelHome = mkdtempSync(join(tmpdir(), "keel-bin-ripgrep-missing-home-"));
+      try {
+        const env = binEnv(keelHome);
+        env["PATH"] = "";
+        env["npm_config_arch"] = "keel-missing-optional";
+        const result = spawnSync(
+          process.execPath,
+          ["--import", TSX_ESM_LOADER, "--conditions=@keel/source", BIN_ENTRY, ...args],
+          { encoding: "utf8", env, maxBuffer: 1024 * 1024 },
+        );
+
+        expect(result.status, result.stderr).toBe(expectedStatus);
+        expect(result.stdout).toMatch(expected);
+        expect(result.stderr).not.toMatch(/could not find @vscode\/ripgrep|module_not_found/i);
+      } finally {
+        rmSync(keelHome, { recursive: true, force: true });
+      }
+    },
+  );
+
   it("returns exit 1 for an unknown top-level flag", () => {
     const keelHome = mkdtempSync(join(tmpdir(), "keel-bin-usage-home-"));
     try {
