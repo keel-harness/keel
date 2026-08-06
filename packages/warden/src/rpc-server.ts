@@ -3497,7 +3497,11 @@ function policyDetailsForResponse(
 function resultFromSandboxExecution(
   result: SandboxExecutionResult,
   decision?: PolicyDecision,
-  options: { includePolicyDetails?: boolean; auditSeq?: number } = {},
+  options: {
+    includePolicyDetails?: boolean;
+    auditSeq?: number;
+    provenanceTag?: "untrusted";
+  } = {},
 ): unknown {
   const verdict = decision?.verdict ?? "allow";
   const includePolicyDetails = options.includePolicyDetails ?? true;
@@ -3518,6 +3522,7 @@ function resultFromSandboxExecution(
       stderr: "",
     },
     ...policyDetails,
+    ...(options.provenanceTag === undefined ? {} : { provenanceTag: options.provenanceTag }),
     auditSeq: options.auditSeq ?? 0,
   };
   // Clamp the model-visible streams so the WHOLE response (streams + envelope + a small JSON-RPC
@@ -3690,6 +3695,7 @@ async function executeWithProfile(
       ? {}
       : { includePolicyDetails: options.includePolicyDetails }),
     auditSeq,
+    ...(options.argv === undefined ? {} : { provenanceTag: "untrusted" as const }),
   });
 }
 

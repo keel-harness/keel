@@ -1297,6 +1297,7 @@ describe("keel-warden stdio JSON-RPC server", () => {
       expect(result).toMatchObject({
         verdict: "allow",
         result: { exitCode: 0, signal: null, stdout: "223 passed\n", stderr: "warning\n" },
+        provenanceTag: "untrusted",
         auditSeq: 1,
       });
       expect(policyInputs).toHaveLength(1);
