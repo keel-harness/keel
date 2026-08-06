@@ -491,7 +491,7 @@ describe("production Ink shell row budgets", () => {
     expect(currentFrame).toContain("2 more hidden");
     expect(currentFrame).toContain("unavailable 4 observations");
     expect(currentFrame).toContain("3 more commands");
-    expect(currentFrame).toContain("verification not run");
+    expect(currentFrame).not.toContain("verification not run");
     expect(currentFrame).toContain("automatic undo unavailable");
     expect(currentFrame).toContain("protection:");
     expect(currentFrame).toContain("›");

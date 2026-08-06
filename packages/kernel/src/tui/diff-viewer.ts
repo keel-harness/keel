@@ -250,8 +250,14 @@ function latestTurnContext(
     .filter((line) => /^verification\s*·/iu.test(line))
     .map((line) => `latest turn · ${line}`);
   const verificationLines = [...new Set([...receipt, ...checked])].slice(0, 2);
+  const hasRanReceipt = (summary.ran ?? []).some((line) => oneBoundedLine(line).length > 0);
   return {
-    verificationLines: verificationLines.length > 0 ? verificationLines : ["verification not run"],
+    verificationLines:
+      verificationLines.length > 0
+        ? verificationLines
+        : hasRanReceipt
+          ? []
+          : ["verification not run"],
     recoveryLine: TUI_MANUAL_RECOVERY_GUIDANCE,
   };
 }

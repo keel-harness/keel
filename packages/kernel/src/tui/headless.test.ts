@@ -1154,7 +1154,7 @@ describe("headless renderer", () => {
     });
 
     expect(frame).toContain("what: file evidence: src/app.ts · observed file before");
-    expect(frame).toContain("verification not run");
+    expect(frame).not.toContain("verification not run");
     expect(frame).not.toContain("not verified: verification");
     expect(frame).toContain("ran: bash: tests passed");
     expect(frame).toContain(
@@ -1231,7 +1231,7 @@ describe("headless renderer", () => {
       "what: recovered: edit src/app.ts completed after earlier blocked attempt",
     );
     expect(frame).toContain("ran: bash: 1 passed");
-    expect(frame).toContain("verification not run");
+    expect(frame).not.toContain("verification not run");
     expect(frame).not.toContain("read the file before editing");
     expect(frame).not.toContain("checked:");
     expect(frame).not.toContain("compaction timing");
