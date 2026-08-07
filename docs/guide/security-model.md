@@ -6,17 +6,29 @@ each row, is the [claim ledger](../quality/claim-ledger.md); the governing threa
 model is `MASTER_SPEC.md` §3. This page is the readable summary. Where they
 disagree, the ledger wins.
 
-keel is pre-alpha. Nothing here is a compliance claim.
+keel is a solo-maintained pre-alpha project and has not received an independent security audit.
+Nothing here is a compliance claim.
 
 ## What is enforced, and how
 
-**Tool execution is out-of-process.** The model can only request actions. A
-separate warden process evaluates each request against a hash-pinned policy pack
-and runs allowed ones inside an OS sandbox: Seatbelt on macOS, bubblewrap on
-Linux. The kernel has no code path that executes a governed tool itself, and if
-the warden dies, tool execution halts rather than falling back.
+**Governed routing is out-of-process; physical containment is tool-specific.** The model can only
+request actions. A separate Warden process evaluates each request against a hash-pinned policy pack.
+The kernel has no code path that executes a governed tool itself, and if the Warden dies, governed
+tool execution halts rather than falling back.
 
-**The sandbox denies by default.** The bash profile allows reads and writes in
+| Tool | Current execution and containment path |
+| --- | --- |
+| `bash`, `process.run` | The Warden launches the child through the OS sandbox: Seatbelt on macOS or bubblewrap on Linux. |
+| `write`, `edit` | The Warden prepares and revalidates the mutation, writes durable pre-execution intent, then commits through a contained helper via `SandboxPort` on the enforcing Node/npm path. If that runner is unavailable, mutation denies. |
+| `read` | The Warden reads directly with policy, canonical-path, realpath/identity, symlink, size, and audit safeguards. There is no separate OS-sandboxed child. |
+| `search` | The Warden launches bounded ripgrep with a minimal environment, workspace-scoped working directory, time/output limits, and canonical path/result filtering. It is not launched through `SandboxPort`, so this is not a physical OS-sandbox claim. |
+
+Every row is Warden-routed, policy-mediated, and audited. Only the rows that explicitly name the OS
+sandbox carry child-process physical-containment evidence. Keel vendors Anthropic's
+`@anthropic-ai/sandbox-runtime` v0.0.59 under Apache-2.0 for OS-sandbox orchestration; see
+[`NOTICE`](../../NOTICE) and [ADR-0005](../adr/0005-vendoring-sandbox-runtime.md).
+
+**The OS sandbox denies by default.** The governed child-process profile allows reads and writes in
 the workspace plus declared temp dirs. It denies reads of common credential
 stores (`~/.ssh`, `~/.aws`, `~/.kube`, and similar), workspace `.env` files, and
 keel's own config, policy, and audit directories. Network egress is deny-all
@@ -28,6 +40,13 @@ connection and classifies every answer. One unsafe, malformed, or uncovered addr
 whole attempt. SRT receives only the vetted address set and cannot resolve the hostname again before
 the socket opens. The original hostname remains in HTTP Host, TLS certificate verification, and
 SNI. Denials are bounded and recorded without exposing an exact private address.
+
+Address-embedding transition mechanisms are a deliberate hard-deny boundary. Keel rejects
+`64:ff9b::/96`, `64:ff9b:1::/48`, 6to4, Teredo, and obsolete IPv4-compatible IPv6 rather than
+unwrapping them into an ordinary grant. IPv4-mapped IPv6 is the exception: Keel decodes it and
+recursively classifies the embedded IPv4 address. Operator exceptions cannot override these hard
+denials, so IPv6-only environments that require NAT64 translation are not currently supported for
+governed egress. This is the accepted ADR-0086 policy, not a parser omission.
 
 Private enterprise endpoints require an owner-managed exception that matches the exact workspace,
 hostname, CIDR, and port. The hostname also needs an ordinary egress grant. Exceptions are stored
@@ -116,6 +135,9 @@ them:
 - **Network paths outside the SRT address guard.** Provider API calls, UDP/QUIC, proxy-unaware
   traffic, interactive-console guest activity, and alternate sandbox backends do not inherit this
   connect-time enforcement.
+- **NAT64-dependent IPv6-only egress.** Translation prefixes are hard-denied because they embed a
+  second destination. Supporting NAT64 would require a separately reviewed policy/ADR change, not a
+  broader hostname grant or private-address exception.
 - **The interactive-console guest OS**: the host process is governed, the guest
   OS inside it is not.
 - **MCP servers** are pinned trust-on-first-use; pinning is not containment of a

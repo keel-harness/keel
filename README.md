@@ -19,6 +19,11 @@ adversarially steered.
 _Recorded from the real kernel → warden → policy → audit path. A deterministic offline replay
 supplies only the model turns; [run it locally](docs/demo/run-deny-audit-demo.mjs)._
 
+Keel vendors Anthropic's [`@anthropic-ai/sandbox-runtime`](NOTICE) v0.0.59 under Apache-2.0 to
+orchestrate Seatbelt and bubblewrap. Keel adds the out-of-process Warden, policy mediation,
+tamper-evident audit path, and connect-time address guard described in
+[ADR-0005](docs/adr/0005-vendoring-sandbox-runtime.md).
+
 ## Quickstart
 
 ```bash
@@ -28,16 +33,20 @@ keel auth set anthropic      # paste your API key (stored 0600, never echoed)
 keel                         # start an interactive session
 ```
 
-To run from a source checkout instead:
+The global or `npx` install above is the product path. A source checkout is for contributing and
+development:
 
 ```bash
 corepack enable && pnpm install
-pnpm keel doctor
-pnpm keel run -p "fix the failing test in src/foo.ts"
+pnpm test
+pnpm typecheck && pnpm lint && pnpm format
 ```
 
-Node 20+ and ripgrep are required. `keel doctor` checks the OS sandbox and prints one
-copy-paste fix when something is missing.
+Do not treat `pnpm keel` pointed at Keel's own source tree as an enforcement demonstration: the
+governed workspace could rewrite the Warden/runtime bytes it is testing, and `keel doctor` reports
+that reduced-enforcement layout. The released carrier requires Node 20+ and ripgrep; its CI matrix
+tests Node 20, 22, and 24. `keel doctor` checks the OS sandbox and prints one copy-paste fix when
+something is missing.
 
 New here: [what keel is](docs/architecture.md) · [getting started](docs/guide/getting-started.md)
 · [the honest security model](docs/guide/security-model.md) ·
@@ -83,6 +92,9 @@ Exact values, fractions, commands, and the staleness window live in the
 
 **keel is pre-alpha, in open-source preparation.** `keel-harness@0.1.1` is published on npm and
 tagged `latest`, but this is **not a stable or public-alpha release**.
+
+Keel is currently solo-maintained and has not received an independent security audit. Treat its
+tests, claim ledger, and reproducible evidence as material for review, not as a substitute for one.
 
 Governed mode covers `bash`, capability-negotiated trusted direct-argv `process.run`, the trusted typed
 file tools (`read`, `search`, `write`, `edit`), and reviewed, pinned local-stdio MCP calls through the
@@ -149,8 +161,10 @@ Going deeper: [`MASTER_SPEC.md`](MASTER_SPEC.md) is the full governing spec and
 
 ## Develop
 
-Requires Node 20+. pnpm is pinned via the `packageManager` field. Enable
-[Corepack](https://nodejs.org/api/corepack.html) so you get the exact version:
+Contributor CI tests Node 20, 22, and 24. pnpm is pinned via the `packageManager` field. Enable
+[Corepack](https://nodejs.org/api/corepack.html) so you get the exact version. If the `corepack`
+command is unavailable — including on Node 25+ by default — install Corepack separately first; do
+not silently substitute an unpinned pnpm:
 
 ```bash
 corepack enable   # pins pnpm to the version in package.json

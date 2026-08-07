@@ -32,9 +32,12 @@ conversation) can only ask.
   access — but it has no path to execute a governed tool directly; every such action flows through
   `warden.execute`.
 - **warden (`packages/warden`)** — the enforcement plane, in its own process. It evaluates a
-  hash-pinned policy pack, runs actions inside an OS sandbox profile, mediates network egress,
-  checks the resolved address used by supported TCP connections, and writes the audit chain. The
-  model cannot alter policy, because policy is not part of the model's writable world.
+  hash-pinned policy pack, owns governed execution, mediates network egress, checks the resolved
+  address used by supported TCP connections, and writes the audit chain. `bash` and `process.run`
+  launch through the OS sandbox; `write` and `edit` use a contained mutation helper on the enforcing
+  Node/npm path; `read` and `search` are Warden-hosted guarded implementations, not equivalent
+  physical-sandbox claims. The model cannot alter policy, because policy is not part of the model's
+  writable world.
 
 Shared, frozen contracts (RPC, audit, session, policy schemas) live in `packages/shared`;
 `packages/simulator` is a scripted model for deterministic tests; `packages/eval` is the
@@ -62,7 +65,8 @@ The original hostname remains the HTTP Host value and the TLS certificate/SNI na
 SRT from resolving the name again after the address check. Private-address exceptions require an
 exact workspace, hostname, CIDR, and port match, and the hostname still needs its ordinary egress
 grant. This is an `srt:vendored` TCP property, not a claim about provider API calls, UDP/QUIC, or
-every future sandbox backend. See
+every future sandbox backend. NAT64 and other address-embedding transition prefixes are deliberately
+hard-denied, so NAT64-dependent IPv6-only egress is not currently supported. See
 [ADR-0086](adr/0086-warden-owned-egress-address-guard.md) and the
 [security model](guide/security-model.md).
 
