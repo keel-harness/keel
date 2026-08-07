@@ -1933,7 +1933,7 @@ describe("conversationPlan", () => {
     expect(turn?.kind).toBe("turn");
     if (turn?.kind !== "turn") return;
     expect(turn.evidence?.lines[0]?.next).toBe(
-      "Warden recovery guidance unavailable · inspect /why-blocked before retrying",
+      "Warden recovery guidance unavailable · stop and ask the user before retrying",
     );
   });
 
