@@ -85,9 +85,11 @@ describe("SYSTEM_PROMPT (§7 Epic 1.6 — <2,000 tokens, 4-phase protocol, hones
   it("does not invent an approval path for terminal review-required tool results", () => {
     expect(SYSTEM_PROMPT).toMatch(/no live approval/i);
     expect(SYSTEM_PROMPT).toMatch(/do not (?:tell|ask).{0,100}approv/i);
-    expect(SYSTEM_PROMPT).toMatch(/simpler.{0,50}rerun/i);
     expect(SYSTEM_PROMPT).toMatch(/\/reviews.{0,100}Autopilot/i);
-    expect(SYSTEM_PROMPT).toMatch(/do not retry/i);
+    expect(SYSTEM_PROMPT).toMatch(/explicitly offers.{0,120}one fresh.{0,80}request/is);
+    expect(SYSTEM_PROMPT).toMatch(/Warden.{0,80}reevaluates/is);
+    expect(SYSTEM_PROMPT).toMatch(/otherwise.{0,80}do not retry/is);
+    expect(SYSTEM_PROMPT).not.toMatch(/do not retry related commands automatically/i);
   });
 
   it("keeps read-only explanations narrow and stops once authoritative evidence is sufficient", () => {
