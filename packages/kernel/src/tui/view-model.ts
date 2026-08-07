@@ -91,6 +91,10 @@ import {
 } from "./mutation-presentation.js";
 import { isLoopContinuationMessage } from "../run/loop-continuation.js";
 import { oneLineText } from "../control-strip.js";
+import {
+  associateExactProcessRunReviewInformation,
+  exactProcessRunReviewSummaryForInformation,
+} from "../warden/process-run-review-presentation.js";
 
 // `stripControl` / `stripControlLine` (the security-critical control-byte sanitizers) are defined in
 // `./strip.js` — extracted so that one chokepoint is auditable in isolation (TUI-2) — and re-exported
@@ -201,6 +205,7 @@ export type UiInputEventT =
       readonly detail: string;
       readonly sessionAvailable: boolean;
       readonly information?: UiApprovalInformation;
+      readonly losslessProcessRunSummary?: string;
     }
   | { readonly type: "approval-message"; readonly content: string }
   | {
@@ -267,7 +272,15 @@ function boundedApprovalLine(value: string, maxWidth: number, tailWidth?: number
   return `${head}${marker}${tail}`;
 }
 
-function sanitizedApprovalInformation(information: UiApprovalInformation): UiApprovalInformation {
+function sanitizedApprovalInformation(
+  information: UiApprovalInformation,
+  losslessProcessRunSummary?: string,
+): UiApprovalInformation {
+  const authenticatedProcessRunSummary =
+    losslessProcessRunSummary !== undefined &&
+    exactProcessRunReviewSummaryForInformation(information) === losslessProcessRunSummary
+      ? losslessProcessRunSummary
+      : undefined;
   const requestedAction =
     information.requestedAction.status === "available"
       ? {
@@ -282,7 +295,9 @@ function sanitizedApprovalInformation(information: UiApprovalInformation): UiApp
     information.effectiveTarget.status === "available"
       ? {
           status: "available" as const,
-          value: boundedApprovalLine(information.effectiveTarget.value, 2_048, 512),
+          value:
+            authenticatedProcessRunSummary ??
+            boundedApprovalLine(information.effectiveTarget.value, 2_048, 512),
           completeness: information.effectiveTarget.completeness,
         }
       : {
@@ -328,7 +343,11 @@ function sanitizedApprovalInformation(information: UiApprovalInformation): UiApp
             kind: resource.kind,
             value: boundedApprovalLine(resource.value, 384, 144),
           };
-  return { requestedAction, effectiveTarget, reason, policyDetail, exactResource };
+  const sanitized = { requestedAction, effectiveTarget, reason, policyDetail, exactResource };
+  return authenticatedProcessRunSummary === undefined
+    ? sanitized
+    : (associateExactProcessRunReviewInformation(sanitized, authenticatedProcessRunSummary) ??
+        sanitized);
 }
 
 /** Calm interrupt note (§8.6 — one line, no stack trace). Neutral wording so it is honest in BOTH the
@@ -2860,16 +2879,43 @@ export function reduce(view: ViewModel, ev: KernelEventT | UiInputEventT): ViewM
     case "approval-opened": {
       const { overlay: _overlay, ...approvalBase } = view;
       void _overlay;
+      const processRunPresentationExpected =
+        ev.losslessProcessRunSummary !== undefined ||
+        (ev.information?.requestedAction.status === "available" &&
+          ev.information.requestedAction.value === "process.run");
+      const exactProcessRunSummary =
+        ev.losslessProcessRunSummary !== undefined &&
+        exactProcessRunReviewSummaryForInformation(ev.information) === ev.losslessProcessRunSummary
+          ? ev.losslessProcessRunSummary
+          : undefined;
+      const processRunPresentationFailed =
+        processRunPresentationExpected &&
+        (exactProcessRunSummary === undefined ||
+          ev.detail !== exactProcessRunSummary ||
+          ev.sessionAvailable);
       return withDerived({
         ...approvalBase,
         pendingReviews: 1,
         activeApproval: {
-          detail: boundedApprovalLine(ev.detail, 2_048, 512),
-          sessionAvailable: ev.sessionAvailable,
-          state: "pending",
+          detail:
+            exactProcessRunSummary !== undefined && ev.detail === exactProcessRunSummary
+              ? exactProcessRunSummary
+              : boundedApprovalLine(ev.detail, 2_048, 512),
+          sessionAvailable: processRunPresentationFailed ? false : ev.sessionAvailable,
+          state: processRunPresentationFailed ? "failed" : "pending",
+          ...(processRunPresentationFailed
+            ? {
+                message: "exact process.run review presentation failed; action will be denied",
+              }
+            : {}),
           ...(ev.information === undefined
             ? {}
-            : { information: sanitizedApprovalInformation(ev.information) }),
+            : {
+                information: sanitizedApprovalInformation(
+                  ev.information,
+                  processRunPresentationFailed ? undefined : exactProcessRunSummary,
+                ),
+              }),
         },
       });
     }

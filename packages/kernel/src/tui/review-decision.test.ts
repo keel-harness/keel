@@ -99,6 +99,111 @@ describe("interactive review-decision input", () => {
     ]);
   });
 
+  it("preserves an exact once-only process.run summary byte-for-byte through the controller", () => {
+    const controller = createInteractiveReviewDecisionController();
+    const { events } = recordPresentation(controller);
+    const summary =
+      "Workspace files changed. This exact argv may run changed repository-controlled code and may " +
+      "read or write the workspace and Warden temporary roots. Network access, enumerated home " +
+      "credentials, discovered `.env*` files, Warden/audit writes, and writes outside those roots " +
+      "remain denied. Other unrecognized sensitive workspace files may be readable. Approving runs " +
+      "it once: 'git' 'diff' ' leading  repeated  trailing ' ''.";
+
+    void controller.onReviewRequired({
+      toolCall: { id: "process-review", name: "process.run", args: { argv: ["forged"] } },
+      review: {
+        reviewId: "process_review_1",
+        summary,
+        allowCommand: "keel approve process_review_1 --scope once",
+      },
+    });
+
+    expect(events.at(-1)).toMatchObject({
+      kind: "opened",
+      detail: summary,
+      sessionAvailable: false,
+      information: {
+        requestedAction: { status: "available", value: "process.run" },
+        effectiveTarget: { status: "available", value: summary, completeness: "complete" },
+      },
+    });
+  });
+
+  it("does not mistake a literal omitted-marker argv byte sequence for Warden abbreviation", () => {
+    const controller = createInteractiveReviewDecisionController();
+    const { events } = recordPresentation(controller);
+    const summary =
+      "Workspace files changed. This exact argv may run changed repository-controlled code and may " +
+      "read or write the workspace and Warden temporary roots. Network access, enumerated home " +
+      "credentials, discovered `.env*` files, Warden/audit writes, and writes outside those roots " +
+      "remain denied. Other unrecognized sensitive workspace files may be readable. Approving runs " +
+      "it once: 'printf' '[123 chars omitted]'.";
+
+    void controller.onReviewRequired({
+      toolCall: { id: "process-review-marker", name: "process.run", args: { argv: ["forged"] } },
+      review: {
+        reviewId: "process_review_2",
+        summary,
+        allowCommand: "keel approve process_review_2 --scope once",
+      },
+    });
+
+    const opened = events.at(-1);
+    expect(opened).toMatchObject({
+      kind: "opened",
+      detail: summary,
+      sessionAvailable: false,
+      information: {
+        effectiveTarget: { status: "available", value: summary, completeness: "complete" },
+      },
+    });
+    if (opened?.kind !== "opened") throw new Error("expected exact process review presentation");
+    expect(approvalNoticePlan({ ...opened, state: "pending" })).toMatchObject({
+      state: "pending",
+      losslessProcessRunSummary: summary,
+      actions: [
+        "[a] Approve once · this action only",
+        "[d] Deny · action will not run",
+        "[?] Explain why",
+      ],
+    });
+  });
+
+  it("refuses to open an exact process.run review when its summary cannot be shown losslessly", () => {
+    const controller = createInteractiveReviewDecisionController();
+    const { events } = recordPresentation(controller);
+
+    const decision = controller.onReviewRequired({
+      toolCall: { id: "process-review", name: "process.run", args: { argv: ["git", "diff"] } },
+      review: {
+        reviewId: "process_review_2",
+        summary: "Workspace files changed. Approving runs it once:\n'git' 'diff'.",
+        allowCommand: "keel approve process_review_2 --scope once",
+      },
+    });
+
+    expect(decision).toBeUndefined();
+    expect(events).toEqual([]);
+    expect(controller.handleInput(line("a"))).toBe(false);
+  });
+
+  it("refuses to open a process.run review without the exact once-only ADR-0090 envelope", () => {
+    const controller = createInteractiveReviewDecisionController();
+    const { events } = recordPresentation(controller);
+
+    const decision = controller.onReviewRequired({
+      toolCall: { id: "process-review", name: "process.run", args: { argv: ["git", "diff"] } },
+      review: {
+        reviewId: "generic_review_2",
+        summary: "generic process review",
+        allowCommand: "keel approve generic_review_2 --scope once",
+      },
+    });
+
+    expect(decision).toBeUndefined();
+    expect(events).toEqual([]);
+  });
+
   it("separates requested intent, Warden-effective target, and exact scope without reading model arguments", () => {
     const controller = createInteractiveReviewDecisionController();
     const { events } = recordPresentation(controller);

@@ -5,6 +5,7 @@ import { buildEgressNetworkProfile, InvalidEgressConfigError } from "./egress-pr
 import type { LifecycleAuditPayload } from "./lifecycle.js";
 import type { SandboxProfile } from "./sandbox.js";
 import type { PendingMcpReview } from "./mcp/review.js";
+import type { PendingProcessRunReview } from "./process-run-review.js";
 
 type ExecuteParams = ReturnType<(typeof WARDEN_METHODS)["warden.execute"]["params"]["parse"]>;
 
@@ -34,7 +35,11 @@ export interface PendingCommandReview {
   readonly allowCommand: string;
 }
 
-export type PendingReview = PendingEgressReview | PendingCommandReview | PendingMcpReview;
+export type PendingReview =
+  | PendingEgressReview
+  | PendingCommandReview
+  | PendingMcpReview
+  | PendingProcessRunReview;
 
 export interface EgressReviewState {
   readonly pending: Map<string, PendingReview>;
@@ -44,6 +49,7 @@ export interface EgressReviewState {
   nextReviewSeq: number;
   nextCommandReviewSeq: number;
   nextMcpReviewSeq: number;
+  nextProcessReviewSeq: number;
 }
 
 export type ExplicitEgressTarget =
@@ -68,6 +74,7 @@ export function createEgressReviewState(
     nextReviewSeq: 1,
     nextCommandReviewSeq: 1,
     nextMcpReviewSeq: 1,
+    nextProcessReviewSeq: 1,
   };
 }
 

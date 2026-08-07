@@ -64,7 +64,11 @@ import {
   welcomeResumeLine,
 } from "../view-model.js";
 import { responseSurfaceColumns, terminalDisplayWidth } from "../row-budget.js";
-import { truncateDisplayCells, wrapDisplayLine } from "../display-cells.js";
+import {
+  truncateDisplayCells,
+  wrapDisplayLine,
+  wrapLosslessDisplayLine,
+} from "../display-cells.js";
 import { overlayPresentation } from "../overlay-presentation.js";
 import {
   commitIncrementalTranscriptCandidate,
@@ -246,13 +250,22 @@ function ApprovalBlock({ approval }: { approval: UiActiveApproval }): React.JSX.
   const columns = typeof stdout.columns === "number" ? stdout.columns : 80;
   const terminalRows = typeof stdout.rows === "number" ? stdout.rows : 24;
   const compact = columns < 50;
-  const constrained = compact || (terminalRows <= 24 && columns <= 80);
+  // Exact process evidence uses one stable semantic layout at every height. A row-count threshold
+  // would let a one-row resize switch back to Ink's generic whitespace-normalizing wrapper while
+  // the review remains actionable.
+  const exactProcessRunConstrained = plan.losslessProcessRunSummary !== undefined;
+  const constrained =
+    compact || (terminalRows <= 24 && columns <= 80) || exactProcessRunConstrained;
   // A standard 24-row terminal has four live-shell rows beneath the decision surface. Keep the
   // full approval wording and bounded box, but remove decorative section gaps so a controller
   // explanation cannot bury the decision prompt or composer.
-  const condensedSpacing = compact || terminalRows <= 24;
+  const condensedSpacing = compact || terminalRows <= 24 || exactProcessRunConstrained;
   const noColor = plainTerminalMode();
   const railOnly = compact || limitedTerminalMode();
+  const approvalSurfaceColumns = Math.max(20, Math.min(88, columns - 1));
+  const approvalContentColumns = railOnly
+    ? Math.max(1, columns - 2)
+    : Math.max(1, approvalSurfaceColumns - 4);
   const tone =
     plan.state === "confirmed"
       ? THEME.state.success
@@ -269,6 +282,12 @@ function ApprovalBlock({ approval }: { approval: UiActiveApproval }): React.JSX.
         {plan.heading}
       </Text>
       {rows.map((row, index) => {
+        const exactProcessRunEvidence =
+          plan.losslessProcessRunSummary !== undefined &&
+          row.kind === "evidence" &&
+          row.text === `Effective target · ${plan.losslessProcessRunSummary}`
+            ? wrapLosslessDisplayLine(plan.losslessProcessRunSummary, approvalContentColumns)
+            : undefined;
         const keyMatch = row.kind === "action" ? /^(\[[^\]]+\])(.*)$/u.exec(row.text) : null;
         const marginTop =
           condensedSpacing ||
@@ -277,7 +296,16 @@ function ApprovalBlock({ approval }: { approval: UiActiveApproval }): React.JSX.
             : 1;
         return (
           <Box key={index} marginTop={marginTop}>
-            {keyMatch !== null ? (
+            {exactProcessRunEvidence !== undefined ? (
+              <Box flexDirection="column">
+                <Text dimColor>Effective target</Text>
+                {exactProcessRunEvidence.map((evidenceRow, evidenceIndex) => (
+                  <Text key={evidenceIndex} wrap="truncate-end">
+                    {evidenceRow.text}
+                  </Text>
+                ))}
+              </Box>
+            ) : keyMatch !== null ? (
               <Text wrap="wrap">
                 <Text bold {...(noColor ? {} : { color: tone })}>
                   {keyMatch[1]}
@@ -330,7 +358,7 @@ function ApprovalBlock({ approval }: { approval: UiActiveApproval }): React.JSX.
   return (
     <Box
       flexDirection="column"
-      width={Math.max(20, Math.min(88, columns - 1))}
+      width={approvalSurfaceColumns}
       borderStyle="round"
       {...(noColor ? {} : { borderColor: tone, backgroundColor: THEME.surface.decision })}
       paddingX={1}

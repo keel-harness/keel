@@ -13,6 +13,10 @@ import type {
 import { reviewApprovalOptions, reviewApprovalPresentation } from "../warden/approval.js";
 import { oneLineText } from "../control-strip.js";
 import { isToolDeadlineAbort } from "../infra.js";
+import {
+  associateExactProcessRunReviewInformation,
+  processRunReviewSummaryForRequest,
+} from "../warden/process-run-review-presentation.js";
 
 export type ReviewInputDecision =
   | { readonly kind: "decision"; readonly decision: WardenReviewDecision }
@@ -24,6 +28,7 @@ export type ReviewPresentationEvent =
       readonly detail: string;
       readonly sessionAvailable: boolean;
       readonly information: UiApprovalInformation;
+      readonly losslessProcessRunSummary?: string;
     }
   | { readonly kind: "message"; readonly content: string }
   | { readonly kind: "submitted"; readonly content: string; readonly choice?: UiApprovalChoice }
@@ -68,19 +73,26 @@ function displayFact(value: string, unavailableReason: string): UiApprovalFact {
     : { status: "available", value: normalized };
 }
 
-function approvalInformation(request: WardenReviewDecisionRequest): UiApprovalInformation {
+function approvalInformation(
+  request: WardenReviewDecisionRequest,
+  exactProcessRunSummary: string | undefined,
+): UiApprovalInformation {
   const presentation = reviewApprovalPresentation(request.review);
-  const effectiveTarget = displayFact(
-    request.review.summary,
-    "effective target unavailable from the Warden review",
-  );
-  return {
+  const effectiveTarget =
+    exactProcessRunSummary === undefined
+      ? displayFact(request.review.summary, "effective target unavailable from the Warden review")
+      : ({ status: "available", value: exactProcessRunSummary } as const);
+  const information: UiApprovalInformation = {
     requestedAction: displayFact(request.toolCall.name, "requested tool name unavailable"),
     effectiveTarget:
       effectiveTarget.status === "available"
         ? {
             ...effectiveTarget,
-            completeness: presentation.summaryCompleteness,
+            // The strict ADR-0090 envelope and lossless predicate authenticate these exact Warden
+            // bytes. A literal argv segment such as "[123 chars omitted]" is data, not evidence
+            // that the Warden abbreviated the summary.
+            completeness:
+              exactProcessRunSummary === undefined ? presentation.summaryCompleteness : "complete",
           }
         : effectiveTarget,
     reason: {
@@ -93,6 +105,10 @@ function approvalInformation(request: WardenReviewDecisionRequest): UiApprovalIn
     },
     exactResource: presentation.exactResource,
   };
+  return exactProcessRunSummary === undefined
+    ? information
+    : (associateExactProcessRunReviewInformation(information, exactProcessRunSummary) ??
+        information);
 }
 
 function isInterruptInput(input: UserInput): boolean {
@@ -138,11 +154,18 @@ function promptFor(
   request: WardenReviewDecisionRequest,
 ): Extract<ReviewPresentationEvent, { readonly kind: "opened" }> {
   const options = reviewApprovalOptions(request.review);
+  const exactProcessRunSummary = processRunReviewSummaryForRequest(
+    request.toolCall,
+    request.review,
+  );
   return {
     kind: "opened",
-    detail: reviewedTarget(request),
+    detail: exactProcessRunSummary ?? reviewedTarget(request),
     sessionAvailable: options.sessionAvailable,
-    information: approvalInformation(request),
+    information: approvalInformation(request, exactProcessRunSummary),
+    ...(exactProcessRunSummary === undefined
+      ? {}
+      : { losslessProcessRunSummary: exactProcessRunSummary }),
   };
 }
 
@@ -258,6 +281,12 @@ export function createInteractiveReviewDecisionController(): InteractiveReviewDe
   return {
     onReviewRequired: (request) => {
       if (request.signal?.aborted === true) return undefined;
+      if (
+        request.toolCall.name === "process.run" &&
+        processRunReviewSummaryForRequest(request.toolCall, request.review) === undefined
+      ) {
+        return undefined;
+      }
       if (pending !== undefined) {
         presentation?.({
           kind: "message",

@@ -62,6 +62,10 @@ import {
   REVIEW_INDETERMINATE_SUMMARY,
   REVIEW_PENDING_SUMMARY,
 } from "./review-settlement-presentation.js";
+import {
+  associateExactProcessRunReviewInformation,
+  exactProcessRunReviewSummaryForInformation,
+} from "../warden/process-run-review-presentation.js";
 
 const seed: ModelMessageT[] = [{ role: "user", content: "go" }];
 const ESC = String.fromCharCode(27);
@@ -4403,6 +4407,76 @@ describe("view-model reducer", () => {
     expect(v.pendingReviews).toBeUndefined();
     expect(v.activeApproval).toBeUndefined();
     expect(v.lastWardenPendingReviews).toBe(3);
+  });
+
+  it("preserves an authenticated process.run review summary through reducer storage", () => {
+    const summary = "exact process.run target: 'git' 'diff' ' leading  repeated  trailing ' ''.";
+    const information = associateExactProcessRunReviewInformation(
+      {
+        requestedAction: { status: "available", value: "process.run" },
+        effectiveTarget: { status: "available", value: summary, completeness: "complete" },
+        reason: {
+          status: "available",
+          value: "Warden requires human authorization before execution",
+        },
+        policyDetail: {
+          status: "unavailable",
+          reason: "matched policy rule not reported by protocol 1.1",
+        },
+        exactResource: {
+          status: "unavailable",
+          reason: "no exact reusable resource in the Warden review",
+        },
+      },
+      summary,
+    );
+    if (information === undefined) throw new Error("expected exact process review information");
+
+    const v = reduce(initialView([]), {
+      type: "approval-opened",
+      detail: summary,
+      sessionAvailable: false,
+      information,
+      losslessProcessRunSummary: summary,
+    });
+
+    expect(v.activeApproval?.detail).toBe(summary);
+    expect(v.activeApproval?.information?.effectiveTarget).toEqual({
+      status: "available",
+      value: summary,
+      completeness: "complete",
+    });
+    expect(exactProcessRunReviewSummaryForInformation(v.activeApproval?.information)).toBe(summary);
+  });
+
+  it("makes a process.run approval non-actionable when reducer input changes one summary byte", () => {
+    const summary = "exact process.run target: 'git' 'diff' ' repeated  spaces ' ''.";
+    const information = associateExactProcessRunReviewInformation(
+      {
+        requestedAction: { status: "available", value: "process.run" },
+        effectiveTarget: { status: "available", value: summary, completeness: "complete" },
+        reason: { status: "available", value: "Warden requires human authorization" },
+        policyDetail: { status: "unavailable", reason: "not reported" },
+        exactResource: { status: "unavailable", reason: "once only" },
+      },
+      summary,
+    );
+    if (information === undefined) throw new Error("expected exact process review information");
+
+    const v = reduce(initialView([]), {
+      type: "approval-opened",
+      detail: `${summary} `,
+      sessionAvailable: false,
+      information,
+      losslessProcessRunSummary: summary,
+    });
+
+    expect(v.activeApproval).toMatchObject({
+      state: "failed",
+      sessionAvailable: false,
+      message: "exact process.run review presentation failed; action will be denied",
+    });
+    expect(activeReviewIsActionable(v)).toBe(false);
   });
 
   it("never turns transcript text into actionable approval state", () => {

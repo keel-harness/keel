@@ -20,6 +20,7 @@ import { createActiveWardenPolicy } from "./mcp/policy.js";
 import {
   PROCESS_RUN_REVIEW_MAX_SUMMARY_BYTES,
   PROCESS_RUN_REVIEW_TTL_MS,
+  createPendingProcessRunReview,
   createProcessRunReviewApprovalBinding,
   createProcessRunReviewPolicyOccurrence,
   createProcessRunReviewRequestBinding,
@@ -32,6 +33,7 @@ import {
   type ProcessRunReviewPolicyOccurrence,
 } from "./process-run-review.js";
 import { renderProcessRunArgv } from "./process-run.js";
+import { createEgressReviewState } from "./egress-review.js";
 
 type ExecuteParams = ReturnType<(typeof WARDEN_METHODS)["warden.execute"]["params"]["parse"]>;
 
@@ -1322,6 +1324,24 @@ describe("ADR-0090 lossless process.run presentation", () => {
 });
 
 describe("ADR-0090 exact occurrence bindings", () => {
+  it("fails closed without advancing sequence when pending review identity cannot bind", async () => {
+    const { options } = await eligibleFixture();
+    const eligible = processRunReviewEligibility(options)!;
+    const state = createEgressReviewState();
+
+    state.nextProcessReviewSeq = 0;
+    expect(createPendingProcessRunReview(state, { eligible, createdAtMs: 10_000 })).toBeUndefined();
+    state.nextProcessReviewSeq = 1;
+    expect(
+      createPendingProcessRunReview(state, {
+        eligible,
+        createdAtMs: Number.POSITIVE_INFINITY,
+      }),
+    ).toBeUndefined();
+    expect(state.nextProcessReviewSeq).toBe(1);
+    expect(state.pending.size).toBe(0);
+  });
+
   it("binds the complete request occurrence and two-stage approval", async () => {
     const { options } = await eligibleFixture();
     const eligible = processRunReviewEligibility(options)!;

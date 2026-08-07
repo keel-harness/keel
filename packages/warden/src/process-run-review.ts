@@ -30,6 +30,7 @@ import {
   type SandboxContainmentProof,
 } from "./policy.js";
 import { parseProcessRunArgs, renderProcessRunArgv } from "./process-run.js";
+import type { EgressReviewState } from "./egress-review.js";
 
 type ExecuteParams = ReturnType<(typeof WARDEN_METHODS)["warden.execute"]["params"]["parse"]>;
 
@@ -580,6 +581,53 @@ export interface ProcessRunReviewApprovalBinding {
   readonly reviewId: string;
   readonly principal: PrincipalT;
   readonly scope: "once";
+}
+
+export interface PendingProcessRunReview {
+  readonly kind: "process-run";
+  readonly reviewId: string;
+  readonly executeParams: ExecuteParams;
+  readonly argv: readonly string[];
+  readonly summary: string;
+  readonly allowCommand: string;
+  readonly eligible: EligibleProcessRunReview;
+  readonly requestBinding: ProcessRunReviewRequestBinding;
+  readonly auditPolicyInput: PolicyInputT;
+  readonly auditPolicyDecision: PolicyDecision;
+}
+
+export function createPendingProcessRunReview(
+  state: EgressReviewState,
+  options: {
+    readonly eligible: EligibleProcessRunReview;
+    readonly createdAtMs: number;
+  },
+): PendingProcessRunReview | undefined {
+  const sequence = state.nextProcessReviewSeq;
+  if (!Number.isSafeInteger(sequence) || sequence <= 0) return undefined;
+  const reviewId = `process_review_${String(sequence)}`;
+  const requestBinding = createProcessRunReviewRequestBinding({
+    eligible: options.eligible,
+    reviewId,
+    createdAtMs: options.createdAtMs,
+    expiresAtMs: options.createdAtMs + PROCESS_RUN_REVIEW_TTL_MS,
+  });
+  if (requestBinding === undefined) return undefined;
+  state.nextProcessReviewSeq += 1;
+  const review = deepFreeze({
+    kind: "process-run" as const,
+    reviewId,
+    executeParams: jsonSnapshot(options.eligible.executeParams),
+    argv: [...options.eligible.argv],
+    summary: options.eligible.summary,
+    allowCommand: `keel approve ${reviewId} --scope once`,
+    eligible: options.eligible,
+    requestBinding,
+    auditPolicyInput: jsonSnapshot(options.eligible.policyInput),
+    auditPolicyDecision: jsonSnapshot(options.eligible.decision),
+  });
+  state.pending.set(reviewId, review);
+  return review;
 }
 
 export function createProcessRunReviewApprovalBinding(options: {
