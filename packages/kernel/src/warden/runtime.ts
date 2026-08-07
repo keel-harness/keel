@@ -934,6 +934,8 @@ export async function createProductionWardenRuntime(
     const mutationPresentationAvailable = client.hello.capabilities.includes(
       MUTATION_PRESENTATION_CAPABILITY_V1,
     );
+    const processRunAvailable =
+      trustedWorkspace && client.hello.capabilities.includes(PROCESS_RUN_CAPABILITY_V1);
     const executor = new WardenExecutor({
       client,
       sessionId: options.sessionId,
@@ -941,6 +943,7 @@ export async function createProductionWardenRuntime(
       ...(executorPlanApproval === undefined ? {} : { planApproval: executorPlanApproval }),
       principal,
       executeTimeoutMs: options.executeTimeoutMs ?? PRODUCTION_WARDEN_EXECUTE_TIMEOUT_MS,
+      processRunAvailable,
       ...(options.onReviewAutoResolved === undefined
         ? {}
         : { onReviewAutoResolved: options.onReviewAutoResolved }),
@@ -976,9 +979,7 @@ export async function createProductionWardenRuntime(
       executor,
       tools: [
         GOVERNED_BASH_SPEC,
-        ...(trustedWorkspace && client.hello.capabilities.includes(PROCESS_RUN_CAPABILITY_V1)
-          ? [PROCESS_RUN_SPEC]
-          : []),
+        ...(processRunAvailable ? [PROCESS_RUN_SPEC] : []),
         ...governedTypedToolsFor(options),
         ...governedInteractiveConsoleToolsFor(options, client.hello.capabilities),
         ...lifecycleToolsFor(lifecycleManifest),

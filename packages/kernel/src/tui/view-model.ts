@@ -77,6 +77,7 @@ import {
 } from "./recovered-tool.js";
 import { appendAssistantStream, beginAssistantStream } from "./stream-projection.js";
 import {
+  TUI_LITERAL_PROCESS_RETRY,
   TUI_RUNTIME_TRUTH,
   TUI_TERMINAL_REVIEW_TRUTH,
   type UiRuntimeProtectionState,
@@ -1201,10 +1202,23 @@ function reviewDetail(summary: string, terminalWithoutLiveDecision = false): str
 }
 
 function sanitizeVisibleReviewDetail(detail: string, terminalWithoutLiveDecision: boolean): string {
-  const safe = detail
+  const segments = detail
     .split(";")
     .map((segment) => segment.trim())
-    .filter((segment) => segment.length > 0)
+    .filter((segment) => segment.length > 0);
+  const noLiveLifecycleIndex = terminalWithoutLiveDecision
+    ? segments.findIndex(
+        (segment) =>
+          /^no live review was opened by this kernel$/iu.test(segment) ||
+          /^no live approval is active\b/iu.test(segment),
+      )
+    : -1;
+  const visibleSegments =
+    noLiveLifecycleIndex >= 0 ? segments.slice(0, noLiveLifecycleIndex) : segments;
+  const literalProcessRetry =
+    terminalWithoutLiveDecision &&
+    segments.some((segment) => /^process\.run is available for a fresh request$/iu.test(segment));
+  const safe = visibleSegments
     .filter((segment) => !/\[[^\]]+\]/u.test(segment))
     .filter((segment) => !/^allow:/iu.test(segment))
     .filter((segment) => !/exact command envelope only/iu.test(segment))
@@ -1212,6 +1226,7 @@ function sanitizeVisibleReviewDetail(detail: string, terminalWithoutLiveDecision
     .filter((segment) => !/^no approval can be resolved from this result$/iu.test(segment))
     .filter((segment) => !/^simplify the request, then rerun$/iu.test(segment))
     .filter((segment) => !terminalWithoutLiveDecision || !/\bask for approval\.?$/iu.test(segment))
+    .concat(literalProcessRetry ? [TUI_LITERAL_PROCESS_RETRY.summary] : [])
     .join("; ");
   return safe.length > 0 ? safe : "review detail available in transcript; no live approval here";
 }

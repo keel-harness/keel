@@ -795,12 +795,13 @@ describe("WardenExecutor", () => {
         auditSeq: 8,
       }),
       sessionId: SESSION_ID,
+      processRunAvailable: true,
     });
     const terminalReview = await reviewFallback.execute(call("bash"));
     expect(terminalReview).toEqual({
       ok: false,
       output:
-        "warden review required (not executed): human approval required for external write; no live review was opened by this kernel; no approval can be resolved from this result; simplify the request, then rerun",
+        'warden review required (not executed): human approval required for external write; no live review was opened by this kernel; no approval can be resolved from this result; process.run is available for a fresh request; if one literal package-script or VCS argv fits, retry process.run (for example {"argv":["npm","test"]} or {"argv":["git","diff"]}); the Warden will reevaluate that request; otherwise ask the human',
     });
     expect(toolPresentationOutcome(terminalReview)).toBe("blocked");
     expect(isTerminalReviewRecoveryAvailable(terminalReview)).toBe(true);
@@ -811,15 +812,42 @@ describe("WardenExecutor", () => {
         auditSeq: 9,
       }),
       sessionId: SESSION_ID,
+      processRunAvailable: true,
     });
-    const terminalReviewWithoutDetails = await reviewWithoutDetails.execute(call("bash"));
+    const terminalReviewWithoutDetails = await reviewWithoutDetails.execute(
+      call("process.run", { argv: ["node", "--test"] }),
+    );
     expect(terminalReviewWithoutDetails).toEqual({
+      ok: false,
+      output:
+        'warden review required (not executed): human approval required; no live review was opened by this kernel; no approval can be resolved from this result; process.run is available for a fresh request; if a simpler literal package-script or VCS argv fits, retry process.run (for example {"argv":["npm","test"]} or {"argv":["git","diff"]}); the Warden will reevaluate that request; otherwise ask the human',
+    });
+    expect(toolPresentationOutcome(terminalReviewWithoutDetails)).toBe("blocked");
+    expect(isTerminalReviewRecoveryAvailable(terminalReviewWithoutDetails)).toBe(true);
+
+    const capabilityWithholdingReview = new WardenExecutor({
+      client: clientReturning({
+        verdict: "review",
+        auditSeq: 10,
+      }),
+      sessionId: SESSION_ID,
+    });
+    await expect(capabilityWithholdingReview.execute(call("bash"))).resolves.toEqual({
       ok: false,
       output:
         "warden review required (not executed): human approval required; no live review was opened by this kernel; no approval can be resolved from this result; simplify the request, then rerun",
     });
-    expect(toolPresentationOutcome(terminalReviewWithoutDetails)).toBe("blocked");
-    expect(isTerminalReviewRecoveryAvailable(terminalReviewWithoutDetails)).toBe(true);
+
+    const unrelatedToolReview = new WardenExecutor({
+      client: clientReturning({ verdict: "review", auditSeq: 11 }),
+      sessionId: SESSION_ID,
+      processRunAvailable: true,
+    });
+    await expect(unrelatedToolReview.execute(call("read"))).resolves.toEqual({
+      ok: false,
+      output:
+        "warden review required (not executed): human approval required; no live review was opened by this kernel; no approval can be resolved from this result; simplify the request, then rerun",
+    });
   });
 
   it("renders deny guidance and RPC errors as one control-stripped line", async () => {

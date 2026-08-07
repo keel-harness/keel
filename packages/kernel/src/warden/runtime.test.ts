@@ -203,12 +203,14 @@ function consoleCapabilityWardenScript(
 function processRunCapabilityWardenScript(
   capturePath: string,
   capabilities: readonly string[],
+  executeReview = false,
 ): string {
   const activeHash = ACTIVE_HASH;
   return `
     const { writeFileSync } = require("node:fs");
     const capturePath = ${JSON.stringify(capturePath)};
     const capabilities = ${JSON.stringify(capabilities)};
+    const executeReview = ${JSON.stringify(executeReview)};
     const activeHash = ${JSON.stringify(activeHash)};
     const calls = [];
     function send(id, result) {
@@ -249,18 +251,20 @@ function processRunCapabilityWardenScript(
         } else if (req.method === "warden.execute") {
           calls.push({ method: req.method, params: req.params });
           flush();
-          send(req.id, {
-            verdict: "allow",
-            result: {
-              exitCode: 0,
-              signal: null,
-              stdout: "223 passed\\n",
-              stderr: "warning\\n"
-            },
-            provenanceTag: "untrusted",
-            guidance: "warden containment: writes limited to workspace/temp; network egress deny-all",
-            auditSeq: 2
-          });
+          send(req.id, executeReview
+            ? { verdict: "review", guidance: "terminal command review", auditSeq: 2 }
+            : {
+                verdict: "allow",
+                result: {
+                  exitCode: 0,
+                  signal: null,
+                  stdout: "223 passed\\n",
+                  stderr: "warning\\n"
+                },
+                provenanceTag: "untrusted",
+                guidance: "warden containment: writes limited to workspace/temp; network egress deny-all",
+                auditSeq: 2
+              });
         } else if (req.method === "warden.shutdown") {
           flush();
           send(req.id, { finalCheckpoint: "test-checkpoint" });
@@ -2368,12 +2372,19 @@ describe("createProductionWardenRuntime", () => {
       env: { KEEL_HOME: join(dir, "no-capability-home") },
       start: {
         command: process.execPath,
-        args: ["-e", processRunCapabilityWardenScript(join(dir, "no-capability.json"), [])],
+        args: ["-e", processRunCapabilityWardenScript(join(dir, "no-capability.json"), [], true)],
         requestTimeoutMs: 1_000,
       },
     });
-    await noCapability.dispose();
     expect(noCapability.tools.map((tool) => tool.name)).not.toContain("process.run");
+    const noCapabilityReview = await noCapability.executor.execute({
+      id: "no-capability",
+      name: "bash",
+      args: {},
+    });
+    expect(noCapabilityReview.ok).toBe(false);
+    expect(noCapabilityReview.output).not.toContain("process.run is available");
+    await noCapability.dispose();
 
     const untrustedCapability = await createProductionWardenRuntime({
       cwd: dir,
@@ -2384,15 +2395,24 @@ describe("createProductionWardenRuntime", () => {
         command: process.execPath,
         args: [
           "-e",
-          processRunCapabilityWardenScript(join(dir, "untrusted-capability.json"), [
-            "process-run/v1",
-          ]),
+          processRunCapabilityWardenScript(
+            join(dir, "untrusted-capability.json"),
+            ["process-run/v1"],
+            true,
+          ),
         ],
         requestTimeoutMs: 1_000,
       },
     });
-    await untrustedCapability.dispose();
     expect(untrustedCapability.tools.map((tool) => tool.name)).toEqual(["bash"]);
+    const untrustedCapabilityReview = await untrustedCapability.executor.execute({
+      id: "untrusted-capability",
+      name: "bash",
+      args: {},
+    });
+    expect(untrustedCapabilityReview.ok).toBe(false);
+    expect(untrustedCapabilityReview.output).not.toContain("process.run is available");
+    await untrustedCapability.dispose();
 
     const trustedCapability = await createProductionWardenRuntime({
       cwd: dir,
@@ -2403,15 +2423,15 @@ describe("createProductionWardenRuntime", () => {
         command: process.execPath,
         args: [
           "-e",
-          processRunCapabilityWardenScript(join(dir, "trusted-capability.json"), [
-            "process-run/v1",
-          ]),
+          processRunCapabilityWardenScript(
+            join(dir, "trusted-capability.json"),
+            ["process-run/v1"],
+            true,
+          ),
         ],
         requestTimeoutMs: 1_000,
       },
     });
-    await trustedCapability.dispose();
-
     const processSpec = trustedCapability.tools.find((tool) => tool.name === "process.run");
     expect(processSpec?.description).toContain("one executable directly");
     expect(processSpec?.description).toContain("Use bash for deliberate shell composition");
@@ -2432,6 +2452,16 @@ describe("createProductionWardenRuntime", () => {
     });
     expect(providerHostileSchemaPaths(processSpec?.parameters), "process.run").toEqual([]);
     expect(trustedCapability.isMutating("process.run")).toBe(true);
+    const trustedCapabilityReview = await trustedCapability.executor.execute({
+      id: "trusted-capability",
+      name: "bash",
+      args: {},
+    });
+    expect(trustedCapabilityReview.ok).toBe(false);
+    expect(trustedCapabilityReview.output).toContain(
+      "process.run is available for a fresh request",
+    );
+    await trustedCapability.dispose();
   });
 
   it("routes process.run exact argv through the Warden and preserves separated output", async () => {
