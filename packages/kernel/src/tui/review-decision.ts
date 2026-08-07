@@ -62,6 +62,18 @@ function normalizeInputText(value: string | undefined): string {
   return (value ?? "").trim().toLowerCase().replace(/\s+/gu, " ");
 }
 
+/**
+ * Whether a submitted line is the user's next INSTRUCTION rather than an attempt at a decision.
+ *
+ * The test is deliberately structural, not a vocabulary list: a single token is someone reaching for
+ * an answer ("maybe", "approve", "y") and deserves the corrective hint; a multi-word line is prose,
+ * and prose is never a decision. A word list would need endless maintenance and would still be wrong
+ * in the next language a user types in.
+ */
+function looksLikeInstruction(normalized: string): boolean {
+  return normalized.includes(" ");
+}
+
 function oneLine(value: string): string {
   return oneLineText(value);
 }
@@ -491,6 +503,24 @@ export function createInteractiveReviewDecisionController(): InteractiveReviewDe
               "review approval needs an explicit scope here: use /approve once, /deny, or /why",
           });
           return true;
+        }
+        // Text that is plainly NOT a decision attempt is the user's next instruction, typed ahead
+        // while the prompt was open. Consuming it here discarded it outright; falling through lets
+        // the runner classify it as steering and queue it with a visible ack (ADR-0034), which is
+        // the machinery that already exists for exactly this.
+        //
+        // The security property is untouched: every decision shortcut and near-miss decision word is
+        // consumed ABOVE this point, so no prose can reach a decision path — "add a README" is
+        // queued, never read as the `a` approve shortcut.
+        // Only while the review is still awaiting a decision. Once a decision is submitted the turn
+        // is in its settle window, where "non-actionable until the warden confirms" is the stronger
+        // property — everything typed there keeps the explicit already-submitted acknowledgement.
+        if (
+          input.kind === "line" &&
+          !active.submitted &&
+          looksLikeInstruction(normalizeInputText(input.text))
+        ) {
+          return false;
         }
         presentation?.({
           kind: active.submitted ? "submitted" : "message",
