@@ -141,6 +141,9 @@ export interface WardenExecutorOptions {
   readonly principal?: ResolveReviewParams["principal"];
   readonly autonomy?: ResolvedAutonomyPosture;
   readonly executeTimeoutMs?: number;
+  /** Controller-owned negotiated availability. Production sets this only when the workspace is
+   * trusted and the Warden hello advertises process-run/v1. */
+  readonly processRunAvailable?: boolean;
   /** Negotiated protocol-1.1 presentation closure. Production injects it only after validated hello
    * capability negotiation; older peers and capability-withholding wardens leave it absent. */
   readonly takeMutationPresentation?: (
@@ -337,7 +340,33 @@ function verifiedSandboxContainment(
   return warningGuidance === "" ? undefined : { warningGuidance };
 }
 
-function renderReview(result: ExecuteResult): ToolResultT {
+function terminalReviewRecoveryGuidance(
+  toolName: string | undefined,
+  processRunAvailable: boolean,
+): string {
+  if (!processRunAvailable) return "simplify the request, then rerun";
+  if (toolName === "bash") {
+    return (
+      "process.run is available for a fresh request; if one literal package-script or VCS argv " +
+      'fits, retry process.run (for example {"argv":["npm","test"]} or ' +
+      '{"argv":["git","diff"]}); the Warden will reevaluate that request; otherwise ask the human'
+    );
+  }
+  if (toolName === "process.run") {
+    return (
+      "process.run is available for a fresh request; if a simpler literal package-script or VCS " +
+      'argv fits, retry process.run (for example {"argv":["npm","test"]} or ' +
+      '{"argv":["git","diff"]}); the Warden will reevaluate that request; otherwise ask the human'
+    );
+  }
+  return "simplify the request, then rerun";
+}
+
+function renderReview(
+  result: ExecuteResult,
+  toolName: string | undefined,
+  processRunAvailable: boolean,
+): ToolResultT {
   const lifecycle =
     "review settlement was not confirmed and may remain pending in the current warden; do not retry or assume approval; restart the governed session before deciding again";
   if (result.review !== undefined) {
@@ -347,9 +376,9 @@ function renderReview(result: ExecuteResult): ToolResultT {
   }
   const summary = oneLineControlStripped(result.guidance ?? "human approval required");
   const noLiveReview =
-    "no live review was opened by this kernel; no approval can be resolved from this result; simplify the request, then rerun";
+    "no live review was opened by this kernel; no approval can be resolved from this result";
   return recoverableTerminalReviewResult(
-    `warden review required (not executed): ${summary}; ${noLiveReview}`,
+    `warden review required (not executed): ${summary}; ${noLiveReview}; ${terminalReviewRecoveryGuidance(toolName, processRunAvailable)}`,
   );
 }
 
@@ -379,10 +408,14 @@ function reviewClosureReason(
 }
 
 function terminalReviewFailure(result: ExecuteResult, message: string): ToolResultT {
-  return terminalReviewResult(withBody(message, renderReview(result).output));
+  return terminalReviewResult(withBody(message, renderReview(result, undefined, false).output));
 }
 
-function renderVerdict(result: ExecuteResult | ResolveReviewResult, toolName: string): ToolResultT {
+function renderVerdict(
+  result: ExecuteResult | ResolveReviewResult,
+  toolName: string,
+  processRunAvailable = false,
+): ToolResultT {
   const typedToolFailure = typedToolFailureDetail(result, toolName);
   if (
     typedToolFailure !== undefined &&
@@ -495,7 +528,7 @@ function renderVerdict(result: ExecuteResult | ResolveReviewResult, toolName: st
         "blocked",
       );
     case "review":
-      return renderReview(result);
+      return renderReview(result, toolName, processRunAvailable);
   }
 }
 
@@ -655,6 +688,7 @@ export class WardenExecutor implements ExecutorPort {
   readonly #principal: ResolveReviewParams["principal"] | undefined;
   readonly #autopilotReviewRouting: boolean;
   readonly #executeTimeoutMs: number | undefined;
+  readonly #processRunAvailable: boolean;
   readonly #takeMutationPresentation: WardenExecutorOptions["takeMutationPresentation"];
   readonly #onMcpQuarantine: WardenExecutorOptions["onMcpQuarantine"];
   readonly #onReviewAutoResolved: WardenExecutorOptions["onReviewAutoResolved"];
@@ -722,6 +756,7 @@ export class WardenExecutor implements ExecutorPort {
     this.#principal = principal?.data;
     this.#autopilotReviewRouting = autopilotReviewRouting;
     this.#executeTimeoutMs = options.executeTimeoutMs;
+    this.#processRunAvailable = options.processRunAvailable === true;
     this.#takeMutationPresentation = options.takeMutationPresentation;
     this.#onMcpQuarantine = options.onMcpQuarantine;
     this.#onReviewAutoResolved = options.onReviewAutoResolved;
@@ -1127,7 +1162,7 @@ export class WardenExecutor implements ExecutorPort {
         return finish(closed.result);
       }
       const quarantineFailure = await this.#notifyMcpQuarantine(result, call.name);
-      const rendered = renderVerdict(result, call.name);
+      const rendered = renderVerdict(result, call.name, this.#processRunAvailable);
       if (quarantineFailure === undefined) {
         return this.#withMutationPresentation(call, { wardenResult: result, rendered });
       }

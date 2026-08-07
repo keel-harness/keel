@@ -34,6 +34,7 @@ import {
 } from "./review-settlement-presentation.js";
 import {
   TUI_AUTOPILOT_REVIEW_BOUNDARY,
+  TUI_LITERAL_PROCESS_RETRY,
   TUI_MANUAL_RECOVERY_GUIDANCE,
   TUI_TERMINAL_REVIEW_TRUTH,
 } from "./strings.js";
@@ -632,7 +633,9 @@ function reviewReason(what: string): string {
 function reviewNextAction(what: string): string {
   const lower = what.toLowerCase();
   if (lower.includes(TUI_TERMINAL_REVIEW_TRUTH.summaryPrefix)) {
-    return TUI_TERMINAL_REVIEW_TRUTH.recovery;
+    return lower.includes(TUI_LITERAL_PROCESS_RETRY.summary.toLowerCase())
+      ? TUI_LITERAL_PROCESS_RETRY.recovery
+      : TUI_TERMINAL_REVIEW_TRUTH.recovery;
   }
   if (/target may have changed/u.test(lower)) return "inspect the target before retrying";
   if (
@@ -725,7 +728,9 @@ function toolProblemNext(
   if (outcome === "review") return "no live approval · simplify the request, then rerun";
   if (outcome === "blocked") {
     if (detail.toLowerCase().includes(TUI_TERMINAL_REVIEW_TRUTH.summaryPrefix)) {
-      return TUI_TERMINAL_REVIEW_TRUTH.recovery;
+      return detail.toLowerCase().includes(TUI_LITERAL_PROCESS_RETRY.summary.toLowerCase())
+        ? TUI_LITERAL_PROCESS_RETRY.recovery
+        : TUI_TERMINAL_REVIEW_TRUTH.recovery;
     }
     if (/review closed as denied/iu.test(detail)) {
       return "no review pending · simplify the request or rerun with a live approval surface";

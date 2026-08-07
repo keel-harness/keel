@@ -260,7 +260,7 @@ describe("view-model reducer", () => {
 
   it("keeps an ungrantable terminal review blocked and non-actionable across live presentation and resume", () => {
     const output =
-      "warden review required (not executed): POL-003 review: unclassified or obfuscated shell shape requires human review; use a simpler command or ask for approval.; no live review was opened by this kernel; no approval can be resolved from this result; simplify the request, then rerun";
+      'warden review required (not executed): POL-003 review: unclassified or obfuscated shell shape requires human review; use a simpler command or ask for approval.; no live review was opened by this kernel; no approval can be resolved from this result; process.run is available for a fresh request; if one literal package-script or VCS argv fits, retry process.run (for example {"argv":["npm","test"]} or {"argv":["git","diff"]}); the Warden will reevaluate that request; otherwise ask the human';
     let live = initialView([{ role: "user", content: "run the diagnostic" }]);
     live = reduce(live, {
       type: "tool-call",
@@ -289,17 +289,21 @@ describe("view-model reducer", () => {
     expect(itemOutcome(live, 1)).toBe("blocked");
     expect(itemOutcome(resumed, 0)).toBe("blocked");
     expect(liveItem.summary).toBe(
-      "blocked (not executed): no live decision available · POL-003 review: unclassified or obfuscated shell shape requires human review",
+      "blocked (not executed): no live decision available · POL-003 review: unclassified or obfuscated shell shape requires human review; fresh literal package/VCS retry was offered to the agent",
     );
     expect(liveItem.summary).not.toContain("ask for approval");
+    expect(liveItem.summary).not.toContain("argv");
+    expect(liveItem.summary).not.toContain("npm");
     expect(resumedItem.summary).toBe(liveItem.summary);
     expect(toolCardPlan(liveItem, undefined)).toMatchObject({
       statusLabel: "blocked",
-      recovery: "next: no live decision · simplify the request, then rerun",
+      recovery:
+        "next: agent may try one fresh literal package/VCS request if available; otherwise ask you",
     });
     expect(toolCardPlan(resumedItem, undefined)).toMatchObject({
       statusLabel: "blocked",
-      recovery: "next: no live decision · simplify the request, then rerun",
+      recovery:
+        "next: agent may try one fresh literal package/VCS request if available; otherwise ask you",
     });
     expect(activeReviewIsActionable(live)).toBe(false);
     expect(activeReviewIsActionable(resumed)).toBe(false);

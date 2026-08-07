@@ -52,6 +52,13 @@ export const TUI_TERMINAL_REVIEW_TRUTH = {
   recovery: "no live decision · simplify the request, then rerun",
 } as const;
 
+/** Human-safe projection of a model-only literal argv recovery hint. The raw transcript retains the
+ * exact JSON examples; compact cards expose only this controller-derived action. */
+export const TUI_LITERAL_PROCESS_RETRY = {
+  summary: "fresh literal package/VCS retry was offered to the agent",
+  recovery: "agent may try one fresh literal package/VCS request if available; otherwise ask you",
+} as const;
+
 /** Controller-derived Autopilot review boundaries. The compact reason is short enough to remain
  * visible in a 40-column receipt when the fuller summary is truncated from the `what` line. */
 export const TUI_AUTOPILOT_REVIEW_BOUNDARY = {

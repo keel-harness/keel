@@ -2699,7 +2699,7 @@ describe("headless renderer", () => {
 
   it("renders a resumed ungrantable review as a blocked no-live-decision card without color", () => {
     const output =
-      "warden review required (not executed): POL-003 review: unclassified or obfuscated shell shape requires human review; use a simpler command or ask for approval.; no live review was opened by this kernel; no approval can be resolved from this result; simplify the request, then rerun";
+      'warden review required (not executed): POL-003 review: unclassified or obfuscated shell shape requires human review; use a simpler command or ask for approval.; no live review was opened by this kernel; no approval can be resolved from this result; process.run is available for a fresh request; if one literal package-script or VCS argv fits, retry process.run (for example {"argv":["npm","test"]} or {"argv":["git","diff"]}); the Warden will reevaluate that request; otherwise ask the human';
     const resumed = initialView(
       [{ role: "tool", content: output, toolCallId: "terminal-review", name: "bash" }],
       {},
@@ -2709,10 +2709,15 @@ describe("headless renderer", () => {
 
     expect(frame).toContain("tool  ✗ bash  blocked");
     expect(frame).toContain("no live decision available");
-    expect(frame).toContain("next: no live decision · simplify the request, then rerun");
+    expect(frame).toContain(
+      "next: agent may try one fresh literal package/VCS request if available; otherwise ask you",
+    );
     expect(frame).not.toContain("review needed");
     expect(frame).not.toContain("approval required");
     expect(frame).not.toContain("ask for approval");
+    expect(frame).not.toContain("argv");
+    expect(frame).not.toContain("npm");
+    expect(frame.split("\n").every((line) => line.length <= 160)).toBe(true);
     expect(frame.includes(ESC)).toBe(false);
   });
 
