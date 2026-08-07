@@ -505,6 +505,44 @@ function renderWardenError(error: unknown): ToolResultT {
   );
 }
 
+function renderRecoverableProcessRunInvalidParams(
+  call: ToolInvocationT,
+  error: unknown,
+): ToolResultT | undefined {
+  if (
+    call.name !== "process.run" ||
+    !(error instanceof WardenClientError) ||
+    error.code !== "INVALID_PARAMS" ||
+    error.rpcCode !== -32602 ||
+    error.requestSent === false ||
+    typeof error.details !== "object" ||
+    error.details === null ||
+    Array.isArray(error.details)
+  ) {
+    return undefined;
+  }
+  const details = error.details as Record<string, unknown>;
+  if (
+    !Object.hasOwn(details, "auditSeq") ||
+    typeof details["auditSeq"] !== "number" ||
+    !Number.isFinite(details["auditSeq"]) ||
+    Object.hasOwn(details, "actionMayHaveExecuted") ||
+    Object.hasOwn(details, "mutationPossible")
+  ) {
+    return undefined;
+  }
+  const message = oneLineControlStripped(asMessage(error));
+  return markToolPresentationOutcome(
+    {
+      ok: false,
+      output:
+        `process.run INVALID_PARAMS: ${message}; ` +
+        "not executed; correct the argv and submit a fresh process.run call",
+    },
+    "failed",
+  );
+}
+
 function stoppedToolResult(): ToolResultT {
   return markToolPresentationOutcome({ ok: false, output: KERNEL_STRINGS.toolAborted }, "stopped");
 }
@@ -1079,6 +1117,8 @@ export class WardenExecutor implements ExecutorPort {
       if (signalAborted(opts?.signal) || errorCode(error) === "WARDEN_ABORTED") {
         return finish(stoppedToolResult());
       }
+      const recoverableInvalidParams = renderRecoverableProcessRunInvalidParams(call, error);
+      if (recoverableInvalidParams !== undefined) return finish(recoverableInvalidParams);
       return finish(renderWardenError(error));
     }
   }

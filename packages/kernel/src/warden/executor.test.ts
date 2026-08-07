@@ -11,7 +11,7 @@ import {
 import { ScopedEgressApprovals } from "./approval.js";
 import { isTerminalReviewRecoveryAvailable, isTerminalReviewResult } from "./terminal-review.js";
 import type { ResolvedAutonomyPosture } from "../autopilot/posture.js";
-import { toolPresentationOutcome } from "../tool-presentation-outcome.js";
+import { toolControlFailureCode, toolPresentationOutcome } from "../tool-presentation-outcome.js";
 import { abortForToolDeadline } from "../infra.js";
 import {
   markToolDeadlineSignal,
@@ -136,6 +136,15 @@ function hasControlCharacter(value: string): boolean {
   });
 }
 
+function inheritedAuditSeqInvalidParamsError(): WardenClientError {
+  const details: Record<string, unknown> = {};
+  Object.setPrototypeOf(details, { auditSeq: 1 });
+  return new WardenClientError("INVALID_PARAMS", "invalid", {
+    rpcCode: -32602,
+    details,
+  });
+}
+
 describe("WardenExecutor", () => {
   it("enforcementAvailable() tracks the client's liveness", () => {
     let closed = false;
@@ -193,6 +202,169 @@ describe("WardenExecutor", () => {
         options: { signal: controller.signal },
       },
     ]);
+  });
+
+  it.each([
+    ["implicit server response", undefined],
+    ["explicit sent response", true],
+  ] as const)(
+    "returns an audited pre-execution process.run INVALID_PARAMS denial for model correction (%s)",
+    async (_label, requestSent) => {
+      const client = new FakeWardenClient({
+        error: new WardenClientError(
+          "INVALID_PARAMS",
+          "process.run argv entries must not contain newline code points",
+          {
+            rpcCode: -32602,
+            details: { code: "INVALID_PARAMS", auditSeq: 42 },
+            ...(requestSent === undefined ? {} : { requestSent }),
+          },
+        ),
+      });
+      const executor = new WardenExecutor({ client, sessionId: SESSION_ID });
+
+      const result = await executor.execute(
+        call("process.run", { argv: ["node", "--eval", "console.log('bad')\n"] }),
+      );
+
+      expect(result).toEqual({
+        ok: false,
+        output:
+          "process.run INVALID_PARAMS: process.run argv entries must not contain newline code points; " +
+          "not executed; correct the argv and submit a fresh process.run call",
+      });
+      expect(toolPresentationOutcome(result)).toBe("failed");
+      expect(toolControlFailureCode(result)).toBeUndefined();
+      expect(client.calls).toHaveLength(1);
+    },
+  );
+
+  it.each([
+    [
+      "an inherited audit sequence",
+      call("process.run", { argv: ["git", "diff"] }),
+      inheritedAuditSeqInvalidParamsError(),
+    ],
+    [
+      "a non-Warden error with lookalike fields",
+      call("process.run", { argv: ["git", "diff"] }),
+      Object.assign(new Error("invalid"), {
+        code: "INVALID_PARAMS",
+        rpcCode: -32602,
+        details: { auditSeq: 1 },
+      }),
+    ],
+    [
+      "another tool",
+      call("bash", { command: "printf ok" }),
+      new WardenClientError("INVALID_PARAMS", "invalid", {
+        rpcCode: -32602,
+        details: { auditSeq: 1 },
+      }),
+    ],
+    [
+      "a client-local rejection",
+      call("process.run", { argv: ["git", "diff"] }),
+      new WardenClientError("INVALID_PARAMS", "invalid", {
+        rpcCode: -32602,
+        details: { auditSeq: 1 },
+        requestSent: false,
+      }),
+    ],
+    [
+      "the wrong RPC code",
+      call("process.run", { argv: ["git", "diff"] }),
+      new WardenClientError("INVALID_PARAMS", "invalid", {
+        rpcCode: -32000,
+        details: { auditSeq: 1 },
+      }),
+    ],
+    [
+      "a missing audit sequence",
+      call("process.run", { argv: ["git", "diff"] }),
+      new WardenClientError("INVALID_PARAMS", "invalid", { rpcCode: -32602, details: {} }),
+    ],
+    [
+      "a non-finite audit sequence",
+      call("process.run", { argv: ["git", "diff"] }),
+      new WardenClientError("INVALID_PARAMS", "invalid", {
+        rpcCode: -32602,
+        details: { auditSeq: Number.POSITIVE_INFINITY },
+      }),
+    ],
+    [
+      "a non-numeric audit sequence",
+      call("process.run", { argv: ["git", "diff"] }),
+      new WardenClientError("INVALID_PARAMS", "invalid", {
+        rpcCode: -32602,
+        details: { auditSeq: "1" },
+      }),
+    ],
+    [
+      "possible execution",
+      call("process.run", { argv: ["git", "diff"] }),
+      new WardenClientError("INVALID_PARAMS", "invalid", {
+        rpcCode: -32602,
+        details: { auditSeq: 1, actionMayHaveExecuted: true },
+      }),
+    ],
+    [
+      "an explicit no-execution field outside the exact server shape",
+      call("process.run", { argv: ["git", "diff"] }),
+      new WardenClientError("INVALID_PARAMS", "invalid", {
+        rpcCode: -32602,
+        details: { auditSeq: 1, actionMayHaveExecuted: false },
+      }),
+    ],
+    [
+      "possible mutation",
+      call("process.run", { argv: ["git", "diff"] }),
+      new WardenClientError("INVALID_PARAMS", "invalid", {
+        rpcCode: -32602,
+        details: { auditSeq: 1, mutationPossible: true },
+      }),
+    ],
+    [
+      "an explicit no-mutation field outside the exact server shape",
+      call("process.run", { argv: ["git", "diff"] }),
+      new WardenClientError("INVALID_PARAMS", "invalid", {
+        rpcCode: -32602,
+        details: { auditSeq: 1, mutationPossible: false },
+      }),
+    ],
+  ] as const)("keeps %s as a terminal Warden control failure", async (_label, toolCall, error) => {
+    const executor = new WardenExecutor({
+      client: new FakeWardenClient({ error }),
+      sessionId: SESSION_ID,
+    });
+
+    const result = await executor.execute(toolCall);
+
+    expect(result.ok).toBe(false);
+    expect(result.output).toContain("warden execution failed");
+    expect(toolControlFailureCode(result)).toBe("INVALID_PARAMS");
+  });
+
+  it.each([
+    ["unavailable transport", "WARDEN_UNAVAILABLE"],
+    ["timeout", "WARDEN_TIMEOUT"],
+    ["invalid response", "INVALID_RESPONSE"],
+    ["audit failure", "AUDIT_WRITE_FAILED"],
+    ["sandbox failure", "SANDBOX_EXECUTION_FAILED"],
+  ] as const)("keeps %s terminal for process.run", async (_label, code) => {
+    const error = new WardenClientError(code, `${code} detail`, {
+      rpcCode: -32000,
+      details: { auditSeq: 1 },
+    });
+    const executor = new WardenExecutor({
+      client: new FakeWardenClient({ error }),
+      sessionId: SESSION_ID,
+    });
+
+    const result = await executor.execute(call("process.run", { argv: ["git", "diff"] }));
+
+    expect(result.ok).toBe(false);
+    expect(toolControlFailureCode(result)).toBe(code);
   });
 
   it("forwards the configured execute timeout to warden.execute calls", async () => {
