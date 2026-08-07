@@ -1,10 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+  chmodSync,
   fsyncSync as realFsyncSync,
   ftruncateSync as realFtruncateSync,
   mkdtempSync,
   readFileSync,
   rmSync,
+  statSync,
   writeSync as realWriteSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -364,5 +366,37 @@ describe("SessionAuditLog (per-session audit chains)", () => {
 
     expect(readAuditLog(l.pathFor(SESSION_A)).some((r) => r.eventType === "checkpoint")).toBe(true);
     expect(readAuditLog(l.pathFor(SESSION_B)).some((r) => r.eventType === "checkpoint")).toBe(true);
+  });
+
+  // The audit chain carries full command text, resolved paths, and model-authored tool args with
+  // only best-effort redaction. Every neighbouring keel artifact is owner-only — the checkpoint
+  // SIGNING key is 0600 and its loader rejects `mode & 0o077`, and sessions/ and snapshots/ are
+  // 0700 — but the records that key signs were left at the process umask (0755 dir / 0644 files).
+  // Under the default KEEL_HOME that is masked by a 0700 parent, but KEEL_WARDEN_AUDIT_DIR can
+  // point anywhere, so on a multi-user host the chain became world-readable.
+  describe("owner-only permissions", () => {
+    it("creates the audit directory owner-only regardless of umask", () => {
+      const l = log();
+      l.append({ eventType: "session.start", sessionId: SESSION_A, payload: {} });
+      l.close();
+      expect(statSync(dir).mode & 0o777).toBe(0o700);
+    });
+
+    it("tightens an already-permissive audit directory instead of trusting the caller", () => {
+      // The kernel pre-creates this directory before spawning the warden, so mkdir's `mode` is a
+      // no-op on every existing install. Repairing on open is what actually changes the outcome.
+      chmodSync(dir, 0o755);
+      const l = log();
+      l.append({ eventType: "session.start", sessionId: SESSION_A, payload: {} });
+      l.close();
+      expect(statSync(dir).mode & 0o777).toBe(0o700);
+    });
+
+    it("creates session chain files owner-only", () => {
+      const l = log();
+      l.append({ eventType: "session.start", sessionId: SESSION_A, payload: {} });
+      l.close();
+      expect(statSync(l.pathFor(SESSION_A)).mode & 0o777).toBe(0o600);
+    });
   });
 });

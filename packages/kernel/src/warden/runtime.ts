@@ -653,7 +653,7 @@ export async function startProductionWardenClient(
   options: ProductionWardenClientOptions,
 ): Promise<StartedWardenClient> {
   const start = options.start ?? resolveProductionWardenStart();
-  await mkdir(auditDirFor(options.env ?? process.env, start), { recursive: true });
+  await mkdir(auditDirFor(options.env ?? process.env, start), { recursive: true, mode: 0o700 });
   return await startWardenClient({
     command: start.command,
     args: [...start.args],
@@ -717,7 +717,10 @@ export async function discoverProductionMcpServer(
   const startEnv = start.env ?? {};
   const mergedEnv = { ...env, ...startEnv };
   const auditDir = auditDirFor(env, start);
-  await mkdir(auditDir, { recursive: true });
+  // Owner-only from the start. The warden re-asserts this when it opens a session chain (the mode
+  // here is a no-op for a directory that already exists), but the kernel is what creates it first,
+  // so leaving it at the umask is what made existing installs 0755.
+  await mkdir(auditDir, { recursive: true, mode: 0o700 });
   // Unlike startWardenClient, this spawn passes childEnv directly and never re-spreads process.env;
   // preserving the base env's sentinels across the merge and restoring here is therefore the final
   // ADR-0083 spawn boundary.

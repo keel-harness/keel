@@ -183,7 +183,9 @@ function acquireLock(path: string): { path: string; fd: number } {
   let mayReclaimKnownDead = true;
   for (;;) {
     try {
-      const fd = openSync(lockPath, "wx");
+      // 0600: the lock names the holding pid and the chain path it guards; it sits beside the
+      // records and should not be more readable than they are.
+      const fd = openSync(lockPath, "wx", 0o600);
       try {
         writeSync(fd, `${JSON.stringify({ pid: process.pid, path })}\n`);
         fsyncSync(fd);
@@ -601,7 +603,11 @@ export class AuditChainWriter {
    *  session's chain permanently unverifiable. Failing closed keeps the chain valid up to the last
    *  good record; a fresh writer can reopen and resume it. */
   #appendLine(line: string): void {
-    const fd = this.#appendFd ?? openSync(this.#path, "a");
+    // 0600 on create: the chain is as sensitive as the checkpoint key that signs it (which is 0600
+    // and rejects `mode & 0o077` on load). The mode applies only when this call creates the file;
+    // an already-present chain keeps its mode, which is correct — reopening a session must not
+    // silently alter an operator-chosen permission.
+    const fd = this.#appendFd ?? openSync(this.#path, "a", 0o600);
     this.#appendFd = fd;
     const buf = Buffer.from(line, "utf8");
     try {
