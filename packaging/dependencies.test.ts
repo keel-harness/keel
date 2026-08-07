@@ -185,7 +185,7 @@ describe("packaging dependency projection", () => {
       "@ai-sdk/anthropic": "3.0.81",
       "@ai-sdk/google": "3.0.80",
       "@ai-sdk/openai": "3.0.68",
-      "@ai-sdk/openai-compatible": "2.0.48",
+      "@ai-sdk/openai-compatible": "2.0.58",
       "@noble/hashes": "1.8.0",
       "@open-policy-agent/opa-wasm": "1.10.0",
       "@vscode/ripgrep": "1.18.0",
