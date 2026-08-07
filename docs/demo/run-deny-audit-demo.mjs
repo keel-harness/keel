@@ -1,13 +1,18 @@
 /* global console, process */
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const recording = "docs/demo/deny-audit.recording.json";
-const demoHome = mkdtempSync(join(tmpdir(), "keel-deny-audit-demo-"));
+// Canonicalize before this becomes KEEL_HOME. The warden requires a KEEL_HOME whose realpath equals
+// its literal path (ADR-0086 — a symlinked ancestor would let the subtree be re-targeted after
+// validation), and macOS resolves the stock TMPDIR /var/folders/... to /private/var/folders/... .
+// Without this the demo fails warden startup before writing any audit record. Same requirement CI
+// pins for its own carrier roots.
+const demoHome = realpathSync(mkdtempSync(join(tmpdir(), "keel-deny-audit-demo-")));
 const demoWorkspace = join(demoHome, "workspace");
 
 try {

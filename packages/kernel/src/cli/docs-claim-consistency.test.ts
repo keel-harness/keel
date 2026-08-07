@@ -292,6 +292,14 @@ describe("public docs claim consistency", () => {
     expect(demoCast).toContain("cat ~/.ssh/id_rsa");
     expect(demoRunner).toContain("--replay");
     expect(demoRunner).toContain('record.eventType === "tool.deny"');
+    // The README links this script as "run it locally", so it must survive a stock macOS TMPDIR.
+    // `requireOwnerOnlyHome` rejects a KEEL_HOME whose realpath differs from its literal path, and
+    // macOS resolves /var/folders/... to /private/var/folders/... — so an uncanonicalized mkdtemp
+    // fails warden startup before the demo can write an audit record. Same requirement CI already
+    // pins for its own carrier roots (see the SMOKE_ROOT realpath assertions in ci-workflow.test.ts).
+    expect(demoRunner).toContain(
+      'realpathSync(mkdtempSync(join(tmpdir(), "keel-deny-audit-demo-")))',
+    );
     expect(landingPage).toMatch(/<img\s+class="demo"\s+src="demo\.gif"/i);
     expect(landingPage).not.toMatch(/recording soon/i);
     expect(status).toMatch(/not a stable or public-alpha\s+release/i);
