@@ -11,10 +11,12 @@ import { redactText } from "@keel/shared";
 import { LIVENESS_REVEAL_MS, MAX_LIVENESS_MS } from "./purposeful-liveness.js";
 import { SEMANTIC_TOKENS } from "./theme.js";
 import { toolOutcome } from "./tool-outcome.js";
+import { hasSemanticZoomMutationReview } from "./tool-card.js";
 import { truncateDisplayCells } from "./display-cells.js";
 import { oneLineText } from "../control-strip.js";
 import { visibleTerminalText } from "./visible-text.js";
 import {
+  COMPLETION_TRUTH_NOTICE_PREFIX,
   isHiddenInDensity,
   leadingSystemEnd,
   mutationReceiptEvidence,
@@ -30,7 +32,11 @@ import {
   reviewSettlementRecovery,
   type ReviewSettlementPresentationOutcome,
 } from "./review-settlement-presentation.js";
-import { TUI_MANUAL_RECOVERY_GUIDANCE, TUI_TERMINAL_REVIEW_TRUTH } from "./strings.js";
+import {
+  TUI_AUTOPILOT_REVIEW_BOUNDARY,
+  TUI_MANUAL_RECOVERY_GUIDANCE,
+  TUI_TERMINAL_REVIEW_TRUTH,
+} from "./strings.js";
 
 type UserMessage = UiMessage & { readonly role: "user" };
 
@@ -309,7 +315,18 @@ function turnBlockId(startIndex: number, user: UserMessage): string {
  * canonical what/why/next evidence card. */
 export function isTerminalRunNotice(item: ViewItem): boolean {
   return (
-    item.kind === "message" && item.role === "system" && item.content.startsWith("⚠ run ended —")
+    item.kind === "message" &&
+    item.role === "system" &&
+    (item.content.startsWith("⚠ run ended —") ||
+      item.content.startsWith(COMPLETION_TRUTH_NOTICE_PREFIX))
+  );
+}
+
+function isCompletionTruthNotice(item: ViewItem): boolean {
+  return (
+    item.kind === "message" &&
+    item.role === "system" &&
+    item.content.startsWith(COMPLETION_TRUTH_NOTICE_PREFIX)
   );
 }
 
@@ -665,6 +682,12 @@ function toolProblemReason(
     detail.toLowerCase().includes(TUI_TERMINAL_REVIEW_TRUTH.summaryPrefix)
   ) {
     return TUI_TERMINAL_REVIEW_TRUTH.reason;
+  }
+  if (outcome === "blocked" && detail === TUI_AUTOPILOT_REVIEW_BOUNDARY.domain.summary) {
+    return TUI_AUTOPILOT_REVIEW_BOUNDARY.domain.reason;
+  }
+  if (outcome === "blocked" && detail === TUI_AUTOPILOT_REVIEW_BOUNDARY.commandEnvelope.summary) {
+    return TUI_AUTOPILOT_REVIEW_BOUNDARY.commandEnvelope.reason;
   }
   if (outcome === "blocked") return "the warden denied the action before execution";
   if (outcome === "review")
@@ -1865,7 +1888,11 @@ export function visibleTurnItems(
  */
 export function visibleConversationItemsWithIndexes(
   view: ViewModel,
-  options: { readonly verbose?: boolean; readonly retainSuccessfulTools?: boolean } = {},
+  options: {
+    readonly verbose?: boolean;
+    readonly retainSuccessfulTools?: boolean;
+    readonly retainConsequentialTools?: boolean;
+  } = {},
 ): readonly VisibleConversationItem[] {
   const plan = conversationPlan(view, { ...options, compactHistory: false });
   return plan.blocks.flatMap((block) => {
@@ -1874,6 +1901,7 @@ export function visibleConversationItemsWithIndexes(
         suppressProblemTools: block.suppressProblemTools === true,
         retainDiffTools: view.diffMode === "full",
         retainSuccessfulTools: options.retainSuccessfulTools === true,
+        retainConsequentialTools: options.retainConsequentialTools === true,
       }).map(({ item, index, synthetic, assistantRole }) => ({
         item,
         index: block.startIndex + index,
@@ -1890,6 +1918,7 @@ export function visibleConversationItemsWithIndexes(
         suppressExploratoryFailures: block.suppressExploratoryFailures === true,
         retainDiffTools: view.diffMode === "full",
         retainSuccessfulTools: options.retainSuccessfulTools === true,
+        retainConsequentialTools: options.retainConsequentialTools === true,
       }).map(({ item, index, synthetic, assistantRole }) => ({
         item,
         index: block.startIndex + 1 + index,
@@ -1910,6 +1939,7 @@ export function visibleTurnItemsWithIndexes(
     readonly suppressExploratoryFailures?: boolean;
     readonly retainDiffTools?: boolean;
     readonly retainSuccessfulTools?: boolean;
+    readonly retainConsequentialTools?: boolean;
   } = {},
 ): readonly VisibleTurnItem[] {
   const compactFailures = density !== "verbose" && density !== "debug";
@@ -1920,6 +1950,9 @@ export function visibleTurnItemsWithIndexes(
   const visible: VisibleTurnItem[] = [];
   let pendingAssistantIndexes: number[] = [];
   const recoveredFailures = recoveredToolFailureIndexes(items);
+  const retainConsequentialTools =
+    options.retainConsequentialTools === true &&
+    items.some((item) => item.kind === "tool" && hasSemanticZoomMutationReview(item));
   const hasLaterMeaningfulItem =
     answerFirstDensity && options.retainSuccessfulTools !== true
       ? new Array<boolean>(items.length)
@@ -1973,7 +2006,12 @@ export function visibleTurnItemsWithIndexes(
     if (options.suppressExploratoryFailures === true && isRecoverableExploratoryFailure(item)) {
       continue;
     }
-    if (options.suppressFailedTools === true && item.kind === "tool" && item.status === "error") {
+    if (
+      options.suppressFailedTools === true &&
+      item.kind === "tool" &&
+      item.status === "error" &&
+      !retainConsequentialTools
+    ) {
       continue;
     }
     if (
@@ -1981,15 +2019,18 @@ export function visibleTurnItemsWithIndexes(
       item.kind === "tool" &&
       item.status !== "running" &&
       toolOutcome(item) !== "done" &&
+      !retainConsequentialTools &&
       !(options.retainDiffTools === true && (item.name === "edit" || item.name === "write"))
     ) {
       continue;
     }
     if (options.suppressEvidenceItems === true) {
-      if (isTerminalRunNotice(item)) continue;
+      if (isTerminalRunNotice(item) && !isCompletionTruthNotice(item)) continue;
       if (
         item.kind === "tool" &&
         item.status !== "running" &&
+        !hasSemanticZoomMutationReview(item) &&
+        !(retainConsequentialTools && toolOutcome(item) !== "done") &&
         !(options.retainSuccessfulTools === true && toolOutcome(item) === "done") &&
         !(options.retainDiffTools === true && (item.name === "edit" || item.name === "write"))
       ) {

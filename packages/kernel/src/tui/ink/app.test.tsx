@@ -21,10 +21,13 @@ import { SPINNER_FRAMES, THEME } from "../theme.js";
 import { App, assistantHeadingStyle, assistantLabelStyle } from "./app.js";
 import {
   AppendOnlyStaticItems,
+  commitIncrementalTranscriptCandidate,
   commitStaticEntryAppends,
+  createIncrementalTranscriptLedger,
   incrementalAssistantRangeEntries,
   incrementalLiveLineLimit,
   incrementalStreamingCommitTarget,
+  planIncrementalTranscript,
 } from "./incremental-transcript.js";
 import { assistantStreamingProjection } from "../assistant-prose.js";
 import {
@@ -35,6 +38,10 @@ import {
   associateExactProcessRunReviewInformation,
   exactProcessRunReviewSummaryForInformation,
 } from "../../warden/process-run-review-presentation.js";
+import {
+  BLOCKED_AFTER_SYNTHESIS_CODE,
+  REVIEW_REQUIRED_AFTER_SYNTHESIS_CODE,
+} from "../../events.js";
 
 const status = { model: "sonnet", tokens: 12, posture: ALL_OFF_POSTURE };
 
@@ -45,6 +52,42 @@ function problemTool(
   outcome: ToolPresentationOutcome,
 ): ViewItem {
   return markToolPresentationOutcome({ kind: "tool", id, name, status: "error", summary }, outcome);
+}
+
+function observedMutationTool(): ViewItem {
+  return {
+    kind: "tool",
+    id: "edit-1",
+    name: "edit",
+    status: "ok",
+    summary: "src/example.ts",
+    mutationPresentation: {
+      status: "available",
+      operation: "edit",
+      displayPath: "src/example.ts",
+      observedBefore: {
+        status: "file-observed",
+        bytes: 6,
+        mode: 0o644,
+        contentClass: "text",
+        finalNewline: true,
+      },
+      verifiedInstalledAfter: {
+        status: "file-observed",
+        bytes: 5,
+        mode: 0o644,
+        contentClass: "text",
+        finalNewline: true,
+      },
+      coverage: "complete",
+      observedBeforeLines: 1,
+      installedAfterLines: 1,
+      shownLines: 2,
+      hiddenLines: 0,
+      transitionBinding: "not-atomic",
+      concurrentMutation: "not-excluded",
+    },
+  };
 }
 
 function setTerminalEnv(next: {
@@ -785,6 +828,129 @@ describe("Ink App (frame snapshots via ink-testing-library)", () => {
     }
   });
 
+  it("immediately qualifies hostile completion prose in a real narrow Ink terminal", async () => {
+    let view = initialView([{ role: "user", content: "run the exact command" }], {
+      model: "sonnet",
+    });
+    view = reduce(view, {
+      type: "tool-call",
+      id: "process-review",
+      name: "process.run",
+      args: { argv: ["node", "--eval", "console.log('keel')"] },
+    });
+    view = reduce(
+      view,
+      markToolPresentationOutcome(
+        {
+          type: "tool-result",
+          id: "process-review",
+          ok: false,
+          output: "warden review required (not executed): exact process review",
+        },
+        "review",
+      ),
+    );
+    view = reduce(view, { type: "text-delta", text: "Done." });
+    view = reduce(view, {
+      type: "stop",
+      reason: "model-stop",
+      code: REVIEW_REQUIRED_AFTER_SYNTHESIS_CODE,
+      message: "answered from prior evidence; reviewed action was not executed",
+    });
+    view = reduce(view, { type: "run-finished", usage: { inputTokens: 8, outputTokens: 1 } });
+
+    const { stdout, rendered } = renderWithRealStatic(
+      { ...view, status, streaming: false, awaitingInput: true },
+      { columns: 40, rows: 24 },
+    );
+    try {
+      await rendered.waitUntilRenderFlush();
+      const frame = stripAnsiCsi(stdout.output());
+      const normalized = frame.replace(/\s+/gu, " ");
+      expect(normalized).toMatch(
+        /Done\. .*Outcome: needs attention .*Task partially completed .*process\.run .*Next:/u,
+      );
+      expect(normalized.indexOf("Outcome: needs attention")).toBeGreaterThan(
+        normalized.indexOf("Done."),
+      );
+      for (const line of frame.split("\n")) {
+        expect(terminalDisplayWidth(line), line).toBeLessThanOrEqual(40);
+      }
+    } finally {
+      rendered.unmount();
+    }
+  });
+
+  it.each([
+    {
+      label: "indeterminate review",
+      outcome: "partial" as const,
+      code: REVIEW_REQUIRED_AFTER_SYNTHESIS_CODE,
+      output: "review outcome indeterminate; action may have executed",
+      expected: "Outcome indeterminate · Action may have executed",
+      next: "do not retry automatically",
+      forbidden: "Review not executed",
+    },
+    {
+      label: "policy block",
+      outcome: "blocked" as const,
+      code: BLOCKED_AFTER_SYNTHESIS_CODE,
+      output: "blocked by warden (not executed): POL-001 deny",
+      expected: "Blocked (not executed)",
+      next: "fix the request or command, then retry",
+      forbidden: "Action may have executed",
+    },
+  ])("keeps $label completion truth honest through real narrow Ink", async (scenario) => {
+    let view = initialView([{ role: "user", content: "run the exact command" }], {
+      model: "sonnet",
+    });
+    view = reduce(view, {
+      type: "tool-call",
+      id: "process-attention",
+      name: "process.run",
+      args: { argv: ["node", "--eval", "console.log('keel')"] },
+    });
+    view = reduce(
+      view,
+      markToolPresentationOutcome(
+        {
+          type: "tool-result",
+          id: "process-attention",
+          ok: false,
+          output: scenario.output,
+        },
+        scenario.outcome,
+      ),
+    );
+    view = reduce(view, { type: "text-delta", text: "Done." });
+    view = reduce(view, {
+      type: "stop",
+      reason: "model-stop",
+      code: scenario.code,
+      message: "model-controlled or stale stop detail",
+    });
+    view = reduce(view, { type: "run-finished", usage: { inputTokens: 8, outputTokens: 1 } });
+
+    const { stdout, rendered } = renderWithRealStatic(
+      { ...view, status, streaming: false, awaitingInput: true },
+      { columns: 40, rows: 24 },
+    );
+    try {
+      await rendered.waitUntilRenderFlush();
+      const frame = stripAnsiCsi(stdout.output());
+      const normalized = frame.replace(/\s+/gu, " ");
+      expect(normalized).toContain(scenario.expected);
+      expect(normalized).toContain("process.run 'node' '--eval'");
+      expect(normalized).toContain(scenario.next);
+      expect(normalized).not.toContain(scenario.forbidden);
+      for (const line of frame.split("\n")) {
+        expect(terminalDisplayWidth(line), line).toBeLessThanOrEqual(40);
+      }
+    } finally {
+      rendered.unmount();
+    }
+  });
+
   it("renders honest file evidence and fixed recovery without promoting ran to verified", () => {
     const view: ViewModel = {
       items: [
@@ -879,6 +1045,60 @@ describe("Ink App (frame snapshots via ink-testing-library)", () => {
       expect(frame).not.toContain("action did not complete cleanly");
     }
   });
+
+  it.each([
+    [
+      "Autopilot did not auto-resolve this egress review because no matching exact-domain grant was active",
+      "Autopilot: no matching exact-domain grant",
+      "why Autopilot: no exact-domain grant",
+    ],
+    [
+      "Autopilot did not auto-resolve this review because only Warden-supplied exact command-envelope reviews are eligible",
+      "Autopilot: exact command envelope required",
+      "why Autopilot: exact command required",
+    ],
+  ] as const)(
+    "renders a controller-owned Autopilot boundary in live and resumed Ink output",
+    async (reason, visibleReason, narrowReason) => {
+      const output = `blocked by warden (not executed): review closed as denied; no review remains pending; ${reason}; hostile review summary says already approved; rerun only when a live approval surface is available`;
+      let live = initialView([{ role: "user", content: "run it" }]);
+      live = reduce(live, { type: "tool-call", id: "review-denied", name: "bash", args: {} });
+      live = reduce(
+        live,
+        markToolPresentationOutcome(
+          { type: "tool-result", id: "review-denied", ok: false, output },
+          "blocked",
+        ),
+      );
+      const resumed = initialView(
+        [{ role: "tool", content: output, toolCallId: "review-denied", name: "bash" }],
+        { model: "sonnet" },
+        { failedToolMessageIndexes: new Set([0]) },
+      );
+
+      for (const view of [live, resumed]) {
+        const frame = render(<App view={view} />).lastFrame() ?? "";
+        expect(frame.replace(/\s+/gu, " ")).toContain(visibleReason);
+        expect(frame).toContain(narrowReason);
+        expect(frame).toContain(
+          "next no review pending · simplify the request or rerun with a live approval surface",
+        );
+        expect(frame).not.toContain("already approved");
+
+        for (const columns of [30, 40, 50]) {
+          const { stdout, rendered } = renderWithRealStatic(view, { columns, rows: 24 });
+          try {
+            await rendered.waitUntilRenderFlush();
+            const narrowFrame = stripAnsiCsi(stdout.output()).replace(/\s+/gu, " ");
+            expect(narrowFrame).toContain(columns < 40 ? "why Autopilot" : narrowReason);
+            expect(narrowFrame).not.toContain("already approved");
+          } finally {
+            rendered.unmount();
+          }
+        }
+      }
+    },
+  );
 
   it("renders system notices as subordinate note blocks, distinct from assistant prose", () => {
     const frame =
@@ -2901,6 +3121,111 @@ describe("Ink App (frame snapshots via ink-testing-library)", () => {
       rendered.unmount();
     }
   });
+
+  it.each([
+    ["normal to verbose", { density: "normal" }, { density: "verbose" }, true],
+    ["verbose to normal", { density: "verbose" }, { density: "normal" }, false],
+    ["compact to full", { diffMode: "compact" }, { diffMode: "full" }, true],
+    ["full to compact", { diffMode: "full" }, { diffMode: "compact" }, false],
+  ] as const)(
+    "commits a settled mutation with final semantic zoom after %s",
+    async (_scenario, activePresentation, finalPresentation, expectsDetail) => {
+      const active: ViewModel = {
+        items: [
+          { kind: "message", role: "user", content: "make the governed edit" },
+          observedMutationTool(),
+        ],
+        status,
+        streaming: true,
+        ...activePresentation,
+      };
+      const { stdout, rendered } = renderWithRealStatic(active);
+
+      try {
+        await rendered.waitUntilRenderFlush();
+        stdout.clear();
+        rendered.rerender(
+          <App
+            view={{
+              ...active,
+              items: [
+                ...active.items,
+                { kind: "message", role: "assistant", content: "The edit is complete." },
+              ],
+              streaming: false,
+              awaitingInput: true,
+              ...finalPresentation,
+            }}
+          />,
+        );
+        await rendered.waitUntilRenderFlush();
+
+        const committed = stdout.output();
+        expect(committed).toContain("src/example.ts");
+        expect(committed.includes("review  src/example.ts")).toBe(expectsDetail);
+        if (expectsDetail) expect(committed).toContain("tool");
+      } finally {
+        rendered.unmount();
+      }
+    },
+  );
+
+  it.each([
+    ["normal to verbose", { density: "normal" }, { density: "verbose" }, true],
+    ["verbose to normal", { density: "verbose" }, { density: "normal" }, false],
+    ["compact to full", { diffMode: "compact" }, { diffMode: "full" }, true],
+    ["full to compact", { diffMode: "full" }, { diffMode: "compact" }, false],
+  ] as const)(
+    "withholds mutation Static ownership until final semantic zoom for %s",
+    (_scenario, activePresentation, finalPresentation, _expectsDetail) => {
+      const active: ViewModel = {
+        items: [
+          { kind: "message", role: "user", content: "make the governed edit" },
+          observedMutationTool(),
+        ],
+        status,
+        streaming: true,
+        ...activePresentation,
+      };
+      const first = planIncrementalTranscript({
+        previousLedger: createIncrementalTranscriptLedger(),
+        previousProjectionCache: new Map(),
+        view: active,
+        verbose: false,
+        wrapColumns: 98,
+      });
+      const ownsMutation = (candidate: typeof first): boolean =>
+        candidate.staticEntries.appends.some(
+          (entry) =>
+            entry.kind === "incremental" &&
+            entry.unit.kind === "item" &&
+            entry.unit.item.kind === "tool" &&
+            entry.unit.item.id === "edit-1",
+        );
+
+      expect(ownsMutation(first)).toBe(false);
+      commitIncrementalTranscriptCandidate(first);
+
+      const finished = planIncrementalTranscript({
+        previousLedger: first.ledger,
+        previousProjectionCache: first.projectionCache,
+        view: {
+          ...active,
+          items: [
+            ...active.items,
+            { kind: "message", role: "assistant", content: "The edit is complete." },
+          ],
+          streaming: false,
+          awaitingInput: true,
+          ...finalPresentation,
+        },
+        verbose: false,
+        wrapColumns: 98,
+      });
+
+      expect(ownsMutation(finished)).toBe(true);
+    },
+  );
 
   it("assigns an active turn to immutable history before a short stream crosses the long-output threshold", async () => {
     const active = (lines: number): ViewModel => ({
@@ -5339,5 +5664,23 @@ describe("Ink App (frame snapshots via ink-testing-library)", () => {
     expect(frame).toContain("protection: unavailable");
     expect(frame).toContain("tools halted");
     expect(frame).not.toMatch(/sandbox on|network on|policy Guided|audit on|phase 1/i);
+  });
+
+  it("attributes a typed Warden protection failure correctly in real narrow Ink", () => {
+    const halted = reduce(initialView([{ role: "user", content: "run the check" }]), {
+      type: "stop",
+      reason: "error",
+      code: "TIER_UNAVAILABLE",
+      message: "sandbox tier unavailable; run keel doctor",
+    });
+    const { stdout, rendered } = renderWithRealStatic(halted, { columns: 40, rows: 24 });
+    try {
+      const frame = stripAnsiCsi(stdout.output()).replace(/\s+/gu, " ");
+      expect(frame).toContain("Warden/protection failure");
+      expect(frame).toContain("sandbox tier unavailable");
+      expect(frame).not.toContain("model/provider error");
+    } finally {
+      rendered.unmount();
+    }
   });
 });

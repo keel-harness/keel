@@ -27,9 +27,12 @@ import type {
   ViewItem,
   ViewModel,
 } from "@keel/shared";
+import { redactText } from "@keel/shared";
 import { basename } from "node:path";
 import {
+  BLOCKED_AFTER_SYNTHESIS_CODE,
   GROSS_RUNWAY_PREFLIGHT_CODE,
+  REVIEW_REQUIRED_AFTER_SYNTHESIS_CODE,
   stopCodeNeedsAttention,
   type KernelEventT,
 } from "../events.js";
@@ -55,6 +58,7 @@ import {
 import { governedProcessEnvelope, renderToolCommand } from "../tool-command.js";
 import { formatTokens } from "./format.js";
 import { stripControl, stripControlLine } from "./strip.js";
+import { TUI_AUTOPILOT_REVIEW_BOUNDARY } from "./strings.js";
 import { toolOutcome } from "./tool-outcome.js";
 import { mutationReviewUnavailableCopy } from "./tool-card.js";
 import {
@@ -403,7 +407,6 @@ export function isHiddenInDensity(item: ViewItem, density: ViewModel["density"])
 /** Human-readable reason for abnormal terminals. Clean `model-stop` and `aborted` add no notice;
  *  attention-coded `model-stop` uses the stop detail instead of this map. */
 const TERMINAL_FAILURE: Partial<Record<string, string>> = {
-  error: "the model/provider returned an error",
   "max-turns": "it hit the turn limit before finishing",
   budget:
     "it reached the token budget (raise KEEL_MAX_TOKENS / KEEL_MAX_GROSS_TOKENS / KEEL_MAX_OUTPUT_TOKENS to allow more)",
@@ -411,6 +414,121 @@ const TERMINAL_FAILURE: Partial<Record<string, string>> = {
   length: "the model hit its output-length limit",
   deadline: "it reached the wall-clock budget (raise KEEL_MAX_WALL_SEC to allow more time)",
 };
+
+const PROVIDER_TERMINAL_CODES = new Set([
+  "empty-assistant-stop",
+  "malformed-tool-call-delta",
+  "malformed-tool-call-terminal",
+  "no-terminal",
+  "provider-terminal-finish",
+  "stream-error",
+  "tool-call-args",
+  "tools-unsupported",
+]);
+
+const CONTROLLER_TERMINAL_CODES = new Set([
+  "acceptance-contract-error",
+  "acceptance-contract-failed",
+  "duplicate-tool-call-id",
+  "final-answer-rewrite-error",
+  "final-answer-rewrite-tool-call",
+  "known-red-completion-evidence",
+  "KEEL_TOOL_INFRA_DEADLINE",
+]);
+
+function typedTerminalFailure(code: string | undefined): string {
+  if (code !== undefined && CONTROLLER_TERMINAL_CODES.has(code)) {
+    return "Keel controller stopped the run";
+  }
+  if (code === "model-route-denied") {
+    return "model routing policy denied the request";
+  }
+  if (
+    code === undefined ||
+    PROVIDER_TERMINAL_CODES.has(code) ||
+    code === "malformed-chunk" ||
+    code.startsWith("provider-") ||
+    code.startsWith("stream-") ||
+    /^AI_[A-Za-z][A-Za-z0-9]*Error$/u.test(code) ||
+    /^[A-Z][A-Za-z]*Error$/u.test(code) ||
+    /^\d{3}$/u.test(code)
+  ) {
+    return "model/provider error";
+  }
+  if (code.startsWith("POLICY_") || code.startsWith("POL_")) {
+    return "policy check failed closed";
+  }
+  if (
+    /^(?:AUDIT_|E(?:ACCES|EXIST|IO|ISDIR|NOENT|PERM|PIPE|UNKNOWN)$|ERR_|FATAL_|FRAME_|INTERACTIVE_CONSOLE_|INTERNAL_|INVALID_|MCP_|MODULE_|ONCE_ONLY_|PROCESS_RUN_|PROJECT_|PROTOCOL_|REVIEW_|RPC_|SANDBOX_|STATUS_|TIER_|TOOL_|UNSUPPORTED_|UNTRUSTED_WORKSPACE_|WARDEN_)/u.test(
+      code,
+    )
+  ) {
+    return "Warden/protection failure";
+  }
+  return "Keel internal error";
+}
+
+export const COMPLETION_TRUTH_NOTICE_PREFIX = "⚠ Outcome: needs attention";
+
+function completionTruthNotice(
+  items: readonly ViewItem[],
+  code: string | undefined,
+): string | undefined {
+  if (code !== REVIEW_REQUIRED_AFTER_SYNTHESIS_CODE && code !== BLOCKED_AFTER_SYNTHESIS_CODE) {
+    return undefined;
+  }
+  const latestItems = latestTurnItems(items);
+  let action: Extract<ViewItem, { kind: "tool" }> | undefined;
+  let actionOutcome: ReturnType<typeof toolOutcome> | undefined;
+  for (let index = latestItems.length - 1; index >= 0; index -= 1) {
+    const item = latestItems[index];
+    if (item?.kind !== "tool") continue;
+    const outcome = toolOutcome(item);
+    const matches =
+      code === BLOCKED_AFTER_SYNTHESIS_CODE
+        ? outcome === "blocked"
+        : outcome === "review" || outcome === "partial" || outcome === "failed";
+    if (matches) {
+      action = item;
+      actionOutcome = outcome;
+      break;
+    }
+  }
+  const fallback =
+    code === BLOCKED_AFTER_SYNTHESIS_CODE
+      ? "the policy-blocked action"
+      : actionOutcome === "review"
+        ? "the reviewed action"
+        : actionOutcome === "partial"
+          ? "the action with an indeterminate review outcome"
+          : "the action with an unresolved review settlement";
+  const exactAction =
+    action === undefined
+      ? fallback
+      : oneLineText(
+          redactText(
+            action.subject === undefined
+              ? action.summary.startsWith(`${action.name}:`)
+                ? action.summary
+                : `${action.name}: ${action.summary || "request"}`
+              : `${action.name} ${action.subject}`,
+          ),
+        );
+  const boundedAction = truncateDisplayCells(exactAction || fallback, 192, { tailCells: 48 });
+  let disposition = "Review settlement unresolved";
+  let next = "restart the governed session before deciding again";
+  if (code === BLOCKED_AFTER_SYNTHESIS_CODE) {
+    disposition = "Blocked (not executed)";
+    next = "fix the request or command, then retry";
+  } else if (actionOutcome === "review") {
+    disposition = "Review not executed";
+    next = "approve a fresh exact review or revise the request, then rerun";
+  } else if (actionOutcome === "partial") {
+    disposition = "Outcome indeterminate · Action may have executed";
+    next = "inspect the audit and target before deciding; do not retry automatically";
+  }
+  return `${COMPLETION_TRUTH_NOTICE_PREFIX} · Task partially completed · ${disposition}: ${boundedAction} · Next: ${next}`;
+}
 
 /** Neutral all-off facts. Route meaning comes only from controller-owned `protectionRoute`. */
 export const ALL_OFF_POSTURE: UiPosture = { sandbox: false, egress: false, audit: false };
@@ -435,11 +553,17 @@ function formatGitStatus(git: UiGitStatus | undefined): string {
   const add = finiteNumber(git.added) ? Math.max(0, Math.trunc(git.added)) : 0;
   const modified = finiteNumber(git.modified) ? Math.max(0, Math.trunc(git.modified)) : 0;
   const deleted = finiteNumber(git.deleted) ? Math.max(0, Math.trunc(git.deleted)) : 0;
+  if (branch.length === 0) {
+    const changes = add + modified + deleted;
+    if (!Number.isSafeInteger(changes)) return "git detached · changes present";
+    return changes === 0
+      ? "git detached"
+      : `git detached · ${String(changes)} ${changes === 1 ? "change" : "changes"}`;
+  }
   if (add > 0) deltas.push(`+${add}`);
   if (modified > 0) deltas.push(`~${modified}`);
   if (deleted > 0) deltas.push(`-${deleted}`);
-  if (branch.length === 0 && deltas.length === 0) return "git n/a";
-  return ["git", branch.length > 0 ? branch : "n/a", ...deltas].join(" ");
+  return ["git", branch, ...deltas].join(" ");
 }
 
 function formatContextStatus(s: UiStatus): string {
@@ -624,14 +748,25 @@ function visiblePolicyLabel(s: UiStatus, state: UiRuntimeProtectionState): strin
 }
 
 function primaryPolicyLabel(s: UiStatus, state: UiRuntimeProtectionState): string {
-  return visiblePolicyLabel(s, state).split("·", 1)[0]?.trim() || "active";
+  if (s.policy?.active !== true) return "off";
+  if (state !== "governed") return "active";
+  const primary = visiblePolicyLabel(s, state).split("·", 1)[0]?.trim();
+  switch (primary) {
+    case "Guided":
+    case "Autopilot":
+    case "Project Autopilot":
+    case "Plan Autopilot":
+      return primary;
+    default:
+      return "active";
+  }
 }
 
 function protectionFactLine(s: UiStatus, state: UiRuntimeProtectionState): string {
   return [
     `sandbox ${onOff(s.posture.sandbox)}`,
     `egress guard ${onOff(s.posture.egress)}`,
-    `policy ${visiblePolicyLabel(s, state)}`,
+    `policy ${primaryPolicyLabel(s, state)}`,
     `audit ${auditPostureLabel(s)}`,
   ].join(" · ");
 }
@@ -1386,6 +1521,27 @@ function kernelReviewSettlementSummary(outcome: KernelReviewSettlementOutcome): 
   return outcome === "partial" ? REVIEW_INDETERMINATE_SUMMARY : REVIEW_PENDING_SUMMARY;
 }
 
+const SETTLED_REVIEW_DENIAL_PREFIX =
+  "blocked by warden (not executed): review closed as denied; no review remains pending; ";
+
+function settledAutopilotBoundarySummary(denial: string): string | undefined {
+  if (
+    denial.startsWith(
+      `${SETTLED_REVIEW_DENIAL_PREFIX}${KERNEL_STRINGS.autopilotEgressReviewBoundary};`,
+    )
+  ) {
+    return TUI_AUTOPILOT_REVIEW_BOUNDARY.domain.summary;
+  }
+  if (
+    denial.startsWith(
+      `${SETTLED_REVIEW_DENIAL_PREFIX}${KERNEL_STRINGS.autopilotIneligibleReviewBoundary};`,
+    )
+  ) {
+    return TUI_AUTOPILOT_REVIEW_BOUNDARY.commandEnvelope.summary;
+  }
+  return undefined;
+}
+
 function toolResultSummary(
   name: string,
   priorSummary: string,
@@ -1404,6 +1560,8 @@ function toolResultSummary(
     const denialFirstLine = stripControlLine(firstLine(output)).trim();
     if (outcome === "blocked" && denialFirstLine.startsWith("blocked by warden (not executed):")) {
       if (denialFirstLine.includes("no review remains pending")) {
+        const autopilotBoundary = settledAutopilotBoundarySummary(denialFirstLine);
+        if (autopilotBoundary !== undefined) return autopilotBoundary;
         return "blocked by warden (not executed): review closed as denied · no review remains pending";
       }
       return truncateLine(denialFirstLine, MAX_LIVE_OUTPUT_LEN);
@@ -2044,6 +2202,12 @@ export function buildTurnSummary(view: ViewModel): UiTurnSummary | undefined {
     .map((it) => truncateLine(it.content, 96))
     .slice(0, 1);
   const attention = [...failedTools, ...terminalNotices];
+  const completionNeedsAttention = items.some(
+    (item) =>
+      item.kind === "message" &&
+      item.role === "system" &&
+      item.content.startsWith(COMPLETION_TRUTH_NOTICE_PREFIX),
+  );
   if (
     answer === undefined &&
     fileEvidence.length === 0 &&
@@ -2054,7 +2218,7 @@ export function buildTurnSummary(view: ViewModel): UiTurnSummary | undefined {
     return undefined;
   }
   return {
-    title: attention.length > 0 ? "needs attention" : "done",
+    title: attention.length > 0 || completionNeedsAttention ? "needs attention" : "done",
     ...(answer !== undefined ? { answer } : {}),
     changed: [],
     checked: [],
@@ -3300,6 +3464,13 @@ export function reduce(view: ViewModel, ev: KernelEventT | UiInputEventT): ViewM
       // and `aborted` is the user interrupt (noticed via the `interrupted` event) — neither adds a
       // notice; every other reason ended the run WITHOUT finishing and must be visible.
       const base = view.streaming ? withDerived({ ...view, streaming: false }) : view;
+      const completionTruth = completionTruthNotice(base.items, ev.code);
+      if (completionTruth !== undefined) {
+        return withDerived({
+          ...base,
+          items: [...base.items, { kind: "message", role: "system", content: completionTruth }],
+        });
+      }
       // The warden-death halt (P0-3) reuses reason "error" (no frozen StopReason change) but must NOT
       // be misattributed to the model/provider — its message is already a complete honest sentence.
       if (ev.code === "WARDEN_UNAVAILABLE" && ev.message) {
@@ -3316,7 +3487,7 @@ export function reduce(view: ViewModel, ev: KernelEventT | UiInputEventT): ViewM
             {
               kind: "message",
               role: "system",
-              content: `⚠ run ended — ${stripControl(ev.message)}`,
+              content: `⚠ run ended — ${oneLineText(ev.message)}`,
             },
           ],
         });
@@ -3338,9 +3509,11 @@ export function reduce(view: ViewModel, ev: KernelEventT | UiInputEventT): ViewM
           ],
         });
       }
-      const why = TERMINAL_FAILURE[ev.reason];
+      const why =
+        ev.reason === "error" ? typedTerminalFailure(ev.code) : TERMINAL_FAILURE[ev.reason];
       if (why === undefined) return base;
-      const detail = ev.reason === "error" && ev.message ? `: ${stripControl(ev.message)}` : "";
+      const cleanedDetail = ev.reason === "error" && ev.message ? oneLineText(ev.message) : "";
+      const detail = cleanedDetail.length > 0 ? `: ${cleanedDetail}` : "";
       return withDerived({
         ...base,
         items: [

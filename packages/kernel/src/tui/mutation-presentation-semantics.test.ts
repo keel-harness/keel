@@ -278,6 +278,45 @@ describe("Epic 3.10 Slice 3A mutation semantic projection", () => {
     expect(copy).not.toContain("0 unchanged rows omitted");
   });
 
+  it("keeps ordinary successful mutation cards compact while detail modes retain integrity facts", () => {
+    const projected = resolveMutationPresentationActivity(activity("edit"), {
+      status: "available",
+      artifact: artifact(),
+    });
+    const base = initialView([]);
+    const mutationView = { ...base, items: [projected] };
+
+    for (const density of ["normal", "quiet"] as const) {
+      const calm = { ...mutationView, density };
+      for (const frame of [
+        renderFrame(calm),
+        render(createElement(App, { view: calm })).lastFrame() ?? "",
+      ]) {
+        expect(frame).toContain("edit");
+        expect(frame).toContain("src/example.ts");
+        expect(frame).not.toContain("review  src/example.ts");
+        expect(frame).not.toMatch(/evidence\s+observed before → verified installed after/u);
+        expect(frame).not.toMatch(/scope\s+transition not atomic/u);
+        if (density === "normal") expect(frame).toContain("transition not atomic");
+      }
+    }
+
+    for (const detailed of [
+      { ...mutationView, density: "verbose" as const },
+      { ...mutationView, density: "debug" as const },
+      { ...mutationView, density: "normal" as const, diffMode: "full" as const },
+    ]) {
+      for (const frame of [
+        renderFrame(detailed),
+        render(createElement(App, { view: detailed })).lastFrame() ?? "",
+      ]) {
+        expect(frame).toContain("review  src/example.ts");
+        expect(frame).toContain("observed before → verified installed after");
+        expect(frame).toContain("transition not atomic");
+      }
+    }
+  });
+
   it("keeps captured line content out of headless while Ink and headless retain all semantic labels", () => {
     const observedOnly = "OBSERVED-FIXTURE-CONTENT";
     const installedOnly = "INSTALLED-FIXTURE-CONTENT";

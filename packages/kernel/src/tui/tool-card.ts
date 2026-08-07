@@ -178,6 +178,12 @@ export function mutationReviewCoverageCopy(
   }
 }
 
+/** Successful verified mutation detail varies with semantic zoom. Renderers use this same predicate
+ *  to keep the stable result distinct from optional integrity detail. */
+export function hasSemanticZoomMutationReview(item: UiToolActivity): boolean {
+  return toolOutcome(item) === "done" && item.mutationPresentation?.status === "available";
+}
+
 /** Pure tool-card presentation plan (Epic 1.24 slice 3). Renderers map this; they do not decide copy. */
 export function toolCardPlan(item: UiToolActivity, diffMode: ViewModel["diffMode"]): ToolCardPlan {
   const outcome = toolOutcome(item);
@@ -217,6 +223,9 @@ export function toolCardPlan(item: UiToolActivity, diffMode: ViewModel["diffMode
         lines: [`review  unavailable — ${mutationReviewUnavailableCopy(presentation.reason)}`],
       };
     }
+    // Successful mutation observations are semantic-zoom detail. Normal/quiet cards keep the
+    // result compact; verbose/debug or an explicit full diff retains every integrity caveat.
+    if (hasSemanticZoomMutationReview(item) && diffMode !== "full") return undefined;
     const image = mutationImageLine(presentation);
     const coverage = mutationReviewCoverageCopy(presentation);
     return {

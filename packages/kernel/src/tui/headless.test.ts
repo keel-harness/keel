@@ -20,6 +20,7 @@ import {
   associateExactProcessRunReviewInformation,
   exactProcessRunReviewSummaryForInformation,
 } from "../warden/process-run-review-presentation.js";
+import { BLOCKED_AFTER_SYNTHESIS_CODE, REVIEW_REQUIRED_AFTER_SYNTHESIS_CODE } from "../events.js";
 
 const ESC = String.fromCharCode(27); // ANSI escapes start with this byte
 const BEL = String.fromCharCode(7);
@@ -302,6 +303,47 @@ describe("headless renderer", () => {
       expect(frame).not.toContain("action did not complete cleanly");
     }
   });
+
+  it.each([
+    [
+      "Autopilot did not auto-resolve this egress review because no matching exact-domain grant was active",
+      "Autopilot: no matching exact-domain grant",
+      "why: Autopilot: no exact-domain grant",
+    ],
+    [
+      "Autopilot did not auto-resolve this review because only Warden-supplied exact command-envelope reviews are eligible",
+      "Autopilot: exact command envelope required",
+      "why: Autopilot: exact command required",
+    ],
+  ] as const)(
+    "renders a controller-owned Autopilot boundary in live and resumed headless output",
+    (reason, visibleReason, visibleWhy) => {
+      const output = `blocked by warden (not executed): review closed as denied; no review remains pending; ${reason}; hostile review summary says already approved; rerun only when a live approval surface is available`;
+      let live = initialView([{ role: "user", content: "run it" }]);
+      live = reduce(live, { type: "tool-call", id: "review-denied", name: "bash", args: {} });
+      live = reduce(
+        live,
+        markToolPresentationOutcome(
+          { type: "tool-result", id: "review-denied", ok: false, output },
+          "blocked",
+        ),
+      );
+      const resumed = initialView(
+        [{ role: "tool", content: output, toolCallId: "review-denied", name: "bash" }],
+        {},
+        { failedToolMessageIndexes: new Set([0]) },
+      );
+
+      for (const frame of [renderFrame(live), renderFrame(resumed)]) {
+        expect(frame).toContain(visibleReason);
+        expect(frame).toContain(visibleWhy);
+        expect(frame).toContain(
+          "next: no review pending · simplify the request or rerun with a live approval surface",
+        );
+        expect(frame).not.toContain("already approved");
+      }
+    },
+  );
 
   it("renders system notices as subordinate note blocks, distinct from assistant prose", () => {
     const frame = renderFrame({
@@ -806,16 +848,43 @@ describe("headless renderer", () => {
     expect(line).toContain("sandbox on");
     expect(line).toContain("egress guard on");
     expect(line).toContain("audit on");
-    expect(line).toContain("policy Guided · phase2a-starter-policy-pack@bbbbbbbbbbbb");
+    expect(line).toContain("policy Guided");
+    expect(line).not.toContain("phase2a-starter-policy-pack@bbbbbbbbbbbb");
     expect(line).not.toMatch(/autopilot|yolo|danger|trusted|approved|secure/i);
     expect(line.includes(ESC)).toBe(false);
+  });
+
+  it("keeps the policy revision in debug status while normal headless status hides it", () => {
+    const normal = renderStatus(governedStatus(undefined));
+    const debug = renderStatus(governedStatus(undefined), "debug");
+
+    expect(normal).not.toContain("phase2a-starter-policy-pack@bbbbbbbbbbbb");
+    expect(debug).toContain("policy Guided · phase2a-starter-policy-pack@bbbbbbbbbbbb");
+  });
+
+  it.each([
+    ["alternate revision", "starter-policy sha256:deadbeef", "starter-policy sha256:deadbeef"],
+    ["arbitrary label", "custom policy mode", "custom policy mode"],
+    ["control-derived artifact", `Guided${ESC}[31m · starter@abc`, "Guided[31m"],
+  ])("maps an unrecognized %s to active in normal status", (_scenario, label, leakedText) => {
+    const line = renderStatus({
+      tokens: 0,
+      protectionRoute: "governed",
+      posture: { sandbox: true, egress: true, audit: true },
+      policy: { active: true, label },
+    });
+
+    expect(line).toContain("policy active");
+    expect(line).not.toContain(leakedText);
+    expect(line).not.toContain(ESC);
   });
 
   it("renders Autopilot only when sandbox, network, audit, and active policy are all true", () => {
     const line = renderStatus(
       governedStatus({ mode: "autopilot", source: "human", userConfirmed: true }),
     );
-    expect(line).toContain("policy Autopilot · phase2a-starter-policy-pack@bbbbbbbbbbbb");
+    expect(line).toContain("policy Autopilot");
+    expect(line).not.toContain("phase2a-starter-policy-pack@bbbbbbbbbbbb");
     expect(line).toContain("sandbox on");
     expect(line).toContain("egress guard on");
     expect(line).toContain("audit on");
@@ -825,7 +894,8 @@ describe("headless renderer", () => {
       governedStatus({ mode: "autopilot", source: "human", userConfirmed: true }, { audit: false }),
     );
     expect(noAudit).toContain("audit unseen");
-    expect(noAudit).toContain("policy phase2a-starter-policy-pack@bbbbbbbbbbbb");
+    expect(noAudit).toContain("policy active");
+    expect(noAudit).not.toContain("phase2a-starter-policy-pack@bbbbbbbbbbbb");
     expect(noAudit).not.toContain("Autopilot");
   });
 
@@ -833,15 +903,15 @@ describe("headless renderer", () => {
     const project = renderStatus(
       governedStatus({ mode: "project-autopilot", source: "human", userConfirmed: true }),
     );
-    expect(project).toContain(
-      "policy Project Autopilot · phase2a-starter-policy-pack@bbbbbbbbbbbb",
-    );
+    expect(project).toContain("policy Project Autopilot");
+    expect(project).not.toContain("phase2a-starter-policy-pack@bbbbbbbbbbbb");
     expect(project).not.toContain("policy Autopilot ·");
 
     const danger = renderStatus(
       governedStatus({ mode: "danger", source: "human", userConfirmed: true }),
     );
-    expect(danger).toContain("policy Guided · phase2a-starter-policy-pack@bbbbbbbbbbbb");
+    expect(danger).toContain("policy Guided");
+    expect(danger).not.toContain("phase2a-starter-policy-pack@bbbbbbbbbbbb");
     expect(danger).not.toMatch(/danger|yolo|breakglass|approved|secure/i);
   });
 
@@ -2063,6 +2133,108 @@ describe("headless renderer", () => {
     }
   });
 
+  it("immediately qualifies hostile completion prose in narrow headless output", () => {
+    let view = initialView([{ role: "user", content: "run the exact command" }]);
+    view = reduce(view, {
+      type: "tool-call",
+      id: "process-review",
+      name: "process.run",
+      args: { argv: ["node", "--eval", "console.log('keel')"] },
+    });
+    view = reduce(
+      view,
+      markToolPresentationOutcome(
+        {
+          type: "tool-result",
+          id: "process-review",
+          ok: false,
+          output: "warden review required (not executed): exact process review",
+        },
+        "review",
+      ),
+    );
+    view = reduce(view, { type: "text-delta", text: "Done." });
+    view = reduce(view, {
+      type: "stop",
+      reason: "model-stop",
+      code: REVIEW_REQUIRED_AFTER_SYNTHESIS_CODE,
+      message: "answered from prior evidence; reviewed action was not executed",
+    });
+    view = reduce(view, { type: "run-finished", usage: { inputTokens: 8, outputTokens: 1 } });
+
+    const frame = renderFrame({ ...view, awaitingInput: true }, false, false, 40);
+    const normalized = frame.replace(/\s+/gu, " ");
+    expect(normalized).toMatch(
+      /Done\. .*Outcome: needs attention .*Task partially completed .*process\.run .*Next:/u,
+    );
+    expect(normalized.indexOf("Outcome: needs attention")).toBeGreaterThan(
+      normalized.indexOf("Done."),
+    );
+    expect(frame).not.toContain(ESC);
+    for (const line of frame.split("\n").filter((line) => !line.startsWith("protection:"))) {
+      expect(terminalDisplayWidth(line), line).toBeLessThanOrEqual(40);
+    }
+  });
+
+  it.each([
+    {
+      label: "indeterminate review",
+      outcome: "partial" as const,
+      code: REVIEW_REQUIRED_AFTER_SYNTHESIS_CODE,
+      output: "review outcome indeterminate; action may have executed",
+      expected: "Outcome indeterminate · Action may have executed",
+      next: "do not retry automatically",
+      forbidden: "Review not executed",
+    },
+    {
+      label: "policy block",
+      outcome: "blocked" as const,
+      code: BLOCKED_AFTER_SYNTHESIS_CODE,
+      output: "blocked by warden (not executed): POL-001 deny",
+      expected: "Blocked (not executed)",
+      next: "fix the request or command, then retry",
+      forbidden: "Action may have executed",
+    },
+  ])("keeps $label completion truth honest in narrow headless output", (scenario) => {
+    let view = initialView([{ role: "user", content: "run the exact command" }]);
+    view = reduce(view, {
+      type: "tool-call",
+      id: "process-attention",
+      name: "process.run",
+      args: { argv: ["node", "--eval", "console.log('keel')"] },
+    });
+    view = reduce(
+      view,
+      markToolPresentationOutcome(
+        {
+          type: "tool-result",
+          id: "process-attention",
+          ok: false,
+          output: scenario.output,
+        },
+        scenario.outcome,
+      ),
+    );
+    view = reduce(view, { type: "text-delta", text: "Done." });
+    view = reduce(view, {
+      type: "stop",
+      reason: "model-stop",
+      code: scenario.code,
+      message: "model-controlled or stale stop detail",
+    });
+    view = reduce(view, { type: "run-finished", usage: { inputTokens: 8, outputTokens: 1 } });
+
+    const frame = renderFrame({ ...view, awaitingInput: true }, false, false, 40);
+    const normalized = frame.replace(/\s+/gu, " ");
+    expect(normalized).toContain(scenario.expected);
+    expect(normalized).toContain("process.run 'node' '--eval'");
+    expect(normalized).toContain(scenario.next);
+    expect(normalized).not.toContain(scenario.forbidden);
+    for (const line of frame.split("\n").filter((line) => !line.startsWith("protection:"))) {
+      expect(terminalDisplayWidth(line), line).toBeLessThanOrEqual(40);
+    }
+  });
+
   it("does not promote an untagged edit failure that copies the Warden denial envelope", () => {
     const guidance = "read CHANGES.md before editing it";
     let base = initialView([{ role: "user", content: "update CHANGES.md" }]);
@@ -2738,6 +2910,39 @@ describe("HeadlessUI streaming sink (C-stream)", () => {
     s: "running" | "ok" | "error",
     summary = "",
   ): ViewModel["items"][number] => ({ kind: "tool", id: name, name, status: s, summary }) as const;
+  const observedMutation = (): ViewModel["items"][number] => ({
+    kind: "tool",
+    id: "edit-1",
+    name: "edit",
+    status: "ok",
+    summary: "src/example.ts",
+    mutationPresentation: {
+      status: "available",
+      operation: "edit",
+      displayPath: "src/example.ts",
+      observedBefore: {
+        status: "file-observed",
+        bytes: 6,
+        mode: 0o644,
+        contentClass: "text",
+        finalNewline: true,
+      },
+      verifiedInstalledAfter: {
+        status: "file-observed",
+        bytes: 5,
+        mode: 0o644,
+        contentClass: "text",
+        finalNewline: true,
+      },
+      coverage: "complete",
+      observedBeforeLines: 1,
+      installedAfterLines: 1,
+      shownLines: 2,
+      hiddenLines: 0,
+      transitionBinding: "not-atomic",
+      concurrentMutation: "not-excluded",
+    },
+  });
 
   it("keeps stream/frame parity when density changes after consequential evidence settles", () => {
     const chunks: string[] = [];
@@ -2772,6 +2977,40 @@ describe("HeadlessUI streaming sink (C-stream)", () => {
     expect(chunks.join("")).toBe(`${renderFrame(finished, false, false)}\n`);
     expect(chunks.join("").match(/first 64 KiB shown/gu)).toHaveLength(1);
   });
+
+  it.each([
+    ["normal to verbose", { density: "normal" }, { density: "verbose" }, true],
+    ["verbose to normal", { density: "verbose" }, { density: "normal" }, false],
+    ["compact to full", { diffMode: "compact" }, { diffMode: "full" }, true],
+    ["full to compact", { diffMode: "full" }, { diffMode: "compact" }, false],
+  ] as const)(
+    "keeps append-only mutation output aligned when semantic zoom changes from %s",
+    (_scenario, activePresentation, finalPresentation, expectsDetail) => {
+      const chunks: string[] = [];
+      const ui = new HeadlessUI((chunk) => chunks.push(chunk), false, false);
+      const active: ViewModel = {
+        items: [user("make the edit"), observedMutation()],
+        status,
+        streaming: true,
+        ...activePresentation,
+      };
+      ui.render(active);
+
+      const finished: ViewModel = {
+        ...active,
+        items: [...active.items, asst("The edit is complete.")],
+        streaming: false,
+        awaitingInput: true,
+        ...finalPresentation,
+      };
+      ui.render(finished);
+      ui.finalize();
+
+      const output = chunks.join("");
+      expect(output).toBe(`${renderFrame(finished, false, false)}\n`);
+      expect(output.includes("review  src/example.ts")).toBe(expectsDetail);
+    },
+  );
 
   it("preserves execution order across mixed consequential outcomes", () => {
     const chunks: string[] = [];
@@ -2870,6 +3109,162 @@ describe("HeadlessUI streaming sink (C-stream)", () => {
     expect(chunks.join("")).toContain("you  q2");
   });
 
+  it("streams a settled successful mutation before an abrupt stop", () => {
+    const chunks: string[] = [];
+    const ui = new HeadlessUI((chunk) => chunks.push(chunk), false, false);
+
+    ui.render({
+      items: [user("edit it"), observedMutation()],
+      status,
+      streaming: true,
+      density: "normal",
+    });
+
+    // No finalize() — emulate a provider hang followed by SIGKILL after the governed edit settled.
+    expect(chunks.join("")).toContain("tool  ✓ edit  done");
+    expect(chunks.join("")).toContain("result: src/example.ts");
+    expect(chunks.join("")).not.toContain("review  src/example.ts");
+  });
+
+  it.each([
+    [
+      "failed",
+      "permission denied",
+      "✗",
+      "failed",
+      "action did not complete cleanly",
+      "fix the request or command",
+    ],
+    [
+      "partial",
+      "write only partly applied",
+      "~",
+      "partial",
+      "execution failed after mutation began; final target state is unknown",
+      "inspect the target",
+    ],
+    [
+      "limited",
+      "first 64 KiB shown",
+      "~",
+      "limited",
+      "output was bounded; this result is incomplete",
+      "narrow the request",
+    ],
+    [
+      "review",
+      "approval required",
+      "!",
+      "review needed",
+      "the warden required a human decision; this result was not executed",
+      "no live approval",
+    ],
+    [
+      "blocked",
+      "policy denied",
+      "✗",
+      "blocked",
+      "the warden denied the action before execution",
+      "fix the request or command",
+    ],
+  ] as const)(
+    "streams a consequential %s tool card after a mutation and keeps final output exact",
+    (outcome, summary, glyph, statusLabel, why, next) => {
+      const chunks: string[] = [];
+      const ui = new HeadlessUI((chunk) => chunks.push(chunk), false, false);
+      const problem =
+        outcome === "limited"
+          ? markToolPresentationOutcome(
+              {
+                kind: "tool" as const,
+                id: "bash-1",
+                name: "bash",
+                status: "ok" as const,
+                summary,
+              },
+              outcome,
+            )
+          : problemTool("bash-1", "bash", summary, outcome);
+      const active: ViewModel = {
+        items: [user("edit and verify"), observedMutation(), problem],
+        status,
+        streaming: true,
+        density: "normal",
+      };
+
+      ui.render(active);
+
+      // No finalize yet: both settled outcomes must survive a provider hang followed by SIGKILL.
+      const partial = chunks.join("");
+      expect(partial).toContain("tool  ✓ edit  done");
+      expect(partial).toContain(`tool  ${glyph} bash  ${statusLabel}`);
+      expect(partial).toContain(`what: bash: ${summary}`);
+      expect(partial).toContain(`why: ${why}`);
+      expect(partial).toContain(`next: ${next}`);
+
+      const finished: ViewModel = {
+        ...active,
+        items: [...active.items, asst("The edit succeeded, but verification did not.")],
+        streaming: false,
+        awaitingInput: true,
+      };
+      ui.render(finished);
+      ui.finalize();
+
+      const output = chunks.join("");
+      expect(output).toBe(`${renderFrame(finished, false, false)}\n`);
+      expect(output.match(new RegExp(summary, "gu"))).toHaveLength(1);
+      expect(output.split(why)).toHaveLength(2);
+      expect(output.split(next)).toHaveLength(2);
+      expect(output.match(/file evidence: src\/example\.ts/gu)).toHaveLength(1);
+    },
+  );
+
+  it("uses bounded controller evidence for a retained Warden review card", () => {
+    const rawReview =
+      "warden review required (not executed): command review: command review for make in workspace /repo; [o] once [s] session [p] project (requires Project Autopilot) [d] deny [?] why; exact command envelope only; allow: keel approve command_review_1 --scope once --command-key sha256:" +
+      "a".repeat(64);
+    const review = problemTool("bash-review", "bash", rawReview, "review");
+    const active: ViewModel = {
+      items: [user("edit and verify"), observedMutation(), review],
+      status,
+      streaming: true,
+      density: "normal",
+    };
+    const chunks: string[] = [];
+    const ui = new HeadlessUI((chunk) => chunks.push(chunk), false, false);
+
+    ui.render(active);
+
+    const safeWhat =
+      "what: bash: warden review required (not executed): command review: command review for make in workspace /repo";
+    const assertBoundedReview = (output: string): void => {
+      expect(output).toContain(safeWhat);
+      expect(output).not.toContain("[o] once");
+      expect(output).not.toContain("[s] session");
+      expect(output).not.toContain("exact command envelope only");
+      expect(output).not.toContain("allow:");
+      expect(output).not.toContain("command-key");
+      expect(output).not.toContain("a".repeat(64));
+    };
+
+    assertBoundedReview(chunks.join(""));
+
+    const finished: ViewModel = {
+      ...active,
+      items: [...active.items, asst("The edit succeeded, but the command needs review.")],
+      streaming: false,
+      awaitingInput: true,
+    };
+    ui.render(finished);
+    ui.finalize();
+
+    const output = chunks.join("");
+    expect(output).toBe(`${renderFrame(finished, false, false)}\n`);
+    assertBoundedReview(output);
+    expect(output.split(safeWhat)).toHaveLength(2);
+  });
+
   it("streams a settled provider failure before finalize and never duplicates it", () => {
     const chunks: string[] = [];
     const ui = new HeadlessUI((chunk) => chunks.push(chunk), false, false);
@@ -2958,6 +3353,51 @@ describe("HeadlessUI streaming sink (C-stream)", () => {
     expect(chunks.join("")).toBe(`${renderFrame(view, false, false)}\n`);
     expect(chunks.join("").match(/fixture provider failure/gu)).toHaveLength(1);
     expect(chunks.join("").match(/Fallback completed cleanly\./gu)).toHaveLength(1);
+  });
+
+  it("flushes a prior mutation supplement before an immediately continuing turn", () => {
+    const chunks: string[] = [];
+    const ui = new HeadlessUI((chunk) => chunks.push(chunk), false, false);
+    const firstTurn: ViewModel = {
+      items: [user("edit the file"), observedMutation()],
+      status,
+      streaming: true,
+      density: "verbose",
+    };
+
+    ui.render(firstTurn);
+
+    const continuing: ViewModel = {
+      ...firstTurn,
+      items: [
+        ...firstTurn.items,
+        asst("The edit is complete."),
+        user("now summarize it"),
+        asst("Working on the summary"),
+      ],
+    };
+    ui.render(continuing);
+
+    const atBoundary = chunks.join("");
+    expect(atBoundary).toContain("file evidence: src/example.ts");
+    expect(atBoundary).toContain("review  src/example.ts");
+    expect(atBoundary.indexOf("file evidence: src/example.ts")).toBeLessThan(
+      atBoundary.indexOf("you  now summarize it"),
+    );
+    expect(atBoundary.indexOf("review  src/example.ts")).toBeLessThan(
+      atBoundary.indexOf("you  now summarize it"),
+    );
+
+    const finished: ViewModel = {
+      ...continuing,
+      items: [...continuing.items.slice(0, -1), asst("The file now contains the requested edit.")],
+      streaming: false,
+      awaitingInput: true,
+    };
+    ui.render(finished);
+    ui.finalize();
+
+    expect(chunks.join("")).toBe(`${renderFrame(finished, false, false)}\n`);
   });
 
   it("finalize() flushes the trailer so a completed run's stream equals frame() + newline", () => {

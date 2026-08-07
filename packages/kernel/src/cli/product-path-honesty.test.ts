@@ -1376,9 +1376,14 @@ describe("product-path warden routing honesty", () => {
     expect(readFileSync(join(cwd, "presentation.txt"), "utf8")).toBe(
       `installed value\nomega\n${producerOnlyContext}\n`,
     );
-    expect(frame).toContain("observed before");
-    expect(frame).toContain("verified installed after");
-    expect(frame).toContain("not atomic");
+    expect(frame).toContain(
+      "file evidence: presentation.txt · observed file before → verified installed after",
+    );
+    expect(frame).toContain("tool  ✓ edit  done");
+    expect(frame).toContain("result: presentation.txt");
+    expect(frame).toContain("transition not atomic · concurrent mutation not excluded");
+    expect(frame).not.toContain("review  presentation.txt");
+    expect(frame).not.toMatch(/evidence\s+observed before → verified installed after/u);
     expect(frame).not.toContain(producerOnlyContext);
 
     const sessionJsonl = JSON.stringify(readSession(sessionId, env).events);

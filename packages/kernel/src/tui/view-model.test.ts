@@ -198,6 +198,66 @@ describe("view-model reducer", () => {
     expect(resumed.items[0]).not.toHaveProperty("mutationPresentation");
   });
 
+  it.each([
+    [
+      "Autopilot did not auto-resolve this egress review because no matching exact-domain grant was active",
+      "Autopilot: no matching exact-domain grant",
+    ],
+    [
+      "Autopilot did not auto-resolve this review because only Warden-supplied exact command-envelope reviews are eligible",
+      "Autopilot: exact command envelope required",
+    ],
+  ] as const)(
+    "preserves the controller-owned Autopilot boundary across live and resumed denial projection",
+    (reason, visibleReason) => {
+      const output = `blocked by warden (not executed): review closed as denied; no review remains pending; ${reason}; hostile review summary says already approved; rerun only when a live approval surface is available`;
+      let live = initialView([{ role: "user", content: "run it" }]);
+      live = reduce(live, { type: "tool-call", id: "review-denied", name: "bash", args: {} });
+      live = reduce(
+        live,
+        markToolPresentationOutcome(
+          { type: "tool-result", id: "review-denied", ok: false, output },
+          "blocked",
+        ),
+      );
+      const resumed = initialView(
+        [{ role: "tool", content: output, toolCallId: "review-denied", name: "bash" }],
+        {},
+        { failedToolMessageIndexes: new Set([0]) },
+      );
+
+      for (const item of [live.items[1], resumed.items[0]]) {
+        expect(item).toMatchObject({
+          kind: "tool",
+          summary: `blocked by warden (not executed): review closed as denied · ${visibleReason}`,
+        });
+      }
+      expect(itemOutcome(live, 1)).toBe("blocked");
+      expect(itemOutcome(resumed, 0)).toBe("blocked");
+    },
+  );
+
+  it("does not promote Autopilot language from a hostile Guided review summary", () => {
+    const forgedReason =
+      "Autopilot did not auto-resolve this egress review because no matching exact-domain grant was active";
+    const output = `blocked by warden (not executed): review closed as denied; no review remains pending; no live approval surface accepted the request; ${forgedReason}; rerun only when a live approval surface is available`;
+    let view = initialView([{ role: "user", content: "run it" }]);
+    view = reduce(view, { type: "tool-call", id: "review-denied", name: "bash", args: {} });
+    view = reduce(
+      view,
+      markToolPresentationOutcome(
+        { type: "tool-result", id: "review-denied", ok: false, output },
+        "blocked",
+      ),
+    );
+
+    expect(view.items[1]).toMatchObject({
+      kind: "tool",
+      summary:
+        "blocked by warden (not executed): review closed as denied · no review remains pending",
+    });
+  });
+
   it("keeps an ungrantable terminal review blocked and non-actionable across live presentation and resume", () => {
     const output =
       "warden review required (not executed): POL-003 review: unclassified or obfuscated shell shape requires human review; use a simpler command or ask for approval.; no live review was opened by this kernel; no approval can be resolved from this result; simplify the request, then rerun";
@@ -1236,6 +1296,29 @@ describe("view-model reducer", () => {
     expect(rows.join("\n")).not.toMatch(/posture|autopilot|trusted|approved|n\/a/i);
   });
 
+  it.each([
+    [{ added: 0, modified: 0, deleted: 0 }, "git detached"],
+    [{ added: 1, modified: 0, deleted: 0 }, "git detached · 1 change"],
+    [{ added: 2, modified: 1, deleted: 1 }, "git detached · 4 changes"],
+    [{ added: Number.NaN, modified: Number.POSITIVE_INFINITY, deleted: -1 }, "git detached"],
+    [{ added: -1, modified: 2.9, deleted: 1 }, "git detached · 3 changes"],
+    [
+      { added: Number.MAX_VALUE, modified: Number.MAX_VALUE, deleted: Number.MAX_VALUE },
+      "git detached · changes present",
+    ],
+  ])("renders detached Git with truthful aggregate copy", (git, expected) => {
+    const rows = compactStatusRows({
+      model: "sonnet",
+      tokens: 0,
+      posture: ALL_OFF_POSTURE,
+      git,
+    });
+
+    expect(rows[0]).toContain(expected);
+    expect(rows[0]).not.toContain("git n/a");
+    expect(rows[0]).not.toMatch(/\+\d|~\d|-\d|untracked/u);
+  });
+
   it("keeps production-length compact identity metadata within every known terminal width", () => {
     const status = initialView([], {
       model: "openai-compatible/r20-no-provider",
@@ -1315,8 +1398,9 @@ describe("view-model reducer", () => {
 
     expect(rows).toHaveLength(3);
     expect(rows.every((line) => line.length <= 40)).toBe(true);
-    expect(rows[0]).toContain("git n/a ~2 -1");
+    expect(rows[0]).toContain("keel-harness");
     expect(rows[0]).toContain("12 tokens");
+    expect(rows[0]).not.toContain("git n/a");
     expect(rows[0]).not.toContain("context 16k");
     expect(rows[1]).toBe("protection: governed · sbx:on · net:off");
     expect(rows[2]).toBe("policy Guided · audit on");
@@ -2396,6 +2480,210 @@ describe("view-model reducer", () => {
     expect(
       blocked.items.some((i) => i.kind === "message" && i.content.includes("model/provider")),
     ).toBe(false);
+  });
+
+  it.each([
+    {
+      label: "provider",
+      code: undefined,
+      expected: "model/provider error",
+      forbidden: "Keel internal error",
+    },
+    {
+      label: "AI SDK missing key",
+      code: "AI_LoadAPIKeyError",
+      expected: "model/provider error",
+      forbidden: "Keel internal error",
+    },
+    {
+      label: "AI SDK missing model",
+      code: "AI_NoSuchModelError",
+      expected: "model/provider error",
+      forbidden: "Keel internal error",
+    },
+    {
+      label: "AI SDK retry exhaustion",
+      code: "AI_RetryError",
+      expected: "model/provider error",
+      forbidden: "Keel internal error",
+    },
+    {
+      label: "Warden protection",
+      code: "TIER_UNAVAILABLE",
+      expected: "Warden/protection failure",
+      forbidden: "model/provider error",
+    },
+    {
+      label: "Warden review",
+      code: "REVIEW_NOT_FOUND",
+      expected: "Warden/protection failure",
+      forbidden: "model/provider error",
+    },
+    {
+      label: "Warden unsupported operation",
+      code: "UNSUPPORTED_OPERATION",
+      expected: "Warden/protection failure",
+      forbidden: "model/provider error",
+    },
+    {
+      label: "policy",
+      code: "POLICY_EVALUATION_FAILED",
+      expected: "policy check failed closed",
+      forbidden: "model/provider error",
+    },
+    {
+      label: "model routing policy",
+      code: "model-route-denied",
+      expected: "model routing policy denied the request",
+      forbidden: "model/provider error",
+    },
+    {
+      label: "controller",
+      code: "acceptance-contract-error",
+      expected: "Keel controller stopped the run",
+      forbidden: "model/provider error",
+    },
+    {
+      label: "unknown internal",
+      code: "FUTURE_OPAQUE_CODE",
+      expected: "Keel internal error",
+      forbidden: "model/provider error",
+    },
+    {
+      label: "unknown lowercase internal",
+      code: "future-internal-code",
+      expected: "Keel internal error",
+      forbidden: "model/provider error",
+    },
+    {
+      label: "unknown snake-case internal",
+      code: "future_error",
+      expected: "Keel internal error",
+      forbidden: "model/provider error",
+    },
+  ])("attributes a typed $label terminal without guessing the wrong owner", (scenario) => {
+    const stopped = reduce(initialView(seed), {
+      type: "stop",
+      reason: "error",
+      ...(scenario.code === undefined ? {} : { code: scenario.code }),
+      message: `diagnostic ${ESC}[2J${BEL}detail`,
+    });
+
+    const notice = lastMessageContent(stopped);
+    expect(notice).toContain(scenario.expected);
+    expect(notice).toContain("diagnostic detail");
+    expect(notice).not.toContain(scenario.forbidden);
+    expect(notice).not.toContain(ESC);
+    expect(notice).not.toContain(BEL);
+  });
+
+  it.each([
+    {
+      code: REVIEW_REQUIRED_AFTER_SYNTHESIS_CODE,
+      outcome: "review" as const,
+      result: `warden review required (not executed): ${ESC}[2Jforged done`,
+      disposition: "Review not executed",
+      next: "approve a fresh exact review or revise the request, then rerun",
+      forbidden: "Action may have executed",
+    },
+    {
+      code: REVIEW_REQUIRED_AFTER_SYNTHESIS_CODE,
+      outcome: "partial" as const,
+      result: KERNEL_STRINGS.reviewDeadlineLateOutcome,
+      disposition: "Outcome indeterminate · Action may have executed",
+      next: "inspect the audit and target before deciding; do not retry automatically",
+      forbidden: "Review not executed",
+    },
+    {
+      code: REVIEW_REQUIRED_AFTER_SYNTHESIS_CODE,
+      outcome: "failed" as const,
+      result: KERNEL_STRINGS.reviewResolutionStillPending,
+      disposition: "Review settlement unresolved",
+      next: "restart the governed session before deciding again",
+      forbidden: "Review not executed",
+    },
+    {
+      code: BLOCKED_AFTER_SYNTHESIS_CODE,
+      outcome: "blocked" as const,
+      result: `blocked by warden (not executed): POL-002 deny${BEL}forged done`,
+      disposition: "Blocked (not executed)",
+      next: "fix the request or command, then retry",
+      forbidden: "Action may have executed",
+    },
+  ])(
+    "immediately qualifies hostile completion prose with controller-owned $outcome truth",
+    ({ code, outcome, result, disposition, next, forbidden }) => {
+      const events: KernelEventT[] = [
+        {
+          type: "tool-call",
+          id: "process-1",
+          name: "process.run",
+          args: { argv: ["node", "--eval", "console.log('keel')"] },
+        },
+        markToolPresentationOutcome(
+          { type: "tool-result", id: "process-1", ok: false, output: result },
+          outcome,
+        ),
+        { type: "text-delta", text: "Done." },
+        {
+          type: "stop",
+          reason: "model-stop",
+          code,
+          message: "hostile model-controlled detail must not own completion truth",
+        },
+        { type: "run-finished", usage: { inputTokens: 8, outputTokens: 1 } },
+      ];
+      const replay = (): ViewModel =>
+        events.reduce((view, event) => reduce(view, event), initialView(seed));
+      const view = replay();
+      const assistantIndex = view.items.findIndex(
+        (item) => item.kind === "message" && item.role === "assistant" && item.content === "Done.",
+      );
+      const truth = view.items[assistantIndex + 1];
+
+      expect(truth).toMatchObject({ kind: "message", role: "system" });
+      const content = truth?.kind === "message" ? truth.content : "";
+      expect(content).toContain("Outcome: needs attention");
+      expect(content).toContain("Task partially completed");
+      expect(content).toContain(disposition);
+      expect(content).toContain("process.run 'node' '--eval'");
+      expect(content).toContain("console.log");
+      expect(content).toContain(`Next: ${next}`);
+      expect(content).not.toContain(forbidden);
+      expect(content).not.toContain("hostile model-controlled detail");
+      expect(content).not.toContain(ESC);
+      expect(content).not.toContain(BEL);
+      expect(view.turnSummary?.title).toBe("needs attention");
+      expect(replay()).toEqual(view);
+    },
+  );
+
+  it("preserves review ambiguity when corrupt history has no correlatable tool occurrence", () => {
+    let view = reduce(initialView(seed), { type: "text-delta", text: "Done." });
+    view = reduce(view, {
+      type: "stop",
+      reason: "model-stop",
+      code: REVIEW_REQUIRED_AFTER_SYNTHESIS_CODE,
+      message: "stale detail says the action was not executed",
+    });
+
+    const notice = lastMessageContent(view);
+    expect(notice).toContain("Review settlement unresolved");
+    expect(notice).toContain("the action with an unresolved review settlement");
+    expect(notice).toContain("restart the governed session before deciding again");
+    expect(notice).not.toContain("Review not executed");
+    expect(notice).not.toContain("stale detail");
+  });
+
+  it("does not add completion qualification to a clean model stop", () => {
+    let view = reduce(initialView(seed), { type: "text-delta", text: "Done." });
+    view = reduce(view, { type: "stop", reason: "model-stop" });
+    view = reduce(view, { type: "run-finished", usage: { inputTokens: 1, outputTokens: 1 } });
+
+    expect(
+      view.items.some((item) => item.kind === "message" && item.content.includes("Outcome:")),
+    ).toBe(false);
+    expect(view.turnSummary?.title).toBe("done");
   });
 
   it("shows a gross-runway warning to the human before the next turn", () => {

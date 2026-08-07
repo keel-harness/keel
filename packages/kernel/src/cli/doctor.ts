@@ -115,6 +115,8 @@ export interface DoctorReport {
 }
 
 export const MIN_NODE_MAJOR = 20;
+const MAX_SOCAT_DETAIL_LENGTH = 96;
+const PROBE_RECORD_BREAKS = /[\r\n\u2028\u2029]+/u;
 const PROBE_LINE_BREAKS = /[\r\n\t\u2028\u2029]+/gu;
 // eslint-disable-next-line no-control-regex
 const PROBE_CONTROL_BYTES = /[\u0000-\u0008\u000B-\u001F\u007F-\u009F]/gu;
@@ -135,6 +137,18 @@ function rgVersion(raw: string): string {
   const detail = safeProbeDetail(raw);
   const version = /ripgrep\s+(\d+\.\d+\.\d+)/.exec(detail)?.[1];
   return version ?? detail;
+}
+
+/** Parse the version from socat's multiline build report. Unknown formats stay useful but bounded. */
+function socatVersion(raw: string): string {
+  for (const rawLine of raw.split(PROBE_RECORD_BREAKS)) {
+    const line = safeProbeDetail(rawLine);
+    const version = /^socat\s+version\s+(\d{1,6}(?:\.\d{1,6}){1,7})(?=\s|$)/iu.exec(line)?.[1];
+    if (version !== undefined) return version;
+  }
+  const detail = safeProbeDetail(raw);
+  if (detail.length <= MAX_SOCAT_DETAIL_LENGTH) return detail;
+  return `${detail.slice(0, MAX_SOCAT_DETAIL_LENGTH - 1).trimEnd()}…`;
 }
 
 /** The Linux package manager for a distro, from `/etc/os-release` ID / ID_LIKE. */
@@ -314,7 +328,7 @@ function socatCheck(input: DoctorInput): DoctorCheck {
     id: "socat",
     label: "socat",
     status: "ok",
-    detail: safeProbeDetail(input.socatVersionRaw),
+    detail: socatVersion(input.socatVersionRaw),
   };
 }
 

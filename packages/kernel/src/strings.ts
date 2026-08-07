@@ -103,6 +103,12 @@ export const KERNEL_STRINGS = {
     "The one bounded correction attempt is complete. Tools are disabled. Report the observed result " +
     "and the exact remaining work. Do not claim the original reviewed action ran, and do not offer " +
     "another retry or approval path.",
+  /** Controller-owned reason when Autopilot reaches exact-domain review without matching authority. */
+  autopilotEgressReviewBoundary:
+    "Autopilot did not auto-resolve this egress review because no matching exact-domain grant was active",
+  /** Controller-owned reason for review shapes outside Autopilot's exact command-envelope lane. */
+  autopilotIneligibleReviewBoundary:
+    "Autopilot did not auto-resolve this review because only Warden-supplied exact command-envelope reviews are eligible",
   /** Fail-closed copy when a reviewed occurrence returns a non-terminal result after its deadline. */
   reviewDeadlineLateOutcome:
     "review outcome completed after the tool deadline; action may have executed; do not retry automatically; restart the governed session and inspect audit",

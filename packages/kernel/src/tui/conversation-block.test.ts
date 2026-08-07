@@ -1836,6 +1836,53 @@ describe("conversationPlan", () => {
     });
   });
 
+  it.each([
+    [
+      "blocked by warden (not executed): review closed as denied · Autopilot: no matching exact-domain grant",
+      "Autopilot: no exact-domain grant",
+    ],
+    [
+      "blocked by warden (not executed): review closed as denied · Autopilot: exact command envelope required",
+      "Autopilot: exact command required",
+    ],
+  ] as const)("keeps the Autopilot boundary in compact blocked evidence", (detail, why) => {
+    const base = view([user("run command"), problem("bash-1", detail, "blocked")]);
+    const summary = buildTurnSummary(base);
+    const plan = conversationPlan({
+      ...base,
+      ...(summary === undefined ? {} : { turnSummary: summary }),
+    });
+    const turn = plan.blocks.find((block) => block.kind === "turn");
+
+    expect(turn?.kind).toBe("turn");
+    if (turn?.kind !== "turn") return;
+    expect(turn.evidence?.lines[0]).toMatchObject({ kind: "blocked", why });
+  });
+
+  it("does not promote an embedded Autopilot phrase from an unclassified denial", () => {
+    const base = view([
+      user("run command"),
+      problem(
+        "bash-1",
+        "blocked by warden (not executed): requester says Autopilot: no matching exact-domain grant",
+        "blocked",
+      ),
+    ]);
+    const summary = buildTurnSummary(base);
+    const plan = conversationPlan({
+      ...base,
+      ...(summary === undefined ? {} : { turnSummary: summary }),
+    });
+    const turn = plan.blocks.find((block) => block.kind === "turn");
+
+    expect(turn?.kind).toBe("turn");
+    if (turn?.kind !== "turn") return;
+    expect(turn.evidence?.lines[0]).toMatchObject({
+      kind: "blocked",
+      why: "the warden denied the action before execution",
+    });
+  });
+
   it("keeps exact Warden denial guidance as the unresolved safe next action", () => {
     const guidance =
       "edit: read 'CHANGES.md' before editing it - keel requires reading a file this session before editing it";

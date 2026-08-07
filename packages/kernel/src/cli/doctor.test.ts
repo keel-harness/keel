@@ -211,6 +211,66 @@ describe("runDoctor — Phase 2A sandbox preflight", () => {
     expect(out).not.toMatch(/sandbox active|sandbox enforced|default-on/i);
   });
 
+  it("parses the bounded version from socat's multiline build report", () => {
+    const socat = check(
+      {
+        platform: "linux",
+        osReleaseRaw: debian,
+        bwrapVersionRaw: "bubblewrap 0.10.0",
+        socatVersionRaw: [
+          "socat by Gerhard Rieger and contributors - see www.dest-unreach.org",
+          "socat version 1.7.4.4 on Mar 30 2024 08:12:56",
+          "   running on Linux version #1, release 6.8.0, machine x86_64",
+          "features:",
+          "  #define WITH_STDIO 1",
+        ].join("\n"),
+        sandboxExecPresent: null,
+      },
+      "socat",
+    );
+
+    expect(socat?.detail).toBe("1.7.4.4");
+    expect(socat?.detail).not.toMatch(/features|running on|WITH_STDIO/i);
+  });
+
+  it("sanitizes and bounds unknown socat version formats", () => {
+    const socat = check(
+      {
+        platform: "linux",
+        osReleaseRaw: debian,
+        bwrapVersionRaw: "bubblewrap 0.10.0",
+        socatVersionRaw: `future socat format\n${"x".repeat(500)}\u001b\u0007`,
+        sandboxExecPresent: null,
+      },
+      "socat",
+    );
+
+    expect(socat?.detail).toMatch(/^future socat format x+…$/);
+    expect(socat?.detail).not.toContain("\r");
+    expect(socat?.detail).not.toContain("\n");
+    expect(socat?.detail).not.toContain("\u001b");
+    expect(socat?.detail).not.toContain("\u0007");
+    expect(socat?.detail.length).toBeLessThanOrEqual(96);
+  });
+
+  it.each([
+    ["prefixed marker", "not-socat version 8.8 unrelated", "not-socat version 8.8 unrelated"],
+    ["cross-line value", "socat version\n1.2 unrelated", "socat version 1.2 unrelated"],
+  ])("keeps an unexpected %s on the honest fallback path", (_scenario, raw, fallback) => {
+    const socat = check(
+      {
+        platform: "linux",
+        osReleaseRaw: debian,
+        bwrapVersionRaw: "bubblewrap 0.10.0",
+        socatVersionRaw: raw,
+        sandboxExecPresent: null,
+      },
+      "socat",
+    );
+
+    expect(socat?.detail).toBe(fallback);
+  });
+
   it("checks the macOS sandbox-exec primitive and fails closed when it is unavailable", () => {
     const r = runDoctor({ ...base, sandboxExecPresent: false });
     expect(check({ sandboxExecPresent: false }, "macos-sandbox")?.status).toBe("missing");

@@ -46,7 +46,7 @@ function runInHostileWorkspace(files) {
   return `${res.stdout ?? ""}${res.stderr ?? ""}`;
 }
 
-const failedClosedOnAnthropicKey = (out) => /no anthropic api key found/i.test(out);
+const failedClosedOnAnthropicKey = (out) => /no anthropic api key (?:was )?found/i.test(out);
 const failures = [];
 
 // (1) Credential vector: a `.env`/`.env.local` supplying the Anthropic key must not be honored — keel

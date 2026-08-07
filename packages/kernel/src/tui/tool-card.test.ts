@@ -324,6 +324,24 @@ describe("tool-card plan", () => {
     expect(JSON.stringify(plan)).not.toMatch(/exact diff|created|modified|removed/iu);
   });
 
+  it.each(["failed", "partial", "limited"] as const)(
+    "keeps available mutation integrity facts visible for a %s outcome in compact mode",
+    (outcome) => {
+      const item = markToolPresentationOutcome(
+        tool({
+          status: outcome === "limited" ? "ok" : "error",
+          summary: `${outcome} mutation`,
+          mutationPresentation: availableMutation({ coverage: "truncated", hiddenLines: 3 }),
+        }),
+        outcome,
+      );
+      const lines = toolCardPlan(item, "compact").mutationReview?.lines ?? [];
+
+      expect(lines).toContain("comparison  truncated · 5 rows shown · 3 hidden");
+      expect(lines).toContain("scope  transition not atomic · concurrent mutation not excluded");
+    },
+  );
+
   it.each([
     ["complete", 3, 4, "comparison  complete · 3 rows shown · 4 unchanged rows omitted"],
     ["complete", 0, "unknown", "comparison  no differing rows · unchanged row count unknown"],
