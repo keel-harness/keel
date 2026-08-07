@@ -28,6 +28,7 @@ import {
   calibrateStarterPolicyRecordings,
   evaluateStarterPolicyFixtures,
 } from "./starter-policy-pack.js";
+import { extractExplicitEgressTarget } from "./egress-review.js";
 
 type ExecuteParams = ReturnType<(typeof WARDEN_METHODS)["warden.execute"]["params"]["parse"]>;
 
@@ -692,6 +693,72 @@ describe("read-only utility builtins classify allow (F-3 RC1)", () => {
       );
     }
   });
+});
+
+describe("local git write subcommands classify allow (F1)", () => {
+  // `git commit` / `git add` were POL-003 "unclassified shell shape" review with NO grantable
+  // envelope, so no human approval prompt could ever open for them (rpc-server falls through to
+  // `nonExecutionPolicyResult`). A coding agent could therefore never commit, in any mode — the
+  // read-only half of git (`status`/`diff`/`log`/`show`) was already modeled, the write half was not.
+  //
+  // These stage and record inside the workspace the agent may already write with the `write`/`edit`
+  // tools, and the sandbox still bounds them: `.git/config` and `.git/hooks` stay deny-write and
+  // network is deny-all, so no remote can be contacted. Modeled as safe local process execution,
+  // matching how the read-only git subcommands are already classified.
+  const allowRows = [
+    "git add -A",
+    "git add src/index.ts",
+    "git add .",
+    "git commit -m wip",
+    'git commit -m "fix: bound the retry"',
+    "git commit --amend --no-edit",
+  ];
+  it.each(allowRows)("allows the local git write: %s", async (command) => {
+    const policy = await createDefaultPolicyPort();
+    const decision = await policy.evaluate(policyInput(command));
+    expect(decision.verdict, command).toBe("allow");
+    expect(decision.matchedRules, command).not.toContain("POL-003");
+  });
+
+  it.each(allowRows)("classifies %s without an unknown modifier", (command) => {
+    const input = policyInput(command);
+    expect(input.sideEffect.dynamic.modifiers, command).not.toContain("unknown");
+    expect(input.sideEffect.dynamic.classifier.confidence, command).toBe("conservative");
+  });
+
+  // The security boundary this widening must not cross. Everything here either leaves the
+  // workspace, reaches the network, destroys uncommitted work, or rewrites git's own execution
+  // config — none of it may be auto-allowed by the widening above.
+  const stillReviewedRows = [
+    "git push",
+    "git push --force origin main",
+    "git pull",
+    "git fetch origin",
+    "git reset --hard",
+    "git checkout .",
+    "git clean -fd",
+    "git config user.email a@b.c",
+    "git remote add origin https://example.com/x.git",
+    // A global option BEFORE the subcommand can rewrite git's own execution config
+    // (`core.hooksPath`), so only the bare `git <subcommand>` spelling may be modeled.
+    "git -c core.hooksPath=/tmp/evil commit -m wip",
+    "git -c protocol.ext.allow=always add -A",
+  ];
+  it.each(stillReviewedRows)("does not auto-allow: %s", async (command) => {
+    const policy = await createDefaultPolicyPort();
+    const decision = await policy.evaluate(policyInput(command));
+    expect(decision.verdict, command).not.toBe("allow");
+  });
+
+  // Commands carrying an explicit remote are allowed at the POLICY tier and then intercepted by the
+  // warden's egress review at the RPC tier (same path as `curl`), so the guard here is that the
+  // egress target is still extracted — not that policy denies.
+  it.each(["git clone https://example.com/x.git", "git commit -m wip && curl https://example.com"])(
+    "still surfaces an explicit egress target for RPC-tier review: %s",
+    (command) => {
+      expect(extractExplicitEgressTarget(command).kind, command).toBe("domain");
+    },
+  );
 });
 
 describe("Phase-2A starter policy pack", () => {
