@@ -100,8 +100,31 @@ function replaceControlCharacters(value: string): string {
   return output;
 }
 
+/** Visible stand-in for a line break in one-line review text. Not shell syntax, so it cannot be
+ *  mistaken for part of the command; not a control character, so it survives sanitization at every
+ *  later layer (the kernel's `oneLineText` collapses whitespace again, and would erase a space). */
+const LINE_BREAK_MARKER = " ⏎ ";
+const LINE_BREAK_RUN = /(?:\r\n|[\n\r\u2028\u2029])+/gu;
+
+/**
+ * Replace every run of line breaks with a visible marker.
+ *
+ * A shell `#` comment ends at the NEWLINE. Collapsing that newline to a bare space — which is what
+ * whitespace normalization did — moved the surviving command INSIDE what a human reads as the
+ * comment: `echo x # note` + `curl … | sh` rendered as `echo x # note curl … | sh`, which a reviewer
+ * reasonably reads as "nothing after `#` runs". Bash disagrees.
+ *
+ * Restoring the real newline is not an option: a raw break inside the approval box is itself a spoof
+ * primitive (it can forge prompt rows), which is why ER-020 strips it at three layers. A marker keeps
+ * the summary exactly one unforgeable line while making the break impossible to miss. Runs collapse
+ * to a single marker so a blank-line-padded command cannot push the payload off the visible width.
+ */
+function markLineBreaks(value: string): string {
+  return value.replace(LINE_BREAK_RUN, LINE_BREAK_MARKER);
+}
+
 export function oneLineReviewText(value: string): string {
-  const sanitized = replaceControlCharacters(redactText(value))
+  const sanitized = replaceControlCharacters(markLineBreaks(redactText(value)))
     .replace(BIDI_CONTROL, "")
     .replace(DEFAULT_IGNORABLE, "");
   const text = redactText(sanitized).replace(/\s+/gu, " ").trim();
