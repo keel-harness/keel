@@ -7,6 +7,11 @@ with 0.x pre-release semantics (minor bumps may break).
 
 ## [Unreleased]
 
+### Fixed
+
+- Let TLS-terminated proxy responses flush completely on normal internal-loopback close while
+  preserving immediate client teardown for actual loopback errors.
+
 ## [0.1.1] — 2026-08-03
 
 The first public pre-alpha npm carrier. `keel-harness@0.1.1` is published and tagged `latest`.

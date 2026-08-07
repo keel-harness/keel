@@ -50,9 +50,11 @@ not source needed for Keel's reviewed adapter path:
 - `patches/wait-for-linux-proxy-readiness.patch`
 - `patches/connect-time-destination-resolver.patch`
 - `patches/reemit-macos-glob-read-denies.patch`
+- `patches/flush-tls-loopback-response.patch`
 - `test/sandbox/linux-proxy-readiness.test.ts`
 - `test/sandbox/destination-dial.test.ts`
 - `test/sandbox/destination-guard-proxy.test.ts`
+- `test/sandbox/tls-loopback-lifecycle.test.ts`
 
 ## Local Patches
 
@@ -124,6 +126,24 @@ not source needed for Keel's reviewed adapter path:
   explicitly false with the resolver.
 - Upstreamable status: minimal and intended for upstream submission after Keel's full Epic 3.22
   conformance matrix passes. It has not yet been submitted upstream.
+
+### Flush TLS loopback responses before client teardown
+
+- Patch: `patches/flush-tls-loopback-response.patch`
+- Applied file: `src/sandbox/tls-terminate-proxy.ts`
+- Reason: the TLS terminator destroyed the client whenever its internal loopback socket closed,
+  including an ordinary close after the final response bytes had entered a backpressured client
+  write. Destruction could truncate the response before those queued bytes flushed.
+- Security impact: none. The normal-close path now relies on Node's pipe lifecycle to end the client
+  after queued bytes flush, then idempotently releases the per-connection listener when the writable
+  side finishes even if the peer withholds its FIN. An actual loopback error still destroys the
+  client immediately. TLS verification, destination policy, request filtering, and sandbox
+  enforcement are unchanged.
+- Compatibility: complete responses can finish normally; error teardown remains fail-closed. The
+  deterministic regression holds the client write callback to prove normal-close flushing and
+  exactly-once cleanup without a peer FIN. A separate negative control proves loopback errors still
+  destroy the client and clean up exactly once.
+- Upstreamable status: minimal and upstreamable. Recorded 2026-08-06; not yet submitted upstream.
 
 ## License And Notice
 

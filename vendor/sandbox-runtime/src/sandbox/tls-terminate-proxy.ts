@@ -165,7 +165,10 @@ export function terminateAndForward(
   })
 
   const sockPath = innerSocketPath()
+  let cleanedUp = false
   const cleanup = () => {
+    if (cleanedUp) return
+    cleanedUp = true
     inner.close()
     unlink(sockPath, () => {})
   }
@@ -194,11 +197,17 @@ export function terminateAndForward(
       loop.pipe(socket)
     })
     socket.on('error', () => loop.destroy())
+    // A peer can keep its readable half open after our response has fully
+    // flushed. Release the per-connection listener as soon as the writable
+    // side finishes instead of waiting indefinitely for peer FIN.
+    socket.once('finish', cleanup)
     socket.once('close', () => {
       loop.destroy()
       cleanup()
     })
-    loop.once('close', () => socket.destroy())
+    // `loop.pipe(socket)` ends the client only after queued response bytes
+    // flush. Loopback errors still destroy it immediately in the handler above;
+    // a normal close must not truncate that final write.
   })
   inner.unref()
 }
