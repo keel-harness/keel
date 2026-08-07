@@ -15,6 +15,7 @@ const expected = {
     "README.md",
     "VENDOR.md",
     "patches/connect-time-destination-resolver.patch",
+    "patches/flush-tls-loopback-response.patch",
     "patches/read-hidden-write-deny.patch",
     "patches/wait-for-linux-proxy-readiness.patch",
     "patches/reemit-macos-glob-read-denies.patch",
@@ -31,6 +32,7 @@ const expected = {
     "test/sandbox/linux-proxy-readiness.test.ts",
     "test/sandbox/destination-dial.test.ts",
     "test/sandbox/destination-guard-proxy.test.ts",
+    "test/sandbox/tls-loopback-lifecycle.test.ts",
     "vendor/seccomp-src/apply-seccomp.c",
     "vendor/srt-win-src/Cargo.toml",
   ],
@@ -129,6 +131,27 @@ for (const [path, token] of [
   const source = await readFile(new URL(path, vendorDir), "utf8");
   assert(source.includes(token), `${path} is missing resolver patch token ${token}`);
 }
+
+const tlsFlushPatch = await readFile(
+  new URL("patches/flush-tls-loopback-response.patch", vendorDir),
+  "utf8",
+);
+assert(
+  tlsFlushPatch.includes("src/sandbox/tls-terminate-proxy.ts"),
+  "TLS response-flush patch omits tls-terminate-proxy.ts",
+);
+const tlsTerminateSource = await readFile(
+  new URL("src/sandbox/tls-terminate-proxy.ts", vendorDir),
+  "utf8",
+);
+assert(
+  !tlsTerminateSource.includes("loop.once('close', () => socket.destroy())"),
+  "TLS terminator still destroys the client on normal loopback close",
+);
+assert(
+  tlsTerminateSource.includes("socket.once('finish', cleanup)"),
+  "TLS terminator does not clean up after the client write finishes",
+);
 
 console.log(
   `sandbox-runtime vendor verified: ${expected.name}@${expected.version} (${expected.license})`,
