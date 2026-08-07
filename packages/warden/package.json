@@ -13,9 +13,6 @@
       "default": "./dist/index.js"
     }
   },
-  "bin": {
-    "keel-warden": "./dist/bin-entry.js"
-  },
   "scripts": {
     "typecheck": "tsc --noEmit",
     "build": "tsc -p tsconfig.build.json"
