@@ -453,3 +453,98 @@ describe("typed approval presentation", () => {
     },
   );
 });
+
+describe("redacted review summaries are marked (F4)", () => {
+  // `oneLineReviewText` runs the secret filter over the reviewed command, so the text the human
+  // approves from can differ from the text that executes. The entropy net's alphabet includes `-`
+  // and `=`, so it swallows adjacent structure, not just the secret value — `cat --output-file=<44
+  // chars>` renders as `cat [redacted:high-entropy]`, i.e. the FLAG NAME disappears. For a command
+  // review the summary is the only legible description (the exact resource is an unverifiable
+  // hash), so an unmarked substitution is a real legibility loss.
+  //
+  // This is legibility, NOT authority: the grant key is a sha256 over the REAL command bytes, so
+  // redaction can never broaden what a grant authorizes. Session scope therefore stays available —
+  // gating it here would be a behaviour change the evidence does not justify. Only the label moves.
+  function planWithSummary(summary: string) {
+    return approvalNoticePlan({
+      detail: `bash ${summary}`,
+      sessionAvailable: true,
+      state: "pending",
+      information: {
+        requestedAction: { status: "available", value: "bash" },
+        effectiveTarget: { status: "available", value: summary, completeness: "complete" },
+        reason: {
+          status: "available",
+          value: "Warden requires human authorization before execution",
+        },
+        policyDetail: {
+          status: "unavailable",
+          reason: "matched policy rule not reported by protocol 1.1",
+        },
+        exactResource: {
+          status: "available",
+          kind: "command-envelope",
+          value: `sha256:${"a".repeat(64)}`,
+        },
+      },
+    });
+  }
+
+  it("labels the effective target as redacted when the summary carries a redaction marker", () => {
+    const plan = planWithSummary("command review requires approval: cat [redacted:high-entropy]");
+    const text = approvalNoticeRows(plan)
+      .map((row) => row.text)
+      .join("\n");
+    expect(text).toContain("Effective target · redacted");
+    // The substitution stays visible in the value itself, not just the label.
+    expect(text).toContain("[redacted:high-entropy]");
+  });
+
+  it("does not label an ordinary summary as redacted", () => {
+    const text = approvalNoticeRows(planWithSummary("command review requires approval: pnpm test"))
+      .map((row) => row.text)
+      .join("\n");
+    expect(text).toContain("Effective target");
+    expect(text).not.toContain("redacted");
+  });
+
+  it("marks a summary that is both abbreviated and redacted", () => {
+    const plan = approvalNoticePlan({
+      detail: "bash x",
+      sessionAvailable: false,
+      state: "pending",
+      information: {
+        requestedAction: { status: "available", value: "bash" },
+        effectiveTarget: {
+          status: "available",
+          value: "command review requires approval: cat [redacted:auth-header][12 chars omitted]x",
+          completeness: "abbreviated",
+        },
+        reason: {
+          status: "available",
+          value: "Warden requires human authorization before execution",
+        },
+        policyDetail: {
+          status: "unavailable",
+          reason: "matched policy rule not reported by protocol 1.1",
+        },
+        exactResource: {
+          status: "unavailable",
+          reason: "no exact reusable resource in the Warden review",
+        },
+      },
+    });
+    const text = approvalNoticeRows(plan)
+      .map((row) => row.text)
+      .join("\n");
+    expect(text).toContain("Effective target · abbreviated · redacted");
+  });
+
+  it("keeps session scope available for a redacted summary (legibility, not authority)", () => {
+    // The grant key hashes the real command bytes, so redaction cannot widen it.
+    expect(
+      planWithSummary("command review requires approval: cat [redacted:high-entropy]")
+        .sessionAvailable,
+    ).toBe(true);
+  });
+});

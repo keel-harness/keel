@@ -31,6 +31,13 @@ export interface ApprovalNoticeFact {
   readonly value: string;
   readonly quoted?: boolean;
   readonly qualifier?: "abbreviated";
+  /**
+   * The Warden's secret filter substituted text inside this summary, so what is shown is not
+   * byte-identical to what will execute. Legibility only — the grant key hashes the REAL command
+   * bytes, so a redaction can never broaden what an approval authorizes, and session scope is
+   * deliberately NOT gated on it.
+   */
+  readonly redacted?: boolean;
   /** Exact resource identity may wrap; bounded summaries may truncate visually. */
   readonly exact?: boolean;
   readonly compactValue?: string;
@@ -65,6 +72,14 @@ const MAX_REASON_WIDTH = 320;
 const MAX_RESOURCE_WIDTH = 384;
 const MAX_CONSEQUENCE_WIDTH = 480;
 const OMISSION_MARKER = " … ";
+/**
+ * The Warden's own redaction marker, as it appears inside a review summary. Detected from the text
+ * rather than carried as a wire field: protocol 1.1's `ReviewRequired` is frozen, and this mirrors
+ * how `abbreviated` is already derived from the `[N chars omitted]` marker — one less schema to
+ * version. A model that plants this literal in a command only makes its own review look MORE
+ * elided, which is the fail-safe direction.
+ */
+const REDACTED_REVIEW_RE = /\[redacted:[a-z-]+\]/u;
 
 function cleanLine(value: string): string {
   return stripControlLine(value).replace(/\s+/gu, " ").trim();
@@ -207,6 +222,7 @@ function approvalFacts(
     readonly quoted: boolean;
     readonly exact?: boolean;
     readonly qualifier?: "abbreviated";
+    readonly redacted?: boolean;
   } =
     information.effectiveTarget.status === "available"
       ? losslessProcessRunSummary !== undefined &&
@@ -221,6 +237,9 @@ function approvalFacts(
             quoted: true,
             ...(information.effectiveTarget.completeness === "abbreviated"
               ? { qualifier: "abbreviated" as const }
+              : {}),
+            ...(REDACTED_REVIEW_RE.test(information.effectiveTarget.value)
+              ? { redacted: true }
               : {}),
           }
       : {
@@ -262,6 +281,7 @@ function approvalFacts(
       value: effective.value,
       ...(effective.quoted ? { quoted: true } : {}),
       ...(effective.qualifier === undefined ? {} : { qualifier: effective.qualifier }),
+      ...(effective.redacted === true ? { redacted: true } : {}),
       compactWrap: true,
       ...(effective.exact === true ? { exact: true } : {}),
     },
@@ -351,10 +371,17 @@ function factText(fact: ApprovalNoticeFact): string {
 
 function factLabel(fact: ApprovalNoticeFact, compact: boolean): string {
   if (fact.label === "Exact reusable scope") return compact ? "Scope" : fact.label;
-  if (fact.qualifier === "abbreviated") {
-    return compact ? "Effective [abbr.]" : `${fact.label} · abbreviated`;
+  const abbreviated = fact.qualifier === "abbreviated";
+  const redacted = fact.redacted === true;
+  if (!abbreviated && !redacted) return fact.label;
+  if (compact) {
+    // Both markers must survive the compact layout — that is the width where the value itself is
+    // most truncated, so the label is doing the most work.
+    if (abbreviated && redacted) return "Effective [abbr.·redact]";
+    return abbreviated ? "Effective [abbr.]" : "Effective [redact]";
   }
-  return fact.label;
+  const qualifiers = [...(abbreviated ? ["abbreviated"] : []), ...(redacted ? ["redacted"] : [])];
+  return `${fact.label} · ${qualifiers.join(" · ")}`;
 }
 
 /** One shared semantic row order for the Ink and headless maps. Compact mode only joins labels. */
