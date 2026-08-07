@@ -702,7 +702,7 @@ function toolProblemReason(
 
 const WARDEN_DENIAL_PREFIX = "blocked by warden (not executed):";
 const WARDEN_RECOVERY_UNAVAILABLE =
-  "Warden recovery guidance unavailable · inspect /why-blocked before retrying";
+  "Warden recovery guidance unavailable · stop and ask the user before retrying";
 
 function wardenDenialRecovery(detail: string): string | undefined {
   const oneLine = summaryLine(detail);
