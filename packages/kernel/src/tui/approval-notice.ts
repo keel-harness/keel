@@ -229,16 +229,23 @@ function approvalFacts(
         };
   const reviewReason = availableOrReason(information.reason, MAX_REASON_WIDTH);
   const policyDetail = availableOrReason(information.policyDetail, MAX_REASON_WIDTH);
-  const compactWhy =
+  // The unreported-rule case is the COMMON one, not an edge. `policyDetail` is hardcoded unavailable
+  // because protocol 1.1's ReviewRequired carries no matched-rule field (ADR-0081), and for an egress
+  // review there is no rule id to report at all — that review is raised by the allowlist, not by a
+  // policy rule. So nearly every approval prompt showed the human the words "matched policy rule not
+  // reported by protocol 1.1" at the exact moment they most need a reason. The compact layout already
+  // phrased this for a person; the wide layout leaked the internals. Same meaning at every width now —
+  // a wider terminal must not produce a worse explanation.
+  const ruleUnreported =
     reviewReason.value === "Warden requires human authorization before execution" &&
-    policyDetail.value === "matched policy rule not reported by protocol 1.1"
-      ? "human approval · rule unreported"
-      : `${reviewReason.value} · ${policyDetail.value}`;
-  const constrainedWhy =
-    reviewReason.value === "Warden requires human authorization before execution" &&
-    policyDetail.value === "matched policy rule not reported by protocol 1.1"
-      ? `${reviewReason.value} · rule unreported`
-      : compactWhy;
+    policyDetail.value === "matched policy rule not reported by protocol 1.1";
+  const compactWhy = ruleUnreported
+    ? "human approval · rule unreported"
+    : `${reviewReason.value} · ${policyDetail.value}`;
+  const constrainedWhy = ruleUnreported ? `${reviewReason.value} · rule unreported` : compactWhy;
+  const wideWhy = ruleUnreported
+    ? `${reviewReason.value} · no matched rule reported`
+    : `${reviewReason.value} · ${policyDetail.value}`;
   const resource = information.exactResource;
   const exactScope =
     resource.status === "unavailable"
@@ -260,11 +267,7 @@ function approvalFacts(
     },
     {
       label: "Why",
-      value: boundedDisplayLine(
-        `${reviewReason.value} · ${policyDetail.value}`,
-        MAX_REASON_WIDTH,
-        140,
-      ),
+      value: boundedDisplayLine(wideWhy, MAX_REASON_WIDTH, 140),
       compactValue: compactWhy,
       constrainedValue: constrainedWhy,
       compactWrap: true,

@@ -2878,7 +2878,10 @@ describe("Ink App (frame snapshots via ink-testing-library)", () => {
       expect(frame).toContain('"console.send_keys"');
       expect(frame).toContain("Effective target");
       expect(frame).toContain("Why");
-      expect(frame.replace(/[\s│]+/gu, " ")).toContain("policy rule not reported by protocol 1.1");
+      // Human-facing wording, not the wire protocol version (see approval-notice.ts): an egress
+      // review has no rule id to report at all, so this is the ordinary case for this line.
+      expect(frame.replace(/[\s│]+/gu, " ")).toContain("no matched rule reported");
+      expect(frame).not.toContain("protocol 1.1");
       expect(frame).toContain("Exact reusable scope");
       expect(frame).toContain("console target build-vm");
       expect(frame).toContain("[a] Approve once");
