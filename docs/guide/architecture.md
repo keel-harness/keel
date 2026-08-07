@@ -9,7 +9,7 @@ the governing detail see `MASTER_SPEC.md`; for security specifically see the
 ```
 kernel (@keel/kernel)                 warden (@keel/warden)
   agent loop, tools                     policy pack (hash-pinned)
-  provider adapters      JSON-RPC       OS sandbox (Seatbelt / bwrap)
+  provider adapters      JSON-RPC       OS sandbox for child execution
   session ledger        over stdio      egress control
   TUI, CLI              ───────────▶     audit chain + Ed25519 signing
   holds the model                        holds enforcement
@@ -90,6 +90,24 @@ not make the executable harmless. Destructive, install, privilege, egress, arbit
 metadata, unknown-effect, review, audit, and sandbox rules still apply. Policy `modify` cannot rewrite
 argv in V1 and becomes an audited fail-closed denial. V1 adds no environment, cwd, stdin, timeout,
 background, or service authority. See [ADR-0089](../adr/0089-governed-argv-only-process-execution.md).
+
+## Typed file tools, end to end
+
+All four trusted typed file tools cross `warden.execute`, policy, and audit, but they do not share one
+physical execution path:
+
+- `read` is performed inside the Warden after canonical-path, realpath/identity, symlink, size, and
+  secret-path checks. It has no separate OS-sandboxed child.
+- `search` launches bounded ripgrep from the Warden with a minimal environment, workspace-scoped
+  working directory, time/output limits, and canonical per-result filtering. It does not use
+  `SandboxPort`.
+- `write` and `edit` prepare and revalidate the mutation in the Warden, durably audit intent, and
+  dispatch a contained helper through `SandboxPort` on the enforcing Node/npm path. If that runner
+  is unavailable, mutation fails closed.
+
+This is why the docs claim Warden routing for the whole typed bridge but physical OS-sandbox proof
+only for the paths named above. The readable matrix and limits live in the
+[security model](security-model.md).
 
 ## One governed TCP connection, end to end
 

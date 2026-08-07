@@ -21,9 +21,12 @@ Keep three distinctions in view:
 
 - `deny`, `review`, `modify`, `warn`, and `allow` are policy verdicts; only an execution path can
   cause the side effect.
-- governed `bash` runs through the physical OS sandbox. Typed file tools are warden-hosted with
-  policy, profile, audit, and path-containment checks, but are not a separate physical-sandbox
-  claim.
+- governed `bash` and `process.run` launch through the physical OS sandbox. Typed `write` and `edit`
+  are prepared and revalidated in the Warden, then commit through a contained helper via
+  `SandboxPort` on the enforcing Node/npm path. Typed `read` executes directly in the Warden; typed
+  `search` launches bounded ripgrep from the Warden without `SandboxPort`. All four typed tools have
+  policy, profile, audit, and path-containment checks, but `read` and `search` are not physical
+  OS-sandbox claims.
 - a valid audit chain proves integrity of the recorded bytes. It does not prove every classifier
   field is semantically exact or that the same OS user could not steal the at-rest signing key.
 

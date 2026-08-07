@@ -6,9 +6,11 @@ a stricter policy pack + the air-gap bundle + documentation. A feature that serv
 only one market goes in a policy pack or a doc — **never a fork of the core.**
 
 ## Local setup
-Node 20+. Enable [Corepack](https://nodejs.org/api/corepack.html) so pnpm matches the
-pinned `packageManager` version (the CI installs pnpm explicitly, so this only affects
-local dev):
+Contributor CI tests Node 20, 22, and 24. Enable
+[Corepack](https://nodejs.org/api/corepack.html) so pnpm matches the pinned `packageManager` version
+(CI installs pnpm explicitly, so this only affects local development). If `corepack` is unavailable
+— including on Node 25+ by default — install Corepack separately first; do not substitute an
+unpinned pnpm:
 ```bash
 corepack enable
 pnpm install
@@ -17,6 +19,9 @@ pnpm install
 ## Branch & PR workflow
 Branch off `main` per change (`feat/…`, `fix/…`, `chore/…`), open a PR, and merge only
 once CI is green (ground rule 7).
+
+The public Git history begins with an import snapshot. Earlier development rationale is preserved in
+the ADR and dated design/research archives rather than reconstructed as synthetic commits.
 
 For anything beyond a small fix, read [AGENTS.md](AGENTS.md) first: it is the binding
 engineering charter (TDD, the security bar, stop-and-ask triggers, and the completion-
