@@ -125,7 +125,12 @@ describe("typed approval presentation", () => {
     expect(text).toContain('"command review requires approval: pnpm test"');
     expect(text).toContain("Why");
     expect(text).toContain("Warden requires human authorization before execution");
-    expect(text).toContain("matched policy rule not reported by protocol 1.1");
+    // The wide layout must NOT name the wire protocol at the human. `policyDetail` is hardcoded
+    // unavailable (protocol 1.1's ReviewRequired has no matched-rule field), and an egress review has
+    // no rule id to report at all — so this is the ordinary case, not an edge. The compact layout
+    // already said "rule unreported"; a wider terminal must not mean a worse explanation.
+    expect(text).toContain("no matched rule reported");
+    expect(text).not.toContain("protocol 1.1");
     expect(text).toContain("Exact reusable scope");
     expect(text).toContain(`command envelope ${key}`);
     expect(text).toContain("Consequence");
