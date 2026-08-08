@@ -956,3 +956,54 @@ describe("interactive review-decision input", () => {
     await expect(closedPending).resolves.toBeUndefined();
   });
 });
+
+describe("typed-ahead during a pending review is queued, not lost (F8)", () => {
+  // Users type ahead constantly. A real follow-up instruction submitted while an approval was open
+  // ("also please add a README") was consumed by the review controller, answered with a generic
+  // "approval is active" notice, and never queued — so it was silently discarded even though
+  // ADR-0034 specifies a mid-run steering queue and the runner already implements one with a
+  // visible ack.
+  //
+  // The security property is unchanged and load-bearing: arbitrary prose must NEVER be read as a
+  // decision. Decision shortcuts and near-miss decision words are still consumed here, before any
+  // steering path can see them; only text that is clearly not a decision attempt falls through to
+  // the runner, which classifies it as steering and queues it.
+  const pendingController = () => {
+    const controller = createInteractiveReviewDecisionController();
+    const { events, disconnect } = recordPresentation(controller);
+    const decision = controller.onReviewRequired({ toolCall, review });
+    return { controller, events, disconnect, decision };
+  };
+
+  it("does not consume a real instruction, so the runner can queue it as steering", () => {
+    const { controller, decision } = pendingController();
+    expect(controller.handleInput(line("also please add a README"))).toBe(false);
+    expect(controller.handleInput(line("run the tests when you are done"))).toBe(false);
+    // The review is still pending — falling through must not resolve or cancel it.
+    let settled = false;
+    void Promise.resolve(decision).then(() => {
+      settled = true;
+    });
+    expect(settled).toBe(false);
+  });
+
+  it("still consumes single-token answers so a fumbled shortcut gets the hint, not the queue", () => {
+    const { controller } = pendingController();
+    for (const near of ["project", "approve", "deny", "session", "once", "yes", "no", "maybe"]) {
+      expect(controller.handleInput(line(near)), near).toBe(true);
+    }
+  });
+
+  // The submitted/settle-window case is already pinned by "keeps a submitted decision pending and
+  // non-actionable until the warden settles it", which drives a real settlement channel: there
+  // `line("wait for it")` stays consumed with the already-submitted acknowledgement.
+
+  it("never lets prose beginning with a decision letter become a decision", async () => {
+    const { controller, decision } = pendingController();
+    // "add a README" starts with "a" — the approve shortcut. It must be queued, never approved.
+    expect(controller.handleInput(line("add a README"))).toBe(false);
+    expect(controller.handleInput(line("deny the request in the issue tracker too"))).toBe(false);
+    controller.handleInput(line("d"));
+    await expect(decision).resolves.toEqual({ approved: false });
+  });
+});
