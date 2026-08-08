@@ -349,6 +349,20 @@ jobs:
           NODE_EXTRA_CA_CERTS: ${{ github.workspace }}/vendor/sandbox-runtime/test/fixtures/tls-terminate/ca.crt
         run: pnpm test:sandbox:real
 
+      # The README links docs/demo/run-deny-audit-demo.mjs as "run it locally" under the demo GIF,
+      # and nothing executed it — the only user-facing entry point with zero coverage. It was broken
+      # on every macOS machine (an uncanonicalized mkdtemp KEEL_HOME fails the ADR-0086 real-path
+      # identity requirement, because macOS resolves /var/folders/... to /private/var/folders/...).
+      # It needs no provider credential (offline --replay) and drives the real kernel -> warden ->
+      # policy -> audit path, so this leg is its natural home; the macOS matrix entry is the one that
+      # would have caught the regression.
+      - name: README demo runs (offline replay, real warden + audit)
+        env:
+          # Cleared deliberately: the job arms this fail-closed flag for the denial probes, but the
+          # demo is not a real-sandbox probe and must not inherit that requirement.
+          KEEL_REQUIRE_REAL_SANDBOX: ""
+        run: node docs/demo/run-deny-audit-demo.mjs
+
   package:
     # Epic 1.10 — packaging + doctor: `bun --compile` self-contained binaries + the `npx` package,
     # with smoke tests (`--version`, `doctor`). Bun is a CI-only build dependency (ADR-0009);
