@@ -186,10 +186,10 @@ describe("gitStatus — cockpit git segment (fail-soft, injectable runner)", () 
         const script = `
           const {spawn}=require("node:child_process");
           const {writeFileSync}=require("node:fs");
-          const child=spawn(process.execPath,["-e","process.on('SIGTERM',()=>{});setInterval(()=>{},1000)"],{stdio:"ignore"});
+          const child=spawn(process.execPath,["-e","process.on('SIGTERM',()=>{});setTimeout(()=>process.exit(0),60000)"],{stdio:"ignore"});
           writeFileSync(${JSON.stringify(pidFile)},String(child.pid));
           process.on("SIGTERM",()=>{});
-          setInterval(()=>{},1000);
+          setTimeout(()=>process.exit(0),60000);
         `;
         const run = createGitRunner(process.cwd(), {
           command: process.execPath,
@@ -241,14 +241,14 @@ describe("gitStatus — cockpit git segment (fail-soft, injectable runner)", () 
           const {writeFileSync}=require("node:fs");
           process.on("SIGTERM",()=>{});
           writeFileSync(${JSON.stringify(readyFile)},"ready");
-          setInterval(()=>{},1000);
+          setTimeout(()=>process.exit(0),60000);
         `;
         const script = `
           const {spawn}=require("node:child_process");
           const {writeFileSync}=require("node:fs");
           const child=spawn(process.execPath,["-e",${JSON.stringify(childScript)}],{stdio:"ignore"});
           writeFileSync(${JSON.stringify(pidFile)},String(child.pid));
-          setInterval(()=>{},1000);
+          setTimeout(()=>process.exit(0),60000);
         `;
         const run = createGitRunner(process.cwd(), {
           command: process.execPath,
@@ -306,14 +306,14 @@ describe("gitStatus — cockpit git segment (fail-soft, injectable runner)", () 
           const {writeFileSync}=require("node:fs");
           process.on("SIGTERM",()=>{});
           writeFileSync(${JSON.stringify(readyFile)},"ready");
-          setInterval(()=>{},1000);
+          setTimeout(()=>process.exit(0),60000);
         `;
         const probeScript = `
           const {spawn}=require("node:child_process");
           const {writeFileSync}=require("node:fs");
           const child=spawn(process.execPath,["-e",${JSON.stringify(childScript)}],{stdio:"ignore"});
           writeFileSync(${JSON.stringify(pidFile)},String(child.pid));
-          setInterval(()=>{},1000);
+          setTimeout(()=>process.exit(0),60000);
         `;
         writeFileSync(
           runnerFile,

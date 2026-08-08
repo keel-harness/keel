@@ -790,7 +790,7 @@ describe("createNodeSandboxProcessRunner", () => {
               "const ready = process.argv[1]; " +
               "process.on('SIGTERM', () => {}); " +
               "fs.writeFileSync(ready, 'ready'); " +
-              "setInterval(() => {}, 10_000)",
+              "setTimeout(() => process.exit(0), 60_000)",
             readyMarker,
           ],
           env: process.env,
@@ -829,7 +829,7 @@ describe("createNodeSandboxProcessRunner", () => {
         "const marker = process.argv[1]; " +
         "const child = spawn(process.execPath, ['-e', process.argv[2], marker], { stdio: 'ignore' }); " +
         "child.unref(); " +
-        "setInterval(() => {}, 10_000);";
+        "setTimeout(() => process.exit(0), 60_000);";
 
       try {
         const result = runner.run(

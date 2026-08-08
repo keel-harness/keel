@@ -595,7 +595,7 @@ describe("MCP local-stdio one-shot supervisor", () => {
             }
           }
         });
-        setInterval(() => {}, 1000);
+        setTimeout(() => process.exit(0), 60_000);
       `,
     );
 
@@ -647,7 +647,7 @@ describe("MCP local-stdio one-shot supervisor", () => {
           const { writeFileSync } = require("node:fs");
           process.on("SIGTERM", () => {});
           writeFileSync(${JSON.stringify(descendantPidPath)}, String(process.pid));
-          setInterval(() => {}, 1000);
+          setTimeout(() => process.exit(0), 60_000);
         `)}], { stdio: "ignore" });
         descendant.unref();
         process.on("SIGTERM", () => process.exit(0));
@@ -671,7 +671,7 @@ describe("MCP local-stdio one-shot supervisor", () => {
             }
           }
         });
-        setInterval(() => {}, 1000);
+        setTimeout(() => process.exit(0), 60_000);
       `,
     );
 
@@ -725,7 +725,7 @@ describe("MCP local-stdio one-shot supervisor", () => {
             process.exit(0);
           });
           writeFileSync(${JSON.stringify(descendantPidPath)}, String(process.pid));
-          setInterval(() => {}, 1000);
+          setTimeout(() => process.exit(0), 60_000);
         `)}], { stdio: "ignore" });
         child.unref();
         const wait = new Int32Array(new SharedArrayBuffer(4));
@@ -1268,7 +1268,7 @@ describe("MCP local-stdio one-shot supervisor", () => {
     {
       name: "timeout",
       code: "MCP_TIMEOUT",
-      script: `setInterval(() => {}, 1000);`,
+      script: `setTimeout(() => process.exit(0), 60_000);`,
     },
   ])("reports $name as a typed MCP error", async ({ code, script }) => {
     const dir = mkdtempSync(join(tmpdir(), "keel-mcp-runner-error-"));

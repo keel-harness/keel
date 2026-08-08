@@ -20738,7 +20738,7 @@ printf '%s\\n' '${match}'
         `fs.writeFileSync(${JSON.stringify(pidPath)}, String(process.pid));`,
         "// A resistant child proves shutdown does not acknowledge until SIGKILL escalation reaps it.",
         'process.on("SIGTERM", () => {});',
-        "setInterval(() => {}, 1000);",
+        "setTimeout(() => process.exit(0), 60_000);",
         "",
       ].join("\n"),
     );
