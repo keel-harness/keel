@@ -3016,6 +3016,29 @@ export function processArgvDependsOnMutableExecutionMetadata(argv: readonly stri
   );
 }
 
+/**
+ * Local git subcommands that only stage or record changes INSIDE the workspace. The read-only half of
+ * git (`status`/`diff`/`log`/`show`) was already modeled; the write half fell through to the
+ * `unknown` fallback and became a POL-003 review with no grantable envelope, which
+ * `grantableCommandReview` can never mint a key for — so no human approval prompt could open for
+ * `git commit` in any mode, and a coding agent could never commit its own work.
+ *
+ * Scope is deliberately narrow. Only the bare `git <subcommand>` spelling is modeled: a global option
+ * BEFORE the subcommand (`git -c core.hooksPath=… commit`) can rewrite git's own execution config, so
+ * `argv[1]` must be the subcommand itself. Anything that reaches the network (`push`/`pull`/`fetch`/
+ * `clone`), discards uncommitted work (`reset --hard`/`checkout`/`clean`/`stash`), or edits git
+ * configuration stays on its existing path.
+ *
+ * The sandbox remains the write boundary, not this classification: `.git/config` and `.git/hooks` are
+ * deny-write and egress is deny-all, so a commit cannot reach a remote or install a hook. A
+ * pre-existing `.git/hooks/pre-commit` in the workspace does execute — bounded by that same sandbox,
+ * and no broader than the already-allowed `npm test` running arbitrary package scripts in a workspace
+ * the human has explicitly trusted.
+ */
+function localGitWriteSubcommand(argv: readonly string[]): boolean {
+  return argv[0] === "git" && (argv[1] === "add" || argv[1] === "commit");
+}
+
 function knownSafeFallbackCommand(
   command: string,
   argv: readonly string[],
@@ -3054,6 +3077,10 @@ function knownSafeFallbackCommand(
     ].includes(argv[0] ?? "")
   ) {
     if (argv[0] !== "git") return true;
+    // Local writes are safe on their own terms; they produce no execution metadata the model reads
+    // back as evidence, so they must NOT inherit the metadata-trust gate below — that gate goes false
+    // after any workspace write, which is exactly when a commit is wanted.
+    if (localGitWriteSubcommand(argv)) return true;
     return safeCommandMetadataTrusted && processArgvDependsOnMutableExecutionMetadata(argv);
   }
   if (["pnpm", "npm", "bun", "yarn"].includes(argv[0] ?? "")) {
