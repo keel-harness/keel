@@ -34,6 +34,11 @@ budget, deadline). `doctor` exits non-zero if any check is missing (warnings do
 not fail). Usage errors and unknown flags exit non-zero. One known gap: `keel auth`
 usage errors print a message but exit zero today.
 
+**Remote Git and pull requests.** Keel can create and verify local commits. Remote publication is not
+a current governed product path: `git push` and PR-creation commands are terminal external writes,
+not actionable TUI reviews. Inspect the local commit and run the publication command deliberately
+from the host.
+
 **One-shot review behavior.** Existing scoped authority, including an exact session or Plan grant or
 an eligible Autopilot rule, gets the first chance to resolve a review. If it is still pending,
 one-shot cannot ask for a live decision: keel attempts to close the review as denied and exits
