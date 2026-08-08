@@ -151,6 +151,29 @@ describe("CI packaging workflow", () => {
     expect(packagedWarden).toBeGreaterThan(packagedSrt);
   });
 
+  it("does not advertise a prebuild-missing Warden bin from the private workspace package", () => {
+    const wardenManifest = JSON.parse(
+      readFileSync(join(repoRoot, "packages", "warden", "package.json"), "utf8"),
+    ) as { private?: boolean; bin?: Record<string, string> };
+    const runtime = readFileSync(
+      join(repoRoot, "packages", "kernel", "src", "warden", "runtime.ts"),
+      "utf8",
+    );
+    const releaseMetadata = readFileSync(
+      join(repoRoot, "packaging", "release-metadata.ts"),
+      "utf8",
+    );
+
+    expect(wardenManifest.private).toBe(true);
+    expect(wardenManifest.bin).toBeUndefined();
+    expect(existsSync(join(repoRoot, "packages", "warden", "src", "bin-entry.ts"))).toBe(true);
+    expect(runtime).toContain('resolve(here, "../../../warden/src/bin-entry.ts")');
+    expect(runtime).toContain('resolve(here, "../../../warden/dist/bin-entry.js")');
+    expect(runtime).toContain('resolve(here, "keel-warden.mjs")');
+    expect(releaseMetadata).toContain('bin: { keel: "./bin/keel.mjs" }');
+    expect(releaseMetadata).not.toContain("keel-warden");
+  });
+
   it("production-transforms only the npx Kernel JSX and real-PTY smokes the installed carrier", () => {
     const build = readFileSync(join(repoRoot, "packaging", "build.ts"), "utf8");
     const workflow = readFileSync(join(repoRoot, ".github", "workflows", "ci.yml"), "utf8");
