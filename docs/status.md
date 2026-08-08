@@ -60,6 +60,8 @@ elicitation are not claimed either.
 - provider API egress governance;
 - remote, localhost, and unreviewed MCP;
 - general plugin and registry governance;
+- governed remote Git and pull-request publication (`git push` and PR-creation commands currently
+  stop as terminal external writes; publish reviewed local commits from the host);
 - Phase-3 provenance;
 - the durable "memory-first" plane — `packages/memory` is a placeholder, a Phase-3 roadmap goal;
 - public compliance and full resource containment;
