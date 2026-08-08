@@ -46,7 +46,7 @@ describe("ProcessLeaseRegistry", () => {
     const lease = registry.create({
       kind: "job",
       ownerToolCallId: "call_default",
-      command: "node -e 'setInterval(() => {}, 1000)'",
+      command: "node -e 'setTimeout(() => process.exit(0), 60_000)'",
       pid: 9876,
       logPath: "/tmp/keel-default.log",
       scope: "until-verifier-handoff",

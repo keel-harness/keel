@@ -1704,7 +1704,7 @@ describe("createProductionWardenRuntime", () => {
         server,
         start: {
           command: process.execPath,
-          args: ["-e", `setInterval(() => {}, 1000);`],
+          args: ["-e", `setTimeout(() => process.exit(0), 60_000);`],
           requestTimeoutMs: 10,
         },
       }),
@@ -1797,7 +1797,7 @@ describe("createProductionWardenRuntime", () => {
                 }, 40);
               });
               writeFileSync(${JSON.stringify(ready)}, "ready");
-              setInterval(() => {}, 1000);
+              setTimeout(() => process.exit(0), 60_000);
             `,
         ],
         requestTimeoutMs: MCP_DISCOVERY_FIXTURE_TIMEOUT_MS,
@@ -1827,7 +1827,7 @@ describe("createProductionWardenRuntime", () => {
       const readyTemp = ${JSON.stringify(`${ready}.tmp`)};
       writeFileSync(readyTemp, JSON.stringify({ leader: process.ppid, descendant: process.pid }));
       renameSync(readyTemp, ${JSON.stringify(ready)});
-      setInterval(() => {}, 1000);
+      setTimeout(() => process.exit(0), 60_000);
     `;
     let processGroup: number | undefined;
     const discovery = discoverProductionMcpServer({
@@ -1847,7 +1847,7 @@ describe("createProductionWardenRuntime", () => {
               const { spawn } = require("node:child_process");
               const descendant = spawn(process.execPath, ["-e", ${JSON.stringify(descendantScript)}], { stdio: "ignore" });
               process.on("SIGTERM", () => process.exit(0));
-              setInterval(() => {}, 1000);
+              setTimeout(() => process.exit(0), 60_000);
             `,
         ],
         requestTimeoutMs: MCP_DISCOVERY_FIXTURE_TIMEOUT_MS,
@@ -1890,7 +1890,7 @@ describe("createProductionWardenRuntime", () => {
       const readyTemp = ${JSON.stringify(`${ready}.tmp`)};
       writeFileSync(readyTemp, JSON.stringify({ leader: process.ppid, descendant: process.pid }));
       renameSync(readyTemp, ${JSON.stringify(ready)});
-      setInterval(() => {}, 1000);
+      setTimeout(() => process.exit(0), 60_000);
     `;
     let processGroup: number | undefined;
     const discovery = discoverProductionMcpServer({
@@ -1973,7 +1973,7 @@ describe("createProductionWardenRuntime", () => {
           },
           start: {
             command: process.execPath,
-            args: ["-e", `setInterval(() => {}, 1000);`],
+            args: ["-e", `setTimeout(() => process.exit(0), 60_000);`],
             requestTimeoutMs: 50,
           },
         }),

@@ -946,7 +946,7 @@ describe("PipeShellSession (real bash smoke)", () => {
     await session.run("cd /tmp && export KEEL_HEREDOC_TIMEOUT=survived");
 
     const r = await session.run(
-      "node <<'EOF'\nconsole.log('heredoc started')\nsetInterval(() => {}, 1000)\nEOF",
+      "node <<'EOF'\nconsole.log('heredoc started')\nsetTimeout(() => process.exit(0), 60_000)\nEOF",
       { timeoutMs: 300 },
     );
     expect(r.outcome).toBe("timeout");
@@ -1054,13 +1054,16 @@ describe("PipeShellSession (real bash smoke)", () => {
     async () => {
       session = new PipeShellSession({ cwd: process.cwd() });
       const logPath = `/tmp/keel-lease-${String(process.pid)}-${String(Date.now())}.log`;
-      const lease = await session.startLeased("node -e 'setInterval(() => {}, 1000)'", {
-        kind: "job",
-        ownerToolCallId: "call_long_job",
-        scope: "until-verifier-handoff",
-        logPath,
-        statusCommand: "ps -p $PID",
-      });
+      const lease = await session.startLeased(
+        "node -e 'setTimeout(() => process.exit(0), 60_000)'",
+        {
+          kind: "job",
+          ownerToolCallId: "call_long_job",
+          scope: "until-verifier-handoff",
+          logPath,
+          statusCommand: "ps -p $PID",
+        },
+      );
       try {
         expect(pidAlive(lease.pid)).toBe(true);
         await session.dispose();

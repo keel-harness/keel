@@ -953,10 +953,10 @@ describe("warden process lifecycle — no orphan on kernel death (P1-19)", () =>
   // hello-only warden would exit naturally on EOF and mask the bug).
   const LINGERING_HANDLE_WARDEN = `
     import { runStdioWardenServer } from "./packages/warden/src/rpc-server.ts";
-    const keepAlive = setInterval(() => {}, 1000);
+    const keepAlive = setTimeout(() => process.exit(0), 60_000);
     runStdioWardenServer({
       onShutdown: () => {
-        clearInterval(keepAlive);
+        clearTimeout(keepAlive);
         process.exit(0);
       },
     });
