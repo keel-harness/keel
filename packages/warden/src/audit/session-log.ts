@@ -1,4 +1,4 @@
-import { mkdirSync } from "node:fs";
+import { chmodSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import {
   type AuditRecordT,
@@ -57,6 +57,31 @@ export interface SessionAuditLogOptions {
  * Drop-in for the rpc-server's prior single-writer wiring: `append(input)` and
  * `head` keep the same shapes (`head` reports the most-recently-appended session).
  */
+/**
+ * Create (or repair) the audit directory as owner-only.
+ *
+ * The chain carries full command text, resolved paths, and model-authored tool args behind only
+ * best-effort redaction, so it is at least as sensitive as the artifacts around it — the checkpoint
+ * signing key is `0600` and rejects `mode & 0o077` on load, and `sessions/`/`snapshots/` are `0700`.
+ * The records were the one exception, left at the process umask.
+ *
+ * `mkdir`'s `mode` alone is not enough: the KERNEL pre-creates this directory before spawning the
+ * warden (`kernel/src/warden/runtime.ts`), so on every existing install the `mkdir` here is a no-op
+ * and its mode is never applied. The explicit `chmod` is what actually converges the state. A
+ * failure to tighten is not fatal — the chain and its lock still open, and an unwritable-mode
+ * directory is the operator's to fix — but it must never silently pass as hardened, so the caller
+ * keeps whatever the filesystem reports.
+ */
+function ensureOwnerOnlyAuditDir(auditDir: string): void {
+  mkdirSync(auditDir, { recursive: true, mode: 0o700 });
+  try {
+    chmodSync(auditDir, 0o700);
+  } catch {
+    // A directory keel does not own (an operator-supplied KEEL_WARDEN_AUDIT_DIR on a foreign mount)
+    // may refuse chmod. Writing the chain is still correct; confidentiality is then the operator's.
+  }
+}
+
 export class SessionAuditLog implements AuditSink {
   readonly #auditDir: string;
   readonly #principal: PrincipalT;
@@ -103,7 +128,7 @@ export class SessionAuditLog implements AuditSink {
       this.#writers.delete(sessionId);
     }
     const path = this.pathFor(sessionId);
-    mkdirSync(this.#auditDir, { recursive: true });
+    ensureOwnerOnlyAuditDir(this.#auditDir);
     const writer = AuditChainWriter.open({
       path,
       principal: this.#principal,
