@@ -124,6 +124,15 @@ host-side injection and non-disclosure rules. A production/release Warden contin
 If the test-only provider cannot be excluded mechanically from the release route and exact carrier,
 the walking skeleton stops rather than advertising an incomplete capability.
 
+The same non-release fixture boundary may bind one Warden-test-owned `localhost` HTTPS URL to one
+ephemeral non-default port selected by the test server. This authority is an injected test component,
+not a parser option: CLI input, environment, RPC, Git/project config, and release code cannot enable
+it or choose its host/port. The fixture still uses verified TLS/SNI, host-side credential injection,
+the real SRT proxy, and an ADR-0086 address-guard exception bound to that exact loopback occurrence.
+The approval card displays the actual port losslessly. Production parsing remains implicit port 443
+only, and fixture evidence cannot prove the production default-port/provider path. If exact-carrier
+inspection can reach this exception, or a fixture request can select any other host/port, stop.
+
 If implementation needs controller inference from prose for authority, a new RPC method/field, a new
 grant scope, or a non-open durable schema change, this ADR is insufficient. Stop for a protocol
 version, compatibility analysis, and separate ADR.
@@ -206,8 +215,9 @@ trailing dot, implicit port 443, and a 1–384 byte ASCII path made of nonempty 
 whose bytes are `[A-Za-z0-9._~-]`. `.` and `..` segments, duplicate/trailing separators, percent
 escapes, backslashes, and URL-normalization drift are rejected rather than rewritten. The complete
 serialized URL is at most 512 bytes. The Warden passes and displays those identical bytes. This
-intentionally narrow grammar covers the initial GitHub HTTPS form and the deterministic fixture;
-broader provider URL syntax needs a later contract amendment and evidence.
+intentionally narrow grammar covers the initial GitHub HTTPS form. Slice 1's mechanically
+non-release loopback-port authority is the sole exception described in §1; broader product/provider
+URL syntax needs a later contract amendment and evidence.
 
 ### 4. Review is exact, once-only, and losslessly presented
 
