@@ -665,6 +665,13 @@ describe("vendored srt runtime loader", () => {
       },
     });
 
+    expect(port.status()).toEqual({
+      available: true,
+      backend: "srt:vendored",
+      enforcementTier: "sandbox:srt",
+      features: ["credential-tls-termination/v1"],
+    });
+
     await port.execute(
       { command: "true" },
       { network: { allowedDomains: ["api.example.com"], deniedDomains: [] } },
@@ -704,6 +711,32 @@ describe("vendored srt runtime loader", () => {
         },
       },
     ]);
+  });
+
+  it("advertises TLS termination and the address guard only when both enforcing components exist", async () => {
+    const manager: VendoredSrtManager = {
+      isSupportedPlatform: () => true,
+      checkDependencies: () => ({ errors: [], warnings: [] }),
+      initialize: async () => {},
+      updateConfig: () => {},
+      wrapWithSandboxArgv: async () => ({ argv: ["/usr/bin/env", "true"], env: {} }),
+      reset: async () => {},
+    };
+    const components = await createVendoredSrtSandboxComponents({
+      importRuntime: async () => ({ SandboxManager: manager }),
+      hostDependencyErrors: () => [],
+      credentialTlsTermination: true,
+      resolveDestination: async () => [{ address: "192.0.2.1", family: 4 }],
+    });
+
+    expect(components.sandbox.status()).toEqual({
+      available: true,
+      backend: "srt:vendored",
+      enforcementTier: "sandbox:srt",
+      features: ["credential-tls-termination/v1", "egress-address-guard/v1"],
+    });
+    await components.shutdown();
+    expect(components.sandbox.status()).not.toHaveProperty("features");
   });
 
   it("preserves partial network profile data instead of filling unset strictness", async () => {

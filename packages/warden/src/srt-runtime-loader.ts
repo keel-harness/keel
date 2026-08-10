@@ -13,7 +13,10 @@ import type {
   SandboxProcessRunnerOptions,
   SandboxStatus,
 } from "./sandbox.js";
-import { EGRESS_ADDRESS_GUARD_CAPABILITY } from "./sandbox.js";
+import {
+  CREDENTIAL_TLS_TERMINATION_CAPABILITY,
+  EGRESS_ADDRESS_GUARD_CAPABILITY,
+} from "./sandbox.js";
 
 interface VendoredSrtDependencyCheck {
   readonly errors: readonly string[];
@@ -447,9 +450,14 @@ export async function createVendoredSrtSandboxComponents(
     available: true,
     backend: VENDORED_SRT_BACKEND,
     enforcementTier: "sandbox:srt",
-    ...(resolveDestination === undefined
+    ...(!credentialTlsTermination && resolveDestination === undefined
       ? {}
-      : { features: Object.freeze([EGRESS_ADDRESS_GUARD_CAPABILITY]) }),
+      : {
+          features: Object.freeze([
+            ...(credentialTlsTermination ? [CREDENTIAL_TLS_TERMINATION_CAPABILITY] : []),
+            ...(resolveDestination === undefined ? [] : [EGRESS_ADDRESS_GUARD_CAPABILITY]),
+          ]),
+        }),
   });
   const stoppedStatus: UnavailableVendoredSrtStatus = Object.freeze(
     unavailableStatus("sandbox runtime is stopped", "restart keel"),

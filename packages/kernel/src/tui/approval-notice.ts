@@ -2,6 +2,7 @@ import type { UiActiveApproval, UiApprovalInformation } from "@keel/shared";
 import { graphemeSpans, takeDisplayCells, terminalDisplayWidth } from "./display-cells.js";
 import { stripControlLine } from "./strip.js";
 import { exactProcessRunReviewSummaryForInformation } from "../warden/process-run-review-presentation.js";
+import { exactGitPushReviewSummaryForInformation } from "../warden/git-push-review-presentation.js";
 
 export interface ApprovalNoticePlan {
   readonly heading:
@@ -24,6 +25,7 @@ export interface ApprovalNoticePlan {
   readonly selectedChoice?: UiActiveApproval["selectedChoice"];
   readonly message?: string;
   readonly losslessProcessRunSummary?: string;
+  readonly losslessGitPushSummary?: string;
 }
 
 export interface ApprovalNoticeFact {
@@ -131,27 +133,41 @@ export function approvalNoticePlan(approval: UiActiveApproval): ApprovalNoticePl
   const associatedProcessRunSummary = exactProcessRunReviewSummaryForInformation(
     approval.information,
   );
+  const associatedGitPushSummary = exactGitPushReviewSummaryForInformation(approval.information);
   const losslessProcessRunSummary =
     associatedProcessRunSummary !== undefined &&
     approval.detail === associatedProcessRunSummary &&
     approval.sessionAvailable === false
       ? associatedProcessRunSummary
       : undefined;
-  const processRunPresentationFailed =
+  const losslessGitPushSummary =
+    associatedGitPushSummary !== undefined &&
+    approval.detail === associatedGitPushSummary &&
+    approval.sessionAvailable === false
+      ? associatedGitPushSummary
+      : undefined;
+  const losslessReviewSummary = losslessProcessRunSummary ?? losslessGitPushSummary;
+  const exactReviewPresentationFailed =
     approval.state === "pending" &&
     approval.information?.requestedAction.status === "available" &&
-    approval.information.requestedAction.value === "process.run" &&
-    losslessProcessRunSummary === undefined;
-  const effectiveApproval: UiActiveApproval = processRunPresentationFailed
+    (approval.information.requestedAction.value === "process.run" ||
+      approval.information.requestedAction.value === "git.push") &&
+    losslessReviewSummary === undefined;
+  const exactReviewFailureMessage =
+    approval.information?.requestedAction.status === "available" &&
+    approval.information.requestedAction.value === "git.push"
+      ? "exact git.push review presentation failed; action will be denied"
+      : "exact process.run review presentation failed; action will be denied";
+  const effectiveApproval: UiActiveApproval = exactReviewPresentationFailed
     ? {
         ...approval,
         sessionAvailable: false,
         state: "failed",
-        message: "exact process.run review presentation failed; action will be denied",
+        message: exactReviewFailureMessage,
       }
     : approval;
   const actionable = effectiveApproval.state === "pending";
-  const detail = losslessProcessRunSummary ?? boundedLine(approval.detail);
+  const detail = losslessReviewSummary ?? boundedLine(approval.detail);
   const message =
     effectiveApproval.message === undefined
       ? undefined
@@ -162,7 +178,7 @@ export function approvalNoticePlan(approval: UiActiveApproval): ApprovalNoticePl
   const facts =
     approval.information === undefined
       ? undefined
-      : approvalFacts(approval.information, losslessProcessRunSummary);
+      : approvalFacts(approval.information, losslessReviewSummary);
   return {
     heading: APPROVAL_HEADINGS[effectiveApproval.state],
     detail,
@@ -194,6 +210,7 @@ export function approvalNoticePlan(approval: UiActiveApproval): ApprovalNoticePl
       : {}),
     ...(message !== undefined && message.length > 0 ? { message } : {}),
     ...(losslessProcessRunSummary === undefined ? {} : { losslessProcessRunSummary }),
+    ...(losslessGitPushSummary === undefined ? {} : { losslessGitPushSummary }),
   };
 }
 

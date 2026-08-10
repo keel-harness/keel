@@ -17,6 +17,10 @@ import {
   associateExactProcessRunReviewInformation,
   processRunReviewSummaryForRequest,
 } from "../warden/process-run-review-presentation.js";
+import {
+  associateExactGitPushReviewInformation,
+  gitPushReviewSummaryForRequest,
+} from "../warden/git-push-review-presentation.js";
 
 export type ReviewInputDecision =
   | { readonly kind: "decision"; readonly decision: WardenReviewDecision }
@@ -29,6 +33,7 @@ export type ReviewPresentationEvent =
       readonly sessionAvailable: boolean;
       readonly information: UiApprovalInformation;
       readonly losslessProcessRunSummary?: string;
+      readonly losslessGitPushSummary?: string;
     }
   | { readonly kind: "message"; readonly content: string }
   | { readonly kind: "submitted"; readonly content: string; readonly choice?: UiApprovalChoice }
@@ -87,24 +92,24 @@ function displayFact(value: string, unavailableReason: string): UiApprovalFact {
 
 function approvalInformation(
   request: WardenReviewDecisionRequest,
-  exactProcessRunSummary: string | undefined,
+  exactReviewSummary: string | undefined,
 ): UiApprovalInformation {
   const presentation = reviewApprovalPresentation(request.review);
   const effectiveTarget =
-    exactProcessRunSummary === undefined
+    exactReviewSummary === undefined
       ? displayFact(request.review.summary, "effective target unavailable from the Warden review")
-      : ({ status: "available", value: exactProcessRunSummary } as const);
+      : ({ status: "available", value: exactReviewSummary } as const);
   const information: UiApprovalInformation = {
     requestedAction: displayFact(request.toolCall.name, "requested tool name unavailable"),
     effectiveTarget:
       effectiveTarget.status === "available"
         ? {
             ...effectiveTarget,
-            // The strict ADR-0090 envelope and lossless predicate authenticate these exact Warden
+            // The strict ADR-0090/ADR-0091 envelope and lossless predicate authenticate these exact Warden
             // bytes. A literal argv segment such as "[123 chars omitted]" is data, not evidence
             // that the Warden abbreviated the summary.
             completeness:
-              exactProcessRunSummary === undefined ? presentation.summaryCompleteness : "complete",
+              exactReviewSummary === undefined ? presentation.summaryCompleteness : "complete",
           }
         : effectiveTarget,
     reason: {
@@ -117,10 +122,10 @@ function approvalInformation(
     },
     exactResource: presentation.exactResource,
   };
-  return exactProcessRunSummary === undefined
-    ? information
-    : (associateExactProcessRunReviewInformation(information, exactProcessRunSummary) ??
-        information);
+  if (exactReviewSummary === undefined) return information;
+  return request.toolCall.name === "git.push"
+    ? (associateExactGitPushReviewInformation(information, exactReviewSummary) ?? information)
+    : (associateExactProcessRunReviewInformation(information, exactReviewSummary) ?? information);
 }
 
 function isInterruptInput(input: UserInput): boolean {
@@ -170,14 +175,17 @@ function promptFor(
     request.toolCall,
     request.review,
   );
+  const exactGitPushSummary = gitPushReviewSummaryForRequest(request.toolCall, request.review);
+  const exactReviewSummary = exactProcessRunSummary ?? exactGitPushSummary;
   return {
     kind: "opened",
-    detail: exactProcessRunSummary ?? reviewedTarget(request),
+    detail: exactReviewSummary ?? reviewedTarget(request),
     sessionAvailable: options.sessionAvailable,
-    information: approvalInformation(request, exactProcessRunSummary),
+    information: approvalInformation(request, exactReviewSummary),
     ...(exactProcessRunSummary === undefined
       ? {}
       : { losslessProcessRunSummary: exactProcessRunSummary }),
+    ...(exactGitPushSummary === undefined ? {} : { losslessGitPushSummary: exactGitPushSummary }),
   };
 }
 
@@ -296,6 +304,12 @@ export function createInteractiveReviewDecisionController(): InteractiveReviewDe
       if (
         request.toolCall.name === "process.run" &&
         processRunReviewSummaryForRequest(request.toolCall, request.review) === undefined
+      ) {
+        return undefined;
+      }
+      if (
+        request.toolCall.name === "git.push" &&
+        gitPushReviewSummaryForRequest(request.toolCall, request.review) === undefined
       ) {
         return undefined;
       }

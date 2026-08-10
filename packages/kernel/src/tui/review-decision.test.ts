@@ -129,6 +129,81 @@ describe("interactive review-decision input", () => {
     });
   });
 
+  it("preserves an exact once-only git.push summary byte-for-byte through the controller", () => {
+    const controller = createInteractiveReviewDecisionController();
+    const { events } = recordPresentation(controller);
+    const oid = "0123456789abcdef0123456789abcdef01234567";
+    const summary = [
+      "Git push requires approval.",
+      "Repository: https://localhost:54321/repo.git",
+      "Destination: refs/heads/feature/walking-skeleton",
+      `Commit: ${oid}`,
+      "Subject: walking skeleton commit",
+      "Commit facts: 2026-08-10T12:00:00Z; 1; 2 files; +3 -1",
+      "Workspace: clean; uncommitted changes are excluded",
+      "Effect: create this branch or fast-forward it to this commit; the remote may receive every missing object reachable from the commit",
+      "Blocked: force, deletion, tags, hooks, submodule recursion, redirects, and remote-default-branch writes",
+      "Credential: deterministic test fixture (release capability withheld); secret stays in the Warden/SRT path",
+      "Approval: this occurrence once; expires in 120 seconds",
+    ].join("\n");
+
+    void controller.onReviewRequired({
+      toolCall: {
+        id: "git-push-review",
+        name: "git.push",
+        args: { remote: "origin", branch: "feature/walking-skeleton", expectedHead: oid },
+      },
+      review: {
+        reviewId: "git_push_review_1",
+        summary,
+        allowCommand: "keel approve git_push_review_1 --scope once",
+      },
+    });
+
+    const opened = events.at(-1);
+    expect(opened).toMatchObject({
+      kind: "opened",
+      detail: summary,
+      sessionAvailable: false,
+      losslessGitPushSummary: summary,
+      information: {
+        requestedAction: { status: "available", value: "git.push" },
+        effectiveTarget: { status: "available", value: summary, completeness: "complete" },
+      },
+    });
+    if (opened?.kind !== "opened") throw new Error("expected exact git.push review presentation");
+    expect(approvalNoticePlan({ ...opened, state: "pending" })).toMatchObject({
+      state: "pending",
+      losslessGitPushSummary: summary,
+      actions: [
+        "[a] Approve once · this action only",
+        "[d] Deny · action will not run",
+        "[?] Explain why",
+      ],
+    });
+  });
+
+  it("refuses to open git.push without the exact ADR-0091 envelope and summary", () => {
+    const controller = createInteractiveReviewDecisionController();
+    const { events } = recordPresentation(controller);
+
+    const decision = controller.onReviewRequired({
+      toolCall: {
+        id: "git-push-review",
+        name: "git.push",
+        args: { remote: "origin", branch: "feature/x", expectedHead: "0".repeat(40) },
+      },
+      review: {
+        reviewId: "git_push_review_1",
+        summary: "generic or normalized git push review",
+        allowCommand: "keel approve git_push_review_1 --scope once",
+      },
+    });
+
+    expect(decision).toBeUndefined();
+    expect(events).toEqual([]);
+  });
+
   it("does not mistake a literal omitted-marker argv byte sequence for Warden abbreviation", () => {
     const controller = createInteractiveReviewDecisionController();
     const { events } = recordPresentation(controller);

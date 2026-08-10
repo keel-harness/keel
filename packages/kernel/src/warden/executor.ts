@@ -411,11 +411,59 @@ function terminalReviewFailure(result: ExecuteResult, message: string): ToolResu
   return terminalReviewResult(withBody(message, renderReview(result, undefined, false).output));
 }
 
+function renderGitPushAttempt(
+  result: ExecuteResult | ResolveReviewResult,
+  toolName: string,
+): ToolResultT | undefined {
+  if (toolName !== "git.push" || result.verdict !== "deny" || !isObject(result.result)) {
+    return undefined;
+  }
+  const detail = result.result;
+  if (detail["kind"] !== "git_push_result") return undefined;
+  const status = detail["status"];
+  if (status !== "failed" && status !== "indeterminate") return undefined;
+  const mayHaveExecuted = detail["actionMayHaveExecuted"] === true;
+  const body = renderJsonValue(result.result);
+  const guidance = resultGuidance(result);
+  if (status === "indeterminate" || mayHaveExecuted) {
+    return markToolPresentationOutcome(
+      {
+        ok: false,
+        output: withBody(
+          guidanceLine(
+            "git.push did not confirm the requested ref state; a ref update may have executed; do not retry automatically; inspect the independent remote ref and audit",
+            guidance,
+            "outcome indeterminate",
+          ),
+          body,
+        ),
+      },
+      "partial",
+    );
+  }
+  return markToolPresentationOutcome(
+    {
+      ok: false,
+      output: withBody(
+        guidanceLine(
+          "git.push failed before a ref update was launched",
+          guidance,
+          "remote preflight failed",
+        ),
+        body,
+      ),
+    },
+    "failed",
+  );
+}
+
 function renderVerdict(
   result: ExecuteResult | ResolveReviewResult,
   toolName: string,
   processRunAvailable = false,
 ): ToolResultT {
+  const gitPushAttempt = renderGitPushAttempt(result, toolName);
+  if (gitPushAttempt !== undefined) return gitPushAttempt;
   const typedToolFailure = typedToolFailureDetail(result, toolName);
   if (
     typedToolFailure !== undefined &&
@@ -554,12 +602,12 @@ function renderWardenError(error: unknown): ToolResultT {
   );
 }
 
-function renderRecoverableProcessRunInvalidParams(
+function renderRecoverableInvalidParams(
   call: ToolInvocationT,
   error: unknown,
 ): ToolResultT | undefined {
   if (
-    call.name !== "process.run" ||
+    (call.name !== "process.run" && call.name !== "git.push") ||
     !(error instanceof WardenClientError) ||
     error.code !== "INVALID_PARAMS" ||
     error.rpcCode !== -32602 ||
@@ -581,12 +629,14 @@ function renderRecoverableProcessRunInvalidParams(
     return undefined;
   }
   const message = oneLineControlStripped(asMessage(error));
+  const correction =
+    call.name === "process.run"
+      ? "correct the argv and submit a fresh process.run call"
+      : "correct remote, branch, and expectedHead, then submit a fresh git.push call";
   return markToolPresentationOutcome(
     {
       ok: false,
-      output:
-        `process.run INVALID_PARAMS: ${message}; ` +
-        "not executed; correct the argv and submit a fresh process.run call",
+      output: `${call.name} INVALID_PARAMS: ${message}; not executed; ${correction}`,
     },
     "failed",
   );
@@ -1176,7 +1226,7 @@ export class WardenExecutor implements ExecutorPort {
       if (signalAborted(opts?.signal) || errorCode(error) === "WARDEN_ABORTED") {
         return finish(stoppedToolResult());
       }
-      const recoverableInvalidParams = renderRecoverableProcessRunInvalidParams(call, error);
+      const recoverableInvalidParams = renderRecoverableInvalidParams(call, error);
       if (recoverableInvalidParams !== undefined) return finish(recoverableInvalidParams);
       return finish(renderWardenError(error));
     }

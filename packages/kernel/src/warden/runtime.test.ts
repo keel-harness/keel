@@ -2464,6 +2464,55 @@ describe("createProductionWardenRuntime", () => {
     await trustedCapability.dispose();
   });
 
+  it("projects git.push only for a trusted git-push/v1 Warden peer", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "keel-runtime-git-push-capability-"));
+    const untrusted = await createProductionWardenRuntime({
+      cwd: dir,
+      sessionId: "ses_01ARZ3NDEKTSV4RRFFQ69G5FAG",
+      workspaceTrusted: false,
+      env: { KEEL_HOME: join(dir, "untrusted-home") },
+      start: {
+        command: process.execPath,
+        args: [
+          "-e",
+          processRunCapabilityWardenScript(join(dir, "untrusted.json"), ["git-push/v1"], true),
+        ],
+        requestTimeoutMs: 1_000,
+      },
+    });
+    expect(untrusted.tools.map((tool) => tool.name)).not.toContain("git.push");
+    await untrusted.dispose();
+
+    const trusted = await createProductionWardenRuntime({
+      cwd: dir,
+      sessionId: "ses_01ARZ3NDEKTSV4RRFFQ69G5FAH",
+      workspaceTrusted: true,
+      env: { KEEL_HOME: join(dir, "trusted-home") },
+      start: {
+        command: process.execPath,
+        args: [
+          "-e",
+          processRunCapabilityWardenScript(join(dir, "trusted.json"), ["git-push/v1"], true),
+        ],
+        requestTimeoutMs: 1_000,
+      },
+    });
+    const spec = trusted.tools.find((tool) => tool.name === "git.push");
+    expect(spec?.parameters).toMatchObject({
+      type: "object",
+      required: ["remote", "branch", "expectedHead"],
+      additionalProperties: false,
+      properties: {
+        remote: { maxLength: 64 },
+        branch: { maxLength: 128 },
+        expectedHead: { pattern: "^(?:[0-9a-f]{40}|[0-9a-f]{64})$" },
+      },
+    });
+    expect(providerHostileSchemaPaths(spec?.parameters), "git.push").toEqual([]);
+    expect(trusted.isMutating("git.push")).toBe(true);
+    await trusted.dispose();
+  });
+
   it("routes process.run exact argv through the Warden and preserves separated output", async () => {
     const dir = mkdtempSync(join(tmpdir(), "keel-runtime-process-route-"));
     const capturePath = join(dir, "process-calls.json");

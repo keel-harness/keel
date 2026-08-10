@@ -100,6 +100,10 @@ import {
   associateExactProcessRunReviewInformation,
   exactProcessRunReviewSummaryForInformation,
 } from "../warden/process-run-review-presentation.js";
+import {
+  associateExactGitPushReviewInformation,
+  exactGitPushReviewSummaryForInformation,
+} from "../warden/git-push-review-presentation.js";
 
 // `stripControl` / `stripControlLine` (the security-critical control-byte sanitizers) are defined in
 // `./strip.js` — extracted so that one chokepoint is auditable in isolation (TUI-2) — and re-exported
@@ -211,6 +215,7 @@ export type UiInputEventT =
       readonly sessionAvailable: boolean;
       readonly information?: UiApprovalInformation;
       readonly losslessProcessRunSummary?: string;
+      readonly losslessGitPushSummary?: string;
     }
   | { readonly type: "approval-message"; readonly content: string }
   | {
@@ -279,12 +284,13 @@ function boundedApprovalLine(value: string, maxWidth: number, tailWidth?: number
 
 function sanitizedApprovalInformation(
   information: UiApprovalInformation,
-  losslessProcessRunSummary?: string,
+  losslessReviewSummary?: string,
 ): UiApprovalInformation {
-  const authenticatedProcessRunSummary =
-    losslessProcessRunSummary !== undefined &&
-    exactProcessRunReviewSummaryForInformation(information) === losslessProcessRunSummary
-      ? losslessProcessRunSummary
+  const authenticatedReviewSummary =
+    losslessReviewSummary !== undefined &&
+    (exactProcessRunReviewSummaryForInformation(information) === losslessReviewSummary ||
+      exactGitPushReviewSummaryForInformation(information) === losslessReviewSummary)
+      ? losslessReviewSummary
       : undefined;
   const requestedAction =
     information.requestedAction.status === "available"
@@ -301,7 +307,7 @@ function sanitizedApprovalInformation(
       ? {
           status: "available" as const,
           value:
-            authenticatedProcessRunSummary ??
+            authenticatedReviewSummary ??
             boundedApprovalLine(information.effectiveTarget.value, 2_048, 512),
           completeness: information.effectiveTarget.completeness,
         }
@@ -349,9 +355,11 @@ function sanitizedApprovalInformation(
             value: boundedApprovalLine(resource.value, 384, 144),
           };
   const sanitized = { requestedAction, effectiveTarget, reason, policyDetail, exactResource };
-  return authenticatedProcessRunSummary === undefined
-    ? sanitized
-    : (associateExactProcessRunReviewInformation(sanitized, authenticatedProcessRunSummary) ??
+  if (authenticatedReviewSummary === undefined) return sanitized;
+  return sanitized.requestedAction.status === "available" &&
+    sanitized.requestedAction.value === "git.push"
+    ? (associateExactGitPushReviewInformation(sanitized, authenticatedReviewSummary) ?? sanitized)
+    : (associateExactProcessRunReviewInformation(sanitized, authenticatedReviewSummary) ??
         sanitized);
 }
 
@@ -3058,33 +3066,42 @@ export function reduce(view: ViewModel, ev: KernelEventT | UiInputEventT): ViewM
     case "approval-opened": {
       const { overlay: _overlay, ...approvalBase } = view;
       void _overlay;
-      const processRunPresentationExpected =
+      const exactEventSummary = ev.losslessProcessRunSummary ?? ev.losslessGitPushSummary;
+      const exactReviewPresentationExpected =
         ev.losslessProcessRunSummary !== undefined ||
+        ev.losslessGitPushSummary !== undefined ||
         (ev.information?.requestedAction.status === "available" &&
-          ev.information.requestedAction.value === "process.run");
-      const exactProcessRunSummary =
-        ev.losslessProcessRunSummary !== undefined &&
-        exactProcessRunReviewSummaryForInformation(ev.information) === ev.losslessProcessRunSummary
-          ? ev.losslessProcessRunSummary
+          (ev.information.requestedAction.value === "process.run" ||
+            ev.information.requestedAction.value === "git.push"));
+      const exactReviewSummary =
+        exactEventSummary !== undefined &&
+        (exactProcessRunReviewSummaryForInformation(ev.information) === exactEventSummary ||
+          exactGitPushReviewSummaryForInformation(ev.information) === exactEventSummary)
+          ? exactEventSummary
           : undefined;
-      const processRunPresentationFailed =
-        processRunPresentationExpected &&
-        (exactProcessRunSummary === undefined ||
-          ev.detail !== exactProcessRunSummary ||
+      const exactReviewPresentationFailed =
+        exactReviewPresentationExpected &&
+        (exactReviewSummary === undefined ||
+          ev.detail !== exactReviewSummary ||
           ev.sessionAvailable);
+      const exactReviewFailureMessage =
+        ev.information?.requestedAction.status === "available" &&
+        ev.information.requestedAction.value === "git.push"
+          ? "exact git.push review presentation failed; action will be denied"
+          : "exact process.run review presentation failed; action will be denied";
       return withDerived({
         ...approvalBase,
         pendingReviews: 1,
         activeApproval: {
           detail:
-            exactProcessRunSummary !== undefined && ev.detail === exactProcessRunSummary
-              ? exactProcessRunSummary
+            exactReviewSummary !== undefined && ev.detail === exactReviewSummary
+              ? exactReviewSummary
               : boundedApprovalLine(ev.detail, 2_048, 512),
-          sessionAvailable: processRunPresentationFailed ? false : ev.sessionAvailable,
-          state: processRunPresentationFailed ? "failed" : "pending",
-          ...(processRunPresentationFailed
+          sessionAvailable: exactReviewPresentationFailed ? false : ev.sessionAvailable,
+          state: exactReviewPresentationFailed ? "failed" : "pending",
+          ...(exactReviewPresentationFailed
             ? {
-                message: "exact process.run review presentation failed; action will be denied",
+                message: exactReviewFailureMessage,
               }
             : {}),
           ...(ev.information === undefined
@@ -3092,7 +3109,7 @@ export function reduce(view: ViewModel, ev: KernelEventT | UiInputEventT): ViewM
             : {
                 information: sanitizedApprovalInformation(
                   ev.information,
-                  processRunPresentationFailed ? undefined : exactProcessRunSummary,
+                  exactReviewPresentationFailed ? undefined : exactReviewSummary,
                 ),
               }),
         },

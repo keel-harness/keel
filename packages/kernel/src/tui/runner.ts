@@ -67,6 +67,7 @@ import {
 import { GROSS_RUNWAY_PREFLIGHT_CODE } from "../events.js";
 import { createFinalAnswerPresentation } from "./final-answer-presentation.js";
 import { exactProcessRunReviewSummaryForInformation } from "../warden/process-run-review-presentation.js";
+import { exactGitPushReviewSummaryForInformation } from "../warden/git-push-review-presentation.js";
 
 export interface RunSessionOpts {
   readonly model: ModelPort;
@@ -503,10 +504,13 @@ async function runSessionImpl(
     presentation: (event) => {
       switch (event.kind) {
         case "opened": {
-          const processRunPresentationExpected =
+          const exactEventSummary = event.losslessProcessRunSummary ?? event.losslessGitPushSummary;
+          const exactReviewPresentationExpected =
             event.losslessProcessRunSummary !== undefined ||
+            event.losslessGitPushSummary !== undefined ||
             (event.information.requestedAction.status === "available" &&
-              event.information.requestedAction.value === "process.run");
+              (event.information.requestedAction.value === "process.run" ||
+                event.information.requestedAction.value === "git.push"));
           view = reduce(view, {
             type: "approval-opened",
             detail: event.detail,
@@ -515,16 +519,21 @@ async function runSessionImpl(
             ...(event.losslessProcessRunSummary === undefined
               ? {}
               : { losslessProcessRunSummary: event.losslessProcessRunSummary }),
+            ...(event.losslessGitPushSummary === undefined
+              ? {}
+              : { losslessGitPushSummary: event.losslessGitPushSummary }),
           });
           if (
-            processRunPresentationExpected &&
-            (event.losslessProcessRunSummary === undefined ||
-              event.detail !== event.losslessProcessRunSummary ||
-              view.activeApproval?.detail !== event.losslessProcessRunSummary ||
+            exactReviewPresentationExpected &&
+            (exactEventSummary === undefined ||
+              event.detail !== exactEventSummary ||
+              view.activeApproval?.detail !== exactEventSummary ||
               view.activeApproval.state !== "pending" ||
               view.activeApproval.sessionAvailable ||
-              exactProcessRunReviewSummaryForInformation(view.activeApproval.information) !==
-                event.losslessProcessRunSummary)
+              (exactProcessRunReviewSummaryForInformation(view.activeApproval.information) !==
+                exactEventSummary &&
+                exactGitPushReviewSummaryForInformation(view.activeApproval.information) !==
+                  exactEventSummary))
           ) {
             opts.reviewDecisions?.cancelPending();
           }
