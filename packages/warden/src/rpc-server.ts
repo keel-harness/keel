@@ -205,6 +205,12 @@ import {
   invalidateExecutionMetadataForReviewedProcess,
   type ExecutionMetadataState,
 } from "./execution-metadata.js";
+import {
+  GIT_PUSH_CAPABILITY_V1,
+  GIT_PUSH_TOOL_NAME,
+  type GitPushAuthority,
+  type GitPushAuthorityContext,
+} from "./git-push-authority.js";
 
 type RpcId = string | number | null;
 type ExecuteParams = ReturnType<(typeof WARDEN_METHODS)["warden.execute"]["params"]["parse"]>;
@@ -270,6 +276,10 @@ export interface WardenRpcHandlerOptions {
   /** Production stdio authority check. For an exact process.run resolution this runs only after
    * the identified once-only card is consumed and before approval, revalidation, or launch work. */
   processRunReviewPreExecutionCheck?: () => void;
+  /** Release-safe seam. Production entrypoints construct no Git-push authority. */
+  gitPushAuthority?: GitPushAuthority;
+  /** Stdio-owned check injected only for consume-first Git-push review resolution. */
+  gitPushReviewPreExecutionCheck?: () => void;
 }
 
 interface RpcContext {
@@ -303,6 +313,8 @@ interface RpcContext {
   executionMetadataState: ExecutionMetadataState;
   processRunReviewNowMs: () => number;
   processRunReviewPreExecutionCheck?: () => void;
+  gitPushAuthority?: GitPushAuthority;
+  gitPushReviewPreExecutionCheck?: () => void;
 }
 
 interface ResolvedCommand {
@@ -419,7 +431,9 @@ function statusResult(context: RpcContext): unknown {
     policyPack: context.policy.packRef,
     auditHead: auditHeadResult(context),
     pendingReviews:
-      context.reviewState.pending.size + context.interactiveConsoleState.pendingReviews.size,
+      context.reviewState.pending.size +
+      context.interactiveConsoleState.pendingReviews.size +
+      (context.gitPushAuthority?.pendingReviewCount() ?? 0),
   };
 }
 
@@ -452,6 +466,15 @@ function helloCapabilities(
   const capabilities: string[] = [...RPC_SKELETON_CAPABILITIES];
   if (processRunAvailable(context, sandbox)) {
     capabilities.push(PROCESS_RUN_CAPABILITY_V1);
+  }
+  if (
+    context.gitPushAuthority?.capabilityAvailable({
+      workspaceTrusted: context.workspaceTrusted,
+      auditAvailable: context.auditWriter !== undefined,
+      sandbox,
+    }) === true
+  ) {
+    capabilities.push(GIT_PUSH_CAPABILITY_V1);
   }
   if (
     // QC §8: the console is an operator-configured privileged surface — withhold it (advertisement
@@ -6419,6 +6442,41 @@ async function methodResult(
         if (isInteractiveConsoleToolName(p.toolCall.name)) {
           return await executeInteractiveConsole(context, p);
         }
+        if (p.toolCall.name === GIT_PUSH_TOOL_NAME) {
+          const gitPushAuthority = context.gitPushAuthority;
+          if (
+            gitPushAuthority === undefined ||
+            !gitPushAuthority.capabilityAvailable({
+              workspaceTrusted: context.workspaceTrusted,
+              auditAvailable: context.auditWriter !== undefined,
+              sandbox: readSandboxStatus(context.sandbox),
+            }) ||
+            context.auditWriter === undefined
+          ) {
+            return rpcError(null, -32000, "git.push authority is unavailable", {
+              code: "WARDEN_NOT_READY",
+            });
+          }
+          const gitContext: GitPushAuthorityContext = {
+            sandbox: context.sandbox,
+            workspaceRoot: context.workspaceRoot,
+            ...(context.auditDir === undefined ? {} : { auditDir: context.auditDir }),
+            ...(context.signal === undefined ? {} : { signal: context.signal }),
+            appendAudit: (input: AuditAppendInput) => appendAuditSeq(context, input),
+          };
+          try {
+            return gitPushAuthority.request(gitContext, p);
+          } catch (error) {
+            if (gitPushAuthority.isInvalidParams(error)) {
+              const auditSeq = gitPushAuthority.auditInvalidParams(gitContext, p, error);
+              return rpcError(null, -32602, error.message, {
+                code: "INVALID_PARAMS",
+                auditSeq,
+              });
+            }
+            throw error;
+          }
+        }
         let trustedTypedCommand:
           | { ok: true; command: ResolvedCommand }
           | { ok: false; response: RpcResponse }
@@ -6953,6 +7011,36 @@ async function methodResult(
       }
       case "warden.resolveReview": {
         const p = WARDEN_METHODS["warden.resolveReview"].params.parse(params);
+        const gitPushAuthority = context.gitPushAuthority;
+        const gitPushReview = gitPushAuthority?.consumeReview(p.reviewId);
+        if (gitPushReview !== undefined && gitPushAuthority !== undefined) {
+          // The exact occurrence is consumed before any scope, expiry, revalidation, or execution
+          // work. Nothing below can leave reusable push authority in the process.
+          if (context.auditWriter === undefined) {
+            return rpcError(null, -32000, "git.push audit authority is unavailable", {
+              code: "AUDIT_UNAVAILABLE",
+            });
+          }
+          return await gitPushAuthority.resolve(
+            {
+              sandbox: context.sandbox,
+              workspaceRoot: context.workspaceRoot,
+              ...(context.auditDir === undefined ? {} : { auditDir: context.auditDir }),
+              ...(context.signal === undefined ? {} : { signal: context.signal }),
+              ...(context.gitPushReviewPreExecutionCheck === undefined
+                ? {}
+                : { preExecutionCheck: context.gitPushReviewPreExecutionCheck }),
+              appendAudit: (input: AuditAppendInput) => appendAuditSeq(context, input),
+            },
+            gitPushReview,
+            {
+              reviewId: p.reviewId,
+              approved: p.approved,
+              principal: p.principal,
+              ...(p.scope === undefined ? {} : { scope: p.scope }),
+            },
+          );
+        }
         const consoleReview = context.interactiveConsoleState.pendingReviews.get(p.reviewId);
         if (consoleReview !== undefined) {
           if (context.auditWriter === undefined) return consoleAuditUnavailable();
@@ -7952,18 +8040,26 @@ async function buildRpcContext(options: WardenRpcHandlerOptions = {}): Promise<R
     ...(options.processRunReviewPreExecutionCheck === undefined
       ? {}
       : { processRunReviewPreExecutionCheck: options.processRunReviewPreExecutionCheck }),
+    ...(options.gitPushAuthority === undefined
+      ? {}
+      : { gitPushAuthority: options.gitPushAuthority }),
+    ...(options.gitPushReviewPreExecutionCheck === undefined
+      ? {}
+      : { gitPushReviewPreExecutionCheck: options.gitPushReviewPreExecutionCheck }),
   };
 }
 
 type ResolveReviewTempPrecheckDisposition =
   | "non-executing"
   | "exact-process-run"
+  | "exact-git-push"
   | "ordinary-review";
 
 function resolveReviewTempPrecheckDisposition(
   line: string,
   reviewState: EgressReviewState,
   interactiveConsoleState: ConsoleRuntimeState,
+  gitPushAuthority: GitPushAuthority | undefined,
 ): ResolveReviewTempPrecheckDisposition {
   // The caller invokes this helper only after methodOf parsed the same immutable frame and found
   // warden.resolveReview, so JSON parsing cannot newly fail and the method need not be re-routed.
@@ -7975,6 +8071,7 @@ function resolveReviewTempPrecheckDisposition(
   if (interactiveConsoleState.pendingReviews.has(params.data.reviewId)) {
     return "ordinary-review";
   }
+  if (gitPushAuthority?.hasPendingReview(params.data.reviewId) === true) return "exact-git-push";
   const review = reviewState.pending.get(params.data.reviewId);
   if (review === undefined) return "non-executing";
   return review.kind === "process-run" ? "exact-process-run" : "ordinary-review";
@@ -8020,6 +8117,8 @@ export interface StdioWardenServerOptions {
   shutdownReapBudgetMs?: number;
   /** Process-owned sandbox/resolver teardown. Runs before the production embedder closes audit. */
   shutdownRuntime?: () => Promise<void>;
+  /** Release-safe seam; omitted by the production Warden and injected only by non-release tests. */
+  gitPushAuthority?: GitPushAuthority;
 }
 
 export interface StdioWardenServer {
@@ -8085,6 +8184,9 @@ export function runStdioWardenServer(options: StdioWardenServerOptions = {}): St
     reviewState,
     typedToolState: createTypedToolState(),
     executionMetadataState,
+    ...(options.gitPushAuthority === undefined
+      ? {}
+      : { gitPushAuthority: options.gitPushAuthority }),
     ...(options.typedMutationRunner === undefined
       ? {}
       : { typedMutationRunner: options.typedMutationRunner }),
@@ -8121,11 +8223,16 @@ export function runStdioWardenServer(options: StdioWardenServerOptions = {}): St
 
   const processLine = async (line: string): Promise<void> => {
     const method = methodOf(line);
-    let exactProcessRunPrecheckFailed = false;
+    let exactReviewPrecheckFailed = false;
     const validateSandboxTempRoot = options.validateSandboxTempRoot;
     const resolvePrecheckDisposition =
       method === "warden.resolveReview"
-        ? resolveReviewTempPrecheckDisposition(line, reviewState, interactiveConsoleState)
+        ? resolveReviewTempPrecheckDisposition(
+            line,
+            reviewState,
+            interactiveConsoleState,
+            options.gitPushAuthority,
+          )
         : undefined;
     let requestedPresentationPeerMinor: number | null = null;
     if (method === "warden.hello") {
@@ -8157,20 +8264,26 @@ export function runStdioWardenServer(options: StdioWardenServerOptions = {}): St
             mutationPresentationPeerMinor: requestedPresentationPeerMinor,
           }
         : handlerOptions;
+    const exactReviewPreExecutionCheck = (): void => {
+      try {
+        validateSandboxTempRoot?.();
+      } catch (error) {
+        exactReviewPrecheckFailed = true;
+        throw error;
+      }
+    };
     const requestHandlerOptions =
       resolvePrecheckDisposition === "exact-process-run" && validateSandboxTempRoot !== undefined
         ? {
             ...negotiatedRequestHandlerOptions,
-            processRunReviewPreExecutionCheck: () => {
-              try {
-                validateSandboxTempRoot();
-              } catch (error) {
-                exactProcessRunPrecheckFailed = true;
-                throw error;
-              }
-            },
+            processRunReviewPreExecutionCheck: exactReviewPreExecutionCheck,
           }
-        : negotiatedRequestHandlerOptions;
+        : resolvePrecheckDisposition === "exact-git-push" && validateSandboxTempRoot !== undefined
+          ? {
+              ...negotiatedRequestHandlerOptions,
+              gitPushReviewPreExecutionCheck: exactReviewPreExecutionCheck,
+            }
+          : negotiatedRequestHandlerOptions;
     const handled = await handleRpcLineWithSidecar(line, requestHandlerOptions);
     const response = handled.response;
     if (
@@ -8185,7 +8298,7 @@ export function runStdioWardenServer(options: StdioWardenServerOptions = {}): St
     if (
       (method === "warden.execute" ||
         (method === "warden.resolveReview" && resolvePrecheckDisposition !== "non-executing")) &&
-      !exactProcessRunPrecheckFailed
+      !exactReviewPrecheckFailed
     ) {
       try {
         options.validateSandboxTempRoot?.();

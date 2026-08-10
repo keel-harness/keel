@@ -253,7 +253,8 @@ function ApprovalBlock({ approval }: { approval: UiActiveApproval }): React.JSX.
   // Exact process evidence uses one stable semantic layout at every height. A row-count threshold
   // would let a one-row resize switch back to Ink's generic whitespace-normalizing wrapper while
   // the review remains actionable.
-  const exactProcessRunConstrained = plan.losslessProcessRunSummary !== undefined;
+  const exactReviewSummary = plan.losslessProcessRunSummary ?? plan.losslessGitPushSummary;
+  const exactProcessRunConstrained = exactReviewSummary !== undefined;
   const constrained =
     compact || (terminalRows <= 24 && columns <= 80) || exactProcessRunConstrained;
   // A standard 24-row terminal has four live-shell rows beneath the decision surface. Keep the
@@ -283,10 +284,12 @@ function ApprovalBlock({ approval }: { approval: UiActiveApproval }): React.JSX.
       </Text>
       {rows.map((row, index) => {
         const exactProcessRunEvidence =
-          plan.losslessProcessRunSummary !== undefined &&
+          exactReviewSummary !== undefined &&
           row.kind === "evidence" &&
-          row.text === `Effective target · ${plan.losslessProcessRunSummary}`
-            ? wrapLosslessDisplayLine(plan.losslessProcessRunSummary, approvalContentColumns)
+          row.text === `Effective target · ${exactReviewSummary}`
+            ? exactReviewSummary
+                .split("\n")
+                .flatMap((line) => wrapLosslessDisplayLine(line, approvalContentColumns) ?? [])
             : undefined;
         const keyMatch = row.kind === "action" ? /^(\[[^\]]+\])(.*)$/u.exec(row.text) : null;
         const marginTop =

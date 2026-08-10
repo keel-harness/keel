@@ -239,6 +239,73 @@ describe("WardenExecutor", () => {
     },
   );
 
+  it("returns an audited pre-execution git.push INVALID_PARAMS denial for model correction", async () => {
+    const client = new FakeWardenClient({
+      error: new WardenClientError("INVALID_PARAMS", "expectedHead must be one full object ID", {
+        rpcCode: -32602,
+        details: { code: "INVALID_PARAMS", auditSeq: 43 },
+      }),
+    });
+    const executor = new WardenExecutor({ client, sessionId: SESSION_ID });
+
+    const result = await executor.execute(
+      call("git.push", { remote: "origin", branch: "feature/x", expectedHead: "abc" }),
+    );
+
+    expect(result).toEqual({
+      ok: false,
+      output:
+        "git.push INVALID_PARAMS: expectedHead must be one full object ID; not executed; " +
+        "correct remote, branch, and expectedHead, then submit a fresh git.push call",
+    });
+    expect(toolPresentationOutcome(result)).toBe("failed");
+    expect(toolControlFailureCode(result)).toBeUndefined();
+  });
+
+  it.each([
+    ["failed", true, "partial", "a ref update may have executed"],
+    ["indeterminate", true, "partial", "a ref update may have executed"],
+    ["failed", false, "failed", "failed before a ref update was launched"],
+  ] as const)(
+    "renders git.push %s with actionMayHaveExecuted=%s truthfully",
+    async (status, actionMayHaveExecuted, outcome, expected) => {
+      const executor = new WardenExecutor({
+        client: clientReturning({
+          verdict: "deny",
+          result: {
+            kind: "git_push_result",
+            status,
+            repository: "https://example.com/repo",
+            branch: "feature/x",
+            destinationRef: "refs/heads/feature/x",
+            commit: "0123456789abcdef0123456789abcdef01234567",
+            observedRef: null,
+            transport: "srt:vendored verified HTTPS with address guard",
+            automaticRetry: false,
+            actionMayHaveExecuted,
+          },
+          guidance: "bounded Warden guidance",
+          auditSeq: 8,
+        }),
+        sessionId: SESSION_ID,
+      });
+
+      const result = await executor.execute(
+        call("git.push", {
+          remote: "origin",
+          branch: "feature/x",
+          expectedHead: "0123456789abcdef0123456789abcdef01234567",
+        }),
+      );
+
+      expect(result.ok).toBe(false);
+      expect(result.output).toContain(expected);
+      expect(result.output).toContain('"automaticRetry":false');
+      expect(result.output).not.toContain("blocked by warden (not executed)");
+      expect(toolPresentationOutcome(result)).toBe(outcome);
+    },
+  );
+
   it.each([
     [
       "an inherited audit sequence",

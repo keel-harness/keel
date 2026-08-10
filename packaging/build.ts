@@ -64,6 +64,7 @@ const COMPILED_ENTRY = "packaging/cli-entry.js";
 const NPX_LAUNCHER = "packaging/npx-cli-entry.js";
 const NPX_KERNEL_ENTRY = "packages/kernel/src/cli/bin.ts";
 const NPX_WARDEN_ENTRY = "packaging/npx-warden-entry.js";
+const NON_RELEASE_GIT_PUSH_AUTHORITY = "packages/warden/src/git-push.ts";
 const OUT = "build";
 const NPX_DIR = join(OUT, "npx");
 const BIN_DIR = join(OUT, "bin");
@@ -411,6 +412,11 @@ async function buildNpx(): Promise<void> {
   if (!bundleGraphIncludesPath(wardenGraphInputs, VENDORED_SRT_ROOT)) {
     fail("npx warden bundle", ["vendored SRT graph is absent from the Warden process boundary"]);
   }
+  if (bundleGraphIncludesPath(wardenGraphInputs, NON_RELEASE_GIT_PUSH_AUTHORITY)) {
+    fail("npx warden bundle", [
+      "non-release Git-push fixture authority crossed the Warden carrier boundary",
+    ]);
+  }
   for (const marker of ["keel · starting", "resizeQuietPeriodMs"]) {
     if (wardenBundle.includes(marker)) {
       fail("npx warden bundle", [
@@ -518,6 +524,11 @@ async function buildBinaries(
     if (!r.success) fail(`binary ${key}`, r.logs);
     if (r.metafile === undefined) {
       fail(`binary ${key}`, ["Bun did not return the requested metafile"]);
+    }
+    if (bundleGraphIncludesPath(Object.keys(r.metafile.inputs), NON_RELEASE_GIT_PUSH_AUTHORITY)) {
+      fail(`binary ${key}`, [
+        "non-release Git-push fixture authority crossed the compiled carrier boundary",
+      ]);
     }
     const binaryPackageManifests = bundledPackageManifestPaths(Object.keys(r.metafile.inputs));
     if (

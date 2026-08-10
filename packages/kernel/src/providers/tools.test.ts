@@ -4,6 +4,7 @@ import { SPEC as bashSpec } from "../tools/bash.js";
 import { SPEC as editSpec } from "../tools/edit.js";
 import { SPEC as planSpec } from "../tools/plan.js";
 import { SPEC as processRunSpec } from "../tools/process-run.js";
+import { SPEC as gitPushSpec } from "../tools/git-push.js";
 import { SPEC as realReadSpec } from "../tools/read.js";
 import { createRetrieveTool } from "../tools/retrieve.js";
 import { SPEC as realSearchSpec } from "../tools/search.js";
@@ -44,6 +45,7 @@ const optionalRuntimeSpecs = [
 const realAdvertisedSpecs = [
   bashSpec,
   processRunSpec,
+  gitPushSpec,
   realReadSpec,
   realSearchSpec,
   writeSpec,
