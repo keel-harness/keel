@@ -2513,6 +2513,74 @@ describe("createProductionWardenRuntime", () => {
     await trusted.dispose();
   });
 
+  it("projects github.pr.create only for a trusted github-pr-create/v1 Warden peer", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "keel-runtime-github-pr-capability-"));
+    const untrusted = await createProductionWardenRuntime({
+      cwd: dir,
+      sessionId: "ses_01ARZ3NDEKTSV4RRFFQ69G5FAK",
+      workspaceTrusted: false,
+      env: { KEEL_HOME: join(dir, "untrusted-home") },
+      start: {
+        command: process.execPath,
+        args: [
+          "-e",
+          processRunCapabilityWardenScript(
+            join(dir, "untrusted.json"),
+            ["github-pr-create/v1"],
+            true,
+          ),
+        ],
+        requestTimeoutMs: 1_000,
+      },
+    });
+    expect(untrusted.tools.map((tool) => tool.name)).not.toContain("github.pr.create");
+    await untrusted.dispose();
+
+    const trusted = await createProductionWardenRuntime({
+      cwd: dir,
+      sessionId: "ses_01ARZ3NDEKTSV4RRFFQ69G5FAM",
+      workspaceTrusted: true,
+      env: { KEEL_HOME: join(dir, "trusted-home") },
+      start: {
+        command: process.execPath,
+        args: [
+          "-e",
+          processRunCapabilityWardenScript(
+            join(dir, "trusted.json"),
+            ["github-pr-create/v1"],
+            true,
+          ),
+        ],
+        requestTimeoutMs: 1_000,
+      },
+    });
+    const spec = trusted.tools.find((tool) => tool.name === "github.pr.create");
+    expect(spec?.parameters).toMatchObject({
+      type: "object",
+      required: [
+        "remote",
+        "repository",
+        "head",
+        "expectedHead",
+        "base",
+        "title",
+        "body",
+        "draft",
+        "maintainerCanModify",
+      ],
+      additionalProperties: false,
+      properties: {
+        remote: { maxLength: 64 },
+        expectedHead: { pattern: "^[0-9a-f]{40}$" },
+        draft: { type: "boolean" },
+        maintainerCanModify: { type: "boolean" },
+      },
+    });
+    expect(providerHostileSchemaPaths(spec?.parameters), "github.pr.create").toEqual([]);
+    expect(trusted.isMutating("github.pr.create")).toBe(true);
+    await trusted.dispose();
+  });
+
   it("routes process.run exact argv through the Warden and preserves separated output", async () => {
     const dir = mkdtempSync(join(tmpdir(), "keel-runtime-process-route-"));
     const capturePath = join(dir, "process-calls.json");

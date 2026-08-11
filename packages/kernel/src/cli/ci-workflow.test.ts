@@ -159,9 +159,20 @@ describe("CI packaging workflow", () => {
     );
     expect(build).toContain("production Git-push authority is absent from the Warden carrier");
     expect(build).toContain("Git-push authority crossed the Kernel process boundary");
-    expect(build).toContain("FORBIDDEN_GIT_PUSH_CARRIER_MARKERS");
+    expect(build).toContain("FORBIDDEN_PUBLICATION_CARRIER_MARKERS");
+    expect(build).toContain("PUBLICATION_TEST_ENTRYPOINTS");
     expect(build).toContain('"createGitPushWalkingSkeletonAuthority"');
     expect(build).toContain('"KEEL_GIT_PUSH_FIXTURE"');
+    expect(build).toContain(
+      'const GITHUB_PR_CREATE_PRODUCTION_AUTHORITY = "packages/warden/src/github-pr-create.ts"',
+    );
+    expect(build).toContain("production GitHub-PR authority is absent from the Warden carrier");
+    expect(build).toContain("GitHub-PR authority crossed the Kernel process boundary");
+    expect(build).toContain('"createGithubPrCreateWalkingSkeletonAuthority"');
+    expect(build).toContain('"invalid release-withheld github.pr.create fixture"');
+    expect(build).toContain('"packages/warden/src/github-pr-create-product.test.ts"');
+    expect(build).toContain('assertNoPublicationTestRoute("npx kernel bundle", kernelBundle)');
+    expect(build).toContain("bundleGraphIncludesPath(graphInputs, testEntrypoint)");
     expect(build).not.toContain("non-release Git-push fixture authority crossed");
   });
 

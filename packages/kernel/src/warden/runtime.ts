@@ -51,6 +51,11 @@ import {
   GIT_PUSH_TOOL_NAME,
   SPEC as GIT_PUSH_SPEC,
 } from "../tools/git-push.js";
+import {
+  GITHUB_PR_CREATE_CAPABILITY_V1,
+  GITHUB_PR_CREATE_TOOL_NAME,
+  SPEC as GITHUB_PR_CREATE_SPEC,
+} from "../tools/github-pr-create.js";
 import { SPEC as EDIT_SPEC } from "../tools/edit.js";
 import { SPEC as READ_SPEC } from "../tools/read.js";
 import { resolveRgPath, SPEC as SEARCH_SPEC } from "../tools/search.js";
@@ -946,6 +951,8 @@ export async function createProductionWardenRuntime(
       trustedWorkspace && client.hello.capabilities.includes(PROCESS_RUN_CAPABILITY_V1);
     const gitPushAvailable =
       trustedWorkspace && client.hello.capabilities.includes(GIT_PUSH_CAPABILITY_V1);
+    const githubPrCreateAvailable =
+      trustedWorkspace && client.hello.capabilities.includes(GITHUB_PR_CREATE_CAPABILITY_V1);
     const executor = new WardenExecutor({
       client,
       sessionId: options.sessionId,
@@ -992,6 +999,7 @@ export async function createProductionWardenRuntime(
         GOVERNED_BASH_SPEC,
         ...(processRunAvailable ? [PROCESS_RUN_SPEC] : []),
         ...(gitPushAvailable ? [GIT_PUSH_SPEC] : []),
+        ...(githubPrCreateAvailable ? [GITHUB_PR_CREATE_SPEC] : []),
         ...governedTypedToolsFor(options),
         ...governedInteractiveConsoleToolsFor(options, client.hello.capabilities),
         ...lifecycleToolsFor(lifecycleManifest),
@@ -1001,6 +1009,7 @@ export async function createProductionWardenRuntime(
         name === "bash" ||
         name === PROCESS_RUN_TOOL_NAME ||
         name === GIT_PUSH_TOOL_NAME ||
+        name === GITHUB_PR_CREATE_TOOL_NAME ||
         name === "write" ||
         name === "edit" ||
         name === "lifecycle.run" ||

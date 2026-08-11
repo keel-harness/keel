@@ -105,17 +105,22 @@ grants, and MCP resources, prompts, sampling, and elicitation are not claimed. S
 surfaces such as `plan`, `skill`, and `retrieve`, provider API calls, and future tools are likewise
 not counted as governed product execution proof.
 
-Current source builds add one bounded publication path for trusted interactive macOS/Linux sessions.
-With Git 2.x (2.39 or newer), typed `git.push` can create or fast-forward one non-default feature
-branch to one approved full commit OID over canonical HTTPS, through `srt:vendored` verified TLS and
-connect-time address guarding. The
-Warden resolves an operator system/global Git credential helper without exposing its value, and one
-lossless human approval authorizes that occurrence once. Force, deletion, tags, default-branch push,
-SSH, redirects, project credential helpers, reusable grants, and automatic retry remain blocked.
-Raw `process.run git push` remains terminal, and pull-request creation remains unimplemented.
+Current source builds add two bounded publication paths for trusted interactive macOS/Linux
+sessions. With Git 2.x (2.39 or newer), typed `git.push` can create or fast-forward one non-default
+feature branch to one approved full commit OID over canonical HTTPS, through `srt:vendored` verified
+TLS and connect-time address guarding. After that head exists on GitHub.com, a separate typed
+`github.pr.create` request can create one same-repository pull request with an exact title, body,
+base, head OID, draft flag, and maintainer-modification flag. Each occurrence has its own complete,
+once-only human approval; push approval never authorizes PR creation.
 
-The published `keel-harness@0.1.1` carrier predates `git.push`; this is a current-source capability
-until a separately authorized release proves the exact published bytes.
+The Warden resolves an operator system/global Git credential helper without exposing its value,
+records intent before either mutation, and independently verifies the resulting ref or pull request.
+Force, deletion, tags, default-branch push, SSH, redirects, project credential helpers, reusable
+grants, cross-repository PRs, arbitrary forge APIs, merge/auto-merge, labels, reviews, releases,
+deployments, and automatic retry remain blocked. Raw `process.run git push` remains terminal.
+
+The published `keel-harness@0.1.1` carrier predates both `git.push` and `github.pr.create`; these are
+current-source capabilities until a separately authorized release proves the exact published bytes.
 
 **[docs/status.md](docs/status.md) is the full account** — every limitation, the audit and signing
 boundaries, the release flow, and a note on running the test suite locally. Read it before you

@@ -65,11 +65,22 @@ const NPX_LAUNCHER = "packaging/npx-cli-entry.js";
 const NPX_KERNEL_ENTRY = "packages/kernel/src/cli/bin.ts";
 const NPX_WARDEN_ENTRY = "packaging/npx-warden-entry.js";
 const GIT_PUSH_PRODUCTION_AUTHORITY = "packages/warden/src/git-push.ts";
-const GIT_PUSH_TEST_ENTRYPOINTS = [
+const GITHUB_PR_CREATE_PRODUCTION_AUTHORITY = "packages/warden/src/github-pr-create.ts";
+const PUBLICATION_TEST_ENTRYPOINTS = [
   "packages/kernel/src/cli/git-push-walking-skeleton.real.test.ts",
+  "packages/kernel/src/cli/github-pr-create-walking-skeleton.real.test.ts",
+  "packages/kernel/src/tools/github-pr-create.test.ts",
+  "packages/kernel/src/warden/git-push-review-presentation.test.ts",
+  "packages/kernel/src/warden/github-pr-create-review-presentation.test.ts",
+  "packages/shared/src/common/git-push-version.test.ts",
+  "packages/warden/src/git-push-product.test.ts",
   "packages/warden/src/git-push.test.ts",
+  "packages/warden/src/github-pr-create-authority.test.ts",
+  "packages/warden/src/github-pr-create-product.test.ts",
+  "packages/warden/src/github-pr-create.test.ts",
+  "packages/warden/src/github-pr-create-srt.real.test.ts",
 ] as const;
-const FORBIDDEN_GIT_PUSH_CARRIER_MARKERS = [
+const FORBIDDEN_PUBLICATION_CARRIER_MARKERS = [
   "createGitPushWalkingSkeletonAuthority",
   "KEEL_GIT_PUSH_FIXTURE",
   "deterministic-test-provider",
@@ -80,6 +91,9 @@ const FORBIDDEN_GIT_PUSH_CARRIER_MARKERS = [
   "invalid non-release git.push fixture authority",
   "release-withheld fixture boundary",
   "Slice 1 release-withheld fixture",
+  "createGithubPrCreateWalkingSkeletonAuthority",
+  "invalid release-withheld github.pr.create fixture",
+  "release-withheld github.pr.create fixture API",
 ] as const;
 const OUT = "build";
 const NPX_DIR = join(OUT, "npx");
@@ -263,13 +277,13 @@ function assertNoSourceModeLoaderDeps(label: string, contents: Buffer | string):
   }
 }
 
-function assertNoGitPushTestRoute(label: string, contents: Buffer | string): void {
-  for (const marker of FORBIDDEN_GIT_PUSH_CARRIER_MARKERS) {
+function assertNoPublicationTestRoute(label: string, contents: Buffer | string): void {
+  for (const marker of FORBIDDEN_PUBLICATION_CARRIER_MARKERS) {
     const found =
       typeof contents === "string"
         ? contents.includes(marker)
         : contents.includes(Buffer.from(marker, "utf8"));
-    if (found) fail(label, [`Git-push test route marker ${JSON.stringify(marker)} was bundled`]);
+    if (found) fail(label, [`Publication test route marker ${JSON.stringify(marker)} was bundled`]);
   }
 }
 
@@ -449,14 +463,21 @@ async function buildNpx(): Promise<void> {
   if (kernelBundle.includes("createGitPushProductionAuthority")) {
     fail("npx warden bundle", ["Git-push authority crossed the Kernel process boundary"]);
   }
+  if (kernelBundle.includes("createGithubPrCreateProductionAuthority")) {
+    fail("npx warden bundle", ["GitHub-PR authority crossed the Kernel process boundary"]);
+  }
   if (!bundleGraphIncludesPath(wardenGraphInputs, GIT_PUSH_PRODUCTION_AUTHORITY)) {
     fail("npx warden bundle", ["production Git-push authority is absent from the Warden carrier"]);
   }
-  assertNoGitPushTestRoute("npx warden bundle", wardenBundle);
-  for (const testEntrypoint of GIT_PUSH_TEST_ENTRYPOINTS) {
-    if (bundleGraphIncludesPath(wardenGraphInputs, testEntrypoint)) {
-      fail("npx warden bundle", [
-        `Git-push test entrypoint crossed carrier boundary: ${testEntrypoint}`,
+  if (!bundleGraphIncludesPath(wardenGraphInputs, GITHUB_PR_CREATE_PRODUCTION_AUTHORITY)) {
+    fail("npx warden bundle", ["production GitHub-PR authority is absent from the Warden carrier"]);
+  }
+  assertNoPublicationTestRoute("npx kernel bundle", kernelBundle);
+  assertNoPublicationTestRoute("npx warden bundle", wardenBundle);
+  for (const testEntrypoint of PUBLICATION_TEST_ENTRYPOINTS) {
+    if (bundleGraphIncludesPath(graphInputs, testEntrypoint)) {
+      fail("npx bundle", [
+        `Publication test entrypoint crossed carrier boundary: ${testEntrypoint}`,
       ]);
     }
   }
@@ -579,10 +600,13 @@ async function buildBinaries(
     if (!bundleGraphIncludesPath(binaryGraphInputs, GIT_PUSH_PRODUCTION_AUTHORITY)) {
       fail(`binary ${key}`, ["production Git-push authority is absent from the Warden carrier"]);
     }
-    for (const testEntrypoint of GIT_PUSH_TEST_ENTRYPOINTS) {
+    if (!bundleGraphIncludesPath(binaryGraphInputs, GITHUB_PR_CREATE_PRODUCTION_AUTHORITY)) {
+      fail(`binary ${key}`, ["production GitHub-PR authority is absent from the Warden carrier"]);
+    }
+    for (const testEntrypoint of PUBLICATION_TEST_ENTRYPOINTS) {
       if (bundleGraphIncludesPath(binaryGraphInputs, testEntrypoint)) {
         fail(`binary ${key}`, [
-          `Git-push test entrypoint crossed carrier boundary: ${testEntrypoint}`,
+          `Publication test entrypoint crossed carrier boundary: ${testEntrypoint}`,
         ]);
       }
     }
@@ -596,7 +620,7 @@ async function buildBinaries(
     }
     const artifact = await readFile(outfile);
     assertNoSourceModeLoaderDeps(`binary ${key}`, artifact);
-    assertNoGitPushTestRoute(`binary ${key}`, artifact);
+    assertNoPublicationTestRoute(`binary ${key}`, artifact);
     if (!artifact.includes(Buffer.from("resizeQuietPeriodMs", "utf8"))) {
       fail(`binary ${key}`, ["reviewed Ink resize patch marker is absent"]);
     }

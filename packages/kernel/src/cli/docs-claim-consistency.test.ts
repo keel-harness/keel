@@ -686,8 +686,8 @@ describe("connect-time egress documentation", () => {
   });
 });
 
-describe("typed git.push publication documentation", () => {
-  it("keeps the shipped path and its non-goals together across current truth surfaces", () => {
+describe("typed governed publication documentation", () => {
+  it("keeps the current-source Git paths and their non-goals together across truth surfaces", () => {
     for (const path of [
       "README.md",
       "docs/status.md",
@@ -709,6 +709,18 @@ describe("typed git.push publication documentation", () => {
       expect(text, `${path} dropped the once-only human boundary`).toMatch(
         /once-only|one approval|approval.*once/isu,
       );
+      expect(text, `${path} dropped the typed github.pr.create surface`).toMatch(
+        /`github\.pr\.create`/u,
+      );
+      expect(text, `${path} widened github.pr.create beyond GitHub.com`).toMatch(
+        /GitHub\.com|GitHub-only/iu,
+      );
+      expect(text, `${path} dropped the separate-approval boundary`).toMatch(
+        /separate.*approval|approval.*separate/isu,
+      );
+      expect(text, `${path} dropped the PR automatic-retry prohibition`).toMatch(
+        /automatic retry|automatically retr(?:y|ied)/iu,
+      );
     }
 
     const readme = readRepoFile("README.md");
@@ -718,12 +730,15 @@ describe("typed git.push publication documentation", () => {
     const ledger = readRepoFile("docs/quality/claim-ledger.md");
     expect(readme).toMatch(/trusted interactive.*`srt:vendored`/isu);
     expect(readme).toMatch(/raw `process\.run git push` remains terminal/iu);
-    expect(status).toMatch(/pull-request creation remains unimplemented/iu);
+    expect(status).toMatch(/same-repository.*pull request/isu);
     expect(reference).toMatch(/Git 2\.x \(2\.39 or newer\)/u);
     expect(reference).toMatch(/force.*deletion.*tags.*default branch/isu);
-    expect(roadmap).toMatch(/GitHub pull-request creation.*next/isu);
+    expect(reference).toMatch(/merge.*labels.*reviews.*releases.*deployments/isu);
+    expect(roadmap).not.toMatch(/GitHub pull-request creation.*next/isu);
     expect(ledger).toContain("ADR-0091");
     expect(ledger).toContain("git-push-walking-skeleton.real.test.ts");
+    expect(ledger).toContain("github-pr-create-srt.real.test.ts");
+    expect(ledger).toContain("github-pr-create-walking-skeleton.real.test.ts");
   });
 });
 

@@ -37,7 +37,9 @@ sandbox and profile checks, and per-session audit:
 - `lifecycle.run`;
 - reviewed, pinned local-stdio MCP calls, under the bounded ADR-0084 contract;
 - in current source, typed `git.push` for one once-only human-approved HTTPS feature-branch create or
-  fast-forward in a trusted interactive macOS/Linux session.
+  fast-forward in a trusted interactive macOS/Linux session;
+- in current source, typed `github.pr.create` for one separately approved, same-repository GitHub.com
+  pull request after the exact remote head is independently verified.
 
 Phase 2B signed, offline-verifiable evidence bundles are implemented for exported audit evidence.
 
@@ -55,8 +57,22 @@ redirects, project helpers, reusable grants, and automatic retry are unavailable
 `process.run git push` remains terminal. Indeterminate attempts require a restart followed by
 independent remote-ref and audit inspection before a deliberate fresh request.
 
-This describes current source, not the published `keel-harness@0.1.1` bytes. Published-carrier proof
-remains release-gated, and pull-request creation remains unimplemented.
+`github.pr.create` is a distinct authority, not a continuation of push approval. It binds the
+canonical GitHub.com repository, current local branch and full SHA-1 OID, remote head and base,
+title, body, draft state, and maintainer-modification flag into a separate lossless once-only review.
+After approval, the Warden obtains a Bearer credential from the password field of the same
+system/global Git credential-helper boundary, performs fixed GitHub REST preflights through
+`srt:vendored`, sends at most one create request, and independently observes the exact pull request.
+An exact existing PR is reported without mutation. Results distinguish `created`, `already-exists`,
+`failed`, and `indeterminate`; there is no automatic retry.
+
+The PR path is same-repository and GitHub.com-only. It does not support GitHub Enterprise, forks or
+cross-repository heads, generic forge APIs, `gh`, combined push-and-PR approval, merge/auto-merge,
+labels, assignees, reviewers or reviews, comments, releases, deployments, or branch mutation.
+Repository permissions and protected-branch behavior remain server-enforced.
+
+This describes current source, not the published `keel-harness@0.1.1` bytes, which predates both
+typed publication capabilities. Published-carrier proof remains release-gated.
 
 ## What keel does not claim
 
@@ -66,14 +82,15 @@ General plugin and registry APIs, reusable grants, and MCP resources, prompts, s
 elicitation are not claimed either.
 
 **Not counted as governed product execution proof.** Session-helper and internal surfaces such as
-`plan`, `skill`, and `retrieve` do not count. Neither do provider API calls or future tools.
+`plan`, `skill`, and `retrieve` do not count. Neither do arbitrary provider API calls or future
+tools; only the bounded `github.pr.create` GitHub REST path above is included.
 
 **Not built.** The following are roadmap items, not shipped features:
 
-- provider API egress governance;
+- provider API egress governance beyond the bounded `github.pr.create` path;
 - remote, localhost, and unreviewed MCP;
 - general plugin and registry governance;
-- GitHub pull-request creation and other forge mutations;
+- forge mutations beyond the bounded same-repository GitHub.com pull-request creation above;
 - Phase-3 provenance;
 - the durable "memory-first" plane — `packages/memory` is a placeholder, a Phase-3 roadmap goal;
 - public compliance and full resource containment;

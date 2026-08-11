@@ -61,6 +61,7 @@ import { createVendoredSrtSandboxPort } from "./srt-runtime-loader.js";
 import { createWardenSandboxTempRoot } from "./sandbox-temp-root.js";
 import { createSandboxTypedMutationRunner } from "./typed-mutation-runner.js";
 import type { GitPushAuthority } from "./git-push-authority.js";
+import type { GithubPrCreateAuthority } from "./github-pr-create-authority.js";
 import { createMutationPresentationWalkingSkeletonTransport } from "./mutation-presentation-walking-skeleton.js";
 import {
   loadProjectEgressGrants,
@@ -19375,6 +19376,103 @@ printf '%s\\n' '${match}'
         `${JSON.stringify(
           request("git-push-precheck-replay", "warden.resolveReview", {
             reviewId: "git_push_review_1",
+            approved: true,
+            principal: TEST_PRINCIPAL,
+            scope: "once",
+          }),
+        )}\n`,
+      );
+      expect(error(await replayLine).error.data?.code).toBe("REVIEW_NOT_FOUND");
+      expect(validateSandboxTempRoot).toHaveBeenCalledTimes(1);
+    } finally {
+      await server.close();
+      writer.close();
+      rmSync(auditRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("consumes an exact github.pr.create review before stdio temp-authority precheck failure", async () => {
+    const input = new PassThrough();
+    const output = new PassThrough();
+    const auditRoot = realpathSync(
+      mkdtempSync(join(realpathSync("/tmp"), "keel-github-pr-create-precheck-")),
+    );
+    const writer = auditWriter(join(auditRoot, "session.jsonl"));
+    let pending = true;
+    let consumed = false;
+    const validateSandboxTempRoot = vi.fn(() => {
+      throw new Error("warden sandbox temporary root identity changed");
+    });
+    const githubPrCreateAuthority: GithubPrCreateAuthority = {
+      capability: "github-pr-create/v1",
+      toolName: "github.pr.create",
+      transportRequirements: { credentialTlsTermination: true },
+      capabilityAvailable: () => true,
+      pendingReviewCount: () => (pending ? 1 : 0),
+      hasPendingReview: (reviewId) => pending && reviewId === "github_pr_create_review_1",
+      request: async () => ({ verdict: "deny", auditSeq: 1 }),
+      consumeReview: (reviewId) => {
+        if (!pending || reviewId !== "github_pr_create_review_1") return undefined;
+        pending = false;
+        consumed = true;
+        return { kind: "github-pr-create", reviewId };
+      },
+      resolve: async (context) => {
+        expect(consumed).toBe(true);
+        try {
+          context.preExecutionCheck?.();
+        } catch {
+          return {
+            verdict: "deny",
+            result: {
+              kind: "github_pr_create_denied",
+              reason: "sandbox temporary authority changed; submit a fresh request",
+            },
+            auditSeq: 1,
+          };
+        }
+        throw new Error("expected the injected containment check to fail");
+      },
+      isInvalidParams: (error): error is Error => error instanceof Error,
+      auditInvalidParams: () => 1,
+    };
+    const server = runStdioWardenServer({
+      input,
+      output,
+      auditWriter: writer,
+      githubPrCreateAuthority,
+      githubPrCreateAddressGuardRevision: "test-address-guard-v1",
+      validateSandboxTempRoot,
+    });
+
+    try {
+      const failedApprovalLine = readStreamLine(output);
+      input.write(
+        `${JSON.stringify(
+          request("github-pr-create-precheck-failure", "warden.resolveReview", {
+            reviewId: "github_pr_create_review_1",
+            approved: true,
+            principal: TEST_PRINCIPAL,
+            scope: "once",
+          }),
+        )}\n`,
+      );
+      expect(
+        WARDEN_METHODS["warden.resolveReview"].result.parse(
+          success(await failedApprovalLine).result,
+        ),
+      ).toMatchObject({
+        verdict: "deny",
+        result: { reason: "sandbox temporary authority changed; submit a fresh request" },
+      });
+      expect(pending).toBe(false);
+      expect(validateSandboxTempRoot).toHaveBeenCalledTimes(1);
+
+      const replayLine = readStreamLine(output);
+      input.write(
+        `${JSON.stringify(
+          request("github-pr-create-precheck-replay", "warden.resolveReview", {
+            reviewId: "github_pr_create_review_1",
             approved: true,
             principal: TEST_PRINCIPAL,
             scope: "once",

@@ -21,6 +21,10 @@ import {
   associateExactGitPushReviewInformation,
   gitPushReviewSummaryForRequest,
 } from "../warden/git-push-review-presentation.js";
+import {
+  associateExactGithubPrCreateReviewInformation,
+  githubPrCreateReviewSummaryForRequest,
+} from "../warden/github-pr-create-review-presentation.js";
 
 export type ReviewInputDecision =
   | { readonly kind: "decision"; readonly decision: WardenReviewDecision }
@@ -123,9 +127,15 @@ function approvalInformation(
     exactResource: presentation.exactResource,
   };
   if (exactReviewSummary === undefined) return information;
-  return request.toolCall.name === "git.push"
-    ? (associateExactGitPushReviewInformation(information, exactReviewSummary) ?? information)
-    : (associateExactProcessRunReviewInformation(information, exactReviewSummary) ?? information);
+  if (request.toolCall.name === "git.push") {
+    return associateExactGitPushReviewInformation(information, exactReviewSummary) ?? information;
+  }
+  if (request.toolCall.name === "github.pr.create") {
+    return (
+      associateExactGithubPrCreateReviewInformation(information, exactReviewSummary) ?? information
+    );
+  }
+  return associateExactProcessRunReviewInformation(information, exactReviewSummary) ?? information;
 }
 
 function isInterruptInput(input: UserInput): boolean {
@@ -175,8 +185,10 @@ function promptFor(
     request.toolCall,
     request.review,
   );
-  const exactGitPushSummary = gitPushReviewSummaryForRequest(request.toolCall, request.review);
-  const exactReviewSummary = exactProcessRunSummary ?? exactGitPushSummary;
+  const exactPublicationSummary =
+    gitPushReviewSummaryForRequest(request.toolCall, request.review) ??
+    githubPrCreateReviewSummaryForRequest(request.toolCall, request.review);
+  const exactReviewSummary = exactProcessRunSummary ?? exactPublicationSummary;
   return {
     kind: "opened",
     detail: exactReviewSummary ?? reviewedTarget(request),
@@ -185,7 +197,9 @@ function promptFor(
     ...(exactProcessRunSummary === undefined
       ? {}
       : { losslessProcessRunSummary: exactProcessRunSummary }),
-    ...(exactGitPushSummary === undefined ? {} : { losslessGitPushSummary: exactGitPushSummary }),
+    ...(exactPublicationSummary === undefined
+      ? {}
+      : { losslessGitPushSummary: exactPublicationSummary }),
   };
 }
 
@@ -310,6 +324,12 @@ export function createInteractiveReviewDecisionController(): InteractiveReviewDe
       if (
         request.toolCall.name === "git.push" &&
         gitPushReviewSummaryForRequest(request.toolCall, request.review) === undefined
+      ) {
+        return undefined;
+      }
+      if (
+        request.toolCall.name === "github.pr.create" &&
+        githubPrCreateReviewSummaryForRequest(request.toolCall, request.review) === undefined
       ) {
         return undefined;
       }
