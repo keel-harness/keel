@@ -2,6 +2,7 @@ import { Buffer } from "node:buffer";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, realpathSync, statSync } from "node:fs";
+import { isIP } from "node:net";
 import { join } from "node:path";
 
 const BROKER_VERSION = "git-credential-broker/v1" as const;
@@ -114,10 +115,14 @@ function exactDirectoryDigest(path: string): string {
 }
 
 function validateContext(context: GitCredentialContext): void {
+  const hostLabels = context.host.split(".");
   if (
     context.protocol !== "https" ||
-    !/^[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?$/u.test(context.host) ||
-    context.host.includes("..") ||
+    context.host.length > 253 ||
+    isIP(context.host) !== 0 ||
+    hostLabels.some(
+      (label) => label === "" || !/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/u.test(label),
+    ) ||
     context.path === "" ||
     context.path.startsWith("/") ||
     Buffer.byteLength(context.path, "utf8") > 384 ||
@@ -170,6 +175,7 @@ export function parseGitCredentialOutput(
   const password = fields.get("password")!;
   if (
     username === "" ||
+    username.includes(":") ||
     password === "" ||
     Buffer.byteLength(username, "utf8") > 256 ||
     Buffer.byteLength(password, "utf8") > 4_096
@@ -272,7 +278,6 @@ function safeOperatorEnv(input: NodeJS.ProcessEnv, brokerRoot: string): Record<s
     "PATH",
     "SHELL",
     "TERM",
-    "TMPDIR",
     "USER",
     "XDG_CONFIG_HOME",
   ]);
@@ -282,6 +287,7 @@ function safeOperatorEnv(input: NodeJS.ProcessEnv, brokerRoot: string): Record<s
   env["PATH"] = env["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin";
   env["LANG"] = env["LANG"] ?? "C";
   env["LC_ALL"] = "C";
+  env["TMPDIR"] = brokerRoot;
   env["GIT_TERMINAL_PROMPT"] = "0";
   env["GIT_ASKPASS"] = "/usr/bin/false";
   env["SSH_ASKPASS"] = "/usr/bin/false";
