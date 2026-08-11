@@ -17,10 +17,7 @@ import fc from "fast-check";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { JsonObjectT } from "@keel/shared";
 import { AuditChainWriter, type AuditAppendInput } from "./audit/writer.js";
-import type {
-  GitCredentialBroker,
-  GitCredentialBrokerIdentity,
-} from "./git-credential-broker.js";
+import type { GitCredentialBroker, GitCredentialBrokerIdentity } from "./git-credential-broker.js";
 import { handleRpcLine } from "./rpc-server.js";
 import {
   CREDENTIAL_TLS_TERMINATION_CAPABILITY,
@@ -993,8 +990,9 @@ describe("ADR-0091 git.push Warden walking skeleton", () => {
 
     expect(resolved).toMatchObject({
       verdict: "deny",
-      result: { kind: "git_push_denied", reason: expect.stringContaining("facts changed") },
+      result: { kind: "git_push_denied" },
     });
+    expect(resolved.result?.["reason"]).toBe("request facts changed; submit a fresh request");
     expect(resolveCredential).not.toHaveBeenCalled();
     expect(externalNetworkExecutions(h)).toEqual([]);
   });

@@ -64,13 +64,16 @@ afterEach(() => {
 
 describe("ADR-0091 operator Git credential protocol", () => {
   it("parses one exact matching HTTPS username/password record", () => {
-    expect(parseGitCredentialOutput(exactCredentialOutput("x-access-token", "token"), context)).toEqual(
-      { username: "x-access-token", password: "token" },
-    );
+    expect(
+      parseGitCredentialOutput(exactCredentialOutput("x-access-token", "token"), context),
+    ).toEqual({ username: "x-access-token", password: "token" });
   });
 
   it.each([
-    ["missing password", "protocol=https\nhost=github.com\npath=keel-harness/keel.git\nusername=u\n"],
+    [
+      "missing password",
+      "protocol=https\nhost=github.com\npath=keel-harness/keel.git\nusername=u\n",
+    ],
     ["duplicate key", `${exactCredentialOutput("u", "p")}password=again\n`],
     ["unknown key", `${exactCredentialOutput("u", "p")}oauth_refresh_token=hidden\n`],
     ["wrong protocol", exactCredentialOutput("u", "p").replace("https", "http")],
@@ -97,7 +100,9 @@ describe("ADR-0091 Warden Git credential broker", () => {
     const runProcess = vi.fn(async (request: GitCredentialProcessRequest) => {
       requests.push(request);
       if (request.argv.includes("--list")) {
-        return result("global\u0000file:/operator/.gitconfig\u0000credential.helper\nosxkeychain\u0000");
+        return result(
+          "global\u0000file:/operator/.gitconfig\u0000credential.helper\nosxkeychain\u0000",
+        );
       }
       return result("credential.helper\nosxkeychain\u0000");
     });
@@ -130,7 +135,9 @@ describe("ADR-0091 Warden Git credential broker", () => {
         return result(exactCredentialOutput(canaryUser, canarySecret));
       }
       if (request.argv.includes("--list")) {
-        return result("global\u0000file:/operator/.gitconfig\u0000credential.helper\nosxkeychain\u0000");
+        return result(
+          "global\u0000file:/operator/.gitconfig\u0000credential.helper\nosxkeychain\u0000",
+        );
       }
       return result("credential.helper\nosxkeychain\u0000");
     });
@@ -150,12 +157,12 @@ describe("ADR-0091 Warden Git credential broker", () => {
     });
     const fill = requests.at(-1)!;
     expect(fill.argv.slice(-2)).toEqual(["credential", "fill"]);
-    expect(requests.some((request) => request.argv.some((arg) => /approve|store|reject|erase/u.test(arg)))).toBe(
-      false,
-    );
-    expect(fill.stdin).toBe(
-      "protocol=https\nhost=github.com\npath=keel-harness/keel.git\n\n",
-    );
+    expect(
+      requests.some((request) =>
+        request.argv.some((arg) => /approve|store|reject|erase/u.test(arg)),
+      ),
+    ).toBe(false);
+    expect(fill.stdin).toBe("protocol=https\nhost=github.com\npath=keel-harness/keel.git\n\n");
     expect(fill.argv.join("\u0000")).not.toContain(canaryUser);
     expect(fill.argv.join("\u0000")).not.toContain(canarySecret);
     expect(JSON.stringify(fill.env)).not.toContain(canaryUser);
@@ -212,7 +219,9 @@ describe("ADR-0091 Warden Git credential broker", () => {
     const identity = await broker.inspect(context);
 
     await expect(broker.resolve(context, identity)).rejects.toThrow(GitCredentialBrokerError);
-    await expect(broker.resolve(context, identity)).rejects.not.toThrow("helper leaked diagnostics");
+    await expect(broker.resolve(context, identity)).rejects.not.toThrow(
+      "helper leaked diagnostics",
+    );
   });
 
   it("rejects concurrent resolution instead of queueing or duplicating helper execution", async () => {
@@ -254,7 +263,9 @@ describe("ADR-0091 Warden Git credential broker", () => {
     for (const helperOutput of [
       "",
       "credential.helper-without-value\u0000",
-      Array.from({ length: 9 }, (_, index) => `credential.helper\nh${String(index)}\u0000`).join(""),
+      Array.from({ length: 9 }, (_, index) => `credential.helper\nh${String(index)}\u0000`).join(
+        "",
+      ),
     ]) {
       const root = privateRoot();
       const broker = createGitCredentialBroker({
