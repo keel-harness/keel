@@ -63,6 +63,33 @@ describe("bounded Warden egress resolver", () => {
     expect(records).toEqual([]);
   });
 
+  it("re-resolves every connection and denies a public-to-loopback DNS rebinding answer", async () => {
+    let call = 0;
+    const lookup = vi.fn<EgressResolverLookup>((_hostname, _options, callback) => {
+      call += 1;
+      callback(null, call === 1 ? [publicAnswer()] : [{ address: "127.0.0.1", family: 4 }]);
+    });
+    const { resolver, records } = fixture({ lookup });
+
+    await expect(
+      resolver.resolveDestination("rebind.example", 443, new AbortController().signal),
+    ).resolves.toEqual([publicAnswer()]);
+    await expect(
+      resolver.resolveDestination("rebind.example", 443, new AbortController().signal),
+    ).rejects.toMatchObject({ code: "hard-deny" });
+
+    expect(lookup).toHaveBeenCalledTimes(2);
+    expect(records).toEqual([
+      expect.objectContaining({
+        kind: "denial",
+        host: "rebind.example",
+        reason: "hard-deny",
+        answerCount: 1,
+      }),
+    ]);
+    expect(JSON.stringify(records)).not.toContain("127.0.0.1");
+  });
+
   it("classifies an IP literal without DNS and still denies hard and restricted space", async () => {
     const lookup = vi.fn<EgressResolverLookup>();
     const { resolver, records } = fixture({ lookup });

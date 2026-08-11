@@ -181,4 +181,23 @@ describe("warden credential TLS product wiring", () => {
     expect(typeof sandboxOptions?.resolveDestination).toBe("function");
     expect(sandboxOptions).not.toHaveProperty("credentialTlsTermination");
   });
+
+  it("enables TLS termination only when an injected git.push authority requires it", async () => {
+    const mocked = mockProductModules(undefined);
+    const gitPushAuthority = {
+      capability: "git-push/v1",
+      toolName: "git.push",
+      transportRequirements: { credentialTlsTermination: true },
+    };
+    vi.stubEnv("KEEL_WARDEN_SANDBOX", "srt");
+
+    const { runWardenFromEnv } = await import("./bin.js");
+    await Reflect.apply(runWardenFromEnv, undefined, [{ gitPushAuthority }]);
+
+    const sandboxOptions = mocked.createVendoredSrtSandboxComponents.mock.calls[0]?.[0];
+    expect(sandboxOptions).toMatchObject({ credentialTlsTermination: true });
+    expect(mocked.runStdioWardenServer).toHaveBeenCalledWith(
+      expect.objectContaining({ gitPushAuthority }),
+    );
+  });
 });

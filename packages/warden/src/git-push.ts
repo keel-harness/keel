@@ -25,6 +25,12 @@ import {
   type GitPushResolveParams,
   type GitPushRpcResult,
 } from "./git-push-authority.js";
+import type {
+  GitCredentialAuthorization,
+  GitCredentialBroker,
+  GitCredentialBrokerIdentity,
+  GitCredentialContext,
+} from "./git-credential-broker.js";
 import {
   CREDENTIAL_TLS_TERMINATION_CAPABILITY,
   EGRESS_ADDRESS_GUARD_CAPABILITY,
@@ -50,15 +56,25 @@ const UNSAFE_CARD_VALUE = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u;
 const MAX_GIT_OUTPUT_BYTES = 64 * 1024;
 const MAX_GIT_CONFIG_BYTES = 64 * 1024;
 
-export interface GitPushFixtureAuthority {
+interface GitPushFixtureTransportAuthority {
   readonly canonicalUrl: string;
   readonly host: "localhost";
   readonly port: number;
   readonly address: "127.0.0.1";
-  readonly username: string;
-  readonly secret: string;
-  readonly credentialSourceClass: "deterministic-test-provider";
 }
+
+export type GitPushFixtureAuthority = GitPushFixtureTransportAuthority &
+  (
+    | {
+        readonly username: string;
+        readonly secret: string;
+        readonly credentialSourceClass: "deterministic-test-provider";
+      }
+    | {
+        readonly credentialBroker: GitCredentialBroker;
+        readonly credentialSourceClass: "operator-git-credential-helper";
+      }
+  );
 
 /**
  * Slice-1-only injected authority. No production entrypoint constructs this value, and the runtime
@@ -71,6 +87,17 @@ export interface GitPushWalkingSkeletonConfig {
   readonly tempRoot: string;
   readonly nowMs?: () => number;
 }
+
+/** Production-default-port authority. Product wiring remains gated until the later lifecycle slice. */
+export interface GitPushProductionConfig {
+  readonly productionCapability: true;
+  readonly credentialBroker: GitCredentialBroker;
+  readonly gitExecutable: string;
+  readonly tempRoot: string;
+  readonly nowMs?: () => number;
+}
+
+export type GitPushRuntimeConfig = GitPushWalkingSkeletonConfig | GitPushProductionConfig;
 
 interface GitPushRequest {
   readonly remote: string;
@@ -113,9 +140,13 @@ interface GitPushFacts {
   readonly deletions: number;
   readonly workspaceState: "clean" | "has uncommitted changes";
   readonly gitExecutable: GitExecutableIdentity;
-  readonly envExecutable: GitExecutableIdentity;
+  readonly envExecutable?: GitExecutableIdentity;
   readonly tempRoot: string;
   readonly tempRootIdentity: GitExecutableIdentity;
+  readonly credentialSourceClass:
+    | "deterministic test fixture (release capability withheld)"
+    | "operator Git credential helper (system/global config)";
+  readonly credentialBrokerIdentity?: GitCredentialBrokerIdentity;
 }
 
 export interface PendingGitPushReview extends GitPushPendingReview {
@@ -132,7 +163,7 @@ export interface PendingGitPushReview extends GitPushPendingReview {
 }
 
 export interface GitPushRuntimeState {
-  readonly config: GitPushWalkingSkeletonConfig;
+  readonly config: GitPushRuntimeConfig;
   readonly pending: Map<string, PendingGitPushReview>;
   nextReviewId: number;
 }
@@ -203,7 +234,9 @@ export function auditGitPushInvalidParams(
   executeParams: GitPushExecuteParams,
   error: GitPushInvalidParamsError,
 ): number {
-  const canonicalUrl = context.state.config.fixture.canonicalUrl;
+  const canonicalUrl = isFixtureConfig(context.state.config)
+    ? context.state.config.fixture.canonicalUrl
+    : "https://invalid.invalid/git-push";
   return context.appendAudit({
     eventType: "tool.deny",
     sessionId: executeParams.sessionId,
@@ -218,10 +251,10 @@ export function auditGitPushInvalidParams(
   });
 }
 
-export function createGitPushRuntimeState(
-  config: GitPushWalkingSkeletonConfig,
-): GitPushRuntimeState {
-  validateFixtureAuthority(config);
+export function createGitPushRuntimeState<Config extends GitPushRuntimeConfig>(
+  config: Config,
+): GitPushRuntimeState & { readonly config: Config } {
+  validateRuntimeAuthority(config);
   return { config, pending: new Map(), nextReviewId: 1 };
 }
 
@@ -229,7 +262,33 @@ function isInside(parent: string, child: string): boolean {
   return child === parent || child.startsWith(parent.endsWith(sep) ? parent : `${parent}${sep}`);
 }
 
-function validateFixtureAuthority(config: GitPushWalkingSkeletonConfig): void {
+function isFixtureConfig(config: GitPushRuntimeConfig): config is GitPushWalkingSkeletonConfig {
+  return "advertiseTestCapability" in config;
+}
+
+function validateBaseAuthority(config: GitPushRuntimeConfig): void {
+  const gitExecutable = realpathSync(config.gitExecutable);
+  // realpathSync returns a canonical absolute path or throws before capability state exists.
+  void gitExecutable;
+  const tempRoot = realpathSync(config.tempRoot);
+  const tempStat = statSync(tempRoot);
+  if (!tempStat.isDirectory() || (tempStat.mode & 0o077) !== 0) {
+    throw new Error("git.push temporary root must be an owner-only directory");
+  }
+}
+
+function validateRuntimeAuthority(config: GitPushRuntimeConfig): void {
+  if (!isFixtureConfig(config)) {
+    if (
+      config.productionCapability !== true ||
+      config.credentialBroker.sourceClass !==
+        "operator Git credential helper (system/global config)"
+    ) {
+      throw new Error("invalid production git.push credential authority");
+    }
+    validateBaseAuthority(config);
+    return;
+  }
   if (config.advertiseTestCapability !== true) throw new Error("git.push fixture is not enabled");
   const fixture = config.fixture;
   const parsed = new URL(fixture.canonicalUrl);
@@ -246,20 +305,16 @@ function validateFixtureAuthority(config: GitPushWalkingSkeletonConfig): void {
     !Number.isInteger(fixture.port) ||
     fixture.port < 1 ||
     fixture.port > 65_535 ||
-    fixture.username === "" ||
-    fixture.secret === "" ||
-    fixture.credentialSourceClass !== "deterministic-test-provider"
+    (fixture.credentialSourceClass === "deterministic-test-provider"
+      ? fixture.username === "" || fixture.secret === ""
+      : fixture.credentialSourceClass === "operator-git-credential-helper"
+        ? fixture.credentialBroker.sourceClass !==
+          "operator Git credential helper (system/global config)"
+        : true)
   ) {
     throw new Error("invalid non-release git.push fixture authority");
   }
-  const gitExecutable = realpathSync(config.gitExecutable);
-  // realpathSync returns a canonical absolute path or throws before capability state exists.
-  void gitExecutable;
-  const tempRoot = realpathSync(config.tempRoot);
-  const tempStat = statSync(tempRoot);
-  if (!tempStat.isDirectory() || (tempStat.mode & 0o077) !== 0) {
-    throw new Error("git.push temporary root must be an owner-only directory");
-  }
+  validateBaseAuthority(config);
 }
 
 export function gitPushCapabilityAvailable(
@@ -476,7 +531,7 @@ async function rejectRepositoryConfigWidening(
       "--no-includes",
       "--name-only",
       "--get-regexp",
-      "^(remote\\..*\\.(mirror|proxy|proxyauthmethod|push|receivepack|vcs)|http\\.(followredirects|proxy|proxyauthmethod|sslbackend|sslcert|sslcertpasswordprotected|sslkey|sslcainfo|sslcapath|sslverify|extraheader|curloptresolve)|core\\.(hookspath|fsmonitor)|push\\.(followtags|gpgsign|pushoption|recursesubmodules|useforceifincludes)|submodule\\.recurse|protocol\\..*\\.allow|url\\..*\\.(insteadof|pushinsteadof))$",
+      "^(remote\\..*\\.(mirror|proxy|proxyauthmethod|push|receivepack|vcs)|http\\.(followredirects|proxy|proxyauthmethod|sslbackend|sslcert|sslcertpasswordprotected|sslkey|sslcainfo|sslcapath|sslverify|extraheader|curloptresolve)|core\\.(hookspath|fsmonitor)|credential(\\..*)?\\..*|push\\.(followtags|gpgsign|pushoption|recursesubmodules|useforceifincludes)|submodule\\.recurse|protocol\\..*\\.allow|url\\..*\\.(insteadof|pushinsteadof))$",
     ],
     { allowExitOne: true },
   );
@@ -662,10 +717,24 @@ async function inspectGitPushFacts(
     throw new GitPushInvalidParamsError("remote must resolve to exactly one repository-local URL");
   }
   const canonicalUrl = urls[0]!;
-  if (canonicalUrl !== state.config.fixture.canonicalUrl) {
-    throw new GitPushInvalidParamsError(
-      "Slice 1 release-withheld fixture accepts only its injected canonical HTTPS repository URL",
-    );
+  let host: string;
+  let port: number;
+  let repositoryPath: string;
+  if (isFixtureConfig(state.config)) {
+    if (canonicalUrl !== state.config.fixture.canonicalUrl) {
+      throw new GitPushInvalidParamsError(
+        "Slice 1 release-withheld fixture accepts only its injected canonical HTTPS repository URL",
+      );
+    }
+    const parsedFixtureUrl = new URL(canonicalUrl);
+    host = state.config.fixture.host;
+    port = state.config.fixture.port;
+    repositoryPath = parsedFixtureUrl.pathname.slice(1);
+  } else {
+    const parsedProductionUrl = parseCanonicalGitHttpsUrl(canonicalUrl);
+    host = parsedProductionUrl.host;
+    port = parsedProductionUrl.port;
+    repositoryPath = parsedProductionUrl.path.slice(1);
   }
   const pushUrls = await runContainedGit(
     context,
@@ -744,6 +813,13 @@ async function inspectGitPushFacts(
     ])) === ""
       ? "clean"
       : "has uncommitted changes";
+  const credentialContext: GitCredentialContext = {
+    protocol: "https",
+    host,
+    path: repositoryPath,
+  };
+  const credentialBroker = credentialBrokerForConfig(state.config);
+  const credentialBrokerIdentity = await credentialBroker?.inspect(credentialContext);
   return {
     workspaceRoot,
     workspaceIdentity: exactFileIdentity(workspaceRoot),
@@ -755,8 +831,8 @@ async function inspectGitPushFacts(
     objectFormat,
     remote: request.remote,
     canonicalUrl,
-    host: state.config.fixture.host,
-    port: state.config.fixture.port,
+    host,
+    port,
     destinationRef,
     expectedHead: request.expectedHead,
     subject,
@@ -767,14 +843,18 @@ async function inspectGitPushFacts(
     deletions,
     workspaceState,
     gitExecutable: exactFileIdentity(state.config.gitExecutable),
-    envExecutable: exactFileIdentity("/usr/bin/env"),
+    ...(isFixtureConfig(state.config) ? { envExecutable: exactFileIdentity("/usr/bin/env") } : {}),
     tempRoot: realpathSync(state.config.tempRoot),
     tempRootIdentity: exactFileIdentity(state.config.tempRoot),
+    credentialSourceClass:
+      credentialBroker === undefined
+        ? "deterministic test fixture (release capability withheld)"
+        : "operator Git credential helper (system/global config)",
+    ...(credentialBrokerIdentity === undefined ? {} : { credentialBrokerIdentity }),
   };
 }
 
 function reviewSummary(facts: GitPushFacts): string {
-  const sourceClass = "deterministic test fixture (release capability withheld)";
   const summary = [
     "Git push requires approval.",
     `Repository: ${facts.canonicalUrl}`,
@@ -785,7 +865,7 @@ function reviewSummary(facts: GitPushFacts): string {
     `Workspace: ${facts.workspaceState}; uncommitted changes are excluded`,
     "Effect: create this branch or fast-forward it to this commit; the remote may receive every missing object reachable from the commit",
     "Blocked: force, deletion, tags, hooks, submodule recursion, redirects, and remote-default-branch writes",
-    `Credential: ${sourceClass}; secret stays in the Warden/SRT path`,
+    `Credential: ${facts.credentialSourceClass}; secret stays in the Warden/SRT path`,
     "Approval: this occurrence once; expires in 120 seconds",
   ].join("\n");
   if (Buffer.byteLength(summary, "utf8") > 2_048) {
@@ -871,9 +951,19 @@ function auditIdentity(review: PendingGitPushReview): JsonObjectT {
     expectedHead: review.facts.expectedHead,
     objectFormat: review.facts.objectFormat,
     gitExecutable: review.facts.gitExecutable.path,
-    fixtureEnvExecutable: review.facts.envExecutable.path,
+    fixtureEnvExecutable: review.facts.envExecutable?.path ?? null,
     bindingDigest: review.bindingDigest,
-    credentialSourceClass: "deterministic test fixture (release capability withheld)",
+    credentialSourceClass: review.facts.credentialSourceClass,
+    credentialBrokerIdentity:
+      review.facts.credentialBrokerIdentity === undefined
+        ? null
+        : {
+            version: review.facts.credentialBrokerIdentity.version,
+            gitExecutableDigest: review.facts.credentialBrokerIdentity.gitExecutableDigest,
+            configurationDigest: review.facts.credentialBrokerIdentity.configurationDigest,
+            helperDigest: review.facts.credentialBrokerIdentity.helperDigest,
+            helperCount: review.facts.credentialBrokerIdentity.helperCount,
+          },
     transport: "srt:vendored verified HTTPS with connect-time address guard",
   };
 }
@@ -893,7 +983,11 @@ export async function requestGitPushReview(
       sandbox,
     })
   ) {
-    throw new Error("git.push release-withheld fixture boundary is unavailable");
+    throw new Error(
+      isFixtureConfig(context.state.config)
+        ? "git.push release-withheld fixture boundary is unavailable"
+        : "git.push enforcing transport boundary is unavailable",
+    );
   }
   const request = parseRequest(executeParams.toolCall.args);
   const facts = await inspectGitPushFacts(context, context.workspaceRoot, request);
@@ -1055,25 +1149,63 @@ function boundedGitFailureDiagnostic(stderr: string): JsonObjectT {
   };
 }
 
+function credentialBrokerForConfig(config: GitPushRuntimeConfig): GitCredentialBroker | undefined {
+  if (!isFixtureConfig(config)) return config.credentialBroker;
+  return config.fixture.credentialSourceClass === "operator-git-credential-helper"
+    ? config.fixture.credentialBroker
+    : undefined;
+}
+
+function credentialContextForReview(review: PendingGitPushReview): GitCredentialContext {
+  return {
+    protocol: "https",
+    host: review.facts.host,
+    path: new URL(review.facts.canonicalUrl).pathname.slice(1),
+  };
+}
+
+async function resolveCredentialAuthorization(
+  context: GitPushRuntimeContext,
+  review: PendingGitPushReview,
+): Promise<GitCredentialAuthorization> {
+  const config = context.state.config;
+  if (
+    isFixtureConfig(config) &&
+    config.fixture.credentialSourceClass === "deterministic-test-provider"
+  ) {
+    return {
+      scheme: "Basic",
+      secret: Buffer.from(`${config.fixture.username}:${config.fixture.secret}`, "utf8").toString(
+        "base64",
+      ),
+    };
+  }
+  const broker = credentialBrokerForConfig(config);
+  const identity = review.facts.credentialBrokerIdentity;
+  if (broker === undefined || identity === undefined) {
+    throw new Error("git.push credential broker identity is unavailable");
+  }
+  return await broker.resolve(credentialContextForReview(review), identity, context.signal);
+}
+
 function sandboxCredential(
-  state: GitPushRuntimeState,
+  config: GitPushRuntimeConfig,
+  review: PendingGitPushReview,
   attemptRoot: string,
+  authorization: GitCredentialAuthorization,
 ): SandboxCredentialProxyConfig {
   const home = join(attemptRoot, "home");
   mkdirSync(home, { recursive: true, mode: 0o700 });
   return {
     authorizationHeaders: [
       {
-        host: state.config.fixture.host,
-        scheme: "Basic",
-        secret: Buffer.from(
-          `${state.config.fixture.username}:${state.config.fixture.secret}`,
-          "utf8",
-        ).toString("base64"),
+        host: review.facts.host,
+        scheme: authorization.scheme,
+        secret: authorization.secret,
       },
     ],
     sandboxEnv: {
-      PATH: fixedGitPath(state.config.gitExecutable),
+      PATH: fixedGitPath(config.gitExecutable),
       HOME: home,
       XDG_CONFIG_HOME: home,
       LANG: "C",
@@ -1147,7 +1279,7 @@ function gitProfile(
         review.facts.objectStore,
         attemptRoot,
         review.facts.gitExecutable.path,
-        review.facts.envExecutable.path,
+        ...(review.facts.envExecutable === undefined ? [] : [review.facts.envExecutable.path]),
       ],
       allowWrite: [attemptRoot],
       denyRead: [],
@@ -1167,28 +1299,40 @@ async function runSandboxGit(
   attemptRoot: string,
   gitDir: string,
   args: readonly string[],
+  authorization: GitCredentialAuthorization,
 ): Promise<SandboxExecutionResult> {
   const timeout = AbortSignal.timeout(30_000);
   const signal =
     context.signal === undefined ? timeout : AbortSignal.any([context.signal, timeout]);
+  const invocation =
+    review.facts.envExecutable === undefined
+      ? {
+          command: review.facts.gitExecutable.path,
+          argv: [review.facts.gitExecutable.path, ...baseGitArgs(gitDir), ...args],
+          cwd: attemptRoot,
+        }
+      : {
+          // SRT intentionally bypasses its proxy for localhost by default. The injected fixture
+          // must traverse that proxy so verified TLS, credential injection, and the address guard
+          // remain real; clear only the child bypass variables for this exact non-release call.
+          command: review.facts.envExecutable.path,
+          argv: [
+            review.facts.envExecutable.path,
+            "NO_PROXY=",
+            "no_proxy=",
+            review.facts.gitExecutable.path,
+            ...baseGitArgs(gitDir),
+            ...args,
+          ],
+          cwd: attemptRoot,
+        };
   return await context.sandbox.execute(
-    {
-      // SRT intentionally bypasses its proxy for localhost by default. Slice 1's injected local
-      // fixture must traverse that proxy so verified TLS, credential injection, and the address
-      // guard remain real; clear only the child bypass variables for this exact non-release call.
-      command: review.facts.envExecutable.path,
-      argv: [
-        review.facts.envExecutable.path,
-        "NO_PROXY=",
-        "no_proxy=",
-        review.facts.gitExecutable.path,
-        ...baseGitArgs(gitDir),
-        ...args,
-      ],
-      cwd: attemptRoot,
-    },
+    invocation,
     gitProfile(review, attemptRoot, context.auditDir),
-    { signal, credentialProxy: sandboxCredential(context.state, attemptRoot) },
+    {
+      signal,
+      credentialProxy: sandboxCredential(context.state.config, review, attemptRoot, authorization),
+    },
   );
 }
 
@@ -1371,15 +1515,17 @@ export async function resolveGitPushReview(
   let attemptRoot: string | undefined;
   let mutationAttempted = false;
   try {
+    const authorization = await resolveCredentialAuthorization(context, review);
     const initialized = await initializeAttemptRepo(context, review);
     attemptRoot = initialized.attemptRoot;
-    const preflight = await runSandboxGit(context, review, attemptRoot, initialized.gitDir, [
-      "ls-remote",
-      "--symref",
-      review.facts.canonicalUrl,
-      "HEAD",
-      review.facts.destinationRef,
-    ]);
+    const preflight = await runSandboxGit(
+      context,
+      review,
+      attemptRoot,
+      initialized.gitDir,
+      ["ls-remote", "--symref", review.facts.canonicalUrl, "HEAD", review.facts.destinationRef],
+      authorization,
+    );
     if (preflight.exitCode !== 0) {
       const result = resultPayload(review, "failed", null, false);
       const auditSeq = auditOutcome(context, review, {
@@ -1442,19 +1588,29 @@ export async function resolveGitPushReview(
       return { verdict: "allow", result, auditSeq };
     }
     mutationAttempted = true;
-    const push = await runSandboxGit(context, review, attemptRoot, initialized.gitDir, [
-      "push",
-      "--porcelain",
-      "--no-verify",
-      "--recurse-submodules=no",
-      review.facts.canonicalUrl,
-      `${review.request.expectedHead}:${review.facts.destinationRef}`,
-    ]);
-    const verification = await runSandboxGit(context, review, attemptRoot, initialized.gitDir, [
-      "ls-remote",
-      review.facts.canonicalUrl,
-      review.facts.destinationRef,
-    ]);
+    const push = await runSandboxGit(
+      context,
+      review,
+      attemptRoot,
+      initialized.gitDir,
+      [
+        "push",
+        "--porcelain",
+        "--no-verify",
+        "--recurse-submodules=no",
+        review.facts.canonicalUrl,
+        `${review.request.expectedHead}:${review.facts.destinationRef}`,
+      ],
+      authorization,
+    );
+    const verification = await runSandboxGit(
+      context,
+      review,
+      attemptRoot,
+      initialized.gitDir,
+      ["ls-remote", review.facts.canonicalUrl, review.facts.destinationRef],
+      authorization,
+    );
     if (verification.exitCode !== 0) {
       const result = resultPayload(review, "indeterminate", null, true);
       const auditSeq = auditOutcome(context, review, {
@@ -1521,10 +1677,7 @@ export function isGitPushReviewId(value: string): boolean {
   return REVIEW_ID.test(value);
 }
 
-/** Construct the non-release Slice-1 authority from fixture-owned process state. */
-export function createGitPushWalkingSkeletonAuthority(
-  config: GitPushWalkingSkeletonConfig,
-): GitPushAuthority {
+function createGitPushAuthority(config: GitPushRuntimeConfig): GitPushAuthority {
   const state = createGitPushRuntimeState(config);
   const consumedReviews = new WeakSet<PendingGitPushReview>();
   const runtimeContext = (context: GitPushAuthorityContext): GitPushRuntimeContext => ({
@@ -1534,6 +1687,7 @@ export function createGitPushWalkingSkeletonAuthority(
   return {
     capability: GIT_PUSH_CAPABILITY_V1,
     toolName: GIT_PUSH_TOOL_NAME,
+    transportRequirements: { credentialTlsTermination: true },
     capabilityAvailable: (input) => gitPushCapabilityAvailable(state, input),
     pendingReviewCount: () => state.pending.size,
     hasPendingReview: (reviewId) => state.pending.has(reviewId),
@@ -1561,4 +1715,18 @@ export function createGitPushWalkingSkeletonAuthority(
       return auditGitPushInvalidParams(runtimeContext(context), params, error);
     },
   };
+}
+
+/** Construct the non-release Slice-1 authority from fixture-owned process state. */
+export function createGitPushWalkingSkeletonAuthority(
+  config: GitPushWalkingSkeletonConfig,
+): GitPushAuthority {
+  return createGitPushAuthority(config);
+}
+
+/** Construct the strict default-port production authority for later product wiring. */
+export function createGitPushProductionAuthority(
+  config: GitPushProductionConfig,
+): GitPushAuthority {
+  return createGitPushAuthority(config);
 }

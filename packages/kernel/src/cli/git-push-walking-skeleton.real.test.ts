@@ -7,7 +7,6 @@
  */
 import { spawn, spawnSync } from "node:child_process";
 import { Buffer } from "node:buffer";
-import { randomBytes } from "node:crypto";
 import { createServer as createHttpsServer } from "node:https";
 import { createSecureContext } from "node:tls";
 import type { IncomingMessage, ServerResponse } from "node:http";
@@ -15,7 +14,15 @@ import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   AnyAuditRecord,
@@ -26,7 +33,7 @@ import {
 } from "@keel/shared";
 import { ScriptedModel } from "@keel/simulator";
 import { InputQueue } from "./input-queue.js";
-import { runKeelCommand } from "./session-entry.js";
+import { runAuditExportCommand, runAuditVerifyCommand, runKeelCommand } from "./session-entry.js";
 import { listSessions } from "../session/list.js";
 import { readSession } from "../session/store.js";
 import { renderFrame } from "../tui/headless.js";
@@ -48,15 +55,10 @@ const WARDEN_SRT_LOADER_URL = pathToFileURL(
   join(ROOT, "packages/warden/src/srt-runtime-loader.ts"),
 ).href;
 const WARDEN_GIT_PUSH_URL = pathToFileURL(join(ROOT, "packages/warden/src/git-push.ts")).href;
+const WARDEN_GIT_CREDENTIAL_BROKER_URL = pathToFileURL(
+  join(ROOT, "packages/warden/src/git-credential-broker.ts"),
+).href;
 const TLS_FIXTURE_DIR = join(ROOT, "vendor/sandbox-runtime/test/fixtures/tls-terminate");
-const FIXTURE_USERNAME = "keel-fixture-user";
-// Generate the canary only in test-process memory: no credential byte is retained in source or a
-// release carrier, while every product/evidence assertion still scans for the exact runtime value.
-const FIXTURE_SECRET = randomBytes(24).toString("base64url");
-const FIXTURE_AUTHORIZATION = `Basic ${Buffer.from(
-  `${FIXTURE_USERNAME}:${FIXTURE_SECRET}`,
-  "utf8",
-).toString("base64")}`;
 const PRINCIPAL = {
   osUser: "git-push-product-test",
   configuredId: null,
@@ -106,7 +108,146 @@ interface SmartGitFixture {
   readonly remoteGitDir: string;
   readonly requests: GitRequestObservation[];
   readonly serverNames: string[];
+  acceptedAuthorization(): string | undefined;
+  pauseNextAuthenticatedRequest(): {
+    readonly entered: Promise<void>;
+    release(): void;
+  };
   close(): Promise<void>;
+}
+
+interface ObservedCredential {
+  readonly authorization: string;
+  readonly encoded: string;
+  readonly username: string;
+  readonly password: string;
+}
+
+function parseBasicAuthorization(value: string | undefined): ObservedCredential | undefined {
+  if (value === undefined || !value.startsWith("Basic ")) return undefined;
+  const encoded = value.slice("Basic ".length);
+  let decoded: string;
+  try {
+    decoded = Buffer.from(encoded, "base64").toString("utf8");
+  } catch {
+    return undefined;
+  }
+  const separator = decoded.indexOf(":");
+  if (separator <= 0 || separator === decoded.length - 1) return undefined;
+  return {
+    authorization: value,
+    encoded,
+    username: decoded.slice(0, separator),
+    password: decoded.slice(separator + 1),
+  };
+}
+
+function observedCredential(fixture: SmartGitFixture): ObservedCredential {
+  const credential = parseBasicAuthorization(fixture.acceptedAuthorization());
+  if (credential === undefined) throw new Error("fixture observed no valid Basic credential");
+  return credential;
+}
+
+function expectCredentialAbsent(value: string, credential: ObservedCredential): void {
+  for (const canary of [
+    credential.authorization,
+    credential.encoded,
+    credential.username,
+    credential.password,
+  ]) {
+    expect(value).not.toContain(canary);
+  }
+}
+
+function expectCredentialAbsentFromTree(root: string, credential: ObservedCredential): void {
+  for (const name of readdirSync(root)) {
+    const path = join(root, name);
+    const stat = statSync(path);
+    if (stat.isDirectory()) {
+      expectCredentialAbsentFromTree(path, credential);
+    } else if (stat.isFile()) {
+      expectCredentialAbsent(readFileSync(path).toString("latin1"), credential);
+    }
+  }
+}
+
+function linuxProcessTreeListing(): string {
+  const uid = process.getuid?.();
+  if (uid === undefined)
+    throw new Error("could not determine the process owner for /proc inspection");
+
+  const processes = new Map<number, { readonly parentPid: number; readonly uid: number }>();
+  for (const name of readdirSync("/proc")) {
+    if (!/^\d+$/u.test(name)) continue;
+    let status: string;
+    try {
+      status = readFileSync(join("/proc", name, "status"), "utf8");
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
+      throw error;
+    }
+    const parent = /^PPid:\s+(\d+)$/mu.exec(status);
+    const owner = /^Uid:\s+(\d+)/mu.exec(status);
+    if (parent === null || owner === null) {
+      throw new Error(`could not parse /proc/${name}/status`);
+    }
+    processes.set(Number(name), {
+      parentPid: Number(parent[1]),
+      uid: Number(owner[1]),
+    });
+  }
+
+  const descendantPids = new Set([process.pid]);
+  let foundDescendant = true;
+  while (foundDescendant) {
+    foundDescendant = false;
+    for (const [pid, processStatus] of processes) {
+      if (descendantPids.has(pid) || !descendantPids.has(processStatus.parentPid)) continue;
+      descendantPids.add(pid);
+      foundDescendant = true;
+    }
+  }
+
+  const chunks: Buffer[] = [];
+  let byteLength = 0;
+  for (const pid of [...descendantPids].sort((left, right) => left - right)) {
+    const processStatus = processes.get(pid);
+    if (processStatus !== undefined && processStatus.uid !== uid) {
+      throw new Error(`descendant process ${String(pid)} changed owner before inspection`);
+    }
+    for (const field of ["cmdline", "environ"] as const) {
+      let contents: Buffer;
+      try {
+        contents = readFileSync(join("/proc", String(pid), field));
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
+        throw new Error(
+          `could not inspect /proc/${String(pid)}/${field}: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+      byteLength += contents.length;
+      if (byteLength > 8 * 1024 * 1024) {
+        throw new Error("live process tree exceeded the bounded 8 MiB inspection limit");
+      }
+      chunks.push(contents);
+    }
+  }
+  return Buffer.concat(chunks).toString("latin1");
+}
+
+function processListing(): string {
+  if (process.platform === "linux") return linuxProcessTreeListing();
+  const result = spawnSync("/bin/ps", ["eww", "-ax", "-o", "command="], {
+    encoding: "utf8",
+    maxBuffer: 8 * 1024 * 1024,
+    timeout: 5_000,
+  });
+  if (result.status !== 0 || result.error !== undefined) {
+    throw new Error(
+      `could not inspect the live process listing: ${result.error?.message ?? result.stderr}`,
+    );
+  }
+  return result.stdout;
 }
 
 function splitCgiResponse(output: Buffer): { readonly headers: string; readonly body: Buffer } {
@@ -125,6 +266,7 @@ async function serveGitRequest(
   request: IncomingMessage,
   response: ServerResponse,
   projectRoot: string,
+  remoteUser: string,
 ): Promise<void> {
   const rawUrl = request.url ?? "/";
   const parsed = new URL(rawUrl, "https://localhost");
@@ -138,7 +280,7 @@ async function serveGitRequest(
       REQUEST_METHOD: request.method ?? "GET",
       CONTENT_TYPE: request.headers["content-type"] ?? "",
       CONTENT_LENGTH: request.headers["content-length"] ?? "",
-      REMOTE_USER: FIXTURE_USERNAME,
+      REMOTE_USER: remoteUser,
       SERVER_PROTOCOL: `HTTP/${request.httpVersion}`,
       SERVER_NAME: "localhost",
     },
@@ -180,6 +322,14 @@ async function startSmartGitFixture(): Promise<SmartGitFixture> {
   git(["--git-dir", remoteGitDir, "config", "http.receivepack", "true"]);
   const requests: GitRequestObservation[] = [];
   const serverNames: string[] = [];
+  let acceptedAuthorization: string | undefined;
+  let pause:
+    | {
+        readonly entered: () => void;
+        readonly wait: Promise<void>;
+        readonly release: () => void;
+      }
+    | undefined;
   const cert = readFileSync(join(TLS_FIXTURE_DIR, "localhost.crt"), "utf8");
   const key = readFileSync(join(TLS_FIXTURE_DIR, "server.key"), "utf8");
   const secureContext = createSecureContext({ cert, key });
@@ -201,12 +351,23 @@ async function startSmartGitFixture(): Promise<SmartGitFixture> {
         ...(request.method === undefined ? {} : { method: request.method }),
         ...(request.url === undefined ? {} : { url: request.url }),
       });
-      if (request.headers.authorization !== FIXTURE_AUTHORIZATION) {
+      const credential = parseBasicAuthorization(request.headers.authorization);
+      if (
+        credential === undefined ||
+        (acceptedAuthorization !== undefined && credential.authorization !== acceptedAuthorization)
+      ) {
         response.writeHead(401, { "www-authenticate": 'Basic realm="keel-git-fixture"' });
         response.end("authentication required");
         return;
       }
-      void serveGitRequest(request, response, projectRoot).catch((error: unknown) => {
+      acceptedAuthorization ??= credential.authorization;
+      const activePause = pause;
+      pause = undefined;
+      activePause?.entered();
+      void (async () => {
+        await activePause?.wait;
+        await serveGitRequest(request, response, projectRoot, credential.username);
+      })().catch((error: unknown) => {
         response.statusCode = 500;
         response.end(error instanceof Error ? error.message : String(error));
       });
@@ -230,6 +391,19 @@ async function startSmartGitFixture(): Promise<SmartGitFixture> {
     remoteGitDir,
     requests,
     serverNames,
+    acceptedAuthorization: () => acceptedAuthorization,
+    pauseNextAuthenticatedRequest: () => {
+      let entered!: () => void;
+      const enteredPromise = new Promise<void>((resolveEntered) => {
+        entered = resolveEntered;
+      });
+      let release!: () => void;
+      const wait = new Promise<void>((resolveRelease) => {
+        release = resolveRelease;
+      });
+      pause = { entered, wait, release };
+      return { entered: enteredPromise, release };
+    },
     close: () =>
       new Promise<void>((resolveClose, reject) => {
         server.closeAllConnections?.();
@@ -240,12 +414,14 @@ async function startSmartGitFixture(): Promise<SmartGitFixture> {
 
 class TestUI {
   latest: ViewModel | undefined;
+  readonly rendered: string[] = [];
   readonly queue = new InputQueue();
   #renderWaiters: { readonly pred: (view: ViewModel) => boolean; readonly resolve: () => void }[] =
     [];
 
   render(view: ViewModel): void {
     this.latest = view;
+    this.rendered.push(JSON.stringify(view));
     this.#renderWaiters = this.#renderWaiters.filter((waiter) => {
       if (!waiter.pred(view)) return true;
       waiter.resolve();
@@ -316,11 +492,35 @@ function spawnedGitPushWarden(options: {
   readonly auditDir: string;
   readonly fixture: SmartGitFixture;
   readonly workspaceRoot: string;
-}): ProductionWardenStartOptions {
+}): ProductionWardenStartOptions & {
+  readonly credentialFixturePaths: readonly string[];
+  readonly entryPath: string;
+} {
   const entryDir = tempDir("keel-git-push-warden-entry-");
   const entryPath = join(entryDir, "warden.mjs");
   const tempRoot = tempDir("keel-git-push-warden-temp-");
+  const helperHome = tempDir("keel-git-push-helper-home-");
+  const helperPath = join(helperHome, "credential-helper.mjs");
+  const helperConfigPath = join(helperHome, ".gitconfig");
   const gitExecutable = resolve(spawnSync("which", ["git"], { encoding: "utf8" }).stdout.trim());
+  writeFileSync(
+    helperPath,
+    `#!/usr/bin/env node
+      import { randomBytes } from "node:crypto";
+      process.stdin.resume();
+      process.stdin.on("end", () => {
+        const username = "u-" + randomBytes(12).toString("hex");
+        const password = "p-" + randomBytes(32).toString("base64url");
+        process.stdout.write("username=" + username + "\\npassword=" + password + "\\n");
+      });
+    `,
+    { mode: 0o700 },
+  );
+  writeFileSync(
+    helperConfigPath,
+    `[credential]\n\thelper =\n\thelper = !${process.execPath} ${helperPath}\n`,
+    { mode: 0o600 },
+  );
   writeFileSync(
     entryPath,
     `
@@ -330,18 +530,37 @@ function spawnedGitPushWarden(options: {
       import { defaultPolicyPackRef } from ${JSON.stringify(WARDEN_POLICY_URL)};
       import { createVendoredSrtSandboxComponents } from ${JSON.stringify(WARDEN_SRT_LOADER_URL)};
       import { createGitPushWalkingSkeletonAuthority } from ${JSON.stringify(WARDEN_GIT_PUSH_URL)};
+      import { createGitCredentialBroker } from ${JSON.stringify(WARDEN_GIT_CREDENTIAL_BROKER_URL)};
 
-      const fixture = ${JSON.stringify({
+      const fixtureTransport = ${JSON.stringify({
         canonicalUrl: options.fixture.canonicalUrl,
         host: "localhost",
         port: options.fixture.port,
         address: "127.0.0.1",
-        username: FIXTURE_USERNAME,
-        secret: FIXTURE_SECRET,
-        credentialSourceClass: "deterministic-test-provider",
       })};
+      const credentialBroker = createGitCredentialBroker({
+        gitExecutable: ${JSON.stringify(gitExecutable)},
+        tempRoot: ${JSON.stringify(tempRoot)},
+        env: {
+          HOME: ${JSON.stringify(helperHome)},
+          PATH: ${JSON.stringify(process.env["PATH"] ?? "/usr/bin:/bin")},
+          LANG: "C"
+        }
+      });
+      const fixture = {
+        ...fixtureTransport,
+        credentialSourceClass: "operator-git-credential-helper",
+        credentialBroker
+      };
+      const gitPushAuthority = createGitPushWalkingSkeletonAuthority({
+        advertiseTestCapability: true,
+        fixture,
+        gitExecutable: ${JSON.stringify(gitExecutable)},
+        tempRoot: ${JSON.stringify(tempRoot)}
+      });
       const components = await createVendoredSrtSandboxComponents({
-        credentialTlsTermination: true,
+        credentialTlsTermination:
+          gitPushAuthority.transportRequirements.credentialTlsTermination,
         resolveDestination: async (hostname, port) => {
           if (hostname !== fixture.host || port !== fixture.port) {
             throw new Error("fixture resolver refused unbound destination");
@@ -374,12 +593,7 @@ function spawnedGitPushWarden(options: {
         sandbox: components.sandbox,
         declaredTempRoots: [${JSON.stringify(tempRoot)}],
         shutdownRuntime: components.shutdown,
-        gitPushAuthority: createGitPushWalkingSkeletonAuthority({
-          advertiseTestCapability: true,
-          fixture,
-          gitExecutable: ${JSON.stringify(gitExecutable)},
-          tempRoot: ${JSON.stringify(tempRoot)}
-        }),
+        gitPushAuthority,
         onShutdown: close
       });
     `,
@@ -393,6 +607,53 @@ function spawnedGitPushWarden(options: {
       NODE_EXTRA_CA_CERTS: join(TLS_FIXTURE_DIR, "ca.crt"),
     },
     requestTimeoutMs: 50_000,
+    credentialFixturePaths: [helperPath, helperConfigPath],
+    entryPath,
+  };
+}
+
+function spawnedAuditExportWarden(options: {
+  readonly auditDir: string;
+  readonly workspaceRoot: string;
+}): ProductionWardenStartOptions {
+  const entryDir = tempDir("keel-git-push-export-warden-entry-");
+  const entryPath = join(entryDir, "warden.mjs");
+  writeFileSync(
+    entryPath,
+    `
+      import { runStdioWardenServer } from ${JSON.stringify(WARDEN_RPC_SERVER_URL)};
+      import { SessionAuditLog } from ${JSON.stringify(WARDEN_SESSION_LOG_URL)};
+      import { defaultPolicyPackRef } from ${JSON.stringify(WARDEN_POLICY_URL)};
+
+      const checkpointSecretKey = Uint8Array.from({ length: 32 }, (_, index) => index + 1);
+      const auditLog = new SessionAuditLog({
+        auditDir: ${JSON.stringify(options.auditDir)},
+        principal: ${JSON.stringify(PRINCIPAL)},
+        policyPack: defaultPolicyPackRef(),
+        checkpoint: { secretKey: checkpointSecretKey }
+      });
+      let closed = false;
+      function close() {
+        if (closed) return;
+        closed = true;
+        auditLog.close();
+        setImmediate(() => process.exit(0));
+      }
+      runStdioWardenServer({
+        auditWriter: auditLog,
+        auditDir: ${JSON.stringify(options.auditDir)},
+        workspaceRoot: ${JSON.stringify(options.workspaceRoot)},
+        workspaceTrusted: false,
+        onShutdown: close
+      });
+    `,
+    { mode: 0o600 },
+  );
+  return {
+    command: process.execPath,
+    args: ["--import", TSX_ESM_LOADER, "--conditions=@keel/source", entryPath],
+    env: { FORCE_COLOR: "0" },
+    requestTimeoutMs: 10_000,
   };
 }
 
@@ -412,6 +673,7 @@ suite("ADR-0091 git.push walking skeleton (real sandbox)", () => {
       USER: PRINCIPAL.osUser,
     };
     const ui = new TestUI();
+    const warden = spawnedGitPushWarden({ auditDir, fixture, workspaceRoot: cwd });
     const done = runKeelCommand(undefined, {
       model: new ScriptedModel({
         turns: [
@@ -430,7 +692,7 @@ suite("ADR-0091 git.push walking skeleton (real sandbox)", () => {
       cwd,
       env,
       trustFlag: true,
-      warden: spawnedGitPushWarden({ auditDir, fixture, workspaceRoot: cwd }),
+      warden,
     });
 
     try {
@@ -447,9 +709,29 @@ suite("ADR-0091 git.push walking skeleton (real sandbox)", () => {
       const approvalFrame = renderFrame(ui.latest!);
       expect(approvalFrame).toContain("create this branch or fast-forward it to this commit");
       expect(approvalFrame).toContain("this occurrence once");
-      expect(approvalFrame).not.toContain(FIXTURE_SECRET);
+      expect(approvalFrame).toContain("operator Git credential helper (system/global config)");
+      expect(fixture.requests).toEqual([]);
 
+      const liveCredentialWindow = fixture.pauseNextAuthenticatedRequest();
       ui.queue.push({ kind: "command", name: "/approve", args: "once" });
+      let liveProcessListing: string;
+      try {
+        await Promise.race([
+          liveCredentialWindow.entered,
+          new Promise<never>((_, reject) => {
+            const timeout = setTimeout(
+              () => reject(new Error("timed out waiting for credential-bearing Git process")),
+              8_000,
+            );
+            timeout.unref();
+          }),
+        ]);
+        liveProcessListing = processListing();
+      } finally {
+        liveCredentialWindow.release();
+      }
+      expect(liveProcessListing).toContain(warden.entryPath);
+      expectCredentialAbsent(liveProcessListing, observedCredential(fixture));
       try {
         await Promise.race([
           waitFor(
@@ -504,8 +786,9 @@ suite("ADR-0091 git.push walking skeleton (real sandbox)", () => {
         head,
       );
       expect(fixture.requests.length).toBeGreaterThanOrEqual(3);
+      const credential = observedCredential(fixture);
       expect(
-        fixture.requests.every((request) => request.authorization === FIXTURE_AUTHORIZATION),
+        fixture.requests.every((request) => request.authorization === credential.authorization),
       ).toBe(true);
       expect(fixture.serverNames.length).toBeGreaterThan(0);
       expect(fixture.serverNames.every((serverName) => serverName === "localhost")).toBe(true);
@@ -520,11 +803,16 @@ suite("ADR-0091 git.push walking skeleton (real sandbox)", () => {
       expect(result.isError).not.toBe(true);
       expect(result.output).toContain('"status":"pushed"');
       expect(result.output).toContain(head);
-      expect(JSON.stringify(session.events)).not.toContain(FIXTURE_SECRET);
+      expectCredentialAbsent(JSON.stringify(session.events), credential);
+      expectCredentialAbsent(ui.rendered.join("\n"), credential);
 
       const auditPath = join(auditDir, `${sessionId}.jsonl`);
       const auditText = readFileSync(auditPath, "utf8");
-      expect(auditText).not.toContain(FIXTURE_SECRET);
+      expectCredentialAbsent(auditText, credential);
+      for (const path of [warden.entryPath, ...warden.credentialFixturePaths]) {
+        expectCredentialAbsent(readFileSync(path, "utf8"), credential);
+      }
+      expectCredentialAbsentFromTree(cwd, credential);
       const records = auditText
         .trim()
         .split("\n")
@@ -538,6 +826,23 @@ suite("ADR-0091 git.push walking skeleton (real sandbox)", () => {
             record.payload["execution"] === "requested",
         ),
       ).toBe(true);
+
+      const exportDir = tempDir("keel-git-push-export-");
+      // Audit export does not need network, credential, Git, or sandbox authority. Keeping this
+      // second process audit-only proves the retained bundle without adding an unrelated SRT
+      // listener lifecycle to the credential-custody assertion.
+      const exportWarden = spawnedAuditExportWarden({ auditDir, workspaceRoot: cwd });
+      const exportMessage = await runAuditExportCommand({
+        sessionId,
+        cwd,
+        outPath: exportDir,
+        env,
+        warden: exportWarden,
+      });
+      expect(exportMessage).toContain("exported audit bundle:");
+      const bundlePath = join(exportDir, `bundle_${sessionId}`);
+      expect(runAuditVerifyCommand({ bundlePath })).toContain("verified audit bundle:");
+      expectCredentialAbsentFromTree(bundlePath, credential);
       expect(
         records.some(
           (record) =>
@@ -582,6 +887,7 @@ suite("ADR-0091 git.push walking skeleton (real sandbox)", () => {
       USER: PRINCIPAL.osUser,
     };
     const ui = new TestUI();
+    const warden = spawnedGitPushWarden({ auditDir, fixture, workspaceRoot: cwd });
     const done = runKeelCommand(undefined, {
       model: new ScriptedModel({
         turns: [
@@ -600,7 +906,7 @@ suite("ADR-0091 git.push walking skeleton (real sandbox)", () => {
       cwd,
       env,
       trustFlag: true,
-      warden: spawnedGitPushWarden({ auditDir, fixture, workspaceRoot: cwd }),
+      warden,
     });
 
     try {
@@ -629,8 +935,9 @@ suite("ADR-0091 git.push walking skeleton (real sandbox)", () => {
         head,
       );
       expect(git(["merge-base", "--is-ancestor", baseHead, head], cwd)).toBe("");
+      const credential = observedCredential(fixture);
       expect(
-        fixture.requests.every((request) => request.authorization === FIXTURE_AUTHORIZATION),
+        fixture.requests.every((request) => request.authorization === credential.authorization),
       ).toBe(true);
       const sessionId = listSessions(env)[0]!.id;
       const session = readSession(sessionId, env);
@@ -642,9 +949,10 @@ suite("ADR-0091 git.push walking skeleton (real sandbox)", () => {
       expect(result.isError).not.toBe(true);
       expect(result.output).toContain('"status":"pushed"');
       expect(result.output).toContain(head);
-      expect(JSON.stringify(session.events)).not.toContain(FIXTURE_SECRET);
-      expect(readFileSync(join(auditDir, `${sessionId}.jsonl`), "utf8")).not.toContain(
-        FIXTURE_SECRET,
+      expectCredentialAbsent(JSON.stringify(session.events), credential);
+      expectCredentialAbsent(
+        readFileSync(join(auditDir, `${sessionId}.jsonl`), "utf8"),
+        credential,
       );
     } finally {
       ui.queue.push({ kind: "command", name: "/exit" });
@@ -704,6 +1012,7 @@ suite("ADR-0091 git.push walking skeleton (real sandbox)", () => {
       USER: PRINCIPAL.osUser,
     };
     const ui = new TestUI();
+    const warden = spawnedGitPushWarden({ auditDir, fixture, workspaceRoot: cwd });
     const done = runKeelCommand(undefined, {
       model: new ScriptedModel({
         turns: [
@@ -722,7 +1031,7 @@ suite("ADR-0091 git.push walking skeleton (real sandbox)", () => {
       cwd,
       env,
       trustFlag: true,
-      warden: spawnedGitPushWarden({ auditDir, fixture, workspaceRoot: cwd }),
+      warden,
     });
 
     try {
@@ -755,9 +1064,10 @@ suite("ADR-0091 git.push walking skeleton (real sandbox)", () => {
       expect(result.output).toContain('"status":"failed"');
       expect(result.output).toContain('"automaticRetry":false');
       expect(result.output).toContain(remoteHead);
-      expect(JSON.stringify(session.events)).not.toContain(FIXTURE_SECRET);
+      const credential = observedCredential(fixture);
+      expectCredentialAbsent(JSON.stringify(session.events), credential);
       expect(
-        fixture.requests.every((request) => request.authorization === FIXTURE_AUTHORIZATION),
+        fixture.requests.every((request) => request.authorization === credential.authorization),
       ).toBe(true);
     } finally {
       ui.queue.push({ kind: "command", name: "/exit" });
