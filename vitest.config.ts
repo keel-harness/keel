@@ -36,6 +36,7 @@ export default defineConfig({
       "vendor/sandbox-runtime/test/sandbox/linux-proxy-readiness.test.ts",
       "vendor/sandbox-runtime/test/sandbox/destination-dial.test.ts",
       "vendor/sandbox-runtime/test/sandbox/destination-guard-proxy.test.ts",
+      "vendor/sandbox-runtime/test/sandbox/http-server-lifecycle.test.ts",
       "vendor/sandbox-runtime/test/sandbox/tls-loopback-lifecycle.test.ts",
     ],
     // Pin the fast-check global seed (replayable failures) — see ADR-0020 / I6.

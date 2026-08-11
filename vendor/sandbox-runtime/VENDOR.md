@@ -51,9 +51,11 @@ not source needed for Keel's reviewed adapter path:
 - `patches/connect-time-destination-resolver.patch`
 - `patches/reemit-macos-glob-read-denies.patch`
 - `patches/flush-tls-loopback-response.patch`
+- `patches/runtime-aware-http-proxy-close.patch`
 - `test/sandbox/linux-proxy-readiness.test.ts`
 - `test/sandbox/destination-dial.test.ts`
 - `test/sandbox/destination-guard-proxy.test.ts`
+- `test/sandbox/http-server-lifecycle.test.ts`
 - `test/sandbox/tls-loopback-lifecycle.test.ts`
 
 ## Local Patches
@@ -144,6 +146,22 @@ not source needed for Keel's reviewed adapter path:
   exactly-once cleanup without a peer FIN. A separate negative control proves loopback errors still
   destroy the client and clean up exactly once.
 - Upstreamable status: minimal and upstreamable. Recorded 2026-08-06; not yet submitted upstream.
+
+### Close HTTP proxy listeners in runtime-safe order
+
+- Patch: `patches/runtime-aware-http-proxy-close.patch`
+- Applied file: `src/sandbox/sandbox-manager.ts`
+- Reason: Node can accept a new connection between `closeAllConnections()` and `close()`, leaving the
+  close callback blocked indefinitely, while Bun detaches the server handle in `close()` and therefore
+  requires the inverse order. The upstream unconditional Bun ordering intermittently wedged Warden
+  shutdown after otherwise successful real Git push and GitHub PR product tests.
+- Security impact: no policy, TLS-verification, credential, audit, or sandbox decision changes. Runtime
+  detection now selects the safe listener/connection teardown order, so cleanup drains proxy authority
+  instead of waiting for the kernel-side timeout and forced process reap.
+- Compatibility: Bun retains its existing `closeAllConnections()`-before-`close()` behavior. Node stops
+  acceptance first and then force-closes the fixed established-connection set, matching Node's API
+  guidance. Deterministic tests preserve both orderings.
+- Upstreamable status: minimal and upstreamable. Recorded 2026-08-11; not yet submitted upstream.
 
 ## License And Notice
 

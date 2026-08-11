@@ -1,0 +1,71 @@
+diff --git a/src/sandbox/sandbox-manager.ts b/src/sandbox/sandbox-manager.ts
+index b673d0c..0a64186 100644
+--- a/src/sandbox/sandbox-manager.ts
++++ b/src/sandbox/sandbox-manager.ts
+@@ -1408,27 +1408,46 @@ function killBridgeProcess(proc: ChildProcess, label: string): Promise<void> {
+  * also implemented in Bun) tears down those sockets so `close()` resolves
+  * immediately.
+  */
+-function forceCloseHttpServer(
+-  server: ReturnType<typeof createHttpProxyServer>,
+-): Promise<void> {
+-  return new Promise<void>(resolve => {
+-    // Must run *before* close(): in Bun, close() also detaches the
+-    // underlying handle, so a closeAllConnections() called afterwards
+-    // becomes a no-op and the close callback waits for the in-flight
+-    // request to drain — defeating the purpose. With closeAllConnections()
+-    // first, the connections are gone by the time close() runs and its
+-    // callback fires immediately (Bun reports "Server is not running.",
+-    // Node reports no error). Verified against both orderings.
+-    if (typeof server.closeAllConnections === 'function') {
+-      server.closeAllConnections()
++export interface ForceCloseHttpServer {
++  close(callback: (error?: Error) => void): unknown
++  closeAllConnections?(): void
++}
++
++export function forceCloseHttpServer(server: ForceCloseHttpServer): Promise<void> {
++  return new Promise<void>((resolve, reject) => {
++    let closeCallbackReturned = false
++    let orderingComplete = false
++    const settle = () => {
++      if (closeCallbackReturned && orderingComplete) resolve()
+     }
+-    server.close(error => {
+-      if (error && error.message !== 'Server is not running.') {
+-        logForDebugging(`Error closing HTTP proxy server: ${error.message}`, {
+-          level: 'error',
+-        })
++    const close = () =>
++      server.close(error => {
++        if (error && error.message !== 'Server is not running.') {
++          logForDebugging(`Error closing HTTP proxy server: ${error.message}`, {
++            level: 'error',
++          })
++        }
++        closeCallbackReturned = true
++        settle()
++      })
++    const closeAllConnections = () => server.closeAllConnections?.()
++
++    try {
++      if (typeof (globalThis as { Bun?: unknown }).Bun === 'object') {
++        // Bun detaches the underlying handle in close(), so force-close its
++        // established connections first or close() can wait indefinitely.
++        closeAllConnections()
++        close()
++      } else {
++        // Node can accept a new connection between closeAllConnections() and
++        // close(). Stop acceptance first, then force-close the fixed set.
++        close()
++        closeAllConnections()
+       }
+-      resolve()
+-    })
++      orderingComplete = true
++      settle()
++    } catch (error) {
++      reject(error)
++    }
+   })
+ }

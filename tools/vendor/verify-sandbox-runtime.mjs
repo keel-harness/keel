@@ -16,6 +16,7 @@ const expected = {
     "VENDOR.md",
     "patches/connect-time-destination-resolver.patch",
     "patches/flush-tls-loopback-response.patch",
+    "patches/runtime-aware-http-proxy-close.patch",
     "patches/read-hidden-write-deny.patch",
     "patches/wait-for-linux-proxy-readiness.patch",
     "patches/reemit-macos-glob-read-denies.patch",
@@ -32,6 +33,7 @@ const expected = {
     "test/sandbox/linux-proxy-readiness.test.ts",
     "test/sandbox/destination-dial.test.ts",
     "test/sandbox/destination-guard-proxy.test.ts",
+    "test/sandbox/http-server-lifecycle.test.ts",
     "test/sandbox/tls-loopback-lifecycle.test.ts",
     "vendor/seccomp-src/apply-seccomp.c",
     "vendor/srt-win-src/Cargo.toml",
@@ -151,6 +153,27 @@ assert(
 assert(
   tlsTerminateSource.includes("socket.once('finish', cleanup)"),
   "TLS terminator does not clean up after the client write finishes",
+);
+
+const httpClosePatch = await readFile(
+  new URL("patches/runtime-aware-http-proxy-close.patch", vendorDir),
+  "utf8",
+);
+assert(
+  httpClosePatch.includes("src/sandbox/sandbox-manager.ts"),
+  "runtime-aware HTTP close patch omits sandbox-manager.ts",
+);
+const sandboxManagerSource = await readFile(
+  new URL("src/sandbox/sandbox-manager.ts", vendorDir),
+  "utf8",
+);
+assert(
+  sandboxManagerSource.includes("typeof (globalThis as { Bun?: unknown }).Bun === 'object'"),
+  "HTTP proxy teardown does not select a runtime-safe close order",
+);
+assert(
+  sandboxManagerSource.includes("close()\n        closeAllConnections()"),
+  "Node HTTP proxy teardown does not stop acceptance before force-close",
 );
 
 console.log(
