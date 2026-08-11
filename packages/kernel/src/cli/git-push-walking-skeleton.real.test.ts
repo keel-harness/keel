@@ -15,7 +15,7 @@ import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   AnyAuditRecord,
@@ -400,6 +400,9 @@ suite("ADR-0091 git.push walking skeleton (real sandbox)", () => {
   it("pushes one exact new branch through model projection, review, SRT TLS, verification, audit, and TUI", async () => {
     const fixture = await startSmartGitFixture();
     const { cwd, head } = createWorkspace(fixture.canonicalUrl);
+    const hostilePrePushHook = join(cwd, ".git", "hooks", "pre-push");
+    writeFileSync(hostilePrePushHook, "#!/bin/sh\nexit 73\n", { mode: 0o700 });
+    chmodSync(hostilePrePushHook, 0o700);
     const home = tempDir("keel-git-push-home-");
     const auditDir = tempDir("keel-git-push-audit-");
     const branch = "feature/walking-skeleton";
@@ -543,6 +546,218 @@ suite("ADR-0091 git.push walking skeleton (real sandbox)", () => {
             (record.payload["result"] as { readonly status?: string } | undefined)?.status ===
               "pushed",
         ),
+      ).toBe(true);
+    } finally {
+      ui.queue.push({ kind: "command", name: "/exit" });
+      await done.catch(() => undefined);
+      await fixture.close();
+    }
+  }, 60_000);
+
+  it("fast-forwards one existing feature branch to the separately approved exact commit", async () => {
+    const fixture = await startSmartGitFixture();
+    const { cwd, head: baseHead } = createWorkspace(fixture.canonicalUrl);
+    const branch = "feature/fast-forward";
+    git(["--git-dir", fixture.remoteGitDir, "fetch", cwd, `${baseHead}:refs/heads/${branch}`]);
+    writeFileSync(join(cwd, "second.txt"), "fast-forward commit\n");
+    git(["add", "second.txt"], cwd);
+    git(
+      [
+        "-c",
+        "user.name=Keel Fixture",
+        "-c",
+        "user.email=fixture@keel.invalid",
+        "commit",
+        "-m",
+        "fast-forward commit",
+      ],
+      cwd,
+    );
+    const head = git(["rev-parse", "HEAD"], cwd);
+    const home = tempDir("keel-git-push-ff-home-");
+    const auditDir = tempDir("keel-git-push-ff-audit-");
+    const env: NodeJS.ProcessEnv = {
+      KEEL_HOME: home,
+      KEEL_NO_SNAPSHOT: "1",
+      USER: PRINCIPAL.osUser,
+    };
+    const ui = new TestUI();
+    const done = runKeelCommand(undefined, {
+      model: new ScriptedModel({
+        turns: [
+          {
+            toolCalls: [
+              {
+                name: "git.push",
+                args: { remote: "origin", branch, expectedHead: head },
+              },
+            ],
+          },
+          { text: "fast-forwarded" },
+        ],
+      }),
+      ui,
+      cwd,
+      env,
+      trustFlag: true,
+      warden: spawnedGitPushWarden({ auditDir, fixture, workspaceRoot: cwd }),
+    });
+
+    try {
+      ui.queue.push({ kind: "line", text: "publish the fast-forward commit" });
+      await waitFor(ui, "fast-forward git.push approval", (view) => {
+        const frame = renderFrame(view);
+        return (
+          frame.includes("approval required") &&
+          frame.includes(fixture.canonicalUrl) &&
+          frame.includes(branch) &&
+          frame.includes(head)
+        );
+      });
+      expect(fixture.requests).toEqual([]);
+      ui.queue.push({ kind: "command", name: "/approve", args: "once" });
+      await waitFor(
+        ui,
+        "verified fast-forward completion",
+        (view) => view.awaitingInput === true && renderFrame(view).includes("fast-forwarded"),
+        35_000,
+      );
+      ui.queue.push({ kind: "command", name: "/exit" });
+      await done;
+
+      expect(git(["--git-dir", fixture.remoteGitDir, "rev-parse", `refs/heads/${branch}`])).toBe(
+        head,
+      );
+      expect(git(["merge-base", "--is-ancestor", baseHead, head], cwd)).toBe("");
+      expect(
+        fixture.requests.every((request) => request.authorization === FIXTURE_AUTHORIZATION),
+      ).toBe(true);
+      const sessionId = listSessions(env)[0]!.id;
+      const session = readSession(sessionId, env);
+      const result = session.events.find(
+        (event) => event.type === "tool_result" && event.name === "git.push",
+      );
+      expect(result).toMatchObject({ type: "tool_result" });
+      if (result?.type !== "tool_result") throw new Error("expected fast-forward tool result");
+      expect(result.isError).not.toBe(true);
+      expect(result.output).toContain('"status":"pushed"');
+      expect(result.output).toContain(head);
+      expect(JSON.stringify(session.events)).not.toContain(FIXTURE_SECRET);
+      expect(readFileSync(join(auditDir, `${sessionId}.jsonl`), "utf8")).not.toContain(
+        FIXTURE_SECRET,
+      );
+    } finally {
+      ui.queue.push({ kind: "command", name: "/exit" });
+      await done.catch(() => undefined);
+      await fixture.close();
+    }
+  }, 60_000);
+
+  it("reports a real concurrent non-fast-forward rejection and leaves the remote tip unchanged", async () => {
+    const fixture = await startSmartGitFixture();
+    const { cwd, head: baseHead } = createWorkspace(fixture.canonicalUrl);
+    const branch = "feature/non-fast-forward";
+    git(["--git-dir", fixture.remoteGitDir, "fetch", cwd, `${baseHead}:refs/heads/${branch}`]);
+
+    writeFileSync(join(cwd, "local.txt"), "local child\n");
+    git(["add", "local.txt"], cwd);
+    git(
+      [
+        "-c",
+        "user.name=Keel Fixture",
+        "-c",
+        "user.email=fixture@keel.invalid",
+        "commit",
+        "-m",
+        "local child",
+      ],
+      cwd,
+    );
+    const localHead = git(["rev-parse", "HEAD"], cwd);
+
+    const actor = tempDir("keel-git-push-concurrent-actor-");
+    rmSync(actor, { recursive: true, force: true });
+    git(["clone", "--branch", branch, fixture.remoteGitDir, actor]);
+    writeFileSync(join(actor, "remote.txt"), "concurrent remote child\n");
+    git(["add", "remote.txt"], actor);
+    git(
+      [
+        "-c",
+        "user.name=Concurrent Actor",
+        "-c",
+        "user.email=actor@keel.invalid",
+        "commit",
+        "-m",
+        "concurrent remote child",
+      ],
+      actor,
+    );
+    git(["push", "origin", `${branch}:refs/heads/${branch}`], actor);
+    const remoteHead = git(["rev-parse", "HEAD"], actor);
+    expect(remoteHead).not.toBe(localHead);
+
+    const home = tempDir("keel-git-push-nff-home-");
+    const auditDir = tempDir("keel-git-push-nff-audit-");
+    const env: NodeJS.ProcessEnv = {
+      KEEL_HOME: home,
+      KEEL_NO_SNAPSHOT: "1",
+      USER: PRINCIPAL.osUser,
+    };
+    const ui = new TestUI();
+    const done = runKeelCommand(undefined, {
+      model: new ScriptedModel({
+        turns: [
+          {
+            toolCalls: [
+              {
+                name: "git.push",
+                args: { remote: "origin", branch, expectedHead: localHead },
+              },
+            ],
+          },
+          { text: "handled rejection" },
+        ],
+      }),
+      ui,
+      cwd,
+      env,
+      trustFlag: true,
+      warden: spawnedGitPushWarden({ auditDir, fixture, workspaceRoot: cwd }),
+    });
+
+    try {
+      ui.queue.push({ kind: "line", text: "attempt the exact non-fast-forward commit" });
+      await waitFor(ui, "non-fast-forward git.push approval", (view) => {
+        const frame = renderFrame(view);
+        return frame.includes("approval required") && frame.includes(localHead);
+      });
+      expect(fixture.requests).toEqual([]);
+      ui.queue.push({ kind: "command", name: "/approve", args: "once" });
+      await waitFor(
+        ui,
+        "non-fast-forward rejection settlement",
+        (view) => view.awaitingInput === true && renderFrame(view).includes("handled rejection"),
+        35_000,
+      );
+      ui.queue.push({ kind: "command", name: "/exit" });
+      await done;
+
+      expect(git(["--git-dir", fixture.remoteGitDir, "rev-parse", `refs/heads/${branch}`])).toBe(
+        remoteHead,
+      );
+      const sessionId = listSessions(env)[0]!.id;
+      const session = readSession(sessionId, env);
+      const result = session.events.find(
+        (event) => event.type === "tool_result" && event.name === "git.push",
+      );
+      expect(result).toMatchObject({ type: "tool_result", isError: true });
+      if (result?.type !== "tool_result") throw new Error("expected rejected push tool result");
+      expect(result.output).toContain('"status":"failed"');
+      expect(result.output).toContain('"automaticRetry":false');
+      expect(result.output).toContain(remoteHead);
+      expect(JSON.stringify(session.events)).not.toContain(FIXTURE_SECRET);
+      expect(
+        fixture.requests.every((request) => request.authorization === FIXTURE_AUTHORIZATION),
       ).toBe(true);
     } finally {
       ui.queue.push({ kind: "command", name: "/exit" });
