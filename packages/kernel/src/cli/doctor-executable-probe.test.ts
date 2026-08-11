@@ -11,7 +11,11 @@ import {
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { probeDoctorExecutable, resolveDoctorExecutable } from "./doctor-executable-probe.js";
+import {
+  probeDoctorExecutable,
+  resolveDoctorExecutable,
+  resolveDoctorSelectedExecutable,
+} from "./doctor-executable-probe.js";
 
 const roots: string[] = [];
 
@@ -32,6 +36,19 @@ afterEach(() => {
 });
 
 describe("doctor executable probe authority", () => {
+  it("probes an exact preselected bundled executable even when the install is inside the workspace", () => {
+    const workspace = tempDir("keel-doctor-executable-workspace-");
+    const bundled = join(workspace, "node_modules", "@vscode", "ripgrep", "bin", "rg");
+    executable(bundled, "printf 'ripgrep 14.1.1 bundled\n'");
+
+    const resolved = resolveDoctorSelectedExecutable(bundled);
+
+    expect(resolved).toBe(realpathSync(bundled));
+    expect(resolved === undefined ? null : probeDoctorExecutable(resolved, ["--version"])).toBe(
+      "ripgrep 14.1.1 bundled",
+    );
+  });
+
   it.each(["rg", "bwrap", "socat"])(
     "never executes a workspace %s canary and selects one exact outside executable",
     (command) => {
@@ -94,6 +111,8 @@ describe("doctor executable probe authority", () => {
     expect(
       resolveDoctorExecutable(join(operatorBin, "missing"), { workspaceRoot: workspace, env: {} }),
     ).toBeUndefined();
+    expect(resolveDoctorSelectedExecutable("relative")).toBeUndefined();
+    expect(resolveDoctorSelectedExecutable(join(operatorBin, "missing"))).toBeUndefined();
     expect(probeDoctorExecutable("relative", [])).toBeNull();
     expect(probeDoctorExecutable(alias, [])).toBeNull();
     expect(probeDoctorExecutable(failing, [])).toBeNull();

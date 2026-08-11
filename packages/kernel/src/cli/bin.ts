@@ -4,7 +4,7 @@
 // resolveModelConfig/createModelPort/runKeelCommand. Epic 1.6a Step 2 wires the real provider here.
 import { createInterface } from "node:readline/promises";
 import { existsSync, lstatSync, readFileSync, realpathSync } from "node:fs";
-import { join, resolve, sep } from "node:path";
+import { isAbsolute, join, resolve, sep } from "node:path";
 import { resolveRgPath } from "../tools/index.js";
 import { resolveProductionWardenStart } from "../warden/runtime.js";
 import { KEEL_VERSION } from "../version.js";
@@ -17,7 +17,11 @@ import {
   runDoctor,
 } from "./doctor.js";
 import { gatherDoctorGitProbe } from "./doctor-git-probe.js";
-import { probeDoctorExecutable, resolveDoctorExecutable } from "./doctor-executable-probe.js";
+import {
+  probeDoctorExecutable,
+  resolveDoctorExecutable,
+  resolveDoctorSelectedExecutable,
+} from "./doctor-executable-probe.js";
 import { HeadlessUI } from "../tui/headless.js";
 import { interpretTrustAnswer, readTrustLine, trustPromptText } from "../trust/trust-prompt.js";
 import { loadTrustDecision } from "../trust/trust-store.js";
@@ -246,7 +250,16 @@ function gatherDoctorInput(): DoctorInput {
   // standalone binary, or a KEEL_RG_PATH override) — so doctor reports the binary keel will actually
   // run, never a different one (QC: doctor/search must agree).
   const rgPath = resolveRgPath(process.env, undefined, undefined, runtime === "standalone");
-  const rgVersionRaw = rgPath === undefined ? null : probe(rgPath, ["--version"]);
+  const rgExecutable =
+    rgPath === undefined
+      ? undefined
+      : isAbsolute(rgPath)
+        ? resolveDoctorSelectedExecutable(rgPath)
+        : resolveDoctorExecutable(rgPath, { workspaceRoot, env: process.env });
+  const rgVersionRaw =
+    rgExecutable === undefined
+      ? null
+      : probeDoctorExecutable(rgExecutable, ["--version"], { env: process.env });
   const ripgrepSource =
     process.env["KEEL_RG_PATH"] !== undefined && process.env["KEEL_RG_PATH"] !== ""
       ? "override"

@@ -16,19 +16,31 @@ function insideWorkspace(workspaceRoot: string, candidate: string): boolean {
   return offset === "" || (!offset.startsWith("..") && !isAbsolute(offset));
 }
 
-function canonicalExecutableOutsideWorkspace(
-  candidate: string,
-  workspaceRoot: string,
-): string | undefined {
+function canonicalExecutable(candidate: string): string | undefined {
   try {
     const canonical = realpathSync(candidate);
     const stat = lstatSync(canonical);
     accessSync(canonical, constants.X_OK);
-    if (!stat.isFile() || insideWorkspace(workspaceRoot, canonical)) return undefined;
+    if (!stat.isFile()) return undefined;
     return canonical;
   } catch {
     return undefined;
   }
+}
+
+function canonicalExecutableOutsideWorkspace(
+  candidate: string,
+  workspaceRoot: string,
+): string | undefined {
+  const canonical = canonicalExecutable(candidate);
+  return canonical === undefined || insideWorkspace(workspaceRoot, canonical)
+    ? undefined
+    : canonical;
+}
+
+/** Canonicalize one executable already selected by Keel without consulting project-controlled PATH. */
+export function resolveDoctorSelectedExecutable(candidate: string): string | undefined {
+  return isAbsolute(candidate) ? canonicalExecutable(candidate) : undefined;
 }
 
 /** Resolve one exact executable without admitting relative or workspace-controlled PATH entries. */
