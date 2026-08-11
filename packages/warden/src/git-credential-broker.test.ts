@@ -1,4 +1,12 @@
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
@@ -27,6 +35,37 @@ function fakeGit(root: string): string {
     mode: 0o700,
   });
   return path;
+}
+
+function realGitExecutable(): string {
+  for (const directory of (process.env["PATH"] ?? "").split(":")) {
+    if (!directory.startsWith("/")) continue;
+    const candidate = join(directory, "git");
+    if (existsSync(candidate)) return realpathSync(candidate);
+  }
+  throw new Error("git executable is unavailable for the credential-broker process test");
+}
+
+function realHelperBroker(
+  helperSource: string,
+  options: { readonly timeoutMs?: number; readonly maxOutputBytes?: number } = {},
+) {
+  const root = privateRoot();
+  const home = join(root, "operator-home");
+  mkdirSync(home, { mode: 0o700 });
+  const helperPath = join(home, "helper.mjs");
+  writeFileSync(helperPath, helperSource, { mode: 0o700 });
+  writeFileSync(
+    join(home, ".gitconfig"),
+    `[credential]\n\thelper =\n\thelper = !${process.execPath} ${helperPath}\n`,
+    { mode: 0o600 },
+  );
+  return createGitCredentialBroker({
+    gitExecutable: realGitExecutable(),
+    tempRoot: root,
+    env: { HOME: home, PATH: process.env["PATH"] ?? "/usr/bin:/bin", LANG: "C" },
+    ...options,
+  });
 }
 
 function result(
@@ -244,6 +283,38 @@ describe("ADR-0091 Warden Git credential broker", () => {
     await expect(broker.resolve(context, identity)).rejects.not.toThrow(
       "helper leaked diagnostics",
     );
+  });
+
+  it("enforces the real helper-process timeout without returning helper diagnostics", async () => {
+    const broker = realHelperBroker(`process.stdin.resume(); setInterval(() => {}, 1_000);`, {
+      timeoutMs: 1_000,
+    });
+    const identity = await broker.inspect(context);
+
+    const startedAt = performance.now();
+    await expect(broker.resolve(context, identity)).rejects.toThrow(/resolution timed out/u);
+    expect(performance.now() - startedAt).toBeLessThan(3_000);
+  });
+
+  it("enforces the real helper-process output bound without returning credential bytes", async () => {
+    const canary = `token-${randomBytes(3_000).toString("base64url")}`;
+    const broker = realHelperBroker(
+      `process.stdin.resume(); process.stdin.on("end", () => {
+        process.stdout.write("username=u\\npassword=${canary}\\n");
+      });`,
+      { maxOutputBytes: 1_024 },
+    );
+    const identity = await broker.inspect(context);
+
+    let caught: unknown;
+    try {
+      await broker.resolve(context, identity);
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toBeInstanceOf(GitCredentialBrokerError);
+    expect(String(caught)).toMatch(/output bound/u);
+    expect(String(caught)).not.toContain(canary);
   });
 
   it("rejects concurrent resolution instead of queueing or duplicating helper execution", async () => {
