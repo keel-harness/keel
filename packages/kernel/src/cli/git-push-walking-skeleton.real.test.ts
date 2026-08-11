@@ -33,6 +33,7 @@ import {
 } from "@keel/shared";
 import { ScriptedModel } from "@keel/simulator";
 import { InputQueue } from "./input-queue.js";
+import { closeHttpFixture } from "./http-fixture-lifetime.test-support.js";
 import { runAuditExportCommand, runAuditVerifyCommand, runKeelCommand } from "./session-entry.js";
 import { listSessions } from "../session/list.js";
 import { readSession } from "../session/store.js";
@@ -435,11 +436,7 @@ async function startSmartGitFixture(): Promise<SmartGitFixture> {
       pause = { entered, wait, release };
       return { entered: enteredPromise, release };
     },
-    close: () =>
-      new Promise<void>((resolveClose, reject) => {
-        server.closeAllConnections?.();
-        server.close((error) => (error === undefined ? resolveClose() : reject(error)));
-      }),
+    close: () => closeHttpFixture(server),
   };
 }
 
