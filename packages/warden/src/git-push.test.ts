@@ -31,6 +31,7 @@ import {
   GIT_PUSH_CAPABILITY_V1,
   GitPushInvalidParamsError,
   auditGitPushInvalidParams,
+  createGitPushProductionAuthority,
   createGitPushRuntimeState,
   createGitPushWalkingSkeletonAuthority,
   gitPushCapabilityAvailable,
@@ -200,6 +201,16 @@ function brokerState(nowMs: () => number, broker: GitCredentialBroker): GitPushR
     },
     gitExecutable: resolve(spawnSync("which", ["git"], { encoding: "utf8" }).stdout.trim()),
     tempRoot: tempDir("keel-git-push-broker-unit-temp-"),
+    nowMs,
+  });
+}
+
+function productionState(nowMs: () => number, broker: GitCredentialBroker): GitPushRuntimeState {
+  return createGitPushRuntimeState({
+    productionCapability: true,
+    credentialBroker: broker,
+    gitExecutable: resolve(spawnSync("which", ["git"], { encoding: "utf8" }).stdout.trim()),
+    tempRoot: tempDir("keel-git-push-production-unit-temp-"),
     nowMs,
   });
 }
@@ -996,6 +1007,83 @@ describe("ADR-0091 git.push Warden walking skeleton", () => {
     });
     expect(resolved.result?.["reason"]).toBe("request facts changed; submit a fresh request");
     expect(resolveCredential).not.toHaveBeenCalled();
+    expect(externalNetworkExecutions(h)).toEqual([]);
+  });
+
+  it("uses the strict default-port production authority without fixture argv or transport escape", async () => {
+    const inspect = vi.fn(async () => brokerIdentity);
+    const resolveCredential = vi.fn(async () => ({
+      scheme: "Basic" as const,
+      secret: Buffer.from("production-user:production-token", "utf8").toString("base64"),
+    }));
+    const broker: GitCredentialBroker = {
+      sourceClass: "operator Git credential helper (system/global config)",
+      inspect,
+      resolve: resolveCredential,
+    };
+    const workspace = makeWorkspace();
+    const repository = "https://github.com/keel-harness/keel.git";
+    git(["remote", "set-url", "origin", repository], workspace.path);
+    const state = productionState(() => 1_000, broker);
+    const destination = "refs/heads/feature/unit";
+    const h = harness({
+      workspace,
+      state,
+      sandboxResults: [
+        sandboxResult("ref: refs/heads/main\tHEAD\n"),
+        sandboxResult("push admitted"),
+        sandboxResult(`${workspace.head}\t${destination}\n`),
+      ],
+    });
+
+    const review = await request(h);
+    expect(review.facts).toMatchObject({
+      canonicalUrl: repository,
+      host: "github.com",
+      port: 443,
+      credentialSourceClass: "operator Git credential helper (system/global config)",
+    });
+    expect(review.facts).not.toHaveProperty("envExecutable");
+    const result = await resolveGitPushReview(h.context, review, {
+      reviewId: review.reviewId,
+      approved: true,
+      scope: "once",
+      principal,
+    });
+
+    expect(result).toMatchObject({ verdict: "allow", result: { status: "pushed" } });
+    const external = externalNetworkExecutions(h) as readonly {
+      readonly invocation: { readonly command: string; readonly argv: readonly string[] };
+      readonly executeOptions: {
+        readonly credentialProxy: {
+          readonly authorizationHeaders: readonly { readonly host: string }[];
+        };
+      };
+    }[];
+    expect(external).toHaveLength(3);
+    expect(external.every((execution) => execution.invocation.command.endsWith("/git"))).toBe(true);
+    expect(JSON.stringify(external)).not.toContain('"NO_PROXY="');
+    expect(JSON.stringify(external)).not.toContain('"no_proxy="');
+    expect(
+      external.every(
+        (execution) =>
+          execution.executeOptions.credentialProxy.authorizationHeaders[0]?.host === "github.com",
+      ),
+    ).toBe(true);
+  });
+
+  it("constructs a production authority but refuses non-default-port fixture URLs", async () => {
+    const broker: GitCredentialBroker = {
+      sourceClass: "operator Git credential helper (system/global config)",
+      inspect: async () => brokerIdentity,
+      resolve: async () => ({ scheme: "Basic", secret: "unused" }),
+    };
+    const config = productionState(() => 1_000, broker).config;
+    expect(createGitPushProductionAuthority(config).capability).toBe(GIT_PUSH_CAPABILITY_V1);
+
+    const workspace = makeWorkspace();
+    const h = harness({ workspace, state: productionState(() => 1_000, broker) });
+    await expect(request(h)).rejects.toThrow(/canonical bounded ASCII HTTPS|default port/u);
     expect(externalNetworkExecutions(h)).toEqual([]);
   });
 
