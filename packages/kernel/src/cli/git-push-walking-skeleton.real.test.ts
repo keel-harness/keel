@@ -171,12 +171,82 @@ function expectCredentialAbsentFromTree(root: string, credential: ObservedCreden
   }
 }
 
+function linuxProcessTreeListing(): string {
+  const uid = process.getuid?.();
+  if (uid === undefined)
+    throw new Error("could not determine the process owner for /proc inspection");
+
+  const processes = new Map<number, { readonly parentPid: number; readonly uid: number }>();
+  for (const name of readdirSync("/proc")) {
+    if (!/^\d+$/u.test(name)) continue;
+    let status: string;
+    try {
+      status = readFileSync(join("/proc", name, "status"), "utf8");
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
+      throw error;
+    }
+    const parent = /^PPid:\s+(\d+)$/mu.exec(status);
+    const owner = /^Uid:\s+(\d+)/mu.exec(status);
+    if (parent === null || owner === null) {
+      throw new Error(`could not parse /proc/${name}/status`);
+    }
+    processes.set(Number(name), {
+      parentPid: Number(parent[1]),
+      uid: Number(owner[1]),
+    });
+  }
+
+  const descendantPids = new Set([process.pid]);
+  let foundDescendant = true;
+  while (foundDescendant) {
+    foundDescendant = false;
+    for (const [pid, processStatus] of processes) {
+      if (descendantPids.has(pid) || !descendantPids.has(processStatus.parentPid)) continue;
+      descendantPids.add(pid);
+      foundDescendant = true;
+    }
+  }
+
+  const chunks: Buffer[] = [];
+  let byteLength = 0;
+  for (const pid of [...descendantPids].sort((left, right) => left - right)) {
+    const processStatus = processes.get(pid);
+    if (processStatus !== undefined && processStatus.uid !== uid) {
+      throw new Error(`descendant process ${String(pid)} changed owner before inspection`);
+    }
+    for (const field of ["cmdline", "environ"] as const) {
+      let contents: Buffer;
+      try {
+        contents = readFileSync(join("/proc", String(pid), field));
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
+        throw new Error(
+          `could not inspect /proc/${String(pid)}/${field}: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+      byteLength += contents.length;
+      if (byteLength > 8 * 1024 * 1024) {
+        throw new Error("live process tree exceeded the bounded 8 MiB inspection limit");
+      }
+      chunks.push(contents);
+    }
+  }
+  return Buffer.concat(chunks).toString("latin1");
+}
+
 function processListing(): string {
+  if (process.platform === "linux") return linuxProcessTreeListing();
   const result = spawnSync("/bin/ps", ["eww", "-ax", "-o", "command="], {
     encoding: "utf8",
     maxBuffer: 8 * 1024 * 1024,
+    timeout: 5_000,
   });
-  if (result.status !== 0) throw new Error("could not inspect the live process listing");
+  if (result.status !== 0 || result.error !== undefined) {
+    throw new Error(
+      `could not inspect the live process listing: ${result.error?.message ?? result.stderr}`,
+    );
+  }
   return result.stdout;
 }
 
@@ -644,6 +714,7 @@ suite("ADR-0091 git.push walking skeleton (real sandbox)", () => {
 
       const liveCredentialWindow = fixture.pauseNextAuthenticatedRequest();
       ui.queue.push({ kind: "command", name: "/approve", args: "once" });
+      let liveProcessListing: string;
       try {
         await Promise.race([
           liveCredentialWindow.entered,
@@ -655,10 +726,12 @@ suite("ADR-0091 git.push walking skeleton (real sandbox)", () => {
             timeout.unref();
           }),
         ]);
-        expectCredentialAbsent(processListing(), observedCredential(fixture));
+        liveProcessListing = processListing();
       } finally {
         liveCredentialWindow.release();
       }
+      expect(liveProcessListing).toContain(warden.entryPath);
+      expectCredentialAbsent(liveProcessListing, observedCredential(fixture));
       try {
         await Promise.race([
           waitFor(
