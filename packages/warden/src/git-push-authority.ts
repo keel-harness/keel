@@ -64,7 +64,10 @@ export interface GitPushAuthority {
   }): boolean;
   pendingReviewCount(): number;
   hasPendingReview(reviewId: string): boolean;
-  request(context: GitPushAuthorityContext, params: GitPushExecuteParams): GitPushRpcResult;
+  request(
+    context: GitPushAuthorityContext,
+    params: GitPushExecuteParams,
+  ): Promise<GitPushRpcResult>;
   consumeReview(reviewId: string): GitPushPendingReview | undefined;
   resolve(
     context: GitPushAuthorityContext,

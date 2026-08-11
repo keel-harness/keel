@@ -1,8 +1,19 @@
 import { spawnSync } from "node:child_process";
 import { Buffer } from "node:buffer";
-import { chmodSync, mkdtempSync, mkdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  mkdtempSync,
+  mkdirSync,
+  readFileSync,
+  realpathSync,
+  renameSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import fc from "fast-check";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { JsonObjectT } from "@keel/shared";
 import { AuditChainWriter, type AuditAppendInput } from "./audit/writer.js";
@@ -12,6 +23,7 @@ import {
   EGRESS_ADDRESS_GUARD_CAPABILITY,
   type SandboxExecutionResult,
   type SandboxPort,
+  type SandboxProfile,
   type SandboxStatus,
 } from "./sandbox.js";
 import {
@@ -22,6 +34,7 @@ import {
   createGitPushWalkingSkeletonAuthority,
   gitPushCapabilityAvailable,
   isGitPushReviewId,
+  parseCanonicalGitHttpsUrl,
   requestGitPushReview,
   resolveGitPushReview,
   type GitPushRuntimeContext,
@@ -192,6 +205,28 @@ function harness(
     status: () => status,
     execute: async (invocation, profile, executeOptions) => {
       executions.push({ invocation, profile, executeOptions });
+      if (
+        profile.network?.strictAllowlist === true &&
+        profile.network.allowedDomains?.length === 0
+      ) {
+        const local = spawnSync(
+          invocation.command,
+          invocation.argv === undefined ? [] : invocation.argv.slice(1),
+          {
+            ...(invocation.cwd === undefined ? {} : { cwd: invocation.cwd }),
+            encoding: "utf8",
+            env: executeOptions?.credentialProxy?.sandboxEnv,
+            maxBuffer: 128 * 1024,
+          },
+        );
+        if (local.error !== undefined) throw local.error;
+        return {
+          exitCode: local.status,
+          signal: local.signal,
+          stdout: local.stdout,
+          stderr: local.stderr,
+        };
+      }
       const result = queue.shift();
       if (result === undefined) throw new Error("missing fake sandbox result");
       return result;
@@ -237,8 +272,15 @@ function executeArgs(
   };
 }
 
-function request(h: ReturnType<typeof harness>): PendingGitPushReview {
-  const result = requestGitPushReview(h.context, executeArgs(h.workspace.head));
+function externalNetworkExecutions(h: ReturnType<typeof harness>): readonly unknown[] {
+  return h.executions.filter(
+    (execution) =>
+      ((execution as { profile: SandboxProfile }).profile.network?.allowedDomains?.length ?? 0) > 0,
+  );
+}
+
+async function request(h: ReturnType<typeof harness>): Promise<PendingGitPushReview> {
+  const result = await requestGitPushReview(h.context, executeArgs(h.workspace.head));
   expect(result).toMatchObject({ verdict: "review", auditSeq: 1 });
   const review = h.state.pending.get(result.review!.reviewId);
   if (review === undefined) throw new Error("expected pending git.push review");
@@ -250,6 +292,92 @@ function rpcFrame(id: string, method: string, params: unknown = {}): string {
 }
 
 describe("ADR-0091 git.push Warden walking skeleton", () => {
+  it.each([
+    ["https://github.com/keel-harness/keel.git", "github.com", "/keel-harness/keel.git"],
+    ["https://git.example.test/team/repo~one", "git.example.test", "/team/repo~one"],
+  ])("accepts the exact production HTTPS URL grammar: %s", (url, host, path) => {
+    expect(parseCanonicalGitHttpsUrl(url)).toEqual({
+      canonicalUrl: url,
+      host,
+      port: 443,
+      path,
+    });
+  });
+
+  it.each([
+    "http://github.com/owner/repo.git",
+    "ssh://git@github.com/owner/repo.git",
+    "https://user@github.com/owner/repo.git",
+    "https://user:secret@github.com/owner/repo.git",
+    "https://github.com:444/owner/repo.git",
+    "https://github.com/owner/repo.git?write=elsewhere",
+    "https://github.com/owner/repo.git#fragment",
+    "https://GITHUB.com/owner/repo.git",
+    "https://github.com./owner/repo.git",
+    "https://127.0.0.1/owner/repo.git",
+    "https://[::1]/owner/repo.git",
+    "https://github.com/owner//repo.git",
+    "https://github.com/owner/../repo.git",
+    "https://github.com/owner/%2e%2e/repo.git",
+    "https://github.com/owner\\repo.git",
+    "https://github.com/owner/repo%20name.git",
+    "https://github.com/owner/repo.git/",
+    "https://github.com",
+    `https://github.com/${"a".repeat(385)}`,
+    `https://${["a".repeat(63), "b".repeat(63), "c".repeat(63), "d".repeat(63)].join(".")}/repo.git`,
+    `https://a.test/${"a".repeat(500)}`,
+  ])("rejects non-canonical or authority-widening production URL %s", (url) => {
+    expect(() => parseCanonicalGitHttpsUrl(url)).toThrow(GitPushInvalidParamsError);
+  });
+
+  it("preserves every generated canonical URL byte and rejects authority-widening mutations", () => {
+    const alphaNumeric = [..."abcdefghijklmnopqrstuvwxyz0123456789"];
+    const pathBytes = [..."abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._~-"];
+    const label = fc
+      .array(fc.constantFrom(...alphaNumeric), { minLength: 0, maxLength: 15 })
+      .map((bytes) => `a${bytes.join("")}`);
+    const segment = fc
+      .array(fc.constantFrom(...pathBytes), { minLength: 0, maxLength: 23 })
+      .map((bytes) => `a${bytes.join("")}`);
+    const canonicalUrl = fc
+      .tuple(
+        fc.array(label, { minLength: 1, maxLength: 4 }),
+        fc.array(segment, { minLength: 1, maxLength: 5 }),
+      )
+      .map(([labels, segments]) => `https://${labels.join(".")}/${segments.join("/")}`);
+
+    fc.assert(
+      fc.property(canonicalUrl, (url) => {
+        expect(parseCanonicalGitHttpsUrl(url).canonicalUrl).toBe(url);
+      }),
+      { numRuns: 128 },
+    );
+    fc.assert(
+      fc.property(
+        canonicalUrl,
+        fc.constantFrom("query", "fragment", "userinfo", "port", "trailing-slash", "percent"),
+        (url, mutation) => {
+          const authority = url.slice("https://".length).split("/", 1)[0]!;
+          const path = url.slice(`https://${authority}`.length);
+          const mutated =
+            mutation === "query"
+              ? `${url}?write=elsewhere`
+              : mutation === "fragment"
+                ? `${url}#elsewhere`
+                : mutation === "userinfo"
+                  ? `https://user@${authority}${path}`
+                  : mutation === "port"
+                    ? `https://${authority}:444${path}`
+                    : mutation === "trailing-slash"
+                      ? `${url}/`
+                      : `${url}%2felsewhere`;
+          expect(() => parseCanonicalGitHttpsUrl(mutated)).toThrow(GitPushInvalidParamsError);
+        },
+      ),
+      { numRuns: 128 },
+    );
+  });
+
   it("gates the capability on the complete trusted audited SRT/TLS/address boundary", () => {
     const state = testState(() => 1_000);
     expect(GIT_PUSH_CAPABILITY_V1).toBe("git-push/v1");
@@ -299,9 +427,9 @@ describe("ADR-0091 git.push Warden walking skeleton", () => {
     }
   });
 
-  it("creates a bounded Warden-owned review from local facts without touching the sandbox", () => {
+  it("creates a bounded Warden-owned review through contained network-denied local probes", async () => {
     const h = harness({ workspace: makeWorkspace({ dirty: true }) });
-    const review = request(h);
+    const review = await request(h);
 
     expect(review.reviewId).toBe("git_push_review_1");
     expect(isGitPushReviewId(review.reviewId)).toBe(true);
@@ -310,9 +438,198 @@ describe("ADR-0091 git.push Warden walking skeleton", () => {
     expect(review.summary).toContain("Workspace: has uncommitted changes");
     expect(review.summary).toContain(`Commit: ${h.workspace.head}`);
     expect(review.allowCommand).toBe("keel approve git_push_review_1 --scope once");
-    expect(h.executions).toEqual([]);
+    expect(h.executions.length).toBeGreaterThan(0);
+    expect(
+      h.executions.every(
+        (execution) =>
+          (execution as { profile: SandboxProfile }).profile.network?.strictAllowlist === true &&
+          (execution as { profile: SandboxProfile }).profile.network?.allowedDomains?.length === 0,
+      ),
+    ).toBe(true);
     expect(h.audits).toHaveLength(1);
     expect(JSON.stringify(h.audits)).not.toContain("fixture-secret");
+  });
+
+  it("reports untracked work as excluded uncommitted state", async () => {
+    const workspace = makeWorkspace();
+    writeFileSync(join(workspace.path, "untracked.txt"), "not in the approved commit\n");
+    const review = await request(harness({ workspace }));
+    expect(review.summary).toContain(
+      "Workspace: has uncommitted changes; uncommitted changes are excluded",
+    );
+  });
+
+  it.each([
+    [
+      "shallow repository",
+      (workspace: ReturnType<typeof makeWorkspace>) => {
+        writeFileSync(join(workspace.path, ".git", "shallow"), `${workspace.head}\n`);
+      },
+      /shallow repositories are unsupported/u,
+    ],
+    [
+      "partial clone",
+      (workspace: ReturnType<typeof makeWorkspace>) => {
+        git(["config", "--local", "extensions.partialClone", "origin"], workspace.path);
+        git(["config", "--local", "remote.origin.promisor", "true"], workspace.path);
+      },
+      /partial clones are unsupported/u,
+    ],
+    [
+      "grafts",
+      (workspace: ReturnType<typeof makeWorkspace>) => {
+        const info = join(workspace.path, ".git", "info");
+        mkdirSync(info, { recursive: true });
+        writeFileSync(join(info, "grafts"), "");
+      },
+      /grafts are unsupported/u,
+    ],
+    [
+      "HTTP alternates",
+      (workspace: ReturnType<typeof makeWorkspace>) => {
+        const info = join(workspace.path, ".git", "objects", "info");
+        mkdirSync(info, { recursive: true });
+        writeFileSync(join(info, "http-alternates"), "https://objects.invalid/\n");
+      },
+      /HTTP alternate object databases are unsupported/u,
+    ],
+    [
+      "replacement refs",
+      (workspace: ReturnType<typeof makeWorkspace>) => {
+        git(
+          [
+            "-c",
+            "user.name=Keel Test",
+            "-c",
+            "user.email=test@keel.invalid",
+            "commit",
+            "--allow-empty",
+            "-m",
+            "replacement target",
+          ],
+          workspace.path,
+        );
+        const replacement = git(["rev-parse", "HEAD"], workspace.path);
+        git(["reset", "--hard", workspace.head], workspace.path);
+        git(["replace", workspace.head, replacement], workspace.path);
+      },
+      /replacement refs are unsupported/u,
+    ],
+    [
+      "common directory indirection",
+      (workspace: ReturnType<typeof makeWorkspace>) => {
+        writeFileSync(join(workspace.path, ".git", "commondir"), ".\n");
+      },
+      /common Git directories are unsupported/u,
+    ],
+  ] as const)("rejects %s before review", async (_label, mutate, expected) => {
+    const workspace = makeWorkspace();
+    mutate(workspace);
+    const h = harness({ workspace });
+    await expect(request(h)).rejects.toThrow(expected);
+    expect(h.state.pending.size).toBe(0);
+    expect(externalNetworkExecutions(h)).toEqual([]);
+  });
+
+  it("rejects an object store that resolves outside the trusted workspace", async () => {
+    const workspace = makeWorkspace();
+    const original = join(workspace.path, ".git", "objects");
+    const external = join(tempDir("keel-git-push-external-objects-"), "objects");
+    renameSync(original, external);
+    symlinkSync(external, original);
+    const h = harness({ workspace });
+    await expect(request(h)).rejects.toThrow(
+      /object store must stay inside the trusted workspace/u,
+    );
+    expect(h.state.pending.size).toBe(0);
+  });
+
+  it("rejects symlinked and oversized repository config authority", async () => {
+    const symlinked = makeWorkspace();
+    const symlinkConfig = join(symlinked.path, ".git", "config");
+    const realConfig = join(symlinked.path, ".git", "config.real");
+    renameSync(symlinkConfig, realConfig);
+    symlinkSync("config.real", symlinkConfig);
+    await expect(request(harness({ workspace: symlinked }))).rejects.toThrow(
+      /repository config must be one ordinary in-repository file/u,
+    );
+
+    const oversized = makeWorkspace();
+    const oversizedConfig = join(oversized.path, ".git", "config");
+    writeFileSync(
+      oversizedConfig,
+      `${readFileSync(oversizedConfig, "utf8")}\n# ${"x".repeat(65 * 1024)}\n`,
+    );
+    await expect(request(harness({ workspace: oversized }))).rejects.toThrow(
+      /repository config is outside its bounded authority/u,
+    );
+  });
+
+  it("rejects ambient alternate-object authority before review", async () => {
+    const previous = process.env["GIT_ALTERNATE_OBJECT_DIRECTORIES"];
+    process.env["GIT_ALTERNATE_OBJECT_DIRECTORIES"] = tempDir("keel-git-push-ambient-alt-");
+    try {
+      await expect(request(harness())).rejects.toThrow(
+        /alternate object databases are unsupported/u,
+      );
+    } finally {
+      if (previous === undefined) delete process.env["GIT_ALTERNATE_OBJECT_DIRECTORIES"];
+      else process.env["GIT_ALTERNATE_OBJECT_DIRECTORIES"] = previous;
+    }
+  });
+
+  it.each([
+    ["remote.origin.mirror", "true"],
+    ["remote.origin.proxy", "http://proxy.invalid:8080"],
+    ["remote.origin.receivepack", "/tmp/hostile-receive-pack"],
+    ["remote.origin.vcs", "hostile-helper"],
+    ["http.followRedirects", "true"],
+    ["http.sslVerify", "false"],
+    ["core.hooksPath", "/tmp/hostile-hooks"],
+    ["push.recurseSubmodules", "on-demand"],
+    ["url.https://evil.invalid/.pushInsteadOf", "https://localhost:54321/"],
+  ])("rejects repository-local execution or target widening config %s", async (key, value) => {
+    const workspace = makeWorkspace();
+    git(["config", "--local", key, value], workspace.path);
+    const h = harness({ workspace });
+    await expect(request(h)).rejects.toThrow(/repository-local Git config is unsupported/u);
+    expect(h.state.pending.size).toBe(0);
+    expect(externalNetworkExecutions(h)).toEqual([]);
+  });
+
+  it("binds the exact repository config bytes even when the derived URL is unchanged", async () => {
+    const h = harness();
+    const review = await request(h);
+    const configPath = join(h.workspace.path, ".git", "config");
+    writeFileSync(configPath, `${readFileSync(configPath, "utf8")}\n# post-review drift\n`);
+    const result = await resolveGitPushReview(h.context, review, {
+      reviewId: review.reviewId,
+      approved: true,
+      scope: "once",
+      principal,
+    });
+    expect(result).toMatchObject({
+      verdict: "deny",
+      result: { reason: "request facts changed; submit a fresh request" },
+    });
+    expect(externalNetworkExecutions(h)).toEqual([]);
+  });
+
+  it("binds excluded untracked state and denies post-review drift before network", async () => {
+    const h = harness();
+    const review = await request(h);
+    writeFileSync(join(h.workspace.path, "new-untracked.txt"), "post-review drift\n");
+    const result = await resolveGitPushReview(h.context, review, {
+      reviewId: review.reviewId,
+      approved: true,
+      scope: "once",
+      principal,
+    });
+    expect(result).toMatchObject({
+      verdict: "deny",
+      result: { reason: "request facts changed; submit a fresh request" },
+    });
+    expect(externalNetworkExecutions(h)).toEqual([]);
   });
 
   it("routes capability, invalid params, and exact-once settlement through the RPC authority", async () => {
@@ -447,7 +764,7 @@ describe("ADR-0091 git.push Warden walking skeleton", () => {
         },
       });
       expect(gitPushAuthority.pendingReviewCount()).toBe(0);
-      expect(h.executions).toEqual([]);
+      expect(externalNetworkExecutions(h)).toEqual([]);
 
       const unavailable = await handleRpcLine(
         rpcFrame("unavailable", "warden.execute", executeArgs(h.workspace.head)),
@@ -472,7 +789,7 @@ describe("ADR-0091 git.push Warden walking skeleton", () => {
         sandboxResult(`${workspace.head}\t${destination}\n`),
       ],
     });
-    const review = request(h);
+    const review = await request(h);
 
     const result = await resolveGitPushReview(h.context, review, {
       reviewId: review.reviewId,
@@ -485,14 +802,43 @@ describe("ADR-0091 git.push Warden walking skeleton", () => {
       verdict: "allow",
       result: { kind: "git_push_result", status: "pushed", observedRef: h.workspace.head },
     });
-    expect(h.executions).toHaveLength(3);
-    const serialized = JSON.stringify(h.executions);
+    const externalExecutions = externalNetworkExecutions(h);
+    expect(externalExecutions).toHaveLength(3);
+    const serialized = JSON.stringify(externalExecutions);
     expect(serialized).toContain('"NO_PROXY="');
     expect(serialized).toContain('"no_proxy="');
     expect(serialized).toContain(`${h.workspace.head}:${destination}`);
+    for (const neutralization of [
+      "push.followTags=false",
+      "push.gpgSign=false",
+      "push.pushOption=",
+      "push.useForceIfIncludes=false",
+      "submodule.recurse=false",
+      "protocol.allow=never",
+      "protocol.https.allow=always",
+      "http.extraHeader=",
+    ]) {
+      expect(serialized).toContain(neutralization);
+    }
     expect(serialized).not.toContain("fixture-secret");
+    const initExecution = h.executions.find((execution) =>
+      (execution as { invocation: { argv?: readonly string[] } }).invocation.argv?.includes("init"),
+    ) as { invocation: { cwd?: string }; profile: SandboxProfile } | undefined;
+    expect(initExecution).toBeDefined();
+    expect(initExecution?.invocation.cwd).toMatch(/attempt-/u);
+    expect(initExecution?.profile.filesystem?.allowRead).not.toContain(
+      realpathSync(h.workspace.path),
+    );
+    const diffTreeExecution = h.executions.find((execution) =>
+      (execution as { invocation: { argv?: readonly string[] } }).invocation.argv?.includes(
+        "diff-tree",
+      ),
+    ) as { invocation: { argv?: readonly string[] } } | undefined;
+    expect(diffTreeExecution?.invocation.argv).toEqual(
+      expect.arrayContaining(["--no-ext-diff", "--no-textconv"]),
+    );
     const credential = (
-      h.executions[0] as {
+      externalExecutions[0] as {
         executeOptions: {
           credentialProxy: { authorizationHeaders: readonly { secret: string }[] };
         };
@@ -518,7 +864,7 @@ describe("ADR-0091 git.push Warden walking skeleton", () => {
         sandboxResult(`ref: refs/heads/main\tHEAD\n${workspace.head}\trefs/heads/feature/unit\n`),
       ],
     });
-    const review = request(h);
+    const review = await request(h);
     const result = await resolveGitPushReview(h.context, review, {
       reviewId: review.reviewId,
       approved: true,
@@ -529,7 +875,7 @@ describe("ADR-0091 git.push Warden walking skeleton", () => {
       verdict: "allow",
       result: { status: "already-at-commit", observedRef: h.workspace.head },
     });
-    expect(h.executions).toHaveLength(1);
+    expect(externalNetworkExecutions(h)).toHaveLength(1);
   });
 
   it.each([
@@ -571,7 +917,7 @@ describe("ADR-0091 git.push Warden walking skeleton", () => {
     },
   ])("reports $label without retry", async ({ results, status, may }) => {
     const h = harness({ sandboxResults: results });
-    const review = request(h);
+    const review = await request(h);
     const result = await resolveGitPushReview(h.context, review, {
       reviewId: review.reviewId,
       approved: true,
@@ -585,10 +931,16 @@ describe("ADR-0091 git.push Warden walking skeleton", () => {
   });
 
   it("blocks the observed remote default branch without launching push", async () => {
+    const workspace = makeWorkspace();
     const h = harness({
-      sandboxResults: [sandboxResult("ref: refs/heads/feature/unit\tHEAD\n")],
+      workspace,
+      sandboxResults: [
+        sandboxResult(
+          `ref: refs/heads/feature/unit\tHEAD\n${workspace.head}\tHEAD\n${workspace.head}\trefs/heads/feature/unit\n`,
+        ),
+      ],
     });
-    const review = request(h);
+    const review = await request(h);
     const result = await resolveGitPushReview(h.context, review, {
       reviewId: review.reviewId,
       approved: true,
@@ -599,7 +951,7 @@ describe("ADR-0091 git.push Warden walking skeleton", () => {
       verdict: "deny",
       result: { status: "failed", actionMayHaveExecuted: false },
     });
-    expect(h.executions).toHaveLength(1);
+    expect(externalNetworkExecutions(h)).toHaveLength(1);
   });
 
   it.each([
@@ -633,7 +985,7 @@ describe("ADR-0091 git.push Warden walking skeleton", () => {
     },
   ])("settles $label before network", async ({ approved, scope, now, reason }) => {
     const h = harness();
-    const review = request(h);
+    const review = await request(h);
     h.setNow(now);
     const result = await resolveGitPushReview(h.context, review, {
       reviewId: review.reviewId,
@@ -642,13 +994,13 @@ describe("ADR-0091 git.push Warden walking skeleton", () => {
       principal,
     });
     expect(result).toMatchObject({ verdict: "deny", result: { reason } });
-    expect(h.executions).toEqual([]);
+    expect(externalNetworkExecutions(h)).toEqual([]);
     expect(result.auditSeq).toBe(2);
   });
 
   it("denies binding drift after approval and before network", async () => {
     const h = harness();
-    const review = request(h);
+    const review = await request(h);
     writeFileSync(join(h.workspace.path, "file.txt"), "changed after approval\n");
     const result = await resolveGitPushReview(h.context, review, {
       reviewId: review.reviewId,
@@ -660,10 +1012,31 @@ describe("ADR-0091 git.push Warden walking skeleton", () => {
       verdict: "deny",
       result: { reason: "request facts changed; submit a fresh request" },
     });
-    expect(h.executions).toEqual([]);
+    expect(externalNetworkExecutions(h)).toEqual([]);
   });
 
-  it("fails closed when the review-request audit cannot be made durable", () => {
+  it("turns post-approval local inspection failure into an audited zero-network denial", async () => {
+    const h = harness();
+    const review = await request(h);
+    rmSync(join(h.workspace.path, ".git", "config"));
+    const result = await resolveGitPushReview(h.context, review, {
+      reviewId: review.reviewId,
+      approved: true,
+      scope: "once",
+      principal,
+    });
+    expect(result).toMatchObject({
+      verdict: "deny",
+      result: { reason: "request facts changed; submit a fresh request" },
+    });
+    expect(h.audits.at(-1)).toMatchObject({
+      eventType: "tool.deny",
+      payload: { actionMayHaveExecuted: false, reason: "git.push revalidation failed" },
+    });
+    expect(externalNetworkExecutions(h)).toEqual([]);
+  });
+
+  it("fails closed when the review-request audit cannot be made durable", async () => {
     const h = harness();
     const context: GitPushRuntimeContext = {
       ...h.context,
@@ -671,11 +1044,11 @@ describe("ADR-0091 git.push Warden walking skeleton", () => {
         throw new Error("audit unavailable");
       },
     };
-    expect(() => requestGitPushReview(context, executeArgs(h.workspace.head))).toThrow(
-      /audit unavailable/,
+    await expect(requestGitPushReview(context, executeArgs(h.workspace.head))).rejects.toThrow(
+      /audit unavailable/u,
     );
     expect(h.state.pending.size).toBe(0);
-    expect(h.executions).toEqual([]);
+    expect(externalNetworkExecutions(h)).toEqual([]);
   });
 
   it("uses the system clock only when no injected clock is configured", async () => {
@@ -687,7 +1060,7 @@ describe("ADR-0091 git.push Warden walking skeleton", () => {
       tempRoot: configured.tempRoot,
     });
     const h = harness({ state });
-    const review = request(h);
+    const review = await request(h);
     expect(review.createdAtMs).toBeGreaterThan(0);
     const result = await resolveGitPushReview(h.context, review, {
       reviewId: review.reviewId,
@@ -703,7 +1076,7 @@ describe("ADR-0091 git.push Warden walking skeleton", () => {
       workspace,
       sandboxResults: [sandboxResult(""), sandboxResult("push attempted"), sandboxResult("")],
     });
-    const review = request(h);
+    const review = await request(h);
     const controller = new AbortController();
     const context: GitPushRuntimeContext = {
       state: h.context.state,
@@ -722,22 +1095,19 @@ describe("ADR-0091 git.push Warden walking skeleton", () => {
       verdict: "deny",
       result: { status: "indeterminate", observedRef: null },
     });
-    expect(h.executions).toHaveLength(3);
+    const externalExecutions = externalNetworkExecutions(h);
+    expect(externalExecutions).toHaveLength(3);
     expect(
-      (h.executions[0] as { profile: { filesystem: { denyWrite: readonly string[] } } }).profile
-        .filesystem.denyWrite,
+      (externalExecutions[0] as { profile: { filesystem: { denyWrite: readonly string[] } } })
+        .profile.filesystem.denyWrite,
     ).toEqual([realpathSync(workspace.path)]);
   });
 
-  it("ignores malformed remote-ref rows instead of treating them as authority", async () => {
+  it("fails before mutation on malformed remote-ref authority rows", async () => {
     const h = harness({
-      sandboxResults: [
-        sandboxResult("malformed-without-tab\n"),
-        sandboxResult("push attempted"),
-        sandboxResult("malformed-without-tab\n"),
-      ],
+      sandboxResults: [sandboxResult("malformed-without-tab\n")],
     });
-    const review = request(h);
+    const review = await request(h);
     const result = await resolveGitPushReview(h.context, review, {
       reviewId: review.reviewId,
       approved: true,
@@ -746,13 +1116,54 @@ describe("ADR-0091 git.push Warden walking skeleton", () => {
     });
     expect(result).toMatchObject({
       verdict: "deny",
-      result: { status: "indeterminate", observedRef: null },
+      result: { status: "failed", observedRef: null, actionMayHaveExecuted: false },
     });
+    expect(externalNetworkExecutions(h)).toHaveLength(1);
+  });
+
+  it("fails before mutation when preflight returns duplicate authority rows", async () => {
+    const h = harness({
+      sandboxResults: [
+        sandboxResult(
+          `ref: refs/heads/main\tHEAD\n${"a".repeat(40)}\trefs/heads/feature/unit\n${"b".repeat(40)}\trefs/heads/feature/unit\n`,
+        ),
+      ],
+    });
+    const review = await request(h);
+    const result = await resolveGitPushReview(h.context, review, {
+      reviewId: review.reviewId,
+      approved: true,
+      scope: "once",
+      principal,
+    });
+    expect(result).toMatchObject({
+      verdict: "deny",
+      result: { status: "failed", actionMayHaveExecuted: false },
+    });
+    expect(externalNetworkExecutions(h)).toHaveLength(1);
+  });
+
+  it("does not trim hostile remote-ref bytes into valid authority", async () => {
+    const h = harness({
+      sandboxResults: [sandboxResult(` ${"a".repeat(40)}\trefs/heads/feature/unit\n`)],
+    });
+    const review = await request(h);
+    const result = await resolveGitPushReview(h.context, review, {
+      reviewId: review.reviewId,
+      approved: true,
+      scope: "once",
+      principal,
+    });
+    expect(result).toMatchObject({
+      verdict: "deny",
+      result: { status: "failed", actionMayHaveExecuted: false },
+    });
+    expect(externalNetworkExecutions(h)).toHaveLength(1);
   });
 
   it("records an unclassified bounded diagnostic without retaining raw stderr", async () => {
     const h = harness({ sandboxResults: [sandboxResult("", { exitCode: 1 })] });
-    const review = request(h);
+    const review = await request(h);
     const result = await resolveGitPushReview(h.context, review, {
       reviewId: review.reviewId,
       approved: true,
@@ -767,12 +1178,20 @@ describe("ADR-0091 git.push Warden walking skeleton", () => {
 
   it("reports non-Error sandbox failures conservatively and cleans its attempt", async () => {
     const h = harness({ sandboxResults: [] });
-    const review = request(h);
+    const review = await request(h);
+    const externalFailure: SandboxPort["execute"] = vi
+      .fn<SandboxPort["execute"]>()
+      .mockRejectedValue("fixture rejection");
     const context: GitPushRuntimeContext = {
       ...h.context,
       sandbox: {
         status: () => h.context.sandbox.status(),
-        execute: vi.fn().mockRejectedValue("fixture rejection"),
+        execute: async (invocation, profile, options) => {
+          if (profile.network?.allowedDomains?.length === 0) {
+            return await h.context.sandbox.execute(invocation, profile, options);
+          }
+          return await externalFailure(invocation, profile, options);
+        },
       },
     };
     const result = await resolveGitPushReview(context, review, {
@@ -781,7 +1200,10 @@ describe("ADR-0091 git.push Warden walking skeleton", () => {
       scope: "once",
       principal,
     });
-    expect(result).toMatchObject({ verdict: "deny", result: { status: "indeterminate" } });
+    expect(result).toMatchObject({
+      verdict: "deny",
+      result: { status: "failed", actionMayHaveExecuted: false },
+    });
     expect(h.audits.at(-1)?.payload).toMatchObject({ errorClass: "unknown" });
     expect(
       spawnSync("find", [h.state.config.tempRoot, "-maxdepth", "1", "-name", "attempt-*"], {
@@ -792,7 +1214,7 @@ describe("ADR-0091 git.push Warden walking skeleton", () => {
 
   it("fails before network when the temporary-root identity changes after review", async () => {
     const h = harness();
-    const review = request(h);
+    const review = await request(h);
     const replacement = tempDir("keel-git-push-replacement-temp-");
     (h.state.config as { tempRoot: string }).tempRoot = replacement;
     const result = await resolveGitPushReview(h.context, review, {
@@ -805,12 +1227,12 @@ describe("ADR-0091 git.push Warden walking skeleton", () => {
       verdict: "deny",
       result: { reason: "request facts changed; submit a fresh request" },
     });
-    expect(h.executions).toEqual([]);
+    expect(externalNetworkExecutions(h)).toEqual([]);
   });
 
-  it("conservatively reports an exception after intent as indeterminate", async () => {
+  it("reports a preflight exception after intent as failed with no mutation", async () => {
     const h = harness({ sandboxResults: [] });
-    const review = request(h);
+    const review = await request(h);
     const result = await resolveGitPushReview(h.context, review, {
       reviewId: review.reviewId,
       approved: true,
@@ -819,29 +1241,66 @@ describe("ADR-0091 git.push Warden walking skeleton", () => {
     });
     expect(result).toMatchObject({
       verdict: "deny",
-      result: { status: "indeterminate", actionMayHaveExecuted: true },
+      result: { status: "failed", actionMayHaveExecuted: false },
     });
+  });
+
+  it("reports an exception after the push starts as indeterminate without retry", async () => {
+    const h = harness({
+      sandboxResults: [sandboxResult("ref: refs/heads/main\tHEAD\n")],
+    });
+    const review = await request(h);
+    const result = await resolveGitPushReview(h.context, review, {
+      reviewId: review.reviewId,
+      approved: true,
+      scope: "once",
+      principal,
+    });
+    expect(result).toMatchObject({
+      verdict: "deny",
+      result: {
+        status: "indeterminate",
+        actionMayHaveExecuted: true,
+        automaticRetry: false,
+      },
+    });
+    expect(externalNetworkExecutions(h)).toHaveLength(2);
   });
 
   it.each([
     ["wrong tool", { tool: "bash" }, "unexpected tool name"],
     ["additional arg", { extra: true }, "requires exactly"],
+    ["missing arg", { omit: "expectedHead" }, "requires exactly"],
     ["invalid remote", { remote: "-origin" }, "remote must"],
+    ["empty branch", { branch: "" }, "branch must"],
+    ["symbolic HEAD branch", { branch: "HEAD" }, "branch must"],
+    ["at branch", { branch: "@" }, "branch must"],
+    ["oversized branch", { branch: "a".repeat(129) }, "branch must"],
     ["unicode branch", { branch: "feature/é" }, "branch must"],
     ["reserved branch", { branch: "refs/heads/x" }, "branch must"],
     ["abbreviated oid", { expectedHead: "abc" }, "expectedHead must"],
-  ])("audits and rejects $label before review", (_label, mutation, expected) => {
+    ["uppercase oid", { expectedHead: "A".repeat(40) }, "expectedHead must"],
+    ["non-string oid", { expectedHead: 42 }, "expectedHead must"],
+  ])("audits and rejects $label before review", async (_label, mutation, expected) => {
     const h = harness();
     const isWrongTool = typeof mutation === "object" && mutation !== null && "tool" in mutation;
+    const isOmittedArg = typeof mutation === "object" && mutation !== null && "omit" in mutation;
     const params = isWrongTool
       ? {
           ...executeArgs(h.workspace.head),
           toolCall: { ...executeArgs(h.workspace.head).toolCall, name: String(mutation.tool) },
         }
-      : executeArgs(h.workspace.head, mutation);
+      : isOmittedArg
+        ? (() => {
+            const base = executeArgs(h.workspace.head);
+            const args = { ...base.toolCall.args };
+            delete (args as Record<string, unknown>)[String(mutation.omit)];
+            return { ...base, toolCall: { ...base.toolCall, args } };
+          })()
+        : executeArgs(h.workspace.head, mutation);
     let thrown: GitPushInvalidParamsError | undefined;
     try {
-      requestGitPushReview(h.context, params);
+      await requestGitPushReview(h.context, params);
     } catch (error) {
       if (error instanceof GitPushInvalidParamsError) thrown = error;
       else throw error;
@@ -853,97 +1312,108 @@ describe("ADR-0091 git.push Warden walking skeleton", () => {
     expect(h.executions).toEqual([]);
   });
 
-  it("rejects binary commit summaries and alternate object stores", () => {
+  it("rejects binary commit summaries and alternate object stores", async () => {
     const binary = harness({ workspace: makeWorkspace({ binary: true }) });
-    expect(() => request(binary)).toThrow(GitPushInvalidParamsError);
+    await expect(request(binary)).rejects.toThrow(GitPushInvalidParamsError);
 
     const alternate = harness();
     const info = join(alternate.workspace.path, ".git", "objects", "info");
     mkdirSync(info, { recursive: true });
     writeFileSync(join(info, "alternates"), `${tempDir("keel-git-push-alt-")}\n`);
-    expect(() => request(alternate)).toThrow(/alternate object databases/);
+    await expect(request(alternate)).rejects.toThrow(/alternate object databases/u);
   });
 
-  it("supports parented and empty commits while preserving exact bounded facts", () => {
+  it("supports parented and empty commits while preserving exact bounded facts", async () => {
     const h = harness({ workspace: makeWorkspace({ secondEmptyCommit: true }) });
-    const review = request(h);
+    const review = await request(h);
     expect(review.summary).toContain("; 1; 0 files; +0 -0");
   });
 
-  it("rejects approval subjects that are empty or exceed their byte bound", () => {
-    expect(() => request(harness({ workspace: makeWorkspace({ emptySubject: true }) }))).toThrow(
-      /commit subject cannot be shown losslessly/,
-    );
-    expect(() =>
+  it("rejects approval subjects that are empty or exceed their byte bound", async () => {
+    await expect(
+      request(harness({ workspace: makeWorkspace({ emptySubject: true }) })),
+    ).rejects.toThrow(/commit subject cannot be shown losslessly/u);
+    await expect(
       request(harness({ workspace: makeWorkspace({ message: "x".repeat(161) }) })),
-    ).toThrow(/commit subject cannot be shown losslessly/);
+    ).rejects.toThrow(/commit subject cannot be shown losslessly/u);
   });
 
-  it("rejects nested, bare, and linked-worktree repository shapes", () => {
+  it("rejects nested, bare, and linked-worktree repository shapes", async () => {
     const nested = harness();
     const nestedRoot = join(nested.workspace.path, "nested");
     mkdirSync(nestedRoot);
-    expect(() =>
+    await expect(
       requestGitPushReview(
         { ...nested.context, workspaceRoot: nestedRoot },
         executeArgs(nested.workspace.head),
       ),
-    ).toThrow(/ordinary repository top level/);
+    ).rejects.toThrow(/ordinary repository top level/u);
 
     const bareRoot = tempDir("keel-git-push-bare-");
     git(["init", "--bare"], bareRoot);
     const bare = harness({ workspace: { path: bareRoot, head: "a".repeat(40) } });
-    expect(() => request(bare)).toThrow(/ordinary non-bare repository/);
+    await expect(request(bare)).rejects.toThrow(/ordinary non-bare repository/u);
 
     const source = makeWorkspace();
     const linkedRoot = tempDir("keel-git-push-linked-");
     rmSync(linkedRoot, { recursive: true, force: true });
     git(["worktree", "add", "--detach", linkedRoot, source.head], source.path);
     const linked = harness({ workspace: { path: linkedRoot, head: source.head } });
-    expect(() => request(linked)).toThrow(/non-directory .git layouts/);
+    await expect(request(linked)).rejects.toThrow(/non-directory .git layouts/u);
   });
 
-  it("rejects changed HEAD and remote URL multiplicity", () => {
+  it("rejects changed HEAD and remote URL multiplicity", async () => {
     const changedHead = harness();
-    expect(() => requestGitPushReview(changedHead.context, executeArgs("a".repeat(40)))).toThrow(
-      /current HEAD does not equal expectedHead/,
-    );
+    await expect(
+      requestGitPushReview(changedHead.context, executeArgs("a".repeat(40))),
+    ).rejects.toThrow(/current HEAD does not equal expectedHead/u);
+
+    const detachedHead = harness();
+    git(["checkout", "--detach", detachedHead.workspace.head], detachedHead.workspace.path);
+    await expect(request(detachedHead)).rejects.toThrow(/detached HEAD is unsupported/u);
 
     const missingRemote = harness();
     git(["remote", "remove", "origin"], missingRemote.workspace.path);
-    expect(() => request(missingRemote)).toThrow(/exactly one repository-local URL/);
+    await expect(request(missingRemote)).rejects.toThrow(/exactly one repository-local URL/u);
 
     const multiple = harness();
     git(["config", "--local", "--add", "remote.origin.url", canonicalUrl], multiple.workspace.path);
-    expect(() => request(multiple)).toThrow(/exactly one repository-local URL/);
+    await expect(request(multiple)).rejects.toThrow(/exactly one repository-local URL/u);
   });
 
-  it("accepts Git's sha256 object format when the installed Git supports it", () => {
+  it("accepts Git's sha256 object format when the installed Git supports it", async () => {
     const probeRoot = tempDir("keel-git-push-sha256-probe-");
     const probe = spawnSync("git", ["init", "--bare", "--object-format=sha256", probeRoot], {
       encoding: "utf8",
     });
     if (probe.status !== 0) return;
     const h = harness({ workspace: makeWorkspace({ objectFormat: "sha256" }) });
-    expect(request(h).facts.objectFormat).toBe("sha256");
+    expect((await request(h)).facts.objectFormat).toBe("sha256");
   });
 
-  it("rejects unsafe remote config variants and unavailable fixture authority", () => {
+  it("rejects unsafe remote config variants and unavailable fixture authority", async () => {
     const mismatch = harness();
     git(
       ["remote", "set-url", "origin", "https://localhost:54321/other.git"],
       mismatch.workspace.path,
     );
-    expect(() => request(mismatch)).toThrow(/injected canonical HTTPS/);
+    await expect(request(mismatch)).rejects.toThrow(/injected canonical HTTPS/u);
+
+    const normalizedWhitespace = harness();
+    git(
+      ["config", "--local", "remote.origin.url", `${canonicalUrl} `],
+      normalizedWhitespace.workspace.path,
+    );
+    await expect(request(normalizedWhitespace)).rejects.toThrow(/injected canonical HTTPS/u);
 
     const pushUrl = harness();
     git(["remote", "set-url", "--push", "origin", canonicalUrl], pushUrl.workspace.path);
-    expect(() => request(pushUrl)).toThrow(/pushurl is unsupported/);
+    await expect(request(pushUrl)).rejects.toThrow(/pushurl is unsupported/u);
 
     const unavailable = harness({
       status: { ...activeStatus, features: [EGRESS_ADDRESS_GUARD_CAPABILITY] },
     });
-    expect(() => request(unavailable)).toThrow(/fixture boundary is unavailable/);
+    await expect(request(unavailable)).rejects.toThrow(/fixture boundary is unavailable/u);
   });
 
   it("rejects invalid injected fixture configuration before capability state exists", () => {

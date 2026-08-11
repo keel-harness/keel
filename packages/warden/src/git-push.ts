@@ -1,4 +1,3 @@
-import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
   chmodSync,
@@ -6,13 +5,15 @@ import {
   lstatSync,
   mkdirSync,
   mkdtempSync,
+  readFileSync,
   realpathSync,
   rmSync,
   statSync,
   writeFileSync,
 } from "node:fs";
-import { join, sep } from "node:path";
+import { dirname, join, sep } from "node:path";
 import { Buffer } from "node:buffer";
+import { isIP } from "node:net";
 import { canonicalize, type JsonObjectT, type SideEffectT } from "@keel/shared";
 import {
   GIT_PUSH_CAPABILITY_V1,
@@ -47,6 +48,7 @@ const FULL_OID = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u;
 const REVIEW_ID = /^git_push_review_[1-9]\d{0,15}$/u;
 const UNSAFE_CARD_VALUE = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u;
 const MAX_GIT_OUTPUT_BYTES = 64 * 1024;
+const MAX_GIT_CONFIG_BYTES = 64 * 1024;
 
 export interface GitPushFixtureAuthority {
   readonly canonicalUrl: string;
@@ -84,10 +86,18 @@ interface GitExecutableIdentity {
   readonly modifiedNs: string;
 }
 
+interface GitConfigIdentity extends GitExecutableIdentity {
+  readonly digest: string;
+}
+
 interface GitPushFacts {
   readonly workspaceRoot: string;
+  readonly workspaceIdentity: GitExecutableIdentity;
   readonly gitDir: string;
+  readonly gitDirIdentity: GitExecutableIdentity;
+  readonly configIdentity: GitConfigIdentity;
   readonly objectStore: string;
+  readonly objectStoreIdentity: GitExecutableIdentity;
   readonly objectFormat: "sha1" | "sha256";
   readonly remote: string;
   readonly canonicalUrl: string;
@@ -105,6 +115,7 @@ interface GitPushFacts {
   readonly gitExecutable: GitExecutableIdentity;
   readonly envExecutable: GitExecutableIdentity;
   readonly tempRoot: string;
+  readonly tempRootIdentity: GitExecutableIdentity;
 }
 
 export interface PendingGitPushReview extends GitPushPendingReview {
@@ -135,6 +146,56 @@ export class GitPushInvalidParamsError extends Error {
     super(message);
     this.name = "GitPushInvalidParamsError";
   }
+}
+
+export interface CanonicalGitHttpsUrl {
+  readonly canonicalUrl: string;
+  readonly host: string;
+  readonly port: 443;
+  readonly path: string;
+}
+
+/** ADR-0091's deliberately narrow production URL grammar. It rejects instead of normalizing. */
+export function parseCanonicalGitHttpsUrl(input: string): CanonicalGitHttpsUrl {
+  if (
+    Buffer.byteLength(input, "utf8") > 512 ||
+    !/^[\x20-\x7e]+$/u.test(input) ||
+    !input.startsWith("https://")
+  ) {
+    throw new GitPushInvalidParamsError("remote URL must be canonical bounded ASCII HTTPS");
+  }
+  const authorityAndPath = input.slice("https://".length);
+  const pathOffset = authorityAndPath.indexOf("/");
+  if (pathOffset <= 0) {
+    throw new GitPushInvalidParamsError("remote URL must contain one DNS host and repository path");
+  }
+  const host = authorityAndPath.slice(0, pathOffset);
+  const path = authorityAndPath.slice(pathOffset);
+  const labels = host.split(".");
+  if (
+    host.length > 253 ||
+    host !== host.toLowerCase() ||
+    isIP(host) !== 0 ||
+    labels.some((label) => label === "" || !/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/u.test(label))
+  ) {
+    throw new GitPushInvalidParamsError("remote URL host must be one canonical lowercase DNS name");
+  }
+  if (Buffer.byteLength(path, "utf8") > 384) {
+    throw new GitPushInvalidParamsError("remote URL repository path exceeds 384 ASCII bytes");
+  }
+  const segments = path.slice(1).split("/");
+  if (
+    segments.some(
+      (segment) =>
+        segment === "" ||
+        segment === "." ||
+        segment === ".." ||
+        !/^[A-Za-z0-9._~-]+$/u.test(segment),
+    )
+  ) {
+    throw new GitPushInvalidParamsError("remote URL repository path is not canonical");
+  }
+  return { canonicalUrl: input, host, port: 443, path };
 }
 
 export function auditGitPushInvalidParams(
@@ -254,11 +315,18 @@ function parseRequest(args: JsonObjectT): GitPushRequest {
   return { remote, branch, expectedHead };
 }
 
-function hostGitEnv(tempRoot: string): NodeJS.ProcessEnv {
-  const home = join(tempRoot, "host-git-home");
+function fixedGitPath(gitExecutable: string): string {
+  return [dirname(realpathSync(gitExecutable)), "/usr/bin", "/bin", "/usr/sbin", "/sbin"].join(":");
+}
+
+function containedGitEnv(
+  tempRoot: string,
+  gitExecutable: string,
+): Readonly<Record<string, string>> {
+  const home = join(tempRoot, "inspection-git-home");
   mkdirSync(home, { recursive: true, mode: 0o700 });
   return {
-    PATH: process.env["PATH"],
+    PATH: fixedGitPath(gitExecutable),
     HOME: home,
     XDG_CONFIG_HOME: home,
     LANG: "C",
@@ -268,29 +336,156 @@ function hostGitEnv(tempRoot: string): NodeJS.ProcessEnv {
     GIT_CONFIG_SYSTEM: "/dev/null",
     GIT_TERMINAL_PROMPT: "0",
     GIT_OPTIONAL_LOCKS: "0",
+    GIT_NO_LAZY_FETCH: "1",
+    GIT_NO_REPLACE_OBJECTS: "1",
+    GIT_CONFIG_COUNT: "0",
+    GIT_ATTR_NOSYSTEM: "1",
   };
 }
 
-function runHostGit(
-  state: GitPushRuntimeState,
-  args: readonly string[],
-  options: { readonly cwd?: string; readonly allowExitOne?: boolean } = {},
-): string {
-  const result = spawnSync(realpathSync(state.config.gitExecutable), [...args], {
-    ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
-    encoding: "utf8",
-    env: hostGitEnv(state.config.tempRoot),
-    timeout: 5_000,
-    maxBuffer: MAX_GIT_OUTPUT_BYTES,
-  });
-  if (result.error !== undefined) throw result.error;
-  if (result.status !== 0 && !(options.allowExitOne === true && result.status === 1)) {
-    throw new GitPushInvalidParamsError(`local Git inspection failed for ${args[0] ?? "request"}`);
-  }
-  return result.stdout.trimEnd();
+function inspectionProfile(
+  context: GitPushRuntimeContext,
+  writeRoot: string,
+  allowWorkspaceRead: boolean,
+): SandboxProfile {
+  const workspaceRoot = realpathSync(context.workspaceRoot);
+  const tempRoot = realpathSync(context.state.config.tempRoot);
+  return {
+    filesystem: {
+      allowRead: [
+        ...(allowWorkspaceRead ? [workspaceRoot] : []),
+        tempRoot,
+        realpathSync(context.state.config.gitExecutable),
+      ],
+      allowWrite: [realpathSync(writeRoot)],
+      denyRead: [],
+      denyWrite: [
+        workspaceRoot,
+        ...(context.auditDir === undefined ? [] : [realpathSync(context.auditDir)]),
+      ],
+    },
+    network: { allowedDomains: [], deniedDomains: [], strictAllowlist: true },
+  };
 }
 
-function exactGitExecutable(path: string): GitExecutableIdentity {
+async function runContainedGit(
+  context: GitPushRuntimeContext,
+  args: readonly string[],
+  options: {
+    readonly cwd?: string;
+    readonly allowExitOne?: boolean;
+    readonly allowWorkspaceRead?: boolean;
+    readonly writeRoot?: string;
+  } = {},
+): Promise<string> {
+  const gitExecutable = realpathSync(context.state.config.gitExecutable);
+  const timeout = AbortSignal.timeout(5_000);
+  const signal =
+    context.signal === undefined ? timeout : AbortSignal.any([context.signal, timeout]);
+  const result = await context.sandbox.execute(
+    {
+      command: gitExecutable,
+      argv: [
+        gitExecutable,
+        "--no-pager",
+        "--no-optional-locks",
+        "-c",
+        "core.hooksPath=/dev/null",
+        "-c",
+        "core.fsmonitor=false",
+        "-c",
+        "core.untrackedCache=false",
+        ...args,
+      ],
+      ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
+    },
+    inspectionProfile(
+      context,
+      options.writeRoot ?? context.state.config.tempRoot,
+      options.allowWorkspaceRead !== false,
+    ),
+    {
+      signal,
+      credentialProxy: {
+        sandboxEnv: containedGitEnv(
+          context.state.config.tempRoot,
+          context.state.config.gitExecutable,
+        ),
+      },
+    },
+  );
+  if (
+    Buffer.byteLength(result.stdout, "utf8") > MAX_GIT_OUTPUT_BYTES ||
+    Buffer.byteLength(result.stderr, "utf8") > MAX_GIT_OUTPUT_BYTES
+  ) {
+    throw new GitPushInvalidParamsError("local Git inspection exceeded its output bound");
+  }
+  if (result.exitCode !== 0 && !(options.allowExitOne === true && result.exitCode === 1)) {
+    throw new GitPushInvalidParamsError(`local Git inspection failed for ${args[0] ?? "request"}`);
+  }
+  if (!result.stdout.endsWith("\n")) return result.stdout;
+  const withoutLineFeed = result.stdout.slice(0, -1);
+  return withoutLineFeed.endsWith("\r") ? withoutLineFeed.slice(0, -1) : withoutLineFeed;
+}
+
+function rejectRepositoryShape(gitDir: string): void {
+  const unsupported: readonly [path: string, reason: string][] = [
+    [join(gitDir, "shallow"), "shallow repositories are unsupported"],
+    [join(gitDir, "commondir"), "common Git directories are unsupported"],
+    [join(gitDir, "worktrees"), "repositories with linked worktrees are unsupported"],
+    [join(gitDir, "info", "grafts"), "repository grafts are unsupported"],
+    [join(gitDir, "objects", "info", "alternates"), "alternate object databases are unsupported"],
+    [
+      join(gitDir, "objects", "info", "http-alternates"),
+      "HTTP alternate object databases are unsupported",
+    ],
+  ];
+  for (const [path, reason] of unsupported) {
+    if (existsSync(path)) throw new GitPushInvalidParamsError(reason);
+  }
+}
+
+async function rejectRepositoryConfigWidening(
+  context: GitPushRuntimeContext,
+  workspaceRoot: string,
+): Promise<void> {
+  const partialClone = await runContainedGit(
+    context,
+    [
+      "-C",
+      workspaceRoot,
+      "config",
+      "--local",
+      "--no-includes",
+      "--name-only",
+      "--get-regexp",
+      "^(extensions\\.partialclone|remote\\..*\\.(promisor|partialclonefilter))$",
+    ],
+    { allowExitOne: true },
+  );
+  if (partialClone !== "") {
+    throw new GitPushInvalidParamsError("partial clones are unsupported");
+  }
+  const widening = await runContainedGit(
+    context,
+    [
+      "-C",
+      workspaceRoot,
+      "config",
+      "--local",
+      "--no-includes",
+      "--name-only",
+      "--get-regexp",
+      "^(remote\\..*\\.(mirror|proxy|proxyauthmethod|push|receivepack|vcs)|http\\.(followredirects|proxy|proxyauthmethod|sslbackend|sslcert|sslcertpasswordprotected|sslkey|sslcainfo|sslcapath|sslverify|extraheader|curloptresolve)|core\\.(hookspath|fsmonitor)|push\\.(followtags|gpgsign|pushoption|recursesubmodules|useforceifincludes)|submodule\\.recurse|protocol\\..*\\.allow|url\\..*\\.(insteadof|pushinsteadof))$",
+    ],
+    { allowExitOne: true },
+  );
+  if (widening !== "") {
+    throw new GitPushInvalidParamsError("repository-local Git config is unsupported for git.push");
+  }
+}
+
+function exactFileIdentity(path: string): GitExecutableIdentity {
   const canonical = realpathSync(path);
   const stat = statSync(canonical, { bigint: true });
   return {
@@ -299,6 +494,25 @@ function exactGitExecutable(path: string): GitExecutableIdentity {
     inode: String(stat.ino),
     size: String(stat.size),
     modifiedNs: String(stat.mtimeNs),
+  };
+}
+
+function exactGitConfigIdentity(gitDir: string): GitConfigIdentity {
+  const configPath = join(gitDir, "config");
+  const entry = lstatSync(configPath);
+  if (!entry.isFile() || entry.isSymbolicLink()) {
+    throw new GitPushInvalidParamsError(
+      "repository config must be one ordinary in-repository file",
+    );
+  }
+  const identity = exactFileIdentity(configPath);
+  if (!isInside(gitDir, identity.path) || Number(identity.size) > MAX_GIT_CONFIG_BYTES) {
+    throw new GitPushInvalidParamsError("repository config is outside its bounded authority");
+  }
+  const bytes = readFileSync(identity.path);
+  return {
+    ...identity,
+    digest: `sha256:${createHash("sha256").update(bytes).digest("hex")}`,
   };
 }
 
@@ -322,17 +536,21 @@ function integerFromGit(name: string, value: string): number {
   return number;
 }
 
-function inspectGitPushFacts(
-  state: GitPushRuntimeState,
+async function inspectGitPushFacts(
+  context: GitPushRuntimeContext,
   workspaceRootInput: string,
   request: GitPushRequest,
-): GitPushFacts {
+): Promise<GitPushFacts> {
+  const state = context.state;
   const workspaceRoot = realpathSync(workspaceRootInput);
-  if (runHostGit(state, ["-C", workspaceRoot, "rev-parse", "--is-bare-repository"]) !== "false") {
+  if (
+    (await runContainedGit(context, ["-C", workspaceRoot, "rev-parse", "--is-bare-repository"])) !==
+    "false"
+  ) {
     throw new GitPushInvalidParamsError("git.push requires an ordinary non-bare repository");
   }
   const topLevel = realpathSync(
-    runHostGit(state, ["-C", workspaceRoot, "rev-parse", "--show-toplevel"]),
+    await runContainedGit(context, ["-C", workspaceRoot, "rev-parse", "--show-toplevel"]),
   );
   if (topLevel !== workspaceRoot) {
     throw new GitPushInvalidParamsError("workspace root must be the ordinary repository top level");
@@ -344,12 +562,38 @@ function inspectGitPushFacts(
     );
   }
   const gitDir = realpathSync(
-    runHostGit(state, ["-C", workspaceRoot, "rev-parse", "--absolute-git-dir"]),
+    await runContainedGit(context, ["-C", workspaceRoot, "rev-parse", "--absolute-git-dir"]),
   );
   if (gitDir !== realpathSync(dotGit) || !isInside(workspaceRoot, gitDir)) {
     throw new GitPushInvalidParamsError("Git directory identity is outside the trusted workspace");
   }
-  const objectFormatRaw = runHostGit(state, [
+  rejectRepositoryShape(gitDir);
+  await rejectRepositoryConfigWidening(context, workspaceRoot);
+  const configIdentity = exactGitConfigIdentity(gitDir);
+  const objectStoreEntry = lstatSync(join(gitDir, "objects"));
+  const objectStore = realpathSync(join(gitDir, "objects"));
+  if (
+    !objectStoreEntry.isDirectory() ||
+    objectStoreEntry.isSymbolicLink() ||
+    !isInside(gitDir, objectStore) ||
+    !isInside(workspaceRoot, objectStore)
+  ) {
+    throw new GitPushInvalidParamsError("object store must stay inside the trusted workspace");
+  }
+  if (process.env["GIT_ALTERNATE_OBJECT_DIRECTORIES"] !== undefined) {
+    throw new GitPushInvalidParamsError("alternate object databases are unsupported");
+  }
+  const replacementRefs = await runContainedGit(context, [
+    "-C",
+    workspaceRoot,
+    "for-each-ref",
+    "--format=%(refname)",
+    "refs/replace",
+  ]);
+  if (replacementRefs !== "") {
+    throw new GitPushInvalidParamsError("replacement refs are unsupported");
+  }
+  const objectFormatRaw = await runContainedGit(context, [
     "-C",
     workspaceRoot,
     "rev-parse",
@@ -364,31 +608,53 @@ function inspectGitPushFacts(
       "expectedHead length does not match the repository object format",
     );
   }
-  const head = runHostGit(state, ["-C", workspaceRoot, "rev-parse", "--verify", "HEAD"]);
+  const symbolicHead = await runContainedGit(
+    context,
+    ["-C", workspaceRoot, "symbolic-ref", "--quiet", "HEAD"],
+    { allowExitOne: true },
+  );
+  if (symbolicHead === "") {
+    throw new GitPushInvalidParamsError("detached HEAD is unsupported for git.push");
+  }
+  const head = await runContainedGit(context, [
+    "-C",
+    workspaceRoot,
+    "rev-parse",
+    "--verify",
+    "HEAD",
+  ]);
   if (head !== request.expectedHead) {
     throw new GitPushInvalidParamsError(
       "current HEAD does not equal expectedHead; refresh and submit a new request",
     );
   }
   if (
-    runHostGit(state, ["-C", workspaceRoot, "cat-file", "-t", request.expectedHead]) !== "commit"
+    (await runContainedGit(context, [
+      "-C",
+      workspaceRoot,
+      "cat-file",
+      "-t",
+      request.expectedHead,
+    ])) !== "commit"
   ) {
     throw new GitPushInvalidParamsError("expectedHead does not identify a commit");
   }
-  runHostGit(state, ["check-ref-format", "--branch", request.branch]);
+  await runContainedGit(context, ["check-ref-format", "--branch", request.branch]);
   const destinationRef = `refs/heads/${request.branch}`;
-  const urls = runHostGit(
-    state,
-    [
-      "-C",
-      workspaceRoot,
-      "config",
-      "--local",
-      "--no-includes",
-      "--get-all",
-      `remote.${request.remote}.url`,
-    ],
-    { allowExitOne: true },
+  const urls = (
+    await runContainedGit(
+      context,
+      [
+        "-C",
+        workspaceRoot,
+        "config",
+        "--local",
+        "--no-includes",
+        "--get-all",
+        `remote.${request.remote}.url`,
+      ],
+      { allowExitOne: true },
+    )
   )
     .split("\n")
     .filter((value) => value !== "");
@@ -401,8 +667,8 @@ function inspectGitPushFacts(
       "Slice 1 release-withheld fixture accepts only its injected canonical HTTPS repository URL",
     );
   }
-  const pushUrls = runHostGit(
-    state,
+  const pushUrls = await runContainedGit(
+    context,
     [
       "-C",
       workspaceRoot,
@@ -415,24 +681,32 @@ function inspectGitPushFacts(
     { allowExitOne: true },
   );
   if (pushUrls !== "") throw new GitPushInvalidParamsError("remote pushurl is unsupported");
-  const metadata = runHostGit(state, [
-    "-C",
-    workspaceRoot,
-    "show",
-    "-s",
-    "--format=%H%x00%aI%x00%P%x00%s",
-    request.expectedHead,
-  ]).split("\u0000");
+  const metadata = (
+    await runContainedGit(context, [
+      "-C",
+      workspaceRoot,
+      "show",
+      "-s",
+      "--format=%H%x00%aI%x00%P%x00%s",
+      request.expectedHead,
+    ])
+  ).split("\u0000");
   if (metadata.length !== 4 || metadata[0] !== request.expectedHead) {
     throw new GitPushInvalidParamsError("commit metadata could not be resolved exactly");
   }
   const authorTimestamp = safeCardValue("author timestamp", metadata[1]!, 64);
   const parents = metadata[2] === "" ? [] : metadata[2]!.split(" ");
+  const oidLength = objectFormat === "sha1" ? 40 : 64;
+  if (parents.some((parent) => parent.length !== oidLength || !FULL_OID.test(parent))) {
+    throw new GitPushInvalidParamsError("commit parent metadata is malformed");
+  }
   const subject = safeCardValue("commit subject", metadata[3]!, 160);
-  const numstat = runHostGit(state, [
+  const numstat = await runContainedGit(context, [
     "-C",
     workspaceRoot,
     "diff-tree",
+    "--no-ext-diff",
+    "--no-textconv",
     "--no-commit-id",
     "--numstat",
     "--root",
@@ -452,22 +726,32 @@ function inspectGitPushFacts(
     additions += integerFromGit("addition count", columns[0]!);
     deletions += integerFromGit("deletion count", columns[1]!);
     fileCount += 1;
-  }
-  const objectStore = realpathSync(join(gitDir, "objects"));
-  if (
-    existsSync(join(objectStore, "info", "alternates")) ||
-    process.env["GIT_ALTERNATE_OBJECT_DIRECTORIES"] !== undefined
-  ) {
-    throw new GitPushInvalidParamsError("alternate object databases are unsupported");
+    if (
+      !Number.isSafeInteger(additions) ||
+      !Number.isSafeInteger(deletions) ||
+      !Number.isSafeInteger(fileCount)
+    ) {
+      throw new GitPushInvalidParamsError("commit summary counts are too large");
+    }
   }
   const workspaceState =
-    runHostGit(state, ["-C", workspaceRoot, "status", "--porcelain=v1", "-uno"]) === ""
+    (await runContainedGit(context, [
+      "-C",
+      workspaceRoot,
+      "status",
+      "--porcelain=v1",
+      "--untracked-files=normal",
+    ])) === ""
       ? "clean"
       : "has uncommitted changes";
   return {
     workspaceRoot,
+    workspaceIdentity: exactFileIdentity(workspaceRoot),
     gitDir,
+    gitDirIdentity: exactFileIdentity(gitDir),
+    configIdentity,
     objectStore,
+    objectStoreIdentity: exactFileIdentity(objectStore),
     objectFormat,
     remote: request.remote,
     canonicalUrl,
@@ -482,9 +766,10 @@ function inspectGitPushFacts(
     additions,
     deletions,
     workspaceState,
-    gitExecutable: exactGitExecutable(state.config.gitExecutable),
-    envExecutable: exactGitExecutable("/usr/bin/env"),
+    gitExecutable: exactFileIdentity(state.config.gitExecutable),
+    envExecutable: exactFileIdentity("/usr/bin/env"),
     tempRoot: realpathSync(state.config.tempRoot),
+    tempRootIdentity: exactFileIdentity(state.config.tempRoot),
   };
 }
 
@@ -593,10 +878,10 @@ function auditIdentity(review: PendingGitPushReview): JsonObjectT {
   };
 }
 
-export function requestGitPushReview(
+export async function requestGitPushReview(
   context: GitPushRuntimeContext,
   executeParams: GitPushExecuteParams,
-): GitPushRpcResult {
+): Promise<GitPushRpcResult> {
   if (executeParams.toolCall.name !== GIT_PUSH_TOOL_NAME) {
     throw new GitPushInvalidParamsError("unexpected tool name for git.push authority");
   }
@@ -611,7 +896,7 @@ export function requestGitPushReview(
     throw new Error("git.push release-withheld fixture boundary is unavailable");
   }
   const request = parseRequest(executeParams.toolCall.args);
-  const facts = inspectGitPushFacts(context.state, context.workspaceRoot, request);
+  const facts = await inspectGitPushFacts(context, context.workspaceRoot, request);
   const now = context.state.config.nowMs?.() ?? Date.now();
   const reviewId = `git_push_review_${String(context.state.nextReviewId)}`;
   context.state.nextReviewId += 1;
@@ -683,15 +968,49 @@ function resultPayload(
   };
 }
 
-function parseRemoteRefs(output: string): Map<string, string> {
+interface ParsedRemoteRefs {
+  readonly refs: Map<string, string>;
+  readonly symrefs: Map<string, string>;
+  readonly valid: boolean;
+}
+
+function parseRemoteRefs(
+  output: string,
+  objectFormat: "sha1" | "sha256",
+  allowedRefs: ReadonlySet<string>,
+): ParsedRemoteRefs {
   const refs = new Map<string, string>();
-  for (const line of output.trim().split("\n")) {
+  const symrefs = new Map<string, string>();
+  let valid = true;
+  const oidLength = objectFormat === "sha1" ? 40 : 64;
+  for (const line of output.split("\n")) {
     if (line === "") continue;
-    const [left, right] = line.split("\t");
-    if (left === undefined || right === undefined) continue;
+    const columns = line.split("\t");
+    if (columns.length !== 2) {
+      valid = false;
+      continue;
+    }
+    const [left, right] = columns as [string, string];
+    if (!allowedRefs.has(right)) {
+      valid = false;
+      continue;
+    }
+    if (left.startsWith("ref: ")) {
+      const target = left.slice("ref: ".length);
+      if (right !== "HEAD" || !/^refs\/heads\/[\x21-\x7e]+$/u.test(target) || symrefs.has(right)) {
+        valid = false;
+        continue;
+      }
+      symrefs.set(right, target);
+      continue;
+    }
+    if (left.length !== oidLength || !FULL_OID.test(left) || refs.has(right)) {
+      valid = false;
+      continue;
+    }
     refs.set(right, left);
   }
-  return refs;
+  return { refs, symrefs, valid };
 }
 
 function boundedGitFailureDiagnostic(stderr: string): JsonObjectT {
@@ -754,6 +1073,7 @@ function sandboxCredential(
       },
     ],
     sandboxEnv: {
+      PATH: fixedGitPath(state.config.gitExecutable),
       HOME: home,
       XDG_CONFIG_HOME: home,
       LANG: "C",
@@ -761,8 +1081,12 @@ function sandboxCredential(
       GIT_CONFIG_NOSYSTEM: "1",
       GIT_CONFIG_GLOBAL: "/dev/null",
       GIT_CONFIG_SYSTEM: "/dev/null",
+      GIT_CONFIG_COUNT: "0",
       GIT_TERMINAL_PROMPT: "0",
       GIT_OPTIONAL_LOCKS: "0",
+      GIT_NO_LAZY_FETCH: "1",
+      GIT_NO_REPLACE_OBJECTS: "1",
+      GIT_ATTR_NOSYSTEM: "1",
       GIT_TRACE: "0",
       GIT_TRACE_PACKET: "0",
       GIT_TRACE_CURL: "0",
@@ -782,11 +1106,33 @@ function baseGitArgs(gitDir: string): string[] {
     "-c",
     "core.hooksPath=/dev/null",
     "-c",
+    "core.fsmonitor=false",
+    "-c",
     "http.followRedirects=false",
     "-c",
     "http.sslVerify=true",
     "-c",
     "http.maxRequests=1",
+    "-c",
+    "http.extraHeader=",
+    "-c",
+    "push.followTags=false",
+    "-c",
+    "push.gpgSign=false",
+    "-c",
+    "push.pushOption=",
+    "-c",
+    "push.useForceIfIncludes=false",
+    "-c",
+    "push.negotiate=false",
+    "-c",
+    "push.autoSetupRemote=false",
+    "-c",
+    "submodule.recurse=false",
+    "-c",
+    "protocol.allow=never",
+    "-c",
+    "protocol.https.allow=always",
   ];
 }
 
@@ -846,23 +1192,30 @@ async function runSandboxGit(
   );
 }
 
-function initializeAttemptRepo(
-  state: GitPushRuntimeState,
+async function initializeAttemptRepo(
+  context: GitPushRuntimeContext,
   review: PendingGitPushReview,
-): { readonly attemptRoot: string; readonly gitDir: string } {
-  const tempRoot = realpathSync(state.config.tempRoot);
+): Promise<{ readonly attemptRoot: string; readonly gitDir: string }> {
+  const tempRoot = realpathSync(context.state.config.tempRoot);
   if (tempRoot !== review.facts.tempRoot)
     throw new Error("git.push temporary root identity changed");
   const attemptRoot = mkdtempSync(join(tempRoot, "attempt-"));
   chmodSync(attemptRoot, 0o700);
   const gitDir = join(attemptRoot, "repo.git");
-  runHostGit(state, [
-    "init",
-    "--quiet",
-    "--bare",
-    `--object-format=${review.facts.objectFormat}`,
-    gitDir,
-  ]);
+  const emptyTemplate = join(attemptRoot, "empty-template");
+  mkdirSync(emptyTemplate, { mode: 0o700 });
+  await runContainedGit(
+    context,
+    [
+      "init",
+      "--quiet",
+      "--bare",
+      `--template=${emptyTemplate}`,
+      `--object-format=${review.facts.objectFormat}`,
+      gitDir,
+    ],
+    { cwd: attemptRoot, allowWorkspaceRead: false, writeRoot: attemptRoot },
+  );
   const alternatesDir = join(gitDir, "objects", "info");
   mkdirSync(alternatesDir, { recursive: true, mode: 0o700 });
   writeFileSync(join(alternatesDir, "alternates"), `${review.facts.objectStore}\n`, {
@@ -960,7 +1313,30 @@ export async function resolveGitPushReview(
     };
   }
   const sandbox = context.sandbox.status();
-  const refreshedFacts = inspectGitPushFacts(context.state, context.workspaceRoot, review.request);
+  let refreshedFacts: GitPushFacts;
+  try {
+    refreshedFacts = await inspectGitPushFacts(context, context.workspaceRoot, review.request);
+  } catch (error) {
+    const auditSeq = context.appendAudit({
+      eventType: "tool.deny",
+      sessionId: review.executeParams.sessionId,
+      payload: {
+        toolName: GIT_PUSH_TOOL_NAME,
+        args: review.executeParams.toolCall.args,
+        reviewId: review.reviewId,
+        reason: "git.push revalidation failed",
+        bindingDigest: review.bindingDigest,
+        errorClass: error instanceof Error ? error.name : "unknown",
+        actionMayHaveExecuted: false,
+      },
+      sideEffect: gitPushSideEffect(review.facts),
+    });
+    return {
+      verdict: "deny",
+      result: { kind: "git_push_denied", reason: "request facts changed; submit a fresh request" },
+      auditSeq,
+    };
+  }
   const refreshedDigest = bindingDigest({
     executeParams: review.executeParams,
     request: review.request,
@@ -993,8 +1369,9 @@ export async function resolveGitPushReview(
   auditOutcome(context, review, { execution: "requested", outcomeKnown: false });
 
   let attemptRoot: string | undefined;
+  let mutationAttempted = false;
   try {
-    const initialized = initializeAttemptRepo(context.state, review);
+    const initialized = await initializeAttemptRepo(context, review);
     attemptRoot = initialized.attemptRoot;
     const preflight = await runSandboxGit(context, review, attemptRoot, initialized.gitDir, [
       "ls-remote",
@@ -1017,15 +1394,27 @@ export async function resolveGitPushReview(
         auditSeq,
       };
     }
-    const preflightRefs = parseRemoteRefs(preflight.stdout);
-    const defaultBranch = preflightRefs.get("HEAD")?.startsWith("ref: ")
-      ? preflightRefs.get("HEAD")!.slice("ref: ".length)
-      : undefined;
+    const preflightRefs = parseRemoteRefs(
+      preflight.stdout,
+      review.facts.objectFormat,
+      new Set(["HEAD", review.facts.destinationRef]),
+    );
+    if (!preflightRefs.valid) {
+      const result = resultPayload(review, "failed", null, false);
+      const auditSeq = auditOutcome(context, review, {
+        result,
+        phase: "remote-preflight",
+        childExitCode: preflight.exitCode,
+        invalidRemoteObservation: true,
+      });
+      return { verdict: "deny", result, auditSeq };
+    }
+    const defaultBranch = preflightRefs.symrefs.get("HEAD");
     if (defaultBranch === review.facts.destinationRef) {
       const result = resultPayload(
         review,
         "failed",
-        preflightRefs.get(review.facts.destinationRef) ?? null,
+        preflightRefs.refs.get(review.facts.destinationRef) ?? null,
         false,
       );
       const auditSeq = context.appendAudit({
@@ -1046,12 +1435,13 @@ export async function resolveGitPushReview(
         auditSeq,
       };
     }
-    const before = preflightRefs.get(review.facts.destinationRef) ?? null;
+    const before = preflightRefs.refs.get(review.facts.destinationRef) ?? null;
     if (before === review.request.expectedHead) {
       const result = resultPayload(review, "already-at-commit", before, false);
       const auditSeq = auditOutcome(context, review, { result, phase: "preflight" });
       return { verdict: "allow", result, auditSeq };
     }
+    mutationAttempted = true;
     const push = await runSandboxGit(context, review, attemptRoot, initialized.gitDir, [
       "push",
       "--porcelain",
@@ -1080,11 +1470,18 @@ export async function resolveGitPushReview(
         auditSeq,
       };
     }
-    const observed = parseRemoteRefs(verification.stdout).get(review.facts.destinationRef) ?? null;
+    const verificationRefs = parseRemoteRefs(
+      verification.stdout,
+      review.facts.objectFormat,
+      new Set([review.facts.destinationRef]),
+    );
+    const observed = verificationRefs.valid
+      ? (verificationRefs.refs.get(review.facts.destinationRef) ?? null)
+      : null;
     const status =
-      observed === review.request.expectedHead
+      verificationRefs.valid && observed === review.request.expectedHead
         ? "pushed"
-        : push.exitCode === 0
+        : push.exitCode === 0 || !verificationRefs.valid
           ? "indeterminate"
           : "failed";
     const result = resultPayload(review, status, observed, true);
@@ -1102,11 +1499,12 @@ export async function resolveGitPushReview(
           auditSeq,
         };
   } catch (error) {
-    const result = resultPayload(review, "indeterminate", null, true);
+    const status = mutationAttempted ? "indeterminate" : "failed";
+    const result = resultPayload(review, status, null, mutationAttempted);
     const auditSeq = auditOutcome(context, review, {
       result,
       phase: "exception",
-      actionMayHaveExecuted: true,
+      actionMayHaveExecuted: mutationAttempted,
       errorClass: error instanceof Error ? error.name : "unknown",
     });
     return {

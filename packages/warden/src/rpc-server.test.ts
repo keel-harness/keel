@@ -19311,7 +19311,7 @@ printf '%s\\n' '${match}'
       capabilityAvailable: () => true,
       pendingReviewCount: () => (pending ? 1 : 0),
       hasPendingReview: (reviewId) => pending && reviewId === "git_push_review_1",
-      request: () => ({ verdict: "deny", auditSeq: 1 }),
+      request: async () => ({ verdict: "deny", auditSeq: 1 }),
       consumeReview: (reviewId) => {
         if (!pending || reviewId !== "git_push_review_1") return undefined;
         pending = false;

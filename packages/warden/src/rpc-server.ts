@@ -6465,7 +6465,7 @@ async function methodResult(
             appendAudit: (input: AuditAppendInput) => appendAuditSeq(context, input),
           };
           try {
-            return gitPushAuthority.request(gitContext, p);
+            return await gitPushAuthority.request(gitContext, p);
           } catch (error) {
             if (gitPushAuthority.isInvalidParams(error)) {
               const auditSeq = gitPushAuthority.auditInvalidParams(gitContext, p, error);
