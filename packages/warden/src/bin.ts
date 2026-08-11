@@ -47,6 +47,7 @@ import {
   mcpTrustedServersFromEnv,
   type McpStdioLaunchConfig,
 } from "./mcp/local-stdio.js";
+import type { GitPushAuthority } from "./git-push-authority.js";
 
 export { INTERNAL_MCP_DISCOVERY_ENV, MCP_DISCOVERY_REQUEST_ENV } from "./mcp/local-stdio.js";
 
@@ -100,12 +101,14 @@ interface SandboxComponentsFromEnv {
 async function sandboxComponentsFromEnv(
   credentialProxyRules?: readonly CredentialProxyRule[],
   resolveDestination?: BoundedEgressAddressResolver["resolveDestination"],
+  gitPushAuthority?: GitPushAuthority,
 ): Promise<SandboxComponentsFromEnv> {
   if (process.env["KEEL_WARDEN_SANDBOX"] !== "srt") return {};
+  const credentialTlsTermination =
+    (credentialProxyRules !== undefined && credentialProxyRules.length > 0) ||
+    gitPushAuthority?.transportRequirements.credentialTlsTermination === true;
   const options = {
-    ...(credentialProxyRules !== undefined && credentialProxyRules.length > 0
-      ? { credentialTlsTermination: true }
-      : {}),
+    ...(credentialTlsTermination ? { credentialTlsTermination: true } : {}),
     ...(resolveDestination === undefined ? {} : { resolveDestination }),
   };
   const components =
@@ -322,7 +325,14 @@ export async function runMcpDiscoveryFromEnv(): Promise<void> {
   }
 }
 
-export async function runWardenFromEnv(): Promise<void> {
+export interface RunWardenFromEnvOptions {
+  /** Injected only by a product entrypoint that has already constructed the typed authority. */
+  readonly gitPushAuthority?: GitPushAuthority;
+}
+
+export async function runWardenFromEnv(
+  runtimeOptions: RunWardenFromEnvOptions = {},
+): Promise<void> {
   const sandboxTempRoot = installSandboxTempRootFromEnv();
   const workspaceRoot = process.env["KEEL_WARDEN_WORKSPACE_ROOT"] ?? process.cwd();
   let sandboxComponents: SandboxComponentsFromEnv = {};
@@ -372,6 +382,7 @@ export async function runWardenFromEnv(): Promise<void> {
         ? undefined
         : (hostname, port, signal) =>
             activeEgressResolver.resolveDestination(hostname, port, signal),
+      runtimeOptions.gitPushAuthority,
     );
     if (quarantineRequested) await sandboxComponents.shutdown?.();
 
@@ -432,6 +443,9 @@ export async function runWardenFromEnv(): Promise<void> {
       ...(lifecycleManifest === undefined ? {} : { lifecycleManifest }),
       ...(typedMutationRunner === undefined ? {} : { typedMutationRunner }),
       ...(mutationPresentation === undefined ? {} : { mutationPresentation }),
+      ...(runtimeOptions.gitPushAuthority === undefined
+        ? {}
+        : { gitPushAuthority: runtimeOptions.gitPushAuthority }),
       mcpTrustedServers,
       validationPostureId,
       workspaceTrusted,

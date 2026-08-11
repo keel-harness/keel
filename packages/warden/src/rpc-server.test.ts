@@ -19308,6 +19308,7 @@ printf '%s\\n' '${match}'
     const gitPushAuthority: GitPushAuthority = {
       capability: "git-push/v1",
       toolName: "git.push",
+      transportRequirements: { credentialTlsTermination: true },
       capabilityAvailable: () => true,
       pendingReviewCount: () => (pending ? 1 : 0),
       hasPendingReview: (reviewId) => pending && reviewId === "git_push_review_1",

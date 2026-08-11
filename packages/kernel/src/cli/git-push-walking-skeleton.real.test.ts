@@ -482,8 +482,15 @@ function spawnedGitPushWarden(options: {
         credentialSourceClass: "operator-git-credential-helper",
         credentialBroker
       };
+      const gitPushAuthority = createGitPushWalkingSkeletonAuthority({
+        advertiseTestCapability: true,
+        fixture,
+        gitExecutable: ${JSON.stringify(gitExecutable)},
+        tempRoot: ${JSON.stringify(tempRoot)}
+      });
       const components = await createVendoredSrtSandboxComponents({
-        credentialTlsTermination: true,
+        credentialTlsTermination:
+          gitPushAuthority.transportRequirements.credentialTlsTermination,
         resolveDestination: async (hostname, port) => {
           if (hostname !== fixture.host || port !== fixture.port) {
             throw new Error("fixture resolver refused unbound destination");
@@ -516,12 +523,7 @@ function spawnedGitPushWarden(options: {
         sandbox: components.sandbox,
         declaredTempRoots: [${JSON.stringify(tempRoot)}],
         shutdownRuntime: components.shutdown,
-        gitPushAuthority: createGitPushWalkingSkeletonAuthority({
-          advertiseTestCapability: true,
-          fixture,
-          gitExecutable: ${JSON.stringify(gitExecutable)},
-          tempRoot: ${JSON.stringify(tempRoot)}
-        }),
+        gitPushAuthority,
         onShutdown: close
       });
     `,

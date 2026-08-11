@@ -57,6 +57,9 @@ export interface GitPushPendingReview {
 export interface GitPushAuthority {
   readonly capability: typeof GIT_PUSH_CAPABILITY_V1;
   readonly toolName: typeof GIT_PUSH_TOOL_NAME;
+  readonly transportRequirements: {
+    readonly credentialTlsTermination: true;
+  };
   capabilityAvailable(input: {
     readonly workspaceTrusted: boolean;
     readonly auditAvailable: boolean;

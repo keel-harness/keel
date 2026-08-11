@@ -1687,6 +1687,7 @@ function createGitPushAuthority(config: GitPushRuntimeConfig): GitPushAuthority 
   return {
     capability: GIT_PUSH_CAPABILITY_V1,
     toolName: GIT_PUSH_TOOL_NAME,
+    transportRequirements: { credentialTlsTermination: true },
     capabilityAvailable: (input) => gitPushCapabilityAvailable(state, input),
     pendingReviewCount: () => state.pending.size,
     hasPendingReview: (reviewId) => state.pending.has(reviewId),
