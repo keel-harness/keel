@@ -83,6 +83,7 @@ describe("ADR-0091 operator Git credential protocol", () => {
     ["wrong host", exactCredentialOutput("u", "p").replace("github.com", "evil.example")],
     ["wrong path", exactCredentialOutput("u", "p").replace("keel-harness", "someone-else")],
     ["control-bearing username", exactCredentialOutput("u\u0000x", "p")],
+    ["colon-bearing Basic username", exactCredentialOutput("u:admin", "p")],
     ["empty username", exactCredentialOutput("", "p")],
     ["empty password", exactCredentialOutput("u", "")],
   ])("rejects %s output", (_label, output) => {
@@ -93,6 +94,14 @@ describe("ADR-0091 operator Git credential protocol", () => {
     expect(() =>
       parseGitCredentialOutput(exactCredentialOutput("u", "x".repeat(8_193)), context),
     ).toThrow(/output bound/u);
+  });
+
+  it("rejects a non-canonical DNS label in the requested credential context", () => {
+    const invalidContext = { ...context, host: "bad-.example" };
+    const output = exactCredentialOutput("u", "p").replace("github.com", invalidContext.host);
+    expect(() => parseGitCredentialOutput(output, invalidContext)).toThrow(
+      /canonical HTTPS repository/u,
+    );
   });
 });
 
@@ -150,7 +159,12 @@ describe("ADR-0091 Warden Git credential broker", () => {
       gitExecutable: fakeGit(root),
       tempRoot: root,
       runProcess,
-      env: { HOME: "/operator", PATH: "/usr/bin:/bin", GIT_ASKPASS: "/hostile" },
+      env: {
+        HOME: "/operator",
+        PATH: "/usr/bin:/bin",
+        TMPDIR: "/tmp/untrusted-operator-temp",
+        GIT_ASKPASS: "/hostile",
+      },
     });
     const identity = await broker.inspect(context);
 
@@ -176,6 +190,7 @@ describe("ADR-0091 Warden Git credential broker", () => {
     expect(fill.env["GIT_ASKPASS"]).toBe("/usr/bin/false");
     expect(fill.env["SSH_ASKPASS"]).toBe("/usr/bin/false");
     expect(fill.env["GCM_INTERACTIVE"]).toBe("never");
+    expect(fill.env["TMPDIR"]).toBe(fill.cwd);
     expect(fill.env).not.toHaveProperty("GIT_DIR");
   });
 
