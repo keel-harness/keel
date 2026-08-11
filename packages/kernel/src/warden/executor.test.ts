@@ -265,7 +265,12 @@ describe("WardenExecutor", () => {
   it.each([
     ["failed", true, "partial", "a ref update may have executed"],
     ["indeterminate", true, "partial", "a ref update may have executed"],
-    ["failed", false, "failed", "failed before a ref update was launched"],
+    [
+      "failed",
+      false,
+      "failed",
+      "did not establish the requested ref state; this result does not claim that no Git objects were transferred; no automatic retry was attempted",
+    ],
   ] as const)(
     "renders git.push %s with actionMayHaveExecuted=%s truthfully",
     async (status, actionMayHaveExecuted, outcome, expected) => {
@@ -302,7 +307,14 @@ describe("WardenExecutor", () => {
       expect(result.output).toContain(expected);
       expect(result.output).toContain('"automaticRetry":false');
       expect(result.output).not.toContain("blocked by warden (not executed)");
+      expect(result.output).not.toContain("before a ref update was launched");
+      expect(result.output).not.toContain("remote preflight failed");
       expect(toolPresentationOutcome(result)).toBe(outcome);
+      if (outcome === "partial") {
+        expect(result.output).toContain(
+          "do not retry automatically; restart, then inspect the independent remote ref and audit",
+        );
+      }
     },
   );
 
@@ -948,6 +960,50 @@ describe("WardenExecutor", () => {
     expect(hasControlCharacter(failed.output)).toBe(false);
   });
 
+  it("redirects only a terminal raw git push to one fresh typed request when negotiated", async () => {
+    const terminalReview = { verdict: "review" as const, auditSeq: 12 };
+    const rawPush = call("process.run", {
+      argv: ["git", "push", "origin", "feature/release"],
+    });
+    const client = clientReturning(terminalReview);
+    const executor = new WardenExecutor({
+      client,
+      sessionId: SESSION_ID,
+      processRunAvailable: true,
+      gitPushAvailable: true,
+    });
+
+    const result = await executor.execute(rawPush);
+
+    expect(result.ok).toBe(false);
+    expect(result.output).toContain("the raw process.run request remains terminal and was not run");
+    expect(result.output).toContain(
+      'submit a fresh git.push call such as {"remote":"origin","branch":"feature/name","expectedHead":"<full-lowercase-commit-oid>"}',
+    );
+    expect(result.output).not.toContain("retry process.run");
+    expect(client.calls).toHaveLength(1);
+    expect(client.calls[0]?.params).toMatchObject({ toolCall: rawPush });
+
+    const withoutCapability = new WardenExecutor({
+      client: clientReturning(terminalReview),
+      sessionId: SESSION_ID,
+      processRunAvailable: true,
+    });
+    const withheld = await withoutCapability.execute(rawPush);
+    expect(withheld.output).not.toContain("git.push");
+    expect(withheld.output).toContain("retry process.run");
+
+    const readOnlyGit = new WardenExecutor({
+      client: clientReturning(terminalReview),
+      sessionId: SESSION_ID,
+      processRunAvailable: true,
+      gitPushAvailable: true,
+    });
+    const unrelated = await readOnlyGit.execute(call("process.run", { argv: ["git", "diff"] }));
+    expect(unrelated.output).not.toContain("git.push");
+    expect(unrelated.output).toContain("retry process.run");
+  });
+
   it("notifies quarantine while reporting a post-spawn MCP pin mismatch as partial", async () => {
     const events: unknown[] = [];
     const executor = new WardenExecutor({
@@ -1285,6 +1341,48 @@ describe("WardenExecutor", () => {
     expect(client.calls[1]).toMatchObject({
       method: "warden.resolveReview",
       params: { reviewId: "process_review_2", approved: false, principal: PRINCIPAL },
+    });
+  });
+
+  it("tells a headless git.push caller exactly how to open a fresh interactive approval", async () => {
+    const client = new FakeWardenClient({
+      result: {
+        verdict: "review",
+        review: {
+          reviewId: "git_push_review_1",
+          summary:
+            "Git push requires approval. Repository: https://github.com/keel-harness/keel.git",
+          allowCommand: "keel approve git_push_review_1 --scope once",
+        },
+        auditSeq: 4,
+      },
+      resolveResult: { verdict: "deny", auditSeq: 5 },
+    });
+    const executor = new WardenExecutor({
+      client,
+      sessionId: SESSION_ID,
+      principal: PRINCIPAL,
+      gitPushAvailable: true,
+    });
+
+    const result = await executor.execute(
+      call("git.push", {
+        remote: "origin",
+        branch: "feature/publish",
+        expectedHead: "0123456789abcdef0123456789abcdef01234567",
+      }),
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.output).toContain("review closed as denied");
+    expect(result.output).toContain(
+      "rerun Keel interactively to approve a fresh exact git.push request",
+    );
+    expect(result.output).not.toContain("rerun only when a live approval surface is available");
+    expect(toolPresentationOutcome(result)).toBe("blocked");
+    expect(client.calls[1]).toMatchObject({
+      method: "warden.resolveReview",
+      params: { reviewId: "git_push_review_1", approved: false, principal: PRINCIPAL },
     });
   });
 

@@ -39,6 +39,11 @@ import {
   exactProcessRunReviewSummaryForInformation,
 } from "../../warden/process-run-review-presentation.js";
 import {
+  associateExactGitPushReviewInformation,
+  exactGitPushReviewSummary,
+  exactGitPushReviewSummaryForInformation,
+} from "../../warden/git-push-review-presentation.js";
+import {
   BLOCKED_AFTER_SYNTHESIS_CODE,
   REVIEW_REQUIRED_AFTER_SYNTHESIS_CODE,
 } from "../../events.js";
@@ -437,6 +442,69 @@ describe("Ink App (frame snapshots via ink-testing-library)", () => {
     } finally {
       rendered.unmount();
       restore();
+    }
+  });
+
+  it("keeps a maximum 20-row git.push review and both decisions visible at 100x30", async () => {
+    const restoreEnv = setTerminalEnv({ TERM: "xterm-truecolor", FORCE_COLOR: "3" });
+    const oid = "0123456789abcdef0123456789abcdef01234567";
+    const summary = [
+      "Git push requires approval.",
+      `Repository: https://github.com/${"r".repeat(354)}`,
+      `Destination: refs/heads/${"b".repeat(128)}`,
+      `Commit: ${oid}`,
+      `Subject: ${"s".repeat(160)}`,
+      "Commit facts: 2026-08-10T12:00:00Z; 1; 2 files; +3 -1",
+      "Workspace: clean; uncommitted changes are excluded",
+      "Effect: create this branch or fast-forward it to this commit; the remote may receive every missing object reachable from the commit",
+      "Blocked: force, deletion, tags, hooks, submodule recursion, redirects, and remote-default-branch writes",
+      "Credential: operator Git credential helper (system/global config); secret stays in the Warden/SRT path",
+      "Approval: this occurrence once; expires in 120 seconds",
+    ].join("\n");
+    expect(exactGitPushReviewSummary(summary)).toBe(true);
+    const information = associateExactGitPushReviewInformation(
+      {
+        requestedAction: { status: "available", value: "git.push" },
+        effectiveTarget: { status: "available", value: summary, completeness: "complete" },
+        reason: {
+          status: "available",
+          value: "Warden requires human authorization before publication",
+        },
+        policyDetail: { status: "unavailable", reason: "not reported by protocol 1.1" },
+        exactResource: { status: "unavailable", reason: "occurrence-only" },
+      },
+      summary,
+    );
+    if (information === undefined) throw new Error("expected maximum git.push information");
+    const view = reduce(initialView([], status), {
+      type: "approval-opened",
+      detail: summary,
+      sessionAvailable: false,
+      information,
+      losslessGitPushSummary: summary,
+    });
+    const { stdout, rendered } = renderWithRealStatic(view, { columns: 100, rows: 30 });
+
+    try {
+      await rendered.waitUntilRenderFlush();
+      const viewport = stripAnsiCsi(stdout.output()).split("\n").slice(-30);
+      const viewportRows = viewport.map((line) =>
+        line.startsWith("│") ? line.slice(1, -1).trim() : line.trim(),
+      );
+      const targetStart = viewportRows.indexOf("Effective target");
+      const targetEnd = viewportRows.findIndex(
+        (line, index) => index > targetStart && line.startsWith("Why ·"),
+      );
+      expect(targetStart, viewport.join("\n")).toBeGreaterThanOrEqual(0);
+      expect(targetEnd).toBeGreaterThan(targetStart);
+      expect(viewportRows.slice(targetStart + 1, targetEnd).join("")).toBe(
+        summary.replaceAll("\n", ""),
+      );
+      expect(viewport.join("\n")).toContain("[a] Approve once");
+      expect(viewport.join("\n")).toContain("[d] Deny");
+    } finally {
+      rendered.unmount();
+      restoreEnv();
     }
   });
 
@@ -2665,6 +2733,81 @@ describe("Ink App (frame snapshots via ink-testing-library)", () => {
       }
     },
   );
+
+  it.each([
+    [100, 30],
+    [140, 40],
+  ] as const)("preserves the complete git.push review at %dx%d", async (columns, rows) => {
+    const restoreEnv = setTerminalEnv({ TERM: "xterm-truecolor", FORCE_COLOR: "3" });
+    const oid = "0123456789abcdef0123456789abcdef01234567";
+    const summary = [
+      "Git push requires approval.",
+      "Repository: https://github.com/keel-harness/keel.git",
+      "Destination: refs/heads/feature/release",
+      `Commit: ${oid}`,
+      "Subject: release candidate",
+      "Commit facts: 2026-08-10T12:00:00Z; 1; 2 files; +3 -1",
+      "Workspace: clean; uncommitted changes are excluded",
+      "Effect: create this branch or fast-forward it to this commit; the remote may receive every missing object reachable from the commit",
+      "Blocked: force, deletion, tags, hooks, submodule recursion, redirects, and remote-default-branch writes",
+      "Credential: operator Git credential helper (system/global config); secret stays in the Warden/SRT path",
+      "Approval: this occurrence once; expires in 120 seconds",
+    ].join("\n");
+    const information = associateExactGitPushReviewInformation(
+      {
+        requestedAction: { status: "available", value: "git.push" },
+        effectiveTarget: { status: "available", value: summary, completeness: "complete" },
+        reason: {
+          status: "available",
+          value: "Warden requires human authorization before publication",
+        },
+        policyDetail: {
+          status: "unavailable",
+          reason: "matched policy rule not reported by protocol 1.1",
+        },
+        exactResource: {
+          status: "unavailable",
+          reason: "git.push approval is occurrence-only",
+        },
+      },
+      summary,
+    );
+    if (information === undefined) throw new Error("expected exact git.push review information");
+    const view = reduce(initialView([], status), {
+      type: "approval-opened",
+      detail: summary,
+      sessionAvailable: false,
+      information,
+      losslessGitPushSummary: summary,
+    });
+    const { stdout, rendered } = renderWithRealStatic(view, { columns, rows });
+
+    try {
+      await rendered.waitUntilRenderFlush();
+      const output = stripAnsiCsi(stdout.output());
+      const viewport = output.split("\n").slice(-rows).join("\n");
+      const viewportRows = viewport
+        .split("\n")
+        .map((line) => (line.startsWith("│") ? line.slice(1, -1).trim() : line.trim()));
+      const targetStart = viewportRows.indexOf("Effective target");
+      const targetEnd = viewportRows.findIndex(
+        (line, index) => index > targetStart && line.startsWith("Why ·"),
+      );
+      const renderedTarget = viewportRows.slice(targetStart + 1, targetEnd).join("");
+      expect(exactGitPushReviewSummaryForInformation(view.activeApproval?.information)).toBe(
+        summary,
+      );
+      expect(targetStart).toBeGreaterThanOrEqual(0);
+      expect(targetEnd).toBeGreaterThan(targetStart);
+      expect(renderedTarget).toBe(summary.replaceAll("\n", ""));
+      expect(viewport).toContain("[a] Approve once");
+      expect(viewport).toContain("[d] Deny");
+      expect(viewport).not.toContain("[s] Session");
+    } finally {
+      rendered.unmount();
+      restoreEnv();
+    }
+  });
 
   it("makes a settled once approval outrank retained pending scrollback at 120x40", async () => {
     const restoreEnv = setTerminalEnv({ TERM: "xterm-truecolor", FORCE_COLOR: "3" });

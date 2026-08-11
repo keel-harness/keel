@@ -1,5 +1,12 @@
-import type { JsonObjectT, PrincipalT } from "@keel/shared";
+import type {
+  JsonObjectT,
+  PolicyInputT,
+  PolicyPackRefT,
+  PrincipalT,
+  SideEffectT,
+} from "@keel/shared";
 import type { AuditAppendInput } from "./audit/writer.js";
+import type { PolicyDecision } from "./policy.js";
 import type { SandboxPort, SandboxStatus } from "./sandbox.js";
 
 export const GIT_PUSH_CAPABILITY_V1 = "git-push/v1";
@@ -22,6 +29,21 @@ export interface GitPushResolveParams {
   readonly scope?: "once" | "project";
 }
 
+export interface GitPushBindingAuthority {
+  readonly policyInput: PolicyInputT;
+  readonly policyDecision: PolicyDecision;
+  readonly policyPack: PolicyPackRefT;
+  readonly addressGuardRevision: string;
+  readonly auditAuthorityId: string;
+}
+
+export interface GitPushBindingAuthorityRequest {
+  readonly executeParams: GitPushExecuteParams;
+  readonly sideEffect: SideEffectT;
+  readonly canonicalUrl: string;
+  readonly host: string;
+}
+
 export interface GitPushAuthorityContext {
   readonly sandbox: SandboxPort;
   readonly workspaceRoot: string;
@@ -29,7 +51,16 @@ export interface GitPushAuthorityContext {
   readonly signal?: AbortSignal;
   /** Stdio-owned containment revalidation. Concrete authorities invoke it only after consumption. */
   readonly preExecutionCheck?: () => void;
-  readonly appendAudit: (input: AuditAppendInput) => number;
+  /** Resolves the current Warden-owned policy, address-guard, and audit authority for binding. */
+  readonly resolveBindingAuthority: (
+    request: GitPushBindingAuthorityRequest,
+  ) => Promise<GitPushBindingAuthority>;
+  readonly appendAudit: (
+    input: AuditAppendInput,
+    failureContext?: { readonly actionMayHaveExecuted?: boolean },
+  ) => number;
+  /** Lets the authority preserve the RPC layer's durable-audit failure instead of reclassifying it. */
+  readonly isAuditFailure?: (error: unknown) => boolean;
 }
 
 export interface GitPushRpcResult {
@@ -50,9 +81,10 @@ export interface GitPushPendingReview {
 }
 
 /**
- * Release-safe seam for a future production Git-push authority. The production Warden constructs no
- * implementation. Slice 1 injects its localhost credential fixture only from a generated test entry,
- * keeping that provider and transport exception mechanically absent from packaged carriers.
+ * Release-safe seam for the production Git-push authority. The normal Warden constructs the
+ * production implementation only for a trusted enforcing SRT session. Slice 1's localhost
+ * credential fixture remains injectable only from generated test entries, keeping that provider and
+ * transport exception mechanically absent from packaged carriers.
  */
 export interface GitPushAuthority {
   readonly capability: typeof GIT_PUSH_CAPABILITY_V1;

@@ -14,11 +14,19 @@ import {
 import { dirname, join, sep } from "node:path";
 import { Buffer } from "node:buffer";
 import { isIP } from "node:net";
-import { canonicalize, type JsonObjectT, type SideEffectT } from "@keel/shared";
+import { performance } from "node:perf_hooks";
+import {
+  canonicalize,
+  JsonObject,
+  supportedGitPushVersion,
+  type JsonObjectT,
+  type SideEffectT,
+} from "@keel/shared";
 import {
   GIT_PUSH_CAPABILITY_V1,
   GIT_PUSH_TOOL_NAME,
   type GitPushAuthority,
+  type GitPushBindingAuthority,
   type GitPushAuthorityContext,
   type GitPushExecuteParams,
   type GitPushPendingReview,
@@ -31,6 +39,7 @@ import type {
   GitCredentialBrokerIdentity,
   GitCredentialContext,
 } from "./git-credential-broker.js";
+import type { AuditAppendInput } from "./audit/writer.js";
 import {
   CREDENTIAL_TLS_TERMINATION_CAPABILITY,
   EGRESS_ADDRESS_GUARD_CAPABILITY,
@@ -48,6 +57,11 @@ export {
   type GitPushRpcResult,
 };
 export const GIT_PUSH_REVIEW_TTL_MS = 120_000;
+
+declare const __KEEL_RELEASE_BUILD__: boolean | undefined;
+// Source/test runs retain the red walking-skeleton transport. Release carriers inject `true`, which
+// lets the bundler remove every fixture-provider and loopback exception branch before byte-level
+// carrier inspection. No runtime input can change this compile-time boundary.
 
 const REMOTE_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/u;
 const FULL_OID = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u;
@@ -86,13 +100,16 @@ export interface GitPushWalkingSkeletonConfig {
   readonly gitExecutable: string;
   readonly tempRoot: string;
   readonly nowMs?: () => number;
+  /** Deterministic fixture-only cleanup fault seam; absent from the production authority. */
+  readonly cleanupAttemptRoot?: (path: string) => void;
 }
 
-/** Production-default-port authority. Product wiring remains gated until the later lifecycle slice. */
+/** Production default-port authority, constructed only by the trusted enforcing product path. */
 export interface GitPushProductionConfig {
   readonly productionCapability: true;
   readonly credentialBroker: GitCredentialBroker;
   readonly gitExecutable: string;
+  readonly gitVersion: string;
   readonly tempRoot: string;
   readonly nowMs?: () => number;
 }
@@ -140,6 +157,7 @@ interface GitPushFacts {
   readonly deletions: number;
   readonly workspaceState: "clean" | "has uncommitted changes";
   readonly gitExecutable: GitExecutableIdentity;
+  readonly gitVersion: string;
   readonly envExecutable?: GitExecutableIdentity;
   readonly tempRoot: string;
   readonly tempRootIdentity: GitExecutableIdentity;
@@ -156,16 +174,20 @@ export interface PendingGitPushReview extends GitPushPendingReview {
   readonly allowCommand: string;
   readonly createdAtMs: number;
   readonly expiresAtMs: number;
+  readonly generation: number;
   readonly bindingDigest: string;
   readonly executeParams: GitPushExecuteParams;
   readonly request: GitPushRequest;
   readonly facts: GitPushFacts;
+  readonly bindingAuthority: GitPushBindingAuthority;
 }
 
 export interface GitPushRuntimeState {
   readonly config: GitPushRuntimeConfig;
   readonly pending: Map<string, PendingGitPushReview>;
   nextReviewId: number;
+  reviewGeneration: number;
+  cleanupHealthy: boolean;
 }
 
 export interface GitPushRuntimeContext extends GitPushAuthorityContext {
@@ -234,9 +256,11 @@ export function auditGitPushInvalidParams(
   executeParams: GitPushExecuteParams,
   error: GitPushInvalidParamsError,
 ): number {
-  const canonicalUrl = isFixtureConfig(context.state.config)
-    ? context.state.config.fixture.canonicalUrl
-    : "https://invalid.invalid/git-push";
+  const canonicalUrl =
+    (typeof __KEEL_RELEASE_BUILD__ === "undefined" || __KEEL_RELEASE_BUILD__ !== true) &&
+    isFixtureConfig(context.state.config)
+      ? context.state.config.fixture.canonicalUrl
+      : "https://invalid.invalid/git-push";
   return context.appendAudit({
     eventType: "tool.deny",
     sessionId: executeParams.sessionId,
@@ -255,7 +279,13 @@ export function createGitPushRuntimeState<Config extends GitPushRuntimeConfig>(
   config: Config,
 ): GitPushRuntimeState & { readonly config: Config } {
   validateRuntimeAuthority(config);
-  return { config, pending: new Map(), nextReviewId: 1 };
+  return {
+    config,
+    pending: new Map(),
+    nextReviewId: 1,
+    reviewGeneration: 1,
+    cleanupHealthy: true,
+  };
 }
 
 function isInside(parent: string, child: string): boolean {
@@ -263,7 +293,35 @@ function isInside(parent: string, child: string): boolean {
 }
 
 function isFixtureConfig(config: GitPushRuntimeConfig): config is GitPushWalkingSkeletonConfig {
-  return "advertiseTestCapability" in config;
+  return !("productionCapability" in config);
+}
+
+function productionConfig(config: GitPushRuntimeConfig): GitPushProductionConfig | undefined {
+  if (!(typeof __KEEL_RELEASE_BUILD__ === "undefined" || __KEEL_RELEASE_BUILD__ !== true)) {
+    return config as GitPushProductionConfig;
+  }
+  return isFixtureConfig(config) ? undefined : config;
+}
+
+function cleanupAttemptRoot(state: GitPushRuntimeState, attemptRoot: string): void {
+  try {
+    if (
+      (typeof __KEEL_RELEASE_BUILD__ === "undefined" || __KEEL_RELEASE_BUILD__ !== true) &&
+      isFixtureConfig(state.config) &&
+      state.config.cleanupAttemptRoot !== undefined
+    ) {
+      state.config.cleanupAttemptRoot(attemptRoot);
+    } else {
+      rmSync(attemptRoot, { recursive: true, force: true });
+    }
+  } catch {
+    // Never overwrite a confirmed result or an authoritative audit failure. A cleanup fault is not
+    // ignored: it permanently quarantines this authority. The attempt contains no credential bytes
+    // (credentials stay in host-side SRT injection) and remains under the owner-only Warden temp root,
+    // whose process lifecycle is the outer cleanup boundary.
+    state.cleanupHealthy = false;
+    state.pending.clear();
+  }
 }
 
 function validateBaseAuthority(config: GitPushRuntimeConfig): void {
@@ -278,16 +336,24 @@ function validateBaseAuthority(config: GitPushRuntimeConfig): void {
 }
 
 function validateRuntimeAuthority(config: GitPushRuntimeConfig): void {
-  if (!isFixtureConfig(config)) {
+  const production = productionConfig(config);
+  if (production !== undefined) {
     if (
-      config.productionCapability !== true ||
-      config.credentialBroker.sourceClass !==
+      production.productionCapability !== true ||
+      supportedGitPushVersion(`git version ${production.gitVersion}`) !== production.gitVersion ||
+      production.credentialBroker.sourceClass !==
         "operator Git credential helper (system/global config)"
     ) {
       throw new Error("invalid production git.push credential authority");
     }
     validateBaseAuthority(config);
     return;
+  }
+  if (
+    !(typeof __KEEL_RELEASE_BUILD__ === "undefined" || __KEEL_RELEASE_BUILD__ !== true) ||
+    !isFixtureConfig(config)
+  ) {
+    throw new Error("invalid production git.push credential authority");
   }
   if (config.advertiseTestCapability !== true) throw new Error("git.push fixture is not enabled");
   const fixture = config.fixture;
@@ -325,7 +391,13 @@ export function gitPushCapabilityAvailable(
     readonly sandbox: SandboxStatus;
   },
 ): boolean {
-  if (state === undefined || !input.workspaceTrusted || !input.auditAvailable) return false;
+  if (
+    state === undefined ||
+    !state.cleanupHealthy ||
+    !input.workspaceTrusted ||
+    !input.auditAvailable
+  )
+    return false;
   const sandbox = input.sandbox;
   return (
     sandbox.available &&
@@ -597,6 +669,14 @@ async function inspectGitPushFacts(
   request: GitPushRequest,
 ): Promise<GitPushFacts> {
   const state = context.state;
+  const production = productionConfig(state.config);
+  const gitVersion = supportedGitPushVersion(await runContainedGit(context, ["--version"]));
+  if (
+    gitVersion === undefined ||
+    (production !== undefined && gitVersion !== production.gitVersion)
+  ) {
+    throw new GitPushInvalidParamsError("configured Git version is no longer supported");
+  }
   const workspaceRoot = realpathSync(workspaceRootInput);
   if (
     (await runContainedGit(context, ["-C", workspaceRoot, "rev-parse", "--is-bare-repository"])) !==
@@ -720,7 +800,10 @@ async function inspectGitPushFacts(
   let host: string;
   let port: number;
   let repositoryPath: string;
-  if (isFixtureConfig(state.config)) {
+  if (
+    (typeof __KEEL_RELEASE_BUILD__ === "undefined" || __KEEL_RELEASE_BUILD__ !== true) &&
+    isFixtureConfig(state.config)
+  ) {
     if (canonicalUrl !== state.config.fixture.canonicalUrl) {
       throw new GitPushInvalidParamsError(
         "Slice 1 release-withheld fixture accepts only its injected canonical HTTPS repository URL",
@@ -843,10 +926,15 @@ async function inspectGitPushFacts(
     deletions,
     workspaceState,
     gitExecutable: exactFileIdentity(state.config.gitExecutable),
-    ...(isFixtureConfig(state.config) ? { envExecutable: exactFileIdentity("/usr/bin/env") } : {}),
+    gitVersion,
+    ...((typeof __KEEL_RELEASE_BUILD__ === "undefined" || __KEEL_RELEASE_BUILD__ !== true) &&
+    isFixtureConfig(state.config)
+      ? { envExecutable: exactFileIdentity("/usr/bin/env") }
+      : {}),
     tempRoot: realpathSync(state.config.tempRoot),
     tempRootIdentity: exactFileIdentity(state.config.tempRoot),
     credentialSourceClass:
+      (typeof __KEEL_RELEASE_BUILD__ === "undefined" || __KEEL_RELEASE_BUILD__ !== true) &&
       credentialBroker === undefined
         ? "deterministic test fixture (release capability withheld)"
         : "operator Git credential helper (system/global config)",
@@ -881,7 +969,10 @@ function bindingDigest(input: {
   readonly reviewId: string;
   readonly createdAtMs: number;
   readonly expiresAtMs: number;
+  readonly generation: number;
   readonly sandbox: SandboxStatus;
+  readonly auditDir: string | undefined;
+  readonly bindingAuthority: GitPushBindingAuthority;
 }): string {
   const bytes = canonicalize({
     version: "git-push-binding/v1",
@@ -893,6 +984,20 @@ function bindingDigest(input: {
     reviewId: input.reviewId,
     createdAtMs: input.createdAtMs,
     expiresAtMs: input.expiresAtMs,
+    generation: input.generation,
+    auditDir: input.auditDir ?? null,
+    bindingAuthority: {
+      policyInput: input.bindingAuthority.policyInput,
+      policyDecision: {
+        verdict: input.bindingAuthority.policyDecision.verdict,
+        matchedRules: [...input.bindingAuthority.policyDecision.matchedRules],
+        guidance: input.bindingAuthority.policyDecision.guidance ?? null,
+        modifiedArgs: input.bindingAuthority.policyDecision.modifiedArgs ?? null,
+      },
+      policyPack: input.bindingAuthority.policyPack,
+      addressGuardRevision: input.bindingAuthority.addressGuardRevision,
+      auditAuthorityId: input.bindingAuthority.auditAuthorityId,
+    },
     sandbox: {
       backend: input.sandbox.backend,
       enforcementTier: input.sandbox.enforcementTier,
@@ -900,6 +1005,72 @@ function bindingDigest(input: {
     },
   } as unknown as JsonObjectT);
   return `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
+}
+
+function bindingAuthorityAuditFields(
+  authority: GitPushBindingAuthority,
+): Pick<AuditAppendInput, "policyPack" | "policy" | "provenance"> {
+  return {
+    policyPack: authority.policyPack,
+    policy: {
+      packName: authority.policyPack.name,
+      packHash: authority.policyPack.hash,
+      ruleIds: [...authority.policyDecision.matchedRules],
+      verdict: authority.policyDecision.verdict,
+    },
+    provenance: {
+      inputTags: [...authority.policyInput.provenance.inputTags],
+      resultTag: null,
+    },
+  };
+}
+
+function expectedPolicyArgv(executeParams: GitPushExecuteParams): string[] {
+  const args = executeParams.toolCall.args;
+  const exactStringArg = (name: "remote" | "branch" | "expectedHead"): string => {
+    const value = args[name];
+    if (typeof value !== "string") {
+      throw new GitPushInvalidParamsError(`git.push ${name} must be a string`);
+    }
+    return value;
+  };
+  return [
+    GIT_PUSH_TOOL_NAME,
+    exactStringArg("remote"),
+    exactStringArg("branch"),
+    exactStringArg("expectedHead"),
+  ];
+}
+
+function validateBindingAuthority(
+  context: GitPushRuntimeContext,
+  executeParams: GitPushExecuteParams,
+  facts: GitPushFacts,
+  sideEffect: SideEffectT,
+  authority: GitPushBindingAuthority,
+): void {
+  const input = authority.policyInput;
+  const policyArgs = JsonObject.safeParse(input.tool.args);
+  if (
+    authority.auditAuthorityId === "" ||
+    authority.addressGuardRevision === "" ||
+    input.tool.name !== GIT_PUSH_TOOL_NAME ||
+    !policyArgs.success ||
+    canonicalize(policyArgs.data) !== canonicalize(executeParams.toolCall.args) ||
+    canonicalize(input.sideEffect as unknown as JsonObjectT) !==
+      canonicalize(sideEffect as unknown as JsonObjectT) ||
+    input.workspace.path !== context.workspaceRoot ||
+    input.workspace.trusted !== true ||
+    input.session.id !== executeParams.sessionId ||
+    canonicalize(input.provenance) !== canonicalize(executeParams.provenanceContext) ||
+    input.egress.isEgress !== true ||
+    input.egress.domain !== facts.host ||
+    input.egress.gitRemote !== facts.canonicalUrl ||
+    canonicalize({ argv: input.normalized.argv }) !==
+      canonicalize({ argv: expectedPolicyArgv(executeParams) })
+  ) {
+    throw new Error("git.push binding authority did not match the exact request");
+  }
 }
 
 function gitPushSideEffect(factsOrCanonicalUrl: GitPushFacts | string): SideEffectT {
@@ -951,7 +1122,10 @@ function auditIdentity(review: PendingGitPushReview): JsonObjectT {
     expectedHead: review.facts.expectedHead,
     objectFormat: review.facts.objectFormat,
     gitExecutable: review.facts.gitExecutable.path,
-    fixtureEnvExecutable: review.facts.envExecutable?.path ?? null,
+    ...((typeof __KEEL_RELEASE_BUILD__ === "undefined" || __KEEL_RELEASE_BUILD__ !== true) &&
+    review.facts.envExecutable !== undefined
+      ? { fixtureEnvExecutable: review.facts.envExecutable.path }
+      : {}),
     bindingDigest: review.bindingDigest,
     credentialSourceClass: review.facts.credentialSourceClass,
     credentialBrokerIdentity:
@@ -984,18 +1158,53 @@ export async function requestGitPushReview(
     })
   ) {
     throw new Error(
-      isFixtureConfig(context.state.config)
+      (typeof __KEEL_RELEASE_BUILD__ === "undefined" || __KEEL_RELEASE_BUILD__ !== true) &&
+        isFixtureConfig(context.state.config)
         ? "git.push release-withheld fixture boundary is unavailable"
         : "git.push enforcing transport boundary is unavailable",
     );
   }
   const request = parseRequest(executeParams.toolCall.args);
   const facts = await inspectGitPushFacts(context, context.workspaceRoot, request);
-  const now = context.state.config.nowMs?.() ?? Date.now();
+  const sideEffect = gitPushSideEffect(facts);
+  const bindingAuthority = await context.resolveBindingAuthority({
+    executeParams,
+    sideEffect,
+    canonicalUrl: facts.canonicalUrl,
+    host: facts.host,
+  });
+  validateBindingAuthority(context, executeParams, facts, sideEffect, bindingAuthority);
+  if (
+    bindingAuthority.policyDecision.verdict === "deny" ||
+    bindingAuthority.policyDecision.modifiedArgs !== undefined
+  ) {
+    const auditSeq = context.appendAudit({
+      eventType: "tool.deny",
+      sessionId: executeParams.sessionId,
+      payload: {
+        toolName: GIT_PUSH_TOOL_NAME,
+        args: executeParams.toolCall.args,
+        reason: "current Warden policy does not permit an exact git.push review",
+        actionMayHaveExecuted: false,
+      },
+      sideEffect,
+      ...bindingAuthorityAuditFields(bindingAuthority),
+    });
+    return {
+      verdict: "deny",
+      result: {
+        kind: "git_push_denied",
+        reason: "current Warden policy denies this exact git.push request",
+      },
+      auditSeq,
+    };
+  }
+  const now = context.state.config.nowMs?.() ?? performance.now();
   const reviewId = `git_push_review_${String(context.state.nextReviewId)}`;
   context.state.nextReviewId += 1;
   const createdAtMs = now;
   const expiresAtMs = now + GIT_PUSH_REVIEW_TTL_MS;
+  const generation = context.state.reviewGeneration;
   const summary = reviewSummary(facts);
   const pending: PendingGitPushReview = {
     kind: "git-push",
@@ -1004,6 +1213,7 @@ export async function requestGitPushReview(
     allowCommand: `keel approve ${reviewId} --scope once`,
     createdAtMs,
     expiresAtMs,
+    generation,
     bindingDigest: bindingDigest({
       executeParams,
       request,
@@ -1011,11 +1221,15 @@ export async function requestGitPushReview(
       reviewId,
       createdAtMs,
       expiresAtMs,
+      generation,
       sandbox,
+      auditDir: context.auditDir === undefined ? undefined : realpathSync(context.auditDir),
+      bindingAuthority,
     }),
     executeParams,
     request,
     facts,
+    bindingAuthority,
   };
   context.state.pending.set(reviewId, pending);
   let auditSeq: number;
@@ -1030,6 +1244,7 @@ export async function requestGitPushReview(
         createdAtMs,
         expiresAtMs,
       },
+      ...bindingAuthorityAuditFields(bindingAuthority),
     });
   } catch (error) {
     context.state.pending.delete(reviewId);
@@ -1066,6 +1281,19 @@ interface ParsedRemoteRefs {
   readonly refs: Map<string, string>;
   readonly symrefs: Map<string, string>;
   readonly valid: boolean;
+}
+
+function isDefinitivePushRejection(
+  push: SandboxExecutionResult,
+  review: PendingGitPushReview,
+): boolean {
+  if (push.exitCode === null || push.exitCode === 0 || push.signal !== null) return false;
+  const statusLines = push.stdout.split("\n").filter((line) => /^[- !+*=]\t/u.test(line));
+  if (statusLines.length !== 1) return false;
+  const columns = statusLines[0]!.split("\t");
+  if (columns.length !== 3 || columns[0] !== "!") return false;
+  if (columns[1] !== `${review.request.expectedHead}:${review.facts.destinationRef}`) return false;
+  return /^\[(?:rejected|remote rejected)\] \([\x20-\x7e]{1,512}\)$/u.test(columns[2]!);
 }
 
 function parseRemoteRefs(
@@ -1150,7 +1378,13 @@ function boundedGitFailureDiagnostic(stderr: string): JsonObjectT {
 }
 
 function credentialBrokerForConfig(config: GitPushRuntimeConfig): GitCredentialBroker | undefined {
-  if (!isFixtureConfig(config)) return config.credentialBroker;
+  const production = productionConfig(config);
+  if (production !== undefined) return production.credentialBroker;
+  if (
+    !(typeof __KEEL_RELEASE_BUILD__ === "undefined" || __KEEL_RELEASE_BUILD__ !== true) ||
+    !isFixtureConfig(config)
+  )
+    return undefined;
   return config.fixture.credentialSourceClass === "operator-git-credential-helper"
     ? config.fixture.credentialBroker
     : undefined;
@@ -1170,6 +1404,7 @@ async function resolveCredentialAuthorization(
 ): Promise<GitCredentialAuthorization> {
   const config = context.state.config;
   if (
+    (typeof __KEEL_RELEASE_BUILD__ === "undefined" || __KEEL_RELEASE_BUILD__ !== true) &&
     isFixtureConfig(config) &&
     config.fixture.credentialSourceClass === "deterministic-test-provider"
   ) {
@@ -1279,11 +1514,17 @@ function gitProfile(
         review.facts.objectStore,
         attemptRoot,
         review.facts.gitExecutable.path,
-        ...(review.facts.envExecutable === undefined ? [] : [review.facts.envExecutable.path]),
+        ...((typeof __KEEL_RELEASE_BUILD__ === "undefined" || __KEEL_RELEASE_BUILD__ !== true) &&
+        review.facts.envExecutable !== undefined
+          ? [review.facts.envExecutable.path]
+          : []),
       ],
       allowWrite: [attemptRoot],
       denyRead: [],
-      denyWrite: [review.facts.workspaceRoot, ...(auditDir === undefined ? [] : [auditDir])],
+      denyWrite: [
+        review.facts.workspaceRoot,
+        ...(auditDir === undefined ? [] : [realpathSync(auditDir)]),
+      ],
     },
     network: {
       allowedDomains: [review.facts.host],
@@ -1305,6 +1546,7 @@ async function runSandboxGit(
   const signal =
     context.signal === undefined ? timeout : AbortSignal.any([context.signal, timeout]);
   const invocation =
+    !(typeof __KEEL_RELEASE_BUILD__ === "undefined" || __KEEL_RELEASE_BUILD__ !== true) ||
     review.facts.envExecutable === undefined
       ? {
           command: review.facts.gitExecutable.path,
@@ -1344,48 +1586,61 @@ async function initializeAttemptRepo(
   if (tempRoot !== review.facts.tempRoot)
     throw new Error("git.push temporary root identity changed");
   const attemptRoot = mkdtempSync(join(tempRoot, "attempt-"));
-  chmodSync(attemptRoot, 0o700);
-  const gitDir = join(attemptRoot, "repo.git");
-  const emptyTemplate = join(attemptRoot, "empty-template");
-  mkdirSync(emptyTemplate, { mode: 0o700 });
-  await runContainedGit(
-    context,
-    [
-      "init",
-      "--quiet",
-      "--bare",
-      `--template=${emptyTemplate}`,
-      `--object-format=${review.facts.objectFormat}`,
-      gitDir,
-    ],
-    { cwd: attemptRoot, allowWorkspaceRead: false, writeRoot: attemptRoot },
-  );
-  const alternatesDir = join(gitDir, "objects", "info");
-  mkdirSync(alternatesDir, { recursive: true, mode: 0o700 });
-  writeFileSync(join(alternatesDir, "alternates"), `${review.facts.objectStore}\n`, {
-    encoding: "utf8",
-    mode: 0o600,
-  });
-  return { attemptRoot, gitDir };
+  try {
+    chmodSync(attemptRoot, 0o700);
+    const gitDir = join(attemptRoot, "repo.git");
+    const emptyTemplate = join(attemptRoot, "empty-template");
+    mkdirSync(emptyTemplate, { mode: 0o700 });
+    await runContainedGit(
+      context,
+      [
+        "init",
+        "--quiet",
+        "--bare",
+        `--template=${emptyTemplate}`,
+        `--object-format=${review.facts.objectFormat}`,
+        gitDir,
+      ],
+      { cwd: attemptRoot, allowWorkspaceRead: false, writeRoot: attemptRoot },
+    );
+    const alternatesDir = join(gitDir, "objects", "info");
+    mkdirSync(alternatesDir, { recursive: true, mode: 0o700 });
+    writeFileSync(join(alternatesDir, "alternates"), `${review.facts.objectStore}\n`, {
+      encoding: "utf8",
+      mode: 0o600,
+    });
+    return { attemptRoot, gitDir };
+  } catch (error) {
+    // The caller cannot own this path until initialization returns. Close that gap locally so every
+    // post-mkdtemp failure either removes the attempt or quarantines the authority through the same
+    // non-overriding cleanup owner used after network execution.
+    cleanupAttemptRoot(context.state, attemptRoot);
+    throw error;
+  }
 }
 
 function auditOutcome(
   context: GitPushRuntimeContext,
   review: PendingGitPushReview,
   payload: JsonObjectT,
+  actionMayHaveExecuted = false,
 ): number {
-  return context.appendAudit({
-    eventType: "tool.execute",
-    sessionId: review.executeParams.sessionId,
-    payload: {
-      toolName: GIT_PUSH_TOOL_NAME,
-      args: review.executeParams.toolCall.args,
-      reviewId: review.reviewId,
-      ...auditIdentity(review),
-      ...payload,
+  return context.appendAudit(
+    {
+      eventType: "tool.execute",
+      sessionId: review.executeParams.sessionId,
+      payload: {
+        toolName: GIT_PUSH_TOOL_NAME,
+        args: review.executeParams.toolCall.args,
+        reviewId: review.reviewId,
+        ...auditIdentity(review),
+        ...payload,
+      },
+      sideEffect: gitPushSideEffect(review.facts),
+      ...bindingAuthorityAuditFields(review.bindingAuthority),
     },
-    sideEffect: gitPushSideEffect(review.facts),
-  });
+    actionMayHaveExecuted ? { actionMayHaveExecuted: true } : undefined,
+  );
 }
 
 export async function resolveGitPushReview(
@@ -1393,8 +1648,20 @@ export async function resolveGitPushReview(
   review: PendingGitPushReview,
   resolution: GitPushResolveParams,
 ): Promise<GitPushRpcResult> {
-  const now = context.state.config.nowMs?.() ?? Date.now();
-  const approved = resolution.approved === true && resolution.scope === "once";
+  const now = context.state.config.nowMs?.() ?? performance.now();
+  const scopeAccepted = resolution.scope === "once";
+  const unexpired = now < review.expiresAtMs;
+  const currentGeneration = review.generation === context.state.reviewGeneration;
+  const approved = resolution.approved === true && scopeAccepted && unexpired && currentGeneration;
+  const resolutionReason = !resolution.approved
+    ? "human-denied"
+    : !scopeAccepted
+      ? "once-scope-required"
+      : !unexpired
+        ? "expired"
+        : !currentGeneration
+          ? "stale-generation"
+          : "approved-once";
   const resolutionAuditSeq = context.appendAudit({
     eventType: "review.resolved",
     sessionId: review.executeParams.sessionId,
@@ -1406,8 +1673,10 @@ export async function resolveGitPushReview(
       principal: resolution.principal.osUser,
       bindingDigest: review.bindingDigest,
       resolvedAtMs: now,
+      resolutionReason,
       terminal: true,
     },
+    ...bindingAuthorityAuditFields(review.bindingAuthority),
   });
   if (!resolution.approved) {
     return {
@@ -1423,13 +1692,25 @@ export async function resolveGitPushReview(
       auditSeq: resolutionAuditSeq,
     };
   }
-  if (now > review.expiresAtMs) {
+  if (now >= review.expiresAtMs) {
     return {
       verdict: "deny",
       result: { kind: "git_push_denied", reason: "git.push review expired" },
       auditSeq: resolutionAuditSeq,
     };
   }
+  if (!currentGeneration) {
+    return {
+      verdict: "deny",
+      result: {
+        kind: "git_push_denied",
+        reason: "git.push review is stale; submit a fresh request",
+      },
+      auditSeq: resolutionAuditSeq,
+    };
+  }
+  context.state.reviewGeneration += 1;
+  context.state.pending.clear();
   try {
     context.preExecutionCheck?.();
   } catch (error) {
@@ -1446,6 +1727,7 @@ export async function resolveGitPushReview(
         actionMayHaveExecuted: false,
       },
       sideEffect: gitPushSideEffect(review.facts),
+      ...bindingAuthorityAuditFields(review.bindingAuthority),
     });
     return {
       verdict: "deny",
@@ -1458,8 +1740,23 @@ export async function resolveGitPushReview(
   }
   const sandbox = context.sandbox.status();
   let refreshedFacts: GitPushFacts;
+  let refreshedBindingAuthority: GitPushBindingAuthority;
   try {
     refreshedFacts = await inspectGitPushFacts(context, context.workspaceRoot, review.request);
+    const refreshedSideEffect = gitPushSideEffect(refreshedFacts);
+    refreshedBindingAuthority = await context.resolveBindingAuthority({
+      executeParams: review.executeParams,
+      sideEffect: refreshedSideEffect,
+      canonicalUrl: refreshedFacts.canonicalUrl,
+      host: refreshedFacts.host,
+    });
+    validateBindingAuthority(
+      context,
+      review.executeParams,
+      refreshedFacts,
+      refreshedSideEffect,
+      refreshedBindingAuthority,
+    );
   } catch (error) {
     const auditSeq = context.appendAudit({
       eventType: "tool.deny",
@@ -1474,6 +1771,7 @@ export async function resolveGitPushReview(
         actionMayHaveExecuted: false,
       },
       sideEffect: gitPushSideEffect(review.facts),
+      ...bindingAuthorityAuditFields(review.bindingAuthority),
     });
     return {
       verdict: "deny",
@@ -1488,7 +1786,10 @@ export async function resolveGitPushReview(
     reviewId: review.reviewId,
     createdAtMs: review.createdAtMs,
     expiresAtMs: review.expiresAtMs,
+    generation: review.generation,
     sandbox,
+    auditDir: context.auditDir === undefined ? undefined : realpathSync(context.auditDir),
+    bindingAuthority: refreshedBindingAuthority,
   });
   if (refreshedDigest !== review.bindingDigest) {
     const auditSeq = context.appendAudit({
@@ -1502,6 +1803,7 @@ export async function resolveGitPushReview(
         bindingDigest: review.bindingDigest,
       },
       sideEffect: gitPushSideEffect(review.facts),
+      ...bindingAuthorityAuditFields(refreshedBindingAuthority),
     });
     return {
       verdict: "deny",
@@ -1574,6 +1876,7 @@ export async function resolveGitPushReview(
           result,
         },
         sideEffect: gitPushSideEffect(review.facts),
+        ...bindingAuthorityAuditFields(review.bindingAuthority),
       });
       return {
         verdict: "deny",
@@ -1613,13 +1916,18 @@ export async function resolveGitPushReview(
     );
     if (verification.exitCode !== 0) {
       const result = resultPayload(review, "indeterminate", null, true);
-      const auditSeq = auditOutcome(context, review, {
-        result,
-        phase: "verification",
-        pushExitCode: push.exitCode,
-        verificationExitCode: verification.exitCode,
-        actionMayHaveExecuted: true,
-      });
+      const auditSeq = auditOutcome(
+        context,
+        review,
+        {
+          result,
+          phase: "verification",
+          pushExitCode: push.exitCode,
+          verificationExitCode: verification.exitCode,
+          actionMayHaveExecuted: true,
+        },
+        true,
+      );
       return {
         verdict: "deny",
         result,
@@ -1634,19 +1942,33 @@ export async function resolveGitPushReview(
     const observed = verificationRefs.valid
       ? (verificationRefs.refs.get(review.facts.destinationRef) ?? null)
       : null;
+    // Exact observation proves success. A strict porcelain rejection for this one exact ref plus a
+    // valid different/absent observation proves failure. Exit status or free-form diagnostics alone
+    // cannot exclude a lost response followed by a concurrent ref move, so all other states remain
+    // indeterminate.
+    const definitiveRejection =
+      verificationRefs.valid &&
+      observed !== review.request.expectedHead &&
+      isDefinitivePushRejection(push, review);
     const status =
       verificationRefs.valid && observed === review.request.expectedHead
         ? "pushed"
-        : push.exitCode === 0 || !verificationRefs.valid
-          ? "indeterminate"
-          : "failed";
-    const result = resultPayload(review, status, observed, true);
-    const auditSeq = auditOutcome(context, review, {
-      result,
-      phase: "verified",
-      pushExitCode: push.exitCode,
-      verificationExitCode: verification.exitCode,
-    });
+        : definitiveRejection
+          ? "failed"
+          : "indeterminate";
+    const actionMayHaveExecuted = status === "indeterminate";
+    const result = resultPayload(review, status, observed, actionMayHaveExecuted);
+    const auditSeq = auditOutcome(
+      context,
+      review,
+      {
+        result,
+        phase: "verified",
+        pushExitCode: push.exitCode,
+        verificationExitCode: verification.exitCode,
+      },
+      status !== "failed",
+    );
     return status === "pushed"
       ? { verdict: "allow", result, auditSeq }
       : {
@@ -1655,21 +1977,27 @@ export async function resolveGitPushReview(
           auditSeq,
         };
   } catch (error) {
+    if (context.isAuditFailure?.(error) === true) throw error;
     const status = mutationAttempted ? "indeterminate" : "failed";
     const result = resultPayload(review, status, null, mutationAttempted);
-    const auditSeq = auditOutcome(context, review, {
-      result,
-      phase: "exception",
-      actionMayHaveExecuted: mutationAttempted,
-      errorClass: error instanceof Error ? error.name : "unknown",
-    });
+    const auditSeq = auditOutcome(
+      context,
+      review,
+      {
+        result,
+        phase: "exception",
+        actionMayHaveExecuted: mutationAttempted,
+        errorClass: error instanceof Error ? error.name : "unknown",
+      },
+      mutationAttempted,
+    );
     return {
       verdict: "deny",
       result,
       auditSeq,
     };
   } finally {
-    if (attemptRoot !== undefined) rmSync(attemptRoot, { recursive: true, force: true });
+    if (attemptRoot !== undefined) cleanupAttemptRoot(context.state, attemptRoot);
   }
 }
 
@@ -1724,7 +2052,7 @@ export function createGitPushWalkingSkeletonAuthority(
   return createGitPushAuthority(config);
 }
 
-/** Construct the strict default-port production authority for later product wiring. */
+/** Construct the strict default-port production authority for the trusted enforcing product path. */
 export function createGitPushProductionAuthority(
   config: GitPushProductionConfig,
 ): GitPushAuthority {

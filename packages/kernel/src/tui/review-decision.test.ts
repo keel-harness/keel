@@ -129,7 +129,7 @@ describe("interactive review-decision input", () => {
     });
   });
 
-  it("preserves an exact once-only git.push summary byte-for-byte through the controller", () => {
+  it("preserves and resolves exact git.push keyboard and slash decisions without eating prose", async () => {
     const controller = createInteractiveReviewDecisionController();
     const { events } = recordPresentation(controller);
     const oid = "0123456789abcdef0123456789abcdef01234567";
@@ -147,7 +147,7 @@ describe("interactive review-decision input", () => {
       "Approval: this occurrence once; expires in 120 seconds",
     ].join("\n");
 
-    void controller.onReviewRequired({
+    const approved = controller.onReviewRequired({
       toolCall: {
         id: "git-push-review",
         name: "git.push",
@@ -181,6 +181,24 @@ describe("interactive review-decision input", () => {
         "[?] Explain why",
       ],
     });
+    expect(controller.handleInput(line("also update the release notes"))).toBe(false);
+    expect(controller.handleInput(line("a"))).toBe(true);
+    await expect(approved).resolves.toEqual({ approved: true, scope: "once" });
+
+    const denied = controller.onReviewRequired({
+      toolCall: {
+        id: "git-push-review-2",
+        name: "git.push",
+        args: { remote: "origin", branch: "feature/walking-skeleton", expectedHead: oid },
+      },
+      review: {
+        reviewId: "git_push_review_2",
+        summary,
+        allowCommand: "keel approve git_push_review_2 --scope once",
+      },
+    });
+    expect(controller.handleInput({ kind: "command", name: "/deny" })).toBe(true);
+    await expect(denied).resolves.toEqual({ approved: false });
   });
 
   it("refuses to open git.push without the exact ADR-0091 envelope and summary", () => {

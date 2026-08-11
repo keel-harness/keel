@@ -105,10 +105,17 @@ grants, and MCP resources, prompts, sampling, and elicitation are not claimed. S
 surfaces such as `plan`, `skill`, and `retrieve`, provider API calls, and future tools are likewise
 not counted as governed product execution proof.
 
-Remote repository publication is not a current governed product path. Keel can prepare, verify, and
-commit local changes, but `git push` and PR-creation commands remain terminal external-write
-boundaries under the current policy. Review the local commit, then publish it deliberately from the
-host rather than expecting a live Keel approval prompt.
+Current source builds add one bounded publication path for trusted interactive macOS/Linux sessions.
+With Git 2.x (2.39 or newer), typed `git.push` can create or fast-forward one non-default feature
+branch to one approved full commit OID over canonical HTTPS, through `srt:vendored` verified TLS and
+connect-time address guarding. The
+Warden resolves an operator system/global Git credential helper without exposing its value, and one
+lossless human approval authorizes that occurrence once. Force, deletion, tags, default-branch push,
+SSH, redirects, project credential helpers, reusable grants, and automatic retry remain blocked.
+Raw `process.run git push` remains terminal, and pull-request creation remains unimplemented.
+
+The published `keel-harness@0.1.1` carrier predates `git.push`; this is a current-source capability
+until a separately authorized release proves the exact published bytes.
 
 **[docs/status.md](docs/status.md) is the full account** — every limitation, the audit and signing
 boundaries, the release flow, and a note on running the test suite locally. Read it before you

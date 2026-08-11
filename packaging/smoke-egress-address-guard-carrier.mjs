@@ -303,6 +303,10 @@ try {
     hello.capabilities.includes("egress-address-guard/v1"),
     `installed carrier omitted address-guard capability: ${JSON.stringify(hello.capabilities)}`,
   );
+  assert.ok(
+    hello.capabilities.includes("git-push/v1"),
+    `installed carrier omitted production git.push capability: ${JSON.stringify(hello.capabilities)}`,
+  );
 
   const publicResult = await executeWithOneShotReview(
     warden,

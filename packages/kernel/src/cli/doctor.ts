@@ -15,7 +15,10 @@
  * path.
  */
 import { resolve, sep } from "node:path";
+import { Buffer } from "node:buffer";
+import { isIP } from "node:net";
 import { KEEL_VERSION } from "../version.js";
+import { MINIMUM_GIT_PUSH_VERSION, supportedGitPushVersion } from "@keel/shared";
 import { parseCredentialProxyConfig } from "@keel/warden";
 
 /** How keel is running: the `npx`/`npm` Node path, or a `bun --compile` self-contained binary. */
@@ -66,6 +69,12 @@ export interface DoctorInput {
   readonly procVersionRaw: string | null;
   /** Explicit env-forwarded credential proxy config, if present. Project config is not read by doctor. */
   readonly credentialProxyConfigRaw?: string | null;
+  /** Non-secret Git availability output; omitted by callers that do not probe publication. */
+  readonly gitVersionRaw?: string | null;
+  /** Exact local `remote.origin.url` values joined by Git's line framing; never a credential. */
+  readonly gitRemoteUrlRaw?: string | null;
+  /** Presence only. Doctor never retains or renders helper configuration/output. */
+  readonly gitCredentialHelperConfigured?: boolean;
   /** Workspace root used only to resolve relative file source paths while validating explicit config. */
   readonly cwd?: string;
   /** Result of asking the process-separated Warden owner to validate this workspace's store. */
@@ -93,6 +102,7 @@ export type DoctorCheckId =
   | "windows-sandbox"
   | "harness-outside-workspace"
   | "credential-proxy-config"
+  | "git-push"
   | "egress-address-exception-store";
 
 export interface DoctorCheck {
@@ -408,6 +418,128 @@ function credentialProxyConfigCheck(input: DoctorInput): DoctorCheck | undefined
   }
 }
 
+function canonicalGitHttpsRemote(input: string): boolean {
+  if (
+    Buffer.byteLength(input, "utf8") > 512 ||
+    !/^[\x20-\x7e]+$/u.test(input) ||
+    !input.startsWith("https://")
+  ) {
+    return false;
+  }
+  const authorityAndPath = input.slice("https://".length);
+  const pathOffset = authorityAndPath.indexOf("/");
+  if (pathOffset <= 0) return false;
+  const host = authorityAndPath.slice(0, pathOffset);
+  const path = authorityAndPath.slice(pathOffset);
+  const labels = host.split(".");
+  if (
+    host.length > 253 ||
+    host !== host.toLowerCase() ||
+    isIP(host) !== 0 ||
+    labels.some((label) => label === "" || !/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/u.test(label))
+  ) {
+    return false;
+  }
+  if (Buffer.byteLength(path, "utf8") > 384) return false;
+  const segments = path.slice(1).split("/");
+  return !segments.some(
+    (segment) =>
+      segment === "" || segment === "." || segment === ".." || !/^[A-Za-z0-9._~-]+$/u.test(segment),
+  );
+}
+
+function gitVersion(raw: string): string {
+  const detail = safeProbeDetail(raw).slice(0, 96);
+  return /^git version (\d{1,6}(?:\.\d{1,6}){1,3})(?=\s|$)/iu.exec(detail)?.[1] ?? detail;
+}
+
+function gitPushTransportReady(input: DoctorInput): boolean {
+  if (input.platform === "darwin") return input.sandboxExecPresent === true;
+  if (input.platform !== "linux" || wslVersion(input.procVersionRaw) === "1") return false;
+  return input.bwrapVersionRaw !== null && input.socatVersionRaw !== null;
+}
+
+function gitPushTransportFix(input: DoctorInput): string {
+  if (input.platform === "linux") {
+    if (input.bwrapVersionRaw === null) {
+      return `${linuxPackageFix("bubblewrap", input.osReleaseRaw)}, then run: keel doctor`;
+    }
+    if (input.socatVersionRaw === null) {
+      return `${linuxPackageFix("socat", input.osReleaseRaw)}, then run: keel doctor`;
+    }
+  }
+  if (input.platform === "win32") return "wsl --install && keel doctor";
+  return "use a supported macOS or Linux host with the sandbox prerequisites, then run: keel doctor";
+}
+
+/** One optional-capability row with one remediation; helper output and credentials never enter it. */
+function gitPushCheck(input: DoctorInput): DoctorCheck | undefined {
+  const versionRaw = input.gitVersionRaw;
+  if (versionRaw === undefined) return undefined;
+  const base = { id: "git-push" as const, label: "git.push" };
+  if (versionRaw === null) {
+    return {
+      ...base,
+      status: "warn",
+      detail: "Git not found",
+      why: "typed HTTPS publication is unavailable without an identified Git executable",
+      fix: "install Git, then run: keel doctor",
+    };
+  }
+  const version = gitVersion(versionRaw);
+  if (supportedGitPushVersion(versionRaw) === undefined) {
+    return {
+      ...base,
+      status: "warn",
+      detail: `Git ${version || "version unrecognized"} is outside the supported v1 matrix`,
+      why: "git.push is advertised only for the Git family exercised by the publication suite",
+      fix: `install a supported Git 2.x release (${MINIMUM_GIT_PUSH_VERSION.major}.${MINIMUM_GIT_PUSH_VERSION.minor} or newer), then run: keel doctor`,
+    };
+  }
+  const remote = input.gitRemoteUrlRaw;
+  if (remote === undefined || remote === null || remote === "") {
+    return {
+      ...base,
+      status: "warn",
+      detail: "origin remote not found",
+      why: "git.push v1 requires one canonical origin HTTPS repository",
+      fix: "git remote add origin https://github.com/OWNER/REPO.git && keel doctor",
+    };
+  }
+  if (!canonicalGitHttpsRemote(remote)) {
+    return {
+      ...base,
+      status: "warn",
+      detail: "origin is not one canonical HTTPS URL",
+      why: "git.push v1 rejects SSH, credentials, ports, redirects, and multiple URLs",
+      fix: "git remote set-url origin https://github.com/OWNER/REPO.git && keel doctor",
+    };
+  }
+  if (input.gitCredentialHelperConfigured !== true) {
+    return {
+      ...base,
+      status: "warn",
+      detail: "operator Git credential helper not configured",
+      why: "git.push resolves credentials parent-side without exposing them to the model or child",
+      fix: "gh auth login --git-protocol https && gh auth setup-git && keel doctor",
+    };
+  }
+  if (!gitPushTransportReady(input)) {
+    return {
+      ...base,
+      status: "warn",
+      detail: "SRT/TLS/address guard prerequisites unavailable",
+      why: "git.push is advertised only through the enforcing verified-HTTPS transport",
+      fix: gitPushTransportFix(input),
+    };
+  }
+  return {
+    ...base,
+    status: "ok",
+    detail: `Git ${version} · canonical origin HTTPS · operator helper configured · SRT/TLS/address guard session-gated`,
+  };
+}
+
 function egressAddressExceptionStoreCheck(input: DoctorInput): DoctorCheck | undefined {
   const probe = input.egressAddressExceptionStore;
   if (probe === undefined) return undefined;
@@ -476,6 +608,8 @@ export function runDoctor(input: DoctorInput): DoctorReport {
   if (harness !== undefined) checks.push(harness);
   const credentialProxy = credentialProxyConfigCheck(input);
   if (credentialProxy !== undefined) checks.push(credentialProxy);
+  const gitPush = gitPushCheck(input);
+  if (gitPush !== undefined) checks.push(gitPush);
   const egressExceptions = egressAddressExceptionStoreCheck(input);
   if (egressExceptions !== undefined) checks.push(egressExceptions);
   const ok = !checks.some((c) => c.status === "missing");

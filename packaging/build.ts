@@ -64,7 +64,23 @@ const COMPILED_ENTRY = "packaging/cli-entry.js";
 const NPX_LAUNCHER = "packaging/npx-cli-entry.js";
 const NPX_KERNEL_ENTRY = "packages/kernel/src/cli/bin.ts";
 const NPX_WARDEN_ENTRY = "packaging/npx-warden-entry.js";
-const NON_RELEASE_GIT_PUSH_AUTHORITY = "packages/warden/src/git-push.ts";
+const GIT_PUSH_PRODUCTION_AUTHORITY = "packages/warden/src/git-push.ts";
+const GIT_PUSH_TEST_ENTRYPOINTS = [
+  "packages/kernel/src/cli/git-push-walking-skeleton.real.test.ts",
+  "packages/warden/src/git-push.test.ts",
+] as const;
+const FORBIDDEN_GIT_PUSH_CARRIER_MARKERS = [
+  "createGitPushWalkingSkeletonAuthority",
+  "KEEL_GIT_PUSH_FIXTURE",
+  "deterministic-test-provider",
+  "fixture.secret",
+  "fixture.username",
+  "deterministic test fixture (release capability withheld)",
+  "git.push fixture is not enabled",
+  "invalid non-release git.push fixture authority",
+  "release-withheld fixture boundary",
+  "Slice 1 release-withheld fixture",
+] as const;
 const OUT = "build";
 const NPX_DIR = join(OUT, "npx");
 const BIN_DIR = join(OUT, "bin");
@@ -247,6 +263,16 @@ function assertNoSourceModeLoaderDeps(label: string, contents: Buffer | string):
   }
 }
 
+function assertNoGitPushTestRoute(label: string, contents: Buffer | string): void {
+  for (const marker of FORBIDDEN_GIT_PUSH_CARRIER_MARKERS) {
+    const found =
+      typeof contents === "string"
+        ? contents.includes(marker)
+        : contents.includes(Buffer.from(marker, "utf8"));
+    if (found) fail(label, [`Git-push test route marker ${JSON.stringify(marker)} was bundled`]);
+  }
+}
+
 const LICENSE_FILE = /^(?:licen[cs]e|copying)(?:\..+)?$/iu;
 const NOTICE_FILE = /^(?:notice|thirdpartynoticetext)(?:\..+)?$/iu;
 const VENDORED_SRT_ROOT = "vendor/sandbox-runtime";
@@ -320,7 +346,10 @@ async function buildNpx(): Promise<void> {
     naming: string,
     plugins: readonly Bun.Plugin[],
   ) => {
-    const result = await Bun.build({
+    const buildConfig: Parameters<typeof Bun.build>[0] & {
+      define?: Record<string, string>;
+      minify?: { syntax: boolean; whitespace: boolean; identifiers: boolean };
+    } = {
       entrypoints: [entrypoint],
       target: "node",
       conditions: ["@keel/source"],
@@ -329,7 +358,10 @@ async function buildNpx(): Promise<void> {
       outdir: join(NPX_DIR, "bin"),
       naming,
       metafile: true,
-    });
+      minify: { syntax: true, whitespace: false, identifiers: false },
+      define: { __KEEL_RELEASE_BUILD__: "true" },
+    };
+    const result = await Bun.build(buildConfig);
     if (!result.success) fail(label, result.logs);
     if (result.metafile === undefined) {
       fail(label, ["Bun did not return the requested metafile"]);
@@ -412,10 +444,21 @@ async function buildNpx(): Promise<void> {
   if (!bundleGraphIncludesPath(wardenGraphInputs, VENDORED_SRT_ROOT)) {
     fail("npx warden bundle", ["vendored SRT graph is absent from the Warden process boundary"]);
   }
-  if (bundleGraphIncludesPath(wardenGraphInputs, NON_RELEASE_GIT_PUSH_AUTHORITY)) {
-    fail("npx warden bundle", [
-      "non-release Git-push fixture authority crossed the Warden carrier boundary",
-    ]);
+  // The Kernel's retained @keel/warden doctor-parser residual can keep harmless module constants in
+  // Bun's graph. The production constructor itself must remain only in the Warden bundle.
+  if (kernelBundle.includes("createGitPushProductionAuthority")) {
+    fail("npx warden bundle", ["Git-push authority crossed the Kernel process boundary"]);
+  }
+  if (!bundleGraphIncludesPath(wardenGraphInputs, GIT_PUSH_PRODUCTION_AUTHORITY)) {
+    fail("npx warden bundle", ["production Git-push authority is absent from the Warden carrier"]);
+  }
+  assertNoGitPushTestRoute("npx warden bundle", wardenBundle);
+  for (const testEntrypoint of GIT_PUSH_TEST_ENTRYPOINTS) {
+    if (bundleGraphIncludesPath(wardenGraphInputs, testEntrypoint)) {
+      fail("npx warden bundle", [
+        `Git-push test entrypoint crossed carrier boundary: ${testEntrypoint}`,
+      ]);
+    }
   }
   for (const marker of ["keel · starting", "resizeQuietPeriodMs"]) {
     if (wardenBundle.includes(marker)) {
@@ -504,7 +547,10 @@ async function buildBinaries(
     const outfile = join(BIN_DIR, `keel-${key}`);
     // `define` is a real Bun.build option (compile-time identifier replacement), but the bundled
     // @types/bun lags and omits it from the build config type — widen locally rather than cast away.
-    const buildConfig: Parameters<typeof Bun.build>[0] & { define?: Record<string, string> } = {
+    const buildConfig: Parameters<typeof Bun.build>[0] & {
+      define?: Record<string, string>;
+      minify?: { syntax: boolean; whitespace: boolean; identifiers: boolean };
+    } = {
       entrypoints: [COMPILED_ENTRY],
       conditions: ["@keel/source"],
       // `autoloadDotenv`/`autoloadBunfig: false` (Bun v1.3.3+) stop the compiled binary from reading a
@@ -518,19 +564,29 @@ async function buildBinaries(
       compile: { target, outfile, autoloadDotenv: false, autoloadBunfig: false },
       plugins: [stubInkDevtoolsForBinary],
       metafile: true,
-      define: { __KEEL_EVAL_DIRECT_EXEC_BUILD__: evalDirectExecBuild ? "true" : "false" },
+      minify: { syntax: true, whitespace: false, identifiers: false },
+      define: {
+        __KEEL_EVAL_DIRECT_EXEC_BUILD__: evalDirectExecBuild ? "true" : "false",
+        __KEEL_RELEASE_BUILD__: "true",
+      },
     };
     const r = await Bun.build(buildConfig);
     if (!r.success) fail(`binary ${key}`, r.logs);
     if (r.metafile === undefined) {
       fail(`binary ${key}`, ["Bun did not return the requested metafile"]);
     }
-    if (bundleGraphIncludesPath(Object.keys(r.metafile.inputs), NON_RELEASE_GIT_PUSH_AUTHORITY)) {
-      fail(`binary ${key}`, [
-        "non-release Git-push fixture authority crossed the compiled carrier boundary",
-      ]);
+    const binaryGraphInputs = Object.keys(r.metafile.inputs);
+    if (!bundleGraphIncludesPath(binaryGraphInputs, GIT_PUSH_PRODUCTION_AUTHORITY)) {
+      fail(`binary ${key}`, ["production Git-push authority is absent from the Warden carrier"]);
     }
-    const binaryPackageManifests = bundledPackageManifestPaths(Object.keys(r.metafile.inputs));
+    for (const testEntrypoint of GIT_PUSH_TEST_ENTRYPOINTS) {
+      if (bundleGraphIncludesPath(binaryGraphInputs, testEntrypoint)) {
+        fail(`binary ${key}`, [
+          `Git-push test entrypoint crossed carrier boundary: ${testEntrypoint}`,
+        ]);
+      }
+    }
+    const binaryPackageManifests = bundledPackageManifestPaths(binaryGraphInputs);
     if (
       !binaryPackageManifests.some((path) => /node_modules\/typescript\/package\.json$/u.test(path))
     ) {
@@ -540,6 +596,7 @@ async function buildBinaries(
     }
     const artifact = await readFile(outfile);
     assertNoSourceModeLoaderDeps(`binary ${key}`, artifact);
+    assertNoGitPushTestRoute(`binary ${key}`, artifact);
     if (!artifact.includes(Buffer.from("resizeQuietPeriodMs", "utf8"))) {
       fail(`binary ${key}`, ["reviewed Ink resize patch marker is absent"]);
     }

@@ -594,6 +594,7 @@ function spawnedGitPushWarden(options: {
         declaredTempRoots: [${JSON.stringify(tempRoot)}],
         shutdownRuntime: components.shutdown,
         gitPushAuthority,
+        gitPushAddressGuardRevision: "real-test-loopback-address-guard-v1",
         onShutdown: close
       });
     `,
