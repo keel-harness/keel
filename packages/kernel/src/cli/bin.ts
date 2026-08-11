@@ -4,7 +4,7 @@
 // resolveModelConfig/createModelPort/runKeelCommand. Epic 1.6a Step 2 wires the real provider here.
 import { createInterface } from "node:readline/promises";
 import { existsSync, lstatSync, readFileSync, realpathSync } from "node:fs";
-import { isAbsolute, join, resolve, sep } from "node:path";
+import { isAbsolute, join, resolve } from "node:path";
 import { resolveRgPath } from "../tools/index.js";
 import { resolveProductionWardenStart } from "../warden/runtime.js";
 import { KEEL_VERSION } from "../version.js";
@@ -18,6 +18,7 @@ import {
 } from "./doctor.js";
 import { gatherDoctorGitProbe } from "./doctor-git-probe.js";
 import {
+  doctorHarnessExecutablePaths,
   probeDoctorExecutable,
   resolveDoctorExecutable,
   resolveDoctorSelectedExecutable,
@@ -298,20 +299,18 @@ function gatherDoctorInput(): DoctorInput {
     // keel's own executable bytes. The warden entry executes as the process that decides policy;
     // ripgrep is spawned by it. Doctor REPORTS (never enforces) when any of them sits inside the
     // model-writable workspace — see `harnessOutsideWorkspaceCheck`.
-    harnessExecutablePaths: harnessExecutablePaths(rgPath),
+    harnessExecutablePaths: doctorHarnessExecutablePaths(rgExecutable, doctorWardenStart()),
   };
 }
 
-/** Resolve keel's own executable bytes for the doctor posture check (impure; the check is pure). */
-function harnessExecutablePaths(rgPath: string | undefined): readonly string[] {
-  const paths: string[] = rgPath === undefined ? [] : [rgPath];
+function doctorWardenStart(): ReturnType<typeof resolveProductionWardenStart> | undefined {
   try {
-    paths.push(...resolveProductionWardenStart().args.filter((arg) => arg.includes(sep)));
+    return resolveProductionWardenStart();
   } catch {
     // No resolvable warden entry (an unknown bundle layout). The sandbox-tier checks already report
     // that; this posture check simply has one fewer path to consider.
+    return undefined;
   }
-  return paths;
 }
 
 async function main(): Promise<void> {

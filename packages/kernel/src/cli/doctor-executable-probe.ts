@@ -11,6 +11,26 @@ export interface ProbeDoctorExecutableOptions {
   readonly env?: NodeJS.ProcessEnv;
 }
 
+export interface DoctorWardenStart {
+  readonly command: string;
+  readonly args: readonly string[];
+  readonly env?: NodeJS.ProcessEnv;
+}
+
+/** Select the exact Keel/ripgrep bytes whose workspace posture doctor must report. */
+export function doctorHarnessExecutablePaths(
+  rgExecutable: string | undefined,
+  wardenStart: DoctorWardenStart | undefined,
+): readonly string[] {
+  const paths = rgExecutable === undefined ? [] : [rgExecutable];
+  if (wardenStart === undefined) return paths;
+  if (wardenStart.env?.["KEEL_INTERNAL_WARDEN_STDIO"] === "1" && isAbsolute(wardenStart.command)) {
+    paths.push(wardenStart.command);
+  }
+  paths.push(...wardenStart.args.filter((arg) => isAbsolute(arg)));
+  return paths;
+}
+
 function insideWorkspace(workspaceRoot: string, candidate: string): boolean {
   const offset = relative(workspaceRoot, candidate);
   return offset === "" || (!offset.startsWith("..") && !isAbsolute(offset));
