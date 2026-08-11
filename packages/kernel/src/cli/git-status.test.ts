@@ -345,10 +345,14 @@ describe("gitStatus — cockpit git segment (fail-soft, injectable runner)", () 
         });
         expect(exitCode).toBe(0);
         descendantPid = Number(readFileSync(pidFile, "utf8"));
-        try {
-          process.kill(descendantPid, 0);
-        } catch {
-          descendantPid = undefined;
+        for (let attempt = 0; attempt < 100; attempt += 1) {
+          try {
+            process.kill(descendantPid, 0);
+          } catch {
+            descendantPid = undefined;
+            break;
+          }
+          await new Promise((resolve) => setTimeout(resolve, 10));
         }
         expect(descendantPid).toBeUndefined();
       } finally {
