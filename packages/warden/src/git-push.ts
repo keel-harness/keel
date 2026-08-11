@@ -1858,7 +1858,7 @@ export async function resolveGitPushReview(
       return { verdict: "deny", result, auditSeq };
     }
     const defaultBranch = preflightRefs.symrefs.get("HEAD");
-    if (defaultBranch === review.facts.destinationRef) {
+    if (defaultBranch === undefined || defaultBranch === review.facts.destinationRef) {
       const result = resultPayload(
         review,
         "failed",
@@ -1872,7 +1872,10 @@ export async function resolveGitPushReview(
           toolName: GIT_PUSH_TOOL_NAME,
           args: review.executeParams.toolCall.args,
           reviewId: review.reviewId,
-          reason: "remote default branch writes are blocked",
+          reason:
+            defaultBranch === undefined
+              ? "remote default branch identity is unavailable"
+              : "remote default branch writes are blocked",
           result,
         },
         sideEffect: gitPushSideEffect(review.facts),
