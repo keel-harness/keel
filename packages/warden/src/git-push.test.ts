@@ -17,6 +17,10 @@ import fc from "fast-check";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { JsonObjectT } from "@keel/shared";
 import { AuditChainWriter, type AuditAppendInput } from "./audit/writer.js";
+import type {
+  GitCredentialBroker,
+  GitCredentialBrokerIdentity,
+} from "./git-credential-broker.js";
 import { handleRpcLine } from "./rpc-server.js";
 import {
   CREDENTIAL_TLS_TERMINATION_CAPABILITY,
@@ -174,6 +178,31 @@ function testState(nowMs: () => number): GitPushRuntimeState {
     },
     gitExecutable: resolve(spawnSync("which", ["git"], { encoding: "utf8" }).stdout.trim()),
     tempRoot: tempDir("keel-git-push-unit-temp-"),
+    nowMs,
+  });
+}
+
+const brokerIdentity: GitCredentialBrokerIdentity = {
+  version: "git-credential-broker/v1",
+  gitExecutableDigest: `sha256:${"1".repeat(64)}`,
+  configurationDigest: `sha256:${"2".repeat(64)}`,
+  helperDigest: `sha256:${"3".repeat(64)}`,
+  helperCount: 1,
+};
+
+function brokerState(nowMs: () => number, broker: GitCredentialBroker): GitPushRuntimeState {
+  return createGitPushRuntimeState({
+    advertiseTestCapability: true,
+    fixture: {
+      canonicalUrl,
+      host: "localhost",
+      port: 54_321,
+      address: "127.0.0.1",
+      credentialSourceClass: "operator-git-credential-helper",
+      credentialBroker: broker,
+    },
+    gitExecutable: resolve(spawnSync("which", ["git"], { encoding: "utf8" }).stdout.trim()),
+    tempRoot: tempDir("keel-git-push-broker-unit-temp-"),
     nowMs,
   });
 }
@@ -876,6 +905,98 @@ describe("ADR-0091 git.push Warden walking skeleton", () => {
       result: { status: "already-at-commit", observedRef: h.workspace.head },
     });
     expect(externalNetworkExecutions(h)).toHaveLength(1);
+  });
+
+  it("binds helper identity before review and resolves it only after consume-first intent", async () => {
+    const canaryUser = "runtime-user";
+    const canarySecret = "runtime-secret";
+    const inspect = vi.fn(async () => brokerIdentity);
+    const resolveCredential = vi.fn(async () => ({
+      scheme: "Basic" as const,
+      secret: Buffer.from(`${canaryUser}:${canarySecret}`, "utf8").toString("base64"),
+    }));
+    const broker: GitCredentialBroker = {
+      sourceClass: "operator Git credential helper (system/global config)",
+      inspect,
+      resolve: resolveCredential,
+    };
+    const workspace = makeWorkspace();
+    const destination = "refs/heads/feature/unit";
+    const state = brokerState(() => 1_000, broker);
+    const h = harness({
+      workspace,
+      state,
+      sandboxResults: [
+        sandboxResult("ref: refs/heads/main\tHEAD\n"),
+        sandboxResult("push admitted"),
+        sandboxResult(`${workspace.head}\t${destination}\n`),
+      ],
+    });
+
+    const review = await request(h);
+    expect(inspect).toHaveBeenCalledTimes(1);
+    expect(resolveCredential).not.toHaveBeenCalled();
+    expect(externalNetworkExecutions(h)).toEqual([]);
+    expect(review.summary).toContain("operator Git credential helper (system/global config)");
+    expect(review.facts.credentialBrokerIdentity).toEqual(brokerIdentity);
+
+    const resolved = await resolveGitPushReview(h.context, review, {
+      reviewId: review.reviewId,
+      approved: true,
+      scope: "once",
+      principal,
+    });
+
+    expect(resolved).toMatchObject({ verdict: "allow", result: { status: "pushed" } });
+    expect(inspect).toHaveBeenCalledTimes(2);
+    expect(resolveCredential).toHaveBeenCalledTimes(1);
+    expect(h.audits.map((entry) => entry.eventType)).toEqual([
+      "review.requested",
+      "review.resolved",
+      "tool.execute",
+      "tool.execute",
+    ]);
+    const external = externalNetworkExecutions(h);
+    expect(external).toHaveLength(3);
+    const serialized = JSON.stringify(external);
+    expect(serialized).toContain(
+      Buffer.from(`${canaryUser}:${canarySecret}`, "utf8").toString("base64"),
+    );
+    expect(serialized).not.toContain(canaryUser);
+    expect(serialized).not.toContain(canarySecret);
+    expect(JSON.stringify(h.audits)).not.toContain(canaryUser);
+    expect(JSON.stringify(h.audits)).not.toContain(canarySecret);
+  });
+
+  it("denies helper identity drift before credential resolution or network access", async () => {
+    const changedIdentity = { ...brokerIdentity, helperDigest: `sha256:${"4".repeat(64)}` };
+    const inspect = vi
+      .fn<GitCredentialBroker["inspect"]>()
+      .mockResolvedValueOnce(brokerIdentity)
+      .mockResolvedValueOnce(changedIdentity);
+    const resolveCredential = vi.fn<GitCredentialBroker["resolve"]>();
+    const broker: GitCredentialBroker = {
+      sourceClass: "operator Git credential helper (system/global config)",
+      inspect,
+      resolve: resolveCredential,
+    };
+    const state = brokerState(() => 1_000, broker);
+    const h = harness({ state });
+    const review = await request(h);
+
+    const resolved = await resolveGitPushReview(h.context, review, {
+      reviewId: review.reviewId,
+      approved: true,
+      scope: "once",
+      principal,
+    });
+
+    expect(resolved).toMatchObject({
+      verdict: "deny",
+      result: { kind: "git_push_denied", reason: expect.stringContaining("facts changed") },
+    });
+    expect(resolveCredential).not.toHaveBeenCalled();
+    expect(externalNetworkExecutions(h)).toEqual([]);
   });
 
   it.each([
