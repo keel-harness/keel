@@ -403,6 +403,70 @@ describe("headless renderer", () => {
     }
   });
 
+  it("keeps github.pr.create indeterminate no-retry recovery visible live and after resume", () => {
+    const oid = "0123456789abcdef0123456789abcdef01234567";
+    const result = {
+      kind: "github_pr_create_result",
+      status: "indeterminate",
+      repository: "keel-harness/keel",
+      head: "feature/publish",
+      base: "main",
+      commit: oid,
+      number: null,
+      url: null,
+      automaticRetry: false,
+      actionMayHaveExecuted: true,
+    };
+    const output =
+      "github.pr.create could not confirm whether the pull request was created; " +
+      "do not retry automatically; inspect GitHub and the audit before deciding\n\n" +
+      JSON.stringify(result);
+    const call = {
+      id: "github-pr-indeterminate",
+      name: "github.pr.create",
+      args: {
+        repository: "keel-harness/keel",
+        head: "feature/publish",
+        base: "main",
+        expectedHead: oid,
+      },
+    };
+    let live = initialView([{ role: "user", content: "open the pull request" }]);
+    live = reduce(live, { type: "tool-call", ...call });
+    live = reduce(
+      live,
+      markToolPresentationOutcome(
+        { type: "tool-result", id: call.id, ok: false, output },
+        "partial",
+      ),
+    );
+    const resumed = initialView(
+      [
+        { role: "user", content: "open the pull request" },
+        { role: "assistant", content: "", toolCalls: [call] },
+        { role: "tool", content: output, toolCallId: call.id, name: call.name },
+      ],
+      {},
+      { failedToolMessageIndexes: new Set([2]) },
+    );
+
+    for (const candidate of [live, resumed]) {
+      const frame = renderFrame(candidate);
+      expect(frame).toContain(
+        "what: partial: github.pr.create: PR state unconfirmed · keel-harness/keel · feature/publish → main @ 0123456789ab",
+      );
+      expect(frame).toContain(
+        "next: do not retry automatically · restart, then inspect GitHub and the audit before deciding",
+      );
+      expect(frame).not.toContain("next: inspect the target before retrying");
+      const turn = conversationPlan(candidate).blocks.find((block) => block.kind === "turn");
+      const partial = turn?.evidence?.lines.find((line) => line.kind === "partial");
+      expect(partial?.next).toBe(
+        "do not retry automatically · restart, then inspect GitHub and the audit before deciding",
+      );
+    }
+  });
+
   it.each([
     ["pushed", "pushed"],
     ["already-at-commit", "already at commit"],

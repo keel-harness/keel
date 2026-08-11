@@ -13,7 +13,11 @@ import {
   reviewSettlementPresentation,
   reviewSettlementRecovery,
 } from "./review-settlement-presentation.js";
-import { TUI_LITERAL_PROCESS_RETRY, TUI_TERMINAL_REVIEW_TRUTH } from "./strings.js";
+import {
+  TUI_GITHUB_PR_INDETERMINATE,
+  TUI_LITERAL_PROCESS_RETRY,
+  TUI_TERMINAL_REVIEW_TRUTH,
+} from "./strings.js";
 
 export interface ToolCardPlan {
   readonly glyph: "⋯" | "✓" | "~" | "!" | "✗" | "○" | "■";
@@ -77,6 +81,13 @@ function recoveryFor(item: UiToolActivity, outcome: string): string | undefined 
     item.summary.startsWith("remote state unconfirmed · refs/heads/")
   ) {
     return "next: do not retry automatically · restart, then inspect the independent remote ref and audit";
+  }
+  if (
+    outcome === "partial" &&
+    item.name === "github.pr.create" &&
+    item.summary.startsWith(TUI_GITHUB_PR_INDETERMINATE.summaryPrefix)
+  ) {
+    return `next: ${TUI_GITHUB_PR_INDETERMINATE.recovery}`;
   }
   if (
     outcome === "blocked" &&
