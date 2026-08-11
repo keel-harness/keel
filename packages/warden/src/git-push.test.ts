@@ -14,6 +14,7 @@ import {
 import { tmpdir } from "node:os";
 import { performance } from "node:perf_hooks";
 import { join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import fc from "fast-check";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { supportedGitPushVersion, type JsonObjectT } from "@keel/shared";
@@ -1690,6 +1691,37 @@ describe("ADR-0091 git.push Warden walking skeleton", () => {
     expect(externalNetworkExecutions(h)).toHaveLength(1);
   });
 
+  it("fails closed before mutation when an empty remote does not advertise its unborn default branch", async () => {
+    const remote = tempDir("keel-git-push-unborn-default-");
+    git(["init", "--bare", "--initial-branch=main"], remote);
+    const observation = git([
+      "ls-remote",
+      "--symref",
+      pathToFileURL(remote).href,
+      "HEAD",
+      "refs/heads/feature/unit",
+    ]);
+    expect(observation).toBe("");
+
+    const h = harness({ sandboxResults: [sandboxResult(observation)] });
+    const review = await request(h);
+    await expect(
+      resolveGitPushReview(h.context, review, {
+        reviewId: review.reviewId,
+        approved: true,
+        scope: "once",
+        principal,
+      }),
+    ).resolves.toMatchObject({
+      verdict: "deny",
+      result: { status: "failed", observedRef: null, actionMayHaveExecuted: false },
+    });
+    expect(externalNetworkExecutions(h)).toHaveLength(1);
+    expect(h.audits.at(-1)?.payload).toMatchObject({
+      reason: "remote default branch identity is unavailable",
+    });
+  });
+
   it.each([
     {
       label: "human denial",
@@ -1972,7 +2004,11 @@ describe("ADR-0091 git.push Warden walking skeleton", () => {
     const workspace = makeWorkspace();
     const h = harness({
       workspace,
-      sandboxResults: [sandboxResult(""), sandboxResult("push attempted"), sandboxResult("")],
+      sandboxResults: [
+        sandboxResult("ref: refs/heads/main\tHEAD\n"),
+        sandboxResult("push attempted"),
+        sandboxResult(""),
+      ],
     });
     const review = await request(h);
     const controller = new AbortController();
