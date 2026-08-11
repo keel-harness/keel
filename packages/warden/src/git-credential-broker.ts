@@ -321,6 +321,7 @@ async function defaultRunProcess(
     const stderr: Buffer[] = [];
     let timedOut = false;
     let outputExceeded = false;
+    let stdinFailed = false;
     let settled = false;
     let child: ReturnType<typeof spawn>;
     const finish = (exitCode: number | null): void => {
@@ -374,8 +375,17 @@ async function defaultRunProcess(
     child.stderr.on("data", (chunk: Buffer) => {
       stderrBytes = retain(stderr, chunk, stderrBytes);
     });
+    child.stdin.once("error", () => {
+      // A timeout/abort can close the child's read end before Node flushes stdin, which emits EPIPE
+      // asynchronously on Linux. Keep the listener installed for empty-input inspection commands as
+      // well, and fail closed for the credential-bearing fill request only after the child group has
+      // been signalled and its close event proves reap completion.
+      if (request.stdin === "") return;
+      stdinFailed = true;
+      terminateProcess(child.pid);
+    });
     child.once("error", () => finish(null));
-    child.once("close", (code) => finish(code));
+    child.once("close", (code) => finish(stdinFailed ? null : code));
     child.stdin.end(request.stdin);
     if (request.signal?.aborted === true) onAbort();
   });

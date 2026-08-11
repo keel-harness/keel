@@ -542,6 +542,51 @@ function spawnedGitPushWarden(options: {
   };
 }
 
+function spawnedAuditExportWarden(options: {
+  readonly auditDir: string;
+  readonly workspaceRoot: string;
+}): ProductionWardenStartOptions {
+  const entryDir = tempDir("keel-git-push-export-warden-entry-");
+  const entryPath = join(entryDir, "warden.mjs");
+  writeFileSync(
+    entryPath,
+    `
+      import { runStdioWardenServer } from ${JSON.stringify(WARDEN_RPC_SERVER_URL)};
+      import { SessionAuditLog } from ${JSON.stringify(WARDEN_SESSION_LOG_URL)};
+      import { defaultPolicyPackRef } from ${JSON.stringify(WARDEN_POLICY_URL)};
+
+      const checkpointSecretKey = Uint8Array.from({ length: 32 }, (_, index) => index + 1);
+      const auditLog = new SessionAuditLog({
+        auditDir: ${JSON.stringify(options.auditDir)},
+        principal: ${JSON.stringify(PRINCIPAL)},
+        policyPack: defaultPolicyPackRef(),
+        checkpoint: { secretKey: checkpointSecretKey }
+      });
+      let closed = false;
+      function close() {
+        if (closed) return;
+        closed = true;
+        auditLog.close();
+        setImmediate(() => process.exit(0));
+      }
+      runStdioWardenServer({
+        auditWriter: auditLog,
+        auditDir: ${JSON.stringify(options.auditDir)},
+        workspaceRoot: ${JSON.stringify(options.workspaceRoot)},
+        workspaceTrusted: false,
+        onShutdown: close
+      });
+    `,
+    { mode: 0o600 },
+  );
+  return {
+    command: process.execPath,
+    args: ["--import", TSX_ESM_LOADER, "--conditions=@keel/source", entryPath],
+    env: { FORCE_COLOR: "0" },
+    requestTimeoutMs: 10_000,
+  };
+}
+
 suite("ADR-0091 git.push walking skeleton (real sandbox)", () => {
   it("pushes one exact new branch through model projection, review, SRT TLS, verification, audit, and TUI", async () => {
     const fixture = await startSmartGitFixture();
@@ -710,7 +755,10 @@ suite("ADR-0091 git.push walking skeleton (real sandbox)", () => {
       ).toBe(true);
 
       const exportDir = tempDir("keel-git-push-export-");
-      const exportWarden = spawnedGitPushWarden({ auditDir, fixture, workspaceRoot: cwd });
+      // Audit export does not need network, credential, Git, or sandbox authority. Keeping this
+      // second process audit-only proves the retained bundle without adding an unrelated SRT
+      // listener lifecycle to the credential-custody assertion.
+      const exportWarden = spawnedAuditExportWarden({ auditDir, workspaceRoot: cwd });
       const exportMessage = await runAuditExportCommand({
         sessionId,
         cwd,
