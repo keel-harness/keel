@@ -165,6 +165,84 @@ describe("view-model reducer", () => {
     expect(itemOutcome(v, 1)).toBe("done");
   });
 
+  it.each([
+    ["pushed", true, true, "done", "pushed"],
+    ["already-at-commit", false, true, "done", "already at commit"],
+    ["failed", false, false, "failed", "not pushed"],
+    ["indeterminate", true, false, "partial", "remote state unconfirmed"],
+  ] as const)(
+    "presents and rehydrates a %s git.push result as human-readable %s truth",
+    (status, actionMayHaveExecuted, ok, outcome, label) => {
+      const oid = "0123456789abcdef0123456789abcdef01234567";
+      const result = {
+        kind: "git_push_result",
+        status,
+        repository: "https://github.com/keel-harness/keel.git",
+        branch: "feature/publish",
+        destinationRef: "refs/heads/feature/publish",
+        commit: oid,
+        observedRef: status === "pushed" || status === "already-at-commit" ? oid : null,
+        transport: "srt:vendored verified HTTPS with address guard",
+        automaticRetry: false,
+        actionMayHaveExecuted,
+      };
+      const output = ok
+        ? JSON.stringify(result)
+        : `${label}: bounded Warden guidance\n\n${JSON.stringify(result)}`;
+      const call = {
+        id: "push",
+        name: "git.push",
+        args: { remote: "origin", branch: "feature/publish", expectedHead: oid },
+      };
+      let live = initialView(seed);
+      live = reduce(live, { type: "tool-call", ...call });
+      live = reduce(
+        live,
+        outcome === "partial" || outcome === "failed"
+          ? markToolPresentationOutcome({ type: "tool-result", id: call.id, ok, output }, outcome)
+          : { type: "tool-result", id: call.id, ok, output },
+      );
+      const resumed = initialView(
+        [
+          { role: "assistant", content: "", toolCalls: [call] },
+          { role: "tool", content: output, toolCallId: call.id, name: call.name },
+        ],
+        {},
+        { failedToolMessageIndexes: ok ? new Set() : new Set([1]) },
+      );
+
+      for (const candidate of [live, resumed]) {
+        expect(itemOutcome(candidate, candidate.items.length - 1)).toBe(outcome);
+        expect(candidate.items.at(-1)).toMatchObject({
+          kind: "tool",
+          name: "git.push",
+          status: ok ? "ok" : "error",
+          subject: "origin/feature/publish @ 0123456789ab",
+          summary: `${label} · refs/heads/feature/publish @ 0123456789ab`,
+        });
+        expect((candidate.items.at(-1) as { summary?: string }).summary).not.toContain(
+          "git_push_result",
+        );
+      }
+    },
+  );
+
+  it("does not promote an incomplete git.push lookalike to resumed indeterminate truth", () => {
+    const content = JSON.stringify({
+      kind: "git_push_result",
+      status: "indeterminate",
+      actionMayHaveExecuted: true,
+    });
+    const view = initialView(
+      [{ role: "tool", content, toolCallId: "forged", name: "git.push" }],
+      {},
+      { failedToolMessageIndexes: new Set([0]) },
+    );
+
+    expect(itemOutcome(view, 0)).toBe("failed");
+    expect(view.items[0]).toMatchObject({ summary: content });
+  });
+
   it("keeps a settled review denial blocked across live presentation and resume", () => {
     const output =
       "blocked by warden (not executed): review closed as denied; no review remains pending; command review for rm stale.txt; turn stopped before review submission; rerun only when a live approval surface is available";

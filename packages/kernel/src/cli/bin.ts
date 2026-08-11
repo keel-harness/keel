@@ -3,7 +3,6 @@
 // test is Epic 1.10). All the logic it composes is tested: parseKeelArgs/selectRenderer/buildUI/
 // resolveModelConfig/createModelPort/runKeelCommand. Epic 1.6a Step 2 wires the real provider here.
 import { createInterface } from "node:readline/promises";
-import { execFileSync } from "node:child_process";
 import { existsSync, lstatSync, readFileSync, realpathSync } from "node:fs";
 import { join, resolve, sep } from "node:path";
 import { resolveRgPath } from "../tools/index.js";
@@ -17,6 +16,8 @@ import {
   nodeVersionFromProcess,
   runDoctor,
 } from "./doctor.js";
+import { gatherDoctorGitProbe } from "./doctor-git-probe.js";
+import { probeDoctorExecutable, resolveDoctorExecutable } from "./doctor-executable-probe.js";
 import { HeadlessUI } from "../tui/headless.js";
 import { interpretTrustAnswer, readTrustLine, trustPromptText } from "../trust/trust-prompt.js";
 import { loadTrustDecision } from "../trust/trust-store.js";
@@ -219,29 +220,28 @@ function gatherEgressExceptionStoreProbe(): NonNullable<
   };
 }
 
-/** Gather the raw `keel doctor` probe facts impurely — spawn `node`/`rg`, read `/etc/os-release`.
- *  All decision logic lives in the pure, tested `runDoctor`; this is the thin I/O layer (the bin is
- *  coverage-excluded). `runtime` is the standalone `bun --compile` binary vs the node/npx path. */
+/** Gather raw `keel doctor` facts through canonical executables outside the workspace, plus fixed
+ *  host files. All decision logic lives in the pure, tested `runDoctor`; this is the thin I/O layer
+ *  (the bin is coverage-excluded). `runtime` is standalone `bun --compile` vs the node/npx path. */
 function gatherDoctorInput(): DoctorInput {
   const versions = process.versions as Record<string, string | undefined>;
   const runtime = doctorRuntime(versions); // pure + tested (doctor.ts)
-  const probe = (cmd: string, args: readonly string[]): string | null => {
-    try {
-      return execFileSync(cmd, [...args], {
-        encoding: "utf8",
-        stdio: ["ignore", "pipe", "ignore"],
-      }).trim();
-    } catch {
-      return null;
-    }
+  const workspaceRoot = process.cwd();
+  const probe = (commandOrPath: string, args: readonly string[]): string | null => {
+    const executable = resolveDoctorExecutable(commandOrPath, {
+      workspaceRoot,
+      env: process.env,
+    });
+    return executable === undefined
+      ? null
+      : probeDoctorExecutable(executable, args, { env: process.env });
   };
   const probeOrPresent = (cmd: string, args: readonly string[]): string | null => {
     const raw = probe(cmd, args);
     return raw === null ? null : raw.trim() || "present";
   };
-  // node version: from process.versions when under node (pure helper), else probe PATH.
-  const nodeVersionRaw =
-    (runtime === "node" ? nodeVersionFromProcess(versions) : null) ?? probe("node", ["--version"]);
+  // The node carrier reports its own runtime. The standalone carrier bundles Bun and omits Node.
+  const nodeVersionRaw = runtime === "node" ? nodeVersionFromProcess(versions) : null;
   // Probe the EXACT ripgrep the `search` tool resolves (bundled on npx/dev, system `rg` on the
   // standalone binary, or a KEEL_RG_PATH override) — so doctor reports the binary keel will actually
   // run, never a different one (QC: doctor/search must agree).
@@ -260,6 +260,11 @@ function gatherDoctorInput(): DoctorInput {
   const socatVersionRaw = process.platform === "linux" ? probeOrPresent("socat", ["-V"]) : null;
   const sandboxExecPresent =
     process.platform === "darwin" ? existsSync("/usr/bin/sandbox-exec") : null;
+  const { gitVersionRaw, gitRemoteUrlRaw, gitCredentialHelperConfigured } = gatherDoctorGitProbe({
+    workspaceRoot: process.cwd(),
+    env: process.env,
+    platform: process.platform,
+  });
   return {
     runtime,
     nodeVersionRaw,
@@ -271,6 +276,9 @@ function gatherDoctorInput(): DoctorInput {
     platform: process.platform,
     osReleaseRaw,
     procVersionRaw,
+    gitVersionRaw,
+    gitRemoteUrlRaw,
+    gitCredentialHelperConfigured,
     credentialProxyConfigRaw: process.env[CREDENTIAL_PROXY_CONFIG_ENV] ?? null,
     cwd: process.cwd(),
     egressAddressExceptionStore: gatherEgressExceptionStoreProbe(),

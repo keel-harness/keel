@@ -19343,6 +19343,7 @@ printf '%s\\n' '${match}'
       output,
       auditWriter: writer,
       gitPushAuthority,
+      gitPushAddressGuardRevision: "test-address-guard-v1",
       validateSandboxTempRoot,
     });
 

@@ -556,6 +556,23 @@ function receiptFor(items: readonly ViewItem[], summary: UiTurnSummary | undefin
   const reconciliation = reconciledToolAttempts(items);
   const recoveredFailures = reconciliation.failureIndexes;
   const counts = toolCounts(items, recoveredFailures);
+  let gitPushPushed = 0;
+  let gitPushAlreadyAtCommit = 0;
+  let gitPushIndeterminate = false;
+  for (const [index, item] of items.entries()) {
+    if (item.kind !== "tool" || item.name !== "git.push" || recoveredFailures.has(index)) continue;
+    const outcome = toolOutcome(item);
+    if (outcome === "done" && item.summary.startsWith("pushed · refs/heads/")) {
+      gitPushPushed += 1;
+    } else if (outcome === "done" && item.summary.startsWith("already at commit · refs/heads/")) {
+      gitPushAlreadyAtCommit += 1;
+    } else if (
+      outcome === "partial" &&
+      item.summary.startsWith("remote state unconfirmed · refs/heads/")
+    ) {
+      gitPushIndeterminate = true;
+    }
+  }
   const attention = hasAttention(items, summary);
   const summaryAttention = cleanSummaryLines(summary?.attention);
   const attentionLines =
@@ -595,6 +612,7 @@ function receiptFor(items: readonly ViewItem[], summary: UiTurnSummary | undefin
   const ran = Math.max(counts.ran, cleanSummaryLines(summary?.ran).length);
   const automatic = cleanSummaryLines(summary?.automatic).length;
   const failed = Math.max(counts.failed, summaryAttention.length);
+  const genericTools = Math.max(0, counts.otherTools - gitPushPushed - gitPushAlreadyAtCommit);
   const parts = [
     title,
     answer !== undefined ? "answered" : undefined,
@@ -608,9 +626,21 @@ function receiptFor(items: readonly ViewItem[], summary: UiTurnSummary | undefin
     failed > 0 ? `failed ${failed}` : undefined,
     counts.limited > 0 ? `limited ${counts.limited}` : undefined,
     counts.partial > 0 ? `partial ${counts.partial}` : undefined,
-    counts.otherTools > 0 ? `tools ${counts.otherTools}` : undefined,
+    gitPushPushed > 0
+      ? `git.push pushed${gitPushPushed === 1 ? "" : ` ${String(gitPushPushed)}`}`
+      : undefined,
+    gitPushAlreadyAtCommit > 0
+      ? `git.push already at commit${
+          gitPushAlreadyAtCommit === 1 ? "" : ` ${String(gitPushAlreadyAtCommit)}`
+        }`
+      : undefined,
+    genericTools > 0 ? `tools ${genericTools}` : undefined,
     observationsUnavailable > 0 ? `observations unavailable ${observationsUnavailable}` : undefined,
-    attention ? "next: review evidence before retrying" : undefined,
+    gitPushIndeterminate
+      ? "next: no automatic retry; restart, then inspect independent remote ref and audit"
+      : attention
+        ? "next: review evidence before retrying"
+        : undefined,
   ];
   return parts.filter((p): p is string => p !== undefined && p.length > 0).join(" · ");
 }
@@ -724,7 +754,12 @@ function toolProblemNext(
 ): string {
   const reviewRecovery = reviewSettlementRecovery(reviewSettlement);
   if (reviewRecovery !== undefined) return reviewRecovery;
-  if (outcome === "partial") return "inspect the target before retrying";
+  if (outcome === "partial") {
+    if (detail.startsWith("remote state unconfirmed · refs/heads/")) {
+      return "do not retry automatically · restart, then inspect the independent remote ref and audit";
+    }
+    return "inspect the target before retrying";
+  }
   if (outcome === "review") return "no live approval · simplify the request, then rerun";
   if (outcome === "blocked") {
     if (detail.toLowerCase().includes(TUI_TERMINAL_REVIEW_TRUTH.summaryPrefix)) {
@@ -733,6 +768,9 @@ function toolProblemNext(
         : TUI_TERMINAL_REVIEW_TRUTH.recovery;
     }
     if (/review closed as denied/iu.test(detail)) {
+      if (detail.includes("interactive git.push approval required")) {
+        return "rerun Keel interactively to approve a fresh exact git.push request";
+      }
       return "no review pending · simplify the request or rerun with a live approval surface";
     }
     const denialRecovery = wardenDenialRecovery(detail);
@@ -960,7 +998,9 @@ function toolEvidenceLine(
     const text = `${name}: ${summary.length > 0 ? summary : "done"}`;
     return options.checked.has(text) ? undefined : { kind: "ran", text };
   }
-  const target = subject.length > 0 ? subject : summary;
+  // git.push's settled result distinguishes a performed update from a no-op. Its invocation subject
+  // is useful while running, but must not replace that completion truth after settlement.
+  const target = item.name === "git.push" && summary.length > 0 ? summary : subject || summary;
   return { kind: "tool", text: `${name}: ${target.length > 0 ? target : "done"}` };
 }
 

@@ -441,13 +441,18 @@ async function run(binaryArg) {
   }
 
   try {
-    resultOf(
+    const hello = resultOf(
       await request("hello", "warden.hello", {
         kernelVersion: "0.0.0",
         protocolVersion: "1.0.0",
       }),
       "warden.hello",
     );
+    if (!hello.capabilities.includes("git-push/v1")) {
+      throw new Error(
+        `compiled Warden omitted production git.push capability: ${JSON.stringify(hello.capabilities)}`,
+      );
+    }
     const status = resultOf(await request("status", "warden.status"), "warden.status");
     const sessionId = "ses_01ARZ3NDEKTSV4RRFFQ69G5FAV";
     const allowed = resultOf(

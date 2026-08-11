@@ -12,12 +12,14 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
+import { performance } from "node:perf_hooks";
 import { join, resolve } from "node:path";
 import fc from "fast-check";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { JsonObjectT } from "@keel/shared";
-import { AuditChainWriter, type AuditAppendInput } from "./audit/writer.js";
+import { supportedGitPushVersion, type JsonObjectT } from "@keel/shared";
+import { AuditChainWriter, type AuditAppendInput, type AuditSink } from "./audit/writer.js";
 import type { GitCredentialBroker, GitCredentialBrokerIdentity } from "./git-credential-broker.js";
+import type { GitPushBindingAuthorityRequest } from "./git-push-authority.js";
 import { handleRpcLine } from "./rpc-server.js";
 import {
   CREDENTIAL_TLS_TERMINATION_CAPABILITY,
@@ -54,6 +56,52 @@ const principal = {
   authProvider: "local",
   assurance: "local-os-user",
 } as const;
+
+function testBindingAuthority(request: GitPushBindingAuthorityRequest) {
+  const exactStringArg = (name: "remote" | "branch" | "expectedHead"): string => {
+    const value = request.executeParams.toolCall.args[name];
+    if (typeof value !== "string") throw new Error(`expected string ${name}`);
+    return value;
+  };
+  return {
+    policyInput: {
+      tool: {
+        name: request.executeParams.toolCall.name,
+        args: request.executeParams.toolCall.args,
+      },
+      normalized: {
+        argv: [
+          "git.push",
+          exactStringArg("remote"),
+          exactStringArg("branch"),
+          exactStringArg("expectedHead"),
+        ],
+        decodedLayers: [],
+      },
+      sideEffect: request.sideEffect,
+      workspace: { path: "", trusted: true },
+      provenance: { inputTags: ["workspace" as const] },
+      egress: {
+        isEgress: true,
+        domain: request.host,
+        gitRemote: request.canonicalUrl,
+      },
+      session: {
+        id: request.executeParams.sessionId,
+        mode: "enforced" as const,
+        promptCountThisSession: 0,
+      },
+      principal: { osUser: "git-push-test" },
+    },
+    policyDecision: { verdict: "review" as const, matchedRules: ["POL-GIT-PUSH"] },
+    policyPack: {
+      name: "git-push-test-policy",
+      hash: `sha256:${"9".repeat(64)}` as const,
+    },
+    addressGuardRevision: "test-address-guard-v1",
+    auditAuthorityId: "test-audit-authority-v1",
+  };
+}
 
 function tempDir(prefix: string): string {
   const path = mkdtempSync(join(tmpdir(), prefix));
@@ -154,11 +202,15 @@ const activeStatus: SandboxStatus = {
 
 function sandboxResult(
   stdout: string,
-  options: { readonly exitCode?: number; readonly stderr?: string } = {},
+  options: {
+    readonly exitCode?: number | null;
+    readonly signal?: string | null;
+    readonly stderr?: string;
+  } = {},
 ): SandboxExecutionResult {
   return {
-    exitCode: options.exitCode ?? 0,
-    signal: null,
+    exitCode: "exitCode" in options ? (options.exitCode ?? null) : 0,
+    signal: "signal" in options ? (options.signal ?? null) : null,
     stdout,
     stderr: options.stderr ?? "",
   };
@@ -213,10 +265,16 @@ function productionState(
   nowMs: () => number,
   broker: GitCredentialBroker,
 ): GitPushRuntimeState & { readonly config: GitPushProductionConfig } {
+  const gitExecutable = resolve(spawnSync("which", ["git"], { encoding: "utf8" }).stdout.trim());
+  const gitVersion = supportedGitPushVersion(
+    spawnSync(gitExecutable, ["--version"], { encoding: "utf8" }).stdout,
+  );
+  if (gitVersion === undefined) throw new Error("test Git version is unsupported");
   return createGitPushRuntimeState({
     productionCapability: true,
     credentialBroker: broker,
-    gitExecutable: resolve(spawnSync("which", ["git"], { encoding: "utf8" }).stdout.trim()),
+    gitExecutable,
+    gitVersion,
     tempRoot: tempDir("keel-git-push-production-unit-temp-"),
     nowMs,
   });
@@ -284,6 +342,11 @@ function harness(
       sandbox,
       workspaceRoot: workspace.path,
       auditDir: tempDir("keel-git-push-unit-audit-"),
+      resolveBindingAuthority: async (request) => {
+        const authority = testBindingAuthority(request);
+        authority.policyInput.workspace.path = workspace.path;
+        return authority;
+      },
       appendAudit: (input) => {
         audits.push(input);
         return audits.length;
@@ -494,6 +557,60 @@ describe("ADR-0091 git.push Warden walking skeleton", () => {
     expect(JSON.stringify(h.audits)).not.toContain("fixture-secret");
   });
 
+  it.each([
+    {
+      label: "oversized inspection output",
+      first: sandboxResult("x".repeat(2 * 1_024 * 1_024)),
+      expected: /inspection exceeded its output bound/u,
+    },
+    {
+      label: "unexpected inspection exit",
+      first: sandboxResult("", { exitCode: 2 }),
+      expected: /local Git inspection failed/u,
+    },
+  ])("fails closed for $label", async ({ first, expected }) => {
+    const h = harness();
+    let firstInspection = true;
+    const context: GitPushRuntimeContext = {
+      ...h.context,
+      sandbox: {
+        status: () => h.context.sandbox.status(),
+        execute: async (invocation, profile, options) => {
+          if (firstInspection && profile.network?.allowedDomains?.length === 0) {
+            firstInspection = false;
+            return first;
+          }
+          return await h.context.sandbox.execute(invocation, profile, options);
+        },
+      },
+    };
+    await expect(requestGitPushReview(context, executeArgs(h.workspace.head))).rejects.toThrow(
+      expected,
+    );
+    expect(externalNetworkExecutions(h)).toEqual([]);
+  });
+
+  it("accepts one CRLF-terminated supported Git version without widening later probes", async () => {
+    const h = harness();
+    let firstInspection = true;
+    const context: GitPushRuntimeContext = {
+      ...h.context,
+      sandbox: {
+        status: () => h.context.sandbox.status(),
+        execute: async (invocation, profile, options) => {
+          if (firstInspection && profile.network?.allowedDomains?.length === 0) {
+            firstInspection = false;
+            return sandboxResult("git version 2.39.5\r\n");
+          }
+          return await h.context.sandbox.execute(invocation, profile, options);
+        },
+      },
+    };
+    await expect(
+      requestGitPushReview(context, executeArgs(h.workspace.head)),
+    ).resolves.toMatchObject({ verdict: "review" });
+  });
+
   it("reports untracked work as excluded uncommitted state", async () => {
     const workspace = makeWorkspace();
     writeFileSync(join(workspace.path, "untracked.txt"), "not in the approved commit\n");
@@ -699,6 +816,7 @@ describe("ADR-0091 git.push Warden walking skeleton", () => {
       auditDir,
       signal,
       gitPushAuthority,
+      gitPushAddressGuardRevision: "test-address-guard-v1",
     };
     const minimalOptions = {
       workspaceTrusted: true,
@@ -706,6 +824,7 @@ describe("ADR-0091 git.push Warden walking skeleton", () => {
       sandbox: h.context.sandbox,
       auditWriter: writer,
       gitPushAuthority,
+      gitPushAddressGuardRevision: "test-address-guard-v1",
     };
     try {
       const hello = await handleRpcLine(
@@ -903,6 +1022,210 @@ describe("ADR-0091 git.push Warden walking skeleton", () => {
       "tool.execute",
       "tool.execute",
     ]);
+    expect(
+      h.audits.every(
+        (entry) =>
+          entry.policyPack?.name === "git-push-test-policy" &&
+          entry.policy?.verdict === "review" &&
+          entry.provenance?.inputTags[0] === "workspace",
+      ),
+    ).toBe(true);
+    expect(review.bindingAuthority.policyInput.sideEffect.dynamic.effectKinds).toEqual([
+      "network_read",
+      "network_write",
+      "process_exec",
+    ]);
+  });
+
+  it("surfaces an outcome-audit failure after push as indeterminate authority without retry", async () => {
+    const destination = "refs/heads/feature/unit";
+    const workspace = makeWorkspace();
+    const h = harness({
+      workspace,
+      sandboxResults: [
+        sandboxResult("ref: refs/heads/main\tHEAD\n"),
+        sandboxResult("push admitted"),
+        sandboxResult(`${workspace.head}\t${destination}\n`),
+      ],
+    });
+    if (!("advertiseTestCapability" in h.state.config)) {
+      throw new Error("expected non-release fixture state");
+    }
+    let cleanupFaults = 0;
+    (h.state.config as { cleanupAttemptRoot?: (path: string) => void }).cleanupAttemptRoot = () => {
+      cleanupFaults += 1;
+      throw new Error("injected cleanup failure");
+    };
+    const gitPushAuthority = createGitPushWalkingSkeletonAuthority(h.state.config);
+    const auditDir = tempDir("keel-git-push-outcome-audit-");
+    const durable = AuditChainWriter.open({
+      path: join(auditDir, "audit.jsonl"),
+      principal,
+      now: () => "2026-08-10T21:00:00.000Z",
+    });
+    let appends = 0;
+    const auditWriter: AuditSink = {
+      append: (input) => {
+        appends += 1;
+        if (appends === 4) throw new Error("ENOSPC outcome");
+        return durable.append(input);
+      },
+      get head() {
+        return durable.head;
+      },
+      checkpointPublicKey: () => durable.checkpointPublicKey(),
+      checkpointNow: () => durable.checkpointNow(),
+      close: () => durable.close(),
+    };
+    try {
+      const options = {
+        workspaceTrusted: true,
+        workspaceRoot: workspace.path,
+        sandbox: h.context.sandbox,
+        auditWriter,
+        auditDir,
+        gitPushAuthority,
+        gitPushAddressGuardRevision: "test-address-guard-v1",
+      };
+      const requested = await handleRpcLine(
+        rpcFrame("request", "warden.execute", executeArgs(workspace.head)),
+        options,
+      );
+      expect(requested).toMatchObject({
+        result: { verdict: "review", review: { reviewId: "git_push_review_1" } },
+      });
+      const resolved = await handleRpcLine(
+        rpcFrame("resolve", "warden.resolveReview", {
+          reviewId: "git_push_review_1",
+          approved: true,
+          scope: "once",
+          principal,
+        }),
+        options,
+      );
+      expect(resolved).toMatchObject({
+        error: {
+          data: {
+            code: "AUDIT_WRITE_FAILED",
+            actionMayHaveExecuted: true,
+          },
+        },
+      });
+      expect(cleanupFaults).toBe(1);
+      expect(
+        gitPushAuthority.capabilityAvailable({
+          workspaceTrusted: true,
+          auditAvailable: true,
+          sandbox: activeStatus,
+        }),
+      ).toBe(false);
+      expect(JSON.stringify(resolved)).toContain("do not retry");
+      expect(appends).toBe(4);
+      expect(externalNetworkExecutions(h)).toHaveLength(3);
+      expect(gitPushAuthority.pendingReviewCount()).toBe(0);
+    } finally {
+      auditWriter.close();
+    }
+  });
+
+  it("preserves a confirmed result while quarantining the authority after cleanup failure", async () => {
+    const base = testState(() => 1_000).config;
+    const state = createGitPushRuntimeState({
+      ...base,
+      cleanupAttemptRoot: () => {
+        throw new Error("injected cleanup failure");
+      },
+    });
+    const workspace = makeWorkspace();
+    const destination = "refs/heads/feature/unit";
+    const h = harness({
+      workspace,
+      state,
+      sandboxResults: [
+        sandboxResult("ref: refs/heads/main\tHEAD\n"),
+        sandboxResult("push admitted"),
+        sandboxResult(`${workspace.head}\t${destination}\n`),
+      ],
+    });
+    const review = await request(h);
+    const result = await resolveGitPushReview(h.context, review, {
+      reviewId: review.reviewId,
+      approved: true,
+      scope: "once",
+      principal,
+    });
+
+    expect(result).toMatchObject({ verdict: "allow", result: { status: "pushed" } });
+    expect(state.cleanupHealthy).toBe(false);
+    expect(
+      gitPushCapabilityAvailable(state, {
+        workspaceTrusted: true,
+        auditAvailable: true,
+        sandbox: activeStatus,
+      }),
+    ).toBe(false);
+  });
+
+  it.each([
+    ["approval resolution", 2],
+    ["pre-network intent", 3],
+  ])("fails closed when the %s audit append fails", async (_label, failOnAppend) => {
+    const h = harness();
+    if (!("advertiseTestCapability" in h.state.config)) {
+      throw new Error("expected non-release fixture state");
+    }
+    const authority = createGitPushWalkingSkeletonAuthority(h.state.config);
+    const auditDir = tempDir("keel-git-push-pre-network-audit-");
+    const durable = AuditChainWriter.open({
+      path: join(auditDir, "audit.jsonl"),
+      principal,
+      now: () => "2026-08-10T21:00:00.000Z",
+    });
+    let appends = 0;
+    const auditWriter: AuditSink = {
+      append: (input) => {
+        appends += 1;
+        if (appends === failOnAppend) throw new Error("ENOSPC before network");
+        return durable.append(input);
+      },
+      get head() {
+        return durable.head;
+      },
+      checkpointPublicKey: () => durable.checkpointPublicKey(),
+      checkpointNow: () => durable.checkpointNow(),
+      close: () => durable.close(),
+    };
+    const options = {
+      workspaceTrusted: true,
+      workspaceRoot: h.workspace.path,
+      sandbox: h.context.sandbox,
+      auditWriter,
+      auditDir,
+      gitPushAuthority: authority,
+      gitPushAddressGuardRevision: "test-address-guard-v1",
+    };
+    try {
+      const requested = await handleRpcLine(
+        rpcFrame("request", "warden.execute", executeArgs(h.workspace.head)),
+        options,
+      );
+      expect(requested).toMatchObject({ result: { verdict: "review" } });
+      const resolved = await handleRpcLine(
+        rpcFrame("resolve", "warden.resolveReview", {
+          reviewId: "git_push_review_1",
+          approved: true,
+          scope: "once",
+          principal,
+        }),
+        options,
+      );
+      expect(resolved).toMatchObject({ error: { data: { code: "AUDIT_WRITE_FAILED" } } });
+      expect(JSON.stringify(resolved)).not.toContain('"actionMayHaveExecuted":true');
+      expect(externalNetworkExecutions(h)).toEqual([]);
+      expect(authority.pendingReviewCount()).toBe(0);
+    } finally {
+      auditWriter.close();
+    }
   });
 
   it("returns already-at-commit after preflight without launching a push child", async () => {
@@ -1047,12 +1370,23 @@ describe("ADR-0091 git.push Warden walking skeleton", () => {
     });
 
     const review = await request(h);
+    if ("advertiseTestCapability" in h.state.config) {
+      throw new Error("expected production git.push state");
+    }
     expect(review.facts).toMatchObject({
       canonicalUrl: repository,
       host: "github.com",
       port: 443,
       credentialSourceClass: "operator Git credential helper (system/global config)",
+      gitVersion: h.state.config.gitVersion,
     });
+    expect(
+      h.executions.filter((execution) =>
+        (execution as { invocation: { argv?: readonly string[] } }).invocation.argv?.includes(
+          "--version",
+        ),
+      ),
+    ).toHaveLength(1);
     expect(review.facts).not.toHaveProperty("envExecutable");
     const result = await resolveGitPushReview(h.context, review, {
       reviewId: review.reviewId,
@@ -1062,6 +1396,13 @@ describe("ADR-0091 git.push Warden walking skeleton", () => {
     });
 
     expect(result).toMatchObject({ verdict: "allow", result: { status: "pushed" } });
+    expect(
+      h.executions.filter((execution) =>
+        (execution as { invocation: { argv?: readonly string[] } }).invocation.argv?.includes(
+          "--version",
+        ),
+      ),
+    ).toHaveLength(2);
     const external = externalNetworkExecutions(h) as readonly {
       readonly invocation: { readonly command: string; readonly argv: readonly string[] };
       readonly executeOptions: {
@@ -1099,6 +1440,78 @@ describe("ADR-0091 git.push Warden walking skeleton", () => {
     expect(externalNetworkExecutions(h)).toEqual([]);
   });
 
+  it("rejects each malformed production and operator-helper authority before capability state", () => {
+    const broker: GitCredentialBroker = {
+      sourceClass: "operator Git credential helper (system/global config)",
+      inspect: async () => brokerIdentity,
+      resolve: async () => ({ scheme: "Basic", secret: "unused" }),
+    };
+    const valid = productionState(() => 1_000, broker).config;
+    expect(() =>
+      createGitPushRuntimeState({
+        ...valid,
+        productionCapability: false,
+      } as unknown as GitPushProductionConfig),
+    ).toThrow(/invalid production git\.push credential authority/u);
+    expect(() => createGitPushRuntimeState({ ...valid, gitVersion: "3.0.0" })).toThrow(
+      /invalid production git\.push credential authority/u,
+    );
+    expect(() =>
+      createGitPushRuntimeState({
+        ...valid,
+        credentialBroker: { ...broker, sourceClass: "wrong source" },
+      } as unknown as GitPushProductionConfig),
+    ).toThrow(/invalid production git\.push credential authority/u);
+
+    const fixture = testState(() => 1_000).config;
+    expect(() =>
+      createGitPushRuntimeState({
+        ...fixture,
+        fixture: {
+          canonicalUrl,
+          host: "localhost",
+          port: 54_321,
+          address: "127.0.0.1",
+          credentialSourceClass: "operator-git-credential-helper",
+          credentialBroker: { ...broker, sourceClass: "wrong source" },
+        },
+      } as unknown as GitPushWalkingSkeletonConfig),
+    ).toThrow(/invalid non-release git\.push fixture authority/u);
+  });
+
+  it("uses production invalid-parameter audit scope and defends authority-only methods", async () => {
+    const broker: GitCredentialBroker = {
+      sourceClass: "operator Git credential helper (system/global config)",
+      inspect: async () => brokerIdentity,
+      resolve: async () => ({ scheme: "Basic", secret: "unused" }),
+    };
+    const production = harness({ state: productionState(() => 1_000, broker) });
+    const params = executeArgs(production.workspace.head, { extra: true });
+    auditGitPushInvalidParams(
+      production.context,
+      params,
+      new GitPushInvalidParamsError("test invalid params"),
+    );
+    expect(JSON.stringify(production.audits[0]?.sideEffect)).toContain(
+      "https://invalid.invalid/git-push",
+    );
+
+    const fixture = testState(() => 1_000).config;
+    const authority = createGitPushWalkingSkeletonAuthority(fixture);
+    expect(authority.consumeReview("git_push_review_999")).toBeUndefined();
+    await expect(
+      authority.resolve(production.context, {} as PendingGitPushReview, {
+        reviewId: "git_push_review_999",
+        approved: false,
+        scope: "once",
+        principal,
+      }),
+    ).rejects.toThrow(/was not consumed by this authority/u);
+    expect(() =>
+      authority.auditInvalidParams(production.context, params, new Error("not params")),
+    ).toThrow(/non-parameter error/u);
+  });
+
   it.each([
     {
       label: "preflight failure",
@@ -1127,17 +1540,45 @@ describe("ADR-0091 git.push Warden walking skeleton", () => {
       may: true,
     },
     {
-      label: "definitive child failure with observed mismatch",
+      label: "definitive non-fast-forward rejection with observed mismatch",
       results: [
         sandboxResult("ref: refs/heads/main\tHEAD\n"),
-        sandboxResult("", { exitCode: 1 }),
+        sandboxResult(
+          "To https://localhost/repo.git\n!\t<expected-head>:refs/heads/feature/unit\t[rejected] (non-fast-forward)\nDone\n",
+          { exitCode: 1 },
+        ),
         sandboxResult(`${"a".repeat(40)}\trefs/heads/feature/unit\n`),
       ],
       status: "failed",
+      may: false,
+    },
+    {
+      label: "lost push response followed by a concurrent observed mismatch",
+      results: [
+        sandboxResult("ref: refs/heads/main\tHEAD\n"),
+        sandboxResult("", { exitCode: 1, stderr: "fatal: the remote end hung up unexpectedly" }),
+        sandboxResult(`${"a".repeat(40)}\trefs/heads/feature/unit\n`),
+      ],
+      status: "indeterminate",
+      may: true,
+    },
+    {
+      label: "signal-terminated push with observed mismatch",
+      results: [
+        sandboxResult("ref: refs/heads/main\tHEAD\n"),
+        sandboxResult("", { exitCode: null, signal: "SIGTERM" }),
+        sandboxResult(`${"a".repeat(40)}\trefs/heads/feature/unit\n`),
+      ],
+      status: "indeterminate",
       may: true,
     },
   ])("reports $label without retry", async ({ results, status, may }) => {
-    const h = harness({ sandboxResults: results });
+    const workspace = makeWorkspace();
+    const resolvedResults = results.map((result) => ({
+      ...result,
+      stdout: result.stdout.replace("<expected-head>", workspace.head),
+    }));
+    const h = harness({ workspace, sandboxResults: resolvedResults });
     const review = await request(h);
     const result = await resolveGitPushReview(h.context, review, {
       reviewId: review.reviewId,
@@ -1148,6 +1589,61 @@ describe("ADR-0091 git.push Warden walking skeleton", () => {
     expect(result).toMatchObject({
       verdict: "deny",
       result: { status, automaticRetry: false, actionMayHaveExecuted: may },
+    });
+  });
+
+  it.each([
+    "!\tmissing-third-column",
+    "=\t<expected-head>:refs/heads/feature/unit\t[up to date]",
+    "!\twrong:refs/heads/feature/unit\t[rejected] (non-fast-forward)",
+  ])("does not promote malformed porcelain rejection %s to definitive failure", async (row) => {
+    const workspace = makeWorkspace();
+    const h = harness({
+      workspace,
+      sandboxResults: [
+        sandboxResult("ref: refs/heads/main\tHEAD\n"),
+        sandboxResult(
+          `To https://localhost/repo.git\n${row.replace("<expected-head>", workspace.head)}\nDone\n`,
+          {
+            exitCode: 1,
+          },
+        ),
+        sandboxResult(`${"a".repeat(40)}\trefs/heads/feature/unit\n`),
+      ],
+    });
+    const review = await request(h);
+    await expect(
+      resolveGitPushReview(h.context, review, {
+        reviewId: review.reviewId,
+        approved: true,
+        scope: "once",
+        principal,
+      }),
+    ).resolves.toMatchObject({
+      verdict: "deny",
+      result: { status: "indeterminate", actionMayHaveExecuted: true },
+    });
+  });
+
+  it("keeps an absent verified destination indeterminate after a push attempt", async () => {
+    const h = harness({
+      sandboxResults: [
+        sandboxResult("ref: refs/heads/main\tHEAD\n"),
+        sandboxResult("push response lost", { exitCode: 1 }),
+        sandboxResult(""),
+      ],
+    });
+    const review = await request(h);
+    await expect(
+      resolveGitPushReview(h.context, review, {
+        reviewId: review.reviewId,
+        approved: true,
+        scope: "once",
+        principal,
+      }),
+    ).resolves.toMatchObject({
+      verdict: "deny",
+      result: { status: "indeterminate", observedRef: null, actionMayHaveExecuted: true },
     });
   });
 
@@ -1171,6 +1667,25 @@ describe("ADR-0091 git.push Warden walking skeleton", () => {
     expect(result).toMatchObject({
       verdict: "deny",
       result: { status: "failed", actionMayHaveExecuted: false },
+    });
+    expect(externalNetworkExecutions(h)).toHaveLength(1);
+  });
+
+  it("blocks an observed default branch even when that destination ref is absent", async () => {
+    const h = harness({
+      sandboxResults: [sandboxResult("ref: refs/heads/feature/unit\tHEAD\n")],
+    });
+    const review = await request(h);
+    await expect(
+      resolveGitPushReview(h.context, review, {
+        reviewId: review.reviewId,
+        approved: true,
+        scope: "once",
+        principal,
+      }),
+    ).resolves.toMatchObject({
+      verdict: "deny",
+      result: { status: "failed", observedRef: null, actionMayHaveExecuted: false },
     });
     expect(externalNetworkExecutions(h)).toHaveLength(1);
   });
@@ -1201,7 +1716,7 @@ describe("ADR-0091 git.push Warden walking skeleton", () => {
       label: "expired review",
       approved: true,
       scope: "once" as const,
-      now: 121_001,
+      now: 121_000,
       reason: "git.push review expired",
     },
   ])("settles $label before network", async ({ approved, scope, now, reason }) => {
@@ -1217,6 +1732,63 @@ describe("ADR-0091 git.push Warden walking skeleton", () => {
     expect(result).toMatchObject({ verdict: "deny", result: { reason } });
     expect(externalNetworkExecutions(h)).toEqual([]);
     expect(result.auditSeq).toBe(2);
+    expect(h.audits[1]?.payload).toMatchObject({
+      approved: false,
+      resolutionReason:
+        reason === "human denied"
+          ? "human-denied"
+          : reason === "git.push review expired"
+            ? "expired"
+            : "once-scope-required",
+    });
+  });
+
+  it("makes sibling approvals stale before either can open a second network mutation", async () => {
+    const workspace = makeWorkspace();
+    const destination = "refs/heads/feature/unit";
+    const h = harness({
+      workspace,
+      sandboxResults: [
+        sandboxResult("ref: refs/heads/main\tHEAD\n"),
+        sandboxResult("push admitted"),
+        sandboxResult(`${workspace.head}\t${destination}\n`),
+      ],
+    });
+    const first = await request(h);
+    const secondResult = await requestGitPushReview(h.context, executeArgs(h.workspace.head));
+    const second = h.state.pending.get(secondResult.review!.reviewId);
+    if (second === undefined) throw new Error("expected sibling git.push review");
+
+    const [firstResult, secondResolution] = await Promise.all([
+      resolveGitPushReview(h.context, first, {
+        reviewId: first.reviewId,
+        approved: true,
+        scope: "once",
+        principal,
+      }),
+      resolveGitPushReview(h.context, second, {
+        reviewId: second.reviewId,
+        approved: true,
+        scope: "once",
+        principal,
+      }),
+    ]);
+
+    const outcomes = [firstResult, secondResolution];
+    expect(
+      outcomes.some(
+        (outcome) => outcome.verdict === "allow" && outcome.result?.["status"] === "pushed",
+      ),
+    ).toBe(true);
+    expect(
+      outcomes.some(
+        (outcome) =>
+          outcome.verdict === "deny" &&
+          outcome.result?.["reason"] === "git.push review is stale; submit a fresh request",
+      ),
+    ).toBe(true);
+    expect(externalNetworkExecutions(h)).toHaveLength(3);
+    expect(h.state.pending.size).toBe(0);
   });
 
   it("denies binding drift after approval and before network", async () => {
@@ -1234,6 +1806,45 @@ describe("ADR-0091 git.push Warden walking skeleton", () => {
       result: { reason: "request facts changed; submit a fresh request" },
     });
     expect(externalNetworkExecutions(h)).toEqual([]);
+  });
+
+  it("binds policy, address-guard revision, audit authority, and audit root before network", async () => {
+    const h = harness();
+    let addressGuardRevision = "test-address-guard-v1";
+    const requestContext: GitPushRuntimeContext = {
+      ...h.context,
+      resolveBindingAuthority: async (request) => ({
+        ...testBindingAuthority(request),
+        policyInput: {
+          ...testBindingAuthority(request).policyInput,
+          workspace: { path: h.workspace.path, trusted: true },
+        },
+        addressGuardRevision,
+      }),
+    };
+    const requested = await requestGitPushReview(requestContext, executeArgs(h.workspace.head));
+    const review = h.state.pending.get(requested.review!.reviewId);
+    if (review === undefined) throw new Error("expected bound git.push review");
+    addressGuardRevision = "test-address-guard-v2";
+
+    const resolved = await resolveGitPushReview(requestContext, review, {
+      reviewId: review.reviewId,
+      approved: true,
+      scope: "once",
+      principal,
+    });
+
+    expect(resolved).toMatchObject({
+      verdict: "deny",
+      result: { reason: "request facts changed; submit a fresh request" },
+    });
+    expect(externalNetworkExecutions(h)).toEqual([]);
+    expect(h.audits.at(-1)).toMatchObject({
+      eventType: "tool.deny",
+      policyPack: { name: "git-push-test-policy" },
+      policy: { verdict: "review" },
+      provenance: { inputTags: ["workspace"] },
+    });
   });
 
   it("turns post-approval local inspection failure into an audited zero-network denial", async () => {
@@ -1257,6 +1868,61 @@ describe("ADR-0091 git.push Warden walking skeleton", () => {
     expect(externalNetworkExecutions(h)).toEqual([]);
   });
 
+  it("records a non-Error pre-execution authority failure without approaching the network", async () => {
+    const h = harness();
+    const review = await request(h);
+    const nonErrorFailure = (function* (): Generator<never, void, unknown> {})();
+    const context: GitPushRuntimeContext = {
+      ...h.context,
+      preExecutionCheck: () => nonErrorFailure.throw("non-error authority drift"),
+    };
+    await expect(
+      resolveGitPushReview(context, review, {
+        reviewId: review.reviewId,
+        approved: true,
+        scope: "once",
+        principal,
+      }),
+    ).resolves.toMatchObject({
+      verdict: "deny",
+      result: { reason: "sandbox temporary authority changed; submit a fresh request" },
+    });
+    expect(h.audits.at(-1)?.payload).toMatchObject({ errorClass: "unknown" });
+    expect(externalNetworkExecutions(h)).toEqual([]);
+  });
+
+  it("supports the bounded no-audit-directory context without inventing a deny-write root", async () => {
+    const workspace = makeWorkspace();
+    const h = harness({
+      workspace,
+      sandboxResults: [
+        sandboxResult(`ref: refs/heads/main\tHEAD\n${workspace.head}\trefs/heads/feature/unit\n`),
+      ],
+    });
+    const context: GitPushRuntimeContext = {
+      state: h.state,
+      sandbox: h.context.sandbox,
+      workspaceRoot: h.context.workspaceRoot,
+      resolveBindingAuthority: h.context.resolveBindingAuthority,
+      appendAudit: h.context.appendAudit,
+    };
+    const requested = await requestGitPushReview(context, executeArgs(workspace.head));
+    const review = h.state.pending.get(requested.review!.reviewId);
+    if (review === undefined) throw new Error("expected pending no-audit-directory review");
+    await expect(
+      resolveGitPushReview(context, review, {
+        reviewId: review.reviewId,
+        approved: true,
+        scope: "once",
+        principal,
+      }),
+    ).resolves.toMatchObject({ verdict: "allow", result: { status: "already-at-commit" } });
+    const external = externalNetworkExecutions(h) as readonly {
+      readonly profile: { readonly filesystem: { readonly denyWrite: readonly string[] } };
+    }[];
+    expect(external[0]?.profile.filesystem.denyWrite).toEqual([realpathSync(workspace.path)]);
+  });
+
   it("fails closed when the review-request audit cannot be made durable", async () => {
     const h = harness();
     const context: GitPushRuntimeContext = {
@@ -1272,7 +1938,7 @@ describe("ADR-0091 git.push Warden walking skeleton", () => {
     expect(externalNetworkExecutions(h)).toEqual([]);
   });
 
-  it("uses the system clock only when no injected clock is configured", async () => {
+  it("uses the monotonic process clock when no injected clock is configured", async () => {
     const configured = testState(() => 1_000).config;
     const state = createGitPushRuntimeState({
       advertiseTestCapability: configured.advertiseTestCapability,
@@ -1280,18 +1946,29 @@ describe("ADR-0091 git.push Warden walking skeleton", () => {
       gitExecutable: configured.gitExecutable,
       tempRoot: configured.tempRoot,
     });
-    const h = harness({ state });
-    const review = await request(h);
-    expect(review.createdAtMs).toBeGreaterThan(0);
-    const result = await resolveGitPushReview(h.context, review, {
-      reviewId: review.reviewId,
-      approved: false,
-      principal,
-    });
-    expect(result).toMatchObject({ verdict: "deny", result: { reason: "human denied" } });
+    const monotonic = vi
+      .spyOn(performance, "now")
+      .mockReturnValueOnce(50_000)
+      .mockReturnValueOnce(50_001);
+    const wall = vi.spyOn(Date, "now").mockReturnValue(-1);
+    try {
+      const h = harness({ state });
+      const review = await request(h);
+      expect(review.createdAtMs).toBe(50_000);
+      const result = await resolveGitPushReview(h.context, review, {
+        reviewId: review.reviewId,
+        approved: false,
+        principal,
+      });
+      expect(result).toMatchObject({ verdict: "deny", result: { reason: "human denied" } });
+      expect(wall).not.toHaveBeenCalled();
+    } finally {
+      monotonic.mockRestore();
+      wall.mockRestore();
+    }
   });
 
-  it("binds an explicit caller signal and omits an absent audit directory", async () => {
+  it("binds an explicit caller signal without changing the audited containment roots", async () => {
     const workspace = makeWorkspace();
     const h = harness({
       workspace,
@@ -1303,7 +1980,9 @@ describe("ADR-0091 git.push Warden walking skeleton", () => {
       state: h.context.state,
       sandbox: h.context.sandbox,
       workspaceRoot: h.context.workspaceRoot,
+      ...(h.context.auditDir === undefined ? {} : { auditDir: h.context.auditDir }),
       appendAudit: h.context.appendAudit,
+      resolveBindingAuthority: h.context.resolveBindingAuthority,
       signal: controller.signal,
     };
     const result = await resolveGitPushReview(context, review, {
@@ -1321,7 +2000,7 @@ describe("ADR-0091 git.push Warden walking skeleton", () => {
     expect(
       (externalExecutions[0] as { profile: { filesystem: { denyWrite: readonly string[] } } })
         .profile.filesystem.denyWrite,
-    ).toEqual([realpathSync(workspace.path)]);
+    ).toEqual([realpathSync(workspace.path), realpathSync(h.context.auditDir!)]);
   });
 
   it("fails before mutation on malformed remote-ref authority rows", async () => {
@@ -1338,6 +2017,25 @@ describe("ADR-0091 git.push Warden walking skeleton", () => {
     expect(result).toMatchObject({
       verdict: "deny",
       result: { status: "failed", observedRef: null, actionMayHaveExecuted: false },
+    });
+    expect(externalNetworkExecutions(h)).toHaveLength(1);
+  });
+
+  it("fails before mutation when remote observation includes an unrequested ref", async () => {
+    const h = harness({
+      sandboxResults: [sandboxResult(`${"a".repeat(40)}\trefs/heads/unrequested\n`)],
+    });
+    const review = await request(h);
+    await expect(
+      resolveGitPushReview(h.context, review, {
+        reviewId: review.reviewId,
+        approved: true,
+        scope: "once",
+        principal,
+      }),
+    ).resolves.toMatchObject({
+      verdict: "deny",
+      result: { status: "failed", actionMayHaveExecuted: false },
     });
     expect(externalNetworkExecutions(h)).toHaveLength(1);
   });
@@ -1433,6 +2131,41 @@ describe("ADR-0091 git.push Warden walking skeleton", () => {
     ).toBe("");
   });
 
+  it("cleans an attempt root when contained repository initialization fails", async () => {
+    const h = harness();
+    const review = await request(h);
+    const context: GitPushRuntimeContext = {
+      ...h.context,
+      sandbox: {
+        status: () => h.context.sandbox.status(),
+        execute: async (invocation, profile, options) => {
+          if (invocation.argv?.includes("init") === true) {
+            throw new Error("contained git init failed");
+          }
+          return await h.context.sandbox.execute(invocation, profile, options);
+        },
+      },
+    };
+
+    const result = await resolveGitPushReview(context, review, {
+      reviewId: review.reviewId,
+      approved: true,
+      scope: "once",
+      principal,
+    });
+
+    expect(result).toMatchObject({
+      verdict: "deny",
+      result: { status: "failed", actionMayHaveExecuted: false },
+    });
+    expect(externalNetworkExecutions(h)).toEqual([]);
+    expect(
+      spawnSync("find", [h.state.config.tempRoot, "-maxdepth", "1", "-name", "attempt-*"], {
+        encoding: "utf8",
+      }).stdout.trim(),
+    ).toBe("");
+  });
+
   it("fails before network when the temporary-root identity changes after review", async () => {
     const h = harness();
     const review = await request(h);
@@ -1486,6 +2219,52 @@ describe("ADR-0091 git.push Warden walking skeleton", () => {
       },
     });
     expect(externalNetworkExecutions(h)).toHaveLength(2);
+  });
+
+  it("treats Warden abort after preflight as indeterminate and launches no push child", async () => {
+    const h = harness({
+      sandboxResults: [sandboxResult("ref: refs/heads/main\tHEAD\n")],
+    });
+    const review = await request(h);
+    const controller = new AbortController();
+    let externalCalls = 0;
+    const context: GitPushRuntimeContext = {
+      ...h.context,
+      signal: controller.signal,
+      sandbox: {
+        status: () => h.context.sandbox.status(),
+        execute: async (invocation, profile, options) => {
+          if ((profile.network?.allowedDomains?.length ?? 0) === 0) {
+            return await h.context.sandbox.execute(invocation, profile, options);
+          }
+          externalCalls += 1;
+          if (externalCalls === 1) {
+            const result = await h.context.sandbox.execute(invocation, profile, options);
+            controller.abort(new Error("Warden shutdown"));
+            return result;
+          }
+          throw controller.signal.reason;
+        },
+      },
+    };
+
+    const result = await resolveGitPushReview(context, review, {
+      reviewId: review.reviewId,
+      approved: true,
+      scope: "once",
+      principal,
+    });
+
+    expect(result).toMatchObject({
+      verdict: "deny",
+      result: {
+        status: "indeterminate",
+        actionMayHaveExecuted: true,
+        automaticRetry: false,
+      },
+    });
+    expect(externalCalls).toBe(2);
+    expect(externalNetworkExecutions(h)).toHaveLength(1);
   });
 
   it.each([

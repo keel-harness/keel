@@ -34,10 +34,24 @@ budget, deadline). `doctor` exits non-zero if any check is missing (warnings do
 not fail). Usage errors and unknown flags exit non-zero. One known gap: `keel auth`
 usage errors print a message but exit zero today.
 
-**Remote Git and pull requests.** Keel can create and verify local commits. Remote publication is not
-a current governed product path: `git push` and PR-creation commands are terminal external writes,
-not actionable TUI reviews. Inspect the local commit and run the publication command deliberately
-from the host.
+**Remote Git and pull requests.** In a trusted interactive macOS/Linux session, current source can
+offer the model the typed `git.push` tool:
+
+```json
+{"remote":"origin","branch":"feature/name","expectedHead":"<full-lowercase-commit-oid>"}
+```
+
+The Warden requires Git 2.x (2.39 or newer), exactly one canonical HTTPS remote URL, an operator
+system/global credential helper, enforcing `srt:vendored` verified TLS plus connect-time address
+guarding, and one lossless human approval for that occurrence once. It can create or ordinarily fast-forward one exact
+non-default feature ref. Force, deletion, tags, default branch writes, SSH, redirects, project
+credential helpers, reusable grants, and automatic retry are not supported. `keel doctor` reports
+these non-secret prerequisites and one remediation when possible; it never resolves or prints a
+credential.
+
+Raw `process.run git push` remains terminal. Pull-request creation remains unimplemented, and the
+published `keel-harness@0.1.1` carrier predates this capability; published-carrier proof remains a
+separate release gate.
 
 **One-shot review behavior.** Existing scoped authority, including an exact session or Plan grant or
 an eligible Autopilot rule, gets the first chance to resolve a review. If it is still pending,

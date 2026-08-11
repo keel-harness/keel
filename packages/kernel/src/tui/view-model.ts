@@ -1430,6 +1430,87 @@ function parseCommandResultEnvelope(name: string, output: string): BashResultEnv
   };
 }
 
+interface GitPushResultProjection {
+  readonly status: "pushed" | "already-at-commit" | "failed" | "indeterminate";
+  readonly destinationRef: string;
+  readonly commit: string;
+  readonly actionMayHaveExecuted: boolean;
+}
+
+const GIT_PUSH_FULL_OID = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u;
+
+/** Parse only the complete result shape emitted by the governed git.push executor. This projection
+ * is presentation truth, never an authorization input; requiring the whole envelope prevents an
+ * arbitrary historical JSON fragment from manufacturing an indeterminate/retry-sensitive state. */
+function parseGitPushResultProjection(
+  name: string,
+  output: string,
+): GitPushResultProjection | undefined {
+  if (name !== "git.push") return undefined;
+  const trimmed = output.trim();
+  if (trimmed.length === 0 || trimmed.length > 8_192) return undefined;
+  const separator = trimmed.lastIndexOf("\n\n");
+  const body = (separator === -1 ? trimmed : trimmed.slice(separator + 2)).trim();
+  if (!body.startsWith("{") || !body.endsWith("}")) return undefined;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(body);
+  } catch {
+    return undefined;
+  }
+  if (!isRecord(parsed) || parsed["kind"] !== "git_push_result") return undefined;
+  const status = parsed["status"];
+  const repository = parsed["repository"];
+  const branch = parsed["branch"];
+  const destinationRef = parsed["destinationRef"];
+  const commit = parsed["commit"];
+  const observedRef = parsed["observedRef"];
+  if (
+    (status !== "pushed" &&
+      status !== "already-at-commit" &&
+      status !== "failed" &&
+      status !== "indeterminate") ||
+    typeof repository !== "string" ||
+    repository.length < 1 ||
+    repository.length > 2_048 ||
+    typeof branch !== "string" ||
+    !/^[\x21-\x7e]{1,128}$/u.test(branch) ||
+    typeof destinationRef !== "string" ||
+    destinationRef !== `refs/heads/${branch}` ||
+    typeof commit !== "string" ||
+    !GIT_PUSH_FULL_OID.test(commit) ||
+    (observedRef !== null &&
+      (typeof observedRef !== "string" || !GIT_PUSH_FULL_OID.test(observedRef))) ||
+    parsed["transport"] !== "srt:vendored verified HTTPS with address guard" ||
+    parsed["automaticRetry"] !== false ||
+    typeof parsed["actionMayHaveExecuted"] !== "boolean" ||
+    ((status === "pushed" || status === "already-at-commit") && observedRef !== commit)
+  ) {
+    return undefined;
+  }
+  return {
+    status,
+    destinationRef,
+    commit,
+    actionMayHaveExecuted: parsed["actionMayHaveExecuted"],
+  };
+}
+
+function gitPushResultSummary(result: GitPushResultProjection): string {
+  const label =
+    result.status === "pushed"
+      ? "pushed"
+      : result.status === "already-at-commit"
+        ? "already at commit"
+        : result.status === "indeterminate" || result.actionMayHaveExecuted
+          ? "remote state unconfirmed"
+          : "not pushed";
+  return truncateLine(
+    `${label} · ${result.destinationRef} @ ${result.commit.slice(0, 12)}`,
+    MAX_LIVE_OUTPUT_LEN,
+  );
+}
+
 function bashEnvelopeCommandFailed(env: BashResultEnvelope): boolean {
   return (
     env.complete && ((env.exitCode !== undefined && env.exitCode !== 0) || env.signal !== undefined)
@@ -1572,6 +1653,8 @@ function toolResultSummary(
   output: string,
   outcome: ReturnType<typeof toolPresentationOutcome>,
 ): string {
+  const gitPushResult = parseGitPushResultProjection(name, output);
+  if (gitPushResult !== undefined) return gitPushResultSummary(gitPushResult);
   const cleanedOutput = ok ? undefined : stripControlLine(output).trim();
   if (cleanedOutput !== undefined) {
     const reviewSettlementOutcome = kernelReviewSettlementOutcome(cleanedOutput);
@@ -1585,6 +1668,14 @@ function toolResultSummary(
       if (denialFirstLine.includes("no review remains pending")) {
         const autopilotBoundary = settledAutopilotBoundarySummary(denialFirstLine);
         if (autopilotBoundary !== undefined) return autopilotBoundary;
+        if (
+          name === "git.push" &&
+          denialFirstLine.includes(
+            "rerun Keel interactively to approve a fresh exact git.push request",
+          )
+        ) {
+          return "blocked by warden (not executed): review closed as denied · no review remains pending · interactive git.push approval required";
+        }
         return "blocked by warden (not executed): review closed as denied · no review remains pending";
       }
       return truncateLine(denialFirstLine, MAX_LIVE_OUTPUT_LEN);
@@ -1646,6 +1737,22 @@ function toolInvocationSubject(name: string, args: JsonObjectT): string | undefi
     if (command === undefined) return undefined;
     const subject = truncateLine(command, MAX_TOOL_SUBJECT_LEN);
     return subject.length > 0 ? subject : undefined;
+  }
+  if (name === "git.push") {
+    const remote = args["remote"];
+    const branch = args["branch"];
+    const expectedHead = args["expectedHead"];
+    if (
+      typeof remote !== "string" ||
+      !/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/u.test(remote) ||
+      typeof branch !== "string" ||
+      !/^[\x21-\x7e]{1,128}$/u.test(branch) ||
+      typeof expectedHead !== "string" ||
+      !GIT_PUSH_FULL_OID.test(expectedHead)
+    ) {
+      return undefined;
+    }
+    return truncateLine(`${remote}/${branch} @ ${expectedHead.slice(0, 12)}`, MAX_TOOL_SUBJECT_LEN);
   }
   if (name !== "read" && name !== "write" && name !== "edit") return undefined;
   const path = args["path"];
@@ -2458,6 +2565,12 @@ function resumedToolOutcome(
     ) {
       return "failed";
     }
+  }
+  const gitPushResult = parseGitPushResultProjection(name, content);
+  if (failed && gitPushResult !== undefined) {
+    return gitPushResult.status === "indeterminate" || gitPushResult.actionMayHaveExecuted
+      ? "partial"
+      : "failed";
   }
   if (!failed) return undefined;
   if (content === INTERRUPTED_TOOL_RESULT || content === KERNEL_STRINGS.toolAborted)

@@ -686,6 +686,47 @@ describe("connect-time egress documentation", () => {
   });
 });
 
+describe("typed git.push publication documentation", () => {
+  it("keeps the shipped path and its non-goals together across current truth surfaces", () => {
+    for (const path of [
+      "README.md",
+      "docs/status.md",
+      "docs/guide/reference.md",
+      "docs/roadmap.md",
+      "docs/quality/claim-ledger.md",
+    ]) {
+      const text = readRepoFile(path);
+      expect(text, `${path} dropped the typed git.push surface`).toMatch(/`git\.push`/u);
+      expect(text, `${path} blurred source and published-carrier truth`).toMatch(
+        /current source/iu,
+      );
+      expect(text, `${path} dropped the published 0.1.1 exclusion`).toMatch(
+        /(?:0\.1\.1.{0,160}predates|(?:predates|not the published).{0,160}0\.1\.1)/isu,
+      );
+      expect(text, `${path} dropped the HTTPS boundary`).toMatch(/HTTPS/u);
+      expect(text, `${path} widened the qualified Git family`).toMatch(/Git 2\.x/iu);
+      expect(text, `${path} dropped the qualified Git floor`).toMatch(/2\.39/u);
+      expect(text, `${path} dropped the once-only human boundary`).toMatch(
+        /once-only|one approval|approval.*once/isu,
+      );
+    }
+
+    const readme = readRepoFile("README.md");
+    const status = readRepoFile("docs/status.md");
+    const reference = readRepoFile("docs/guide/reference.md");
+    const roadmap = readRepoFile("docs/roadmap.md");
+    const ledger = readRepoFile("docs/quality/claim-ledger.md");
+    expect(readme).toMatch(/trusted interactive.*`srt:vendored`/isu);
+    expect(readme).toMatch(/raw `process\.run git push` remains terminal/iu);
+    expect(status).toMatch(/pull-request creation remains unimplemented/iu);
+    expect(reference).toMatch(/Git 2\.x \(2\.39 or newer\)/u);
+    expect(reference).toMatch(/force.*deletion.*tags.*default branch/isu);
+    expect(roadmap).toMatch(/GitHub pull-request creation.*next/isu);
+    expect(ledger).toContain("ADR-0091");
+    expect(ledger).toContain("git-push-walking-skeleton.real.test.ts");
+  });
+});
+
 // --- Published landing page (site/index.html) ---
 //
 // The landing page is a claim surface with no reviewer between it and the public: it is what a

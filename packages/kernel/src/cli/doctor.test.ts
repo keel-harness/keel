@@ -150,6 +150,102 @@ describe("runDoctor — all dependencies present", () => {
   });
 });
 
+describe("runDoctor — git.push non-secret preflight", () => {
+  const gitReady = {
+    gitVersionRaw: "git version 2.39.5",
+    gitRemoteUrlRaw: "https://github.com/keel-harness/keel.git",
+    gitCredentialHelperConfigured: true,
+  } satisfies Partial<DoctorInput>;
+
+  it("reports the exact ready scope without claiming an active session capability", () => {
+    const row = check(gitReady, "git-push");
+    expect(row).toEqual({
+      id: "git-push",
+      label: "git.push",
+      status: "ok",
+      detail:
+        "Git 2.39.5 · canonical origin HTTPS · operator helper configured · SRT/TLS/address guard session-gated",
+    });
+  });
+
+  it.each([
+    {
+      label: "missing Git",
+      input: { ...gitReady, gitVersionRaw: null },
+      detail: "Git not found",
+      fix: "install Git, then run: keel doctor",
+    },
+    {
+      label: "unsupported Git",
+      input: { ...gitReady, gitVersionRaw: "git version 2.38.5" },
+      detail: "Git 2.38.5 is outside the supported v1 matrix",
+      fix: "install a supported Git 2.x release (2.39 or newer), then run: keel doctor",
+    },
+    {
+      label: "unqualified future Git major",
+      input: { ...gitReady, gitVersionRaw: "git version 3.0.0" },
+      detail: "Git 3.0.0 is outside the supported v1 matrix",
+      fix: "install a supported Git 2.x release (2.39 or newer), then run: keel doctor",
+    },
+    {
+      label: "missing origin",
+      input: { ...gitReady, gitRemoteUrlRaw: null },
+      detail: "origin remote not found",
+      fix: "git remote add origin https://github.com/OWNER/REPO.git && keel doctor",
+    },
+    {
+      label: "non-canonical origin",
+      input: { ...gitReady, gitRemoteUrlRaw: "git@github.com:owner/repo.git" },
+      detail: "origin is not one canonical HTTPS URL",
+      fix: "git remote set-url origin https://github.com/OWNER/REPO.git && keel doctor",
+    },
+    {
+      label: "whitespace-bearing origin",
+      input: { ...gitReady, gitRemoteUrlRaw: " https://github.com/owner/repo.git" },
+      detail: "origin is not one canonical HTTPS URL",
+      fix: "git remote set-url origin https://github.com/OWNER/REPO.git && keel doctor",
+    },
+    {
+      label: "multiple origin values",
+      input: {
+        ...gitReady,
+        gitRemoteUrlRaw: "https://github.com/owner/one.git\nhttps://github.com/owner/two.git",
+      },
+      detail: "origin is not one canonical HTTPS URL",
+      fix: "git remote set-url origin https://github.com/OWNER/REPO.git && keel doctor",
+    },
+    {
+      label: "missing helper",
+      input: { ...gitReady, gitCredentialHelperConfigured: false },
+      detail: "operator Git credential helper not configured",
+      fix: "gh auth login --git-protocol https && gh auth setup-git && keel doctor",
+    },
+  ])("gives one bounded copy-paste remediation for $label", ({ input, detail, fix }) => {
+    const row = check(input, "git-push");
+    expect(row).toMatchObject({ status: "warn", detail, fix });
+    expect(row?.fix?.split("\n")).toHaveLength(1);
+    expect(runDoctor({ ...base, ...input }).ok).toBe(true);
+  });
+
+  it("withholds readiness when the enforcing transport prerequisites are absent", () => {
+    const row = check(
+      {
+        ...gitReady,
+        platform: "linux",
+        sandboxExecPresent: null,
+        bwrapVersionRaw: "bubblewrap 0.10.0",
+        socatVersionRaw: null,
+      },
+      "git-push",
+    );
+    expect(row).toMatchObject({
+      status: "warn",
+      detail: "SRT/TLS/address guard prerequisites unavailable",
+      fix: "install socat with your package manager, then run: keel doctor",
+    });
+  });
+});
+
 describe("runDoctor — Phase 2A sandbox preflight", () => {
   it("activates Linux bwrap/socat checks and emits one distro-specific fix per missing dep", () => {
     const r = runDoctor({

@@ -6,6 +6,7 @@ import {
 import * as fc from "fast-check";
 import type { DiffLine, ViewModel } from "@keel/shared";
 import { renderFrame, renderStatus, HeadlessUI } from "./headless.js";
+import { conversationPlan, toolEvidenceLineForItem } from "./conversation-block.js";
 import {
   buildTurnSummary,
   firstRunView,
@@ -20,6 +21,10 @@ import {
   associateExactProcessRunReviewInformation,
   exactProcessRunReviewSummaryForInformation,
 } from "../warden/process-run-review-presentation.js";
+import {
+  associateExactGitPushReviewInformation,
+  exactGitPushReviewSummaryForInformation,
+} from "../warden/git-push-review-presentation.js";
 import { BLOCKED_AFTER_SYNTHESIS_CODE, REVIEW_REQUIRED_AFTER_SYNTHESIS_CODE } from "../events.js";
 
 const ESC = String.fromCharCode(27); // ANSI escapes start with this byte
@@ -304,6 +309,152 @@ describe("headless renderer", () => {
     }
   });
 
+  it("keeps exact interactive recovery visible after a headless git.push review denial", () => {
+    const oid = "0123456789abcdef0123456789abcdef01234567";
+    const output =
+      "blocked by warden (not executed): review closed as denied; no review remains pending; " +
+      "no live approval surface accepted the request; Git push requires approval; " +
+      "rerun Keel interactively to approve a fresh exact git.push request";
+    const call = {
+      id: "git-push-headless",
+      name: "git.push",
+      args: { remote: "origin", branch: "feature/publish", expectedHead: oid },
+    };
+    let live = initialView([{ role: "user", content: "publish the feature branch" }]);
+    live = reduce(live, { type: "tool-call", ...call });
+    live = reduce(
+      live,
+      markToolPresentationOutcome(
+        { type: "tool-result", id: call.id, ok: false, output },
+        "blocked",
+      ),
+    );
+    const resumed = initialView(
+      [
+        { role: "user", content: "publish the feature branch" },
+        { role: "assistant", content: "", toolCalls: [call] },
+        { role: "tool", content: output, toolCallId: call.id, name: call.name },
+      ],
+      {},
+      { failedToolMessageIndexes: new Set([2]) },
+    );
+
+    for (const candidate of [live, resumed]) {
+      const frame = renderFrame(candidate);
+      expect(frame).toContain(
+        "next: rerun Keel interactively to approve a fresh exact git.push request",
+      );
+      expect(frame).not.toContain("simplify the request or rerun with a live approval surface");
+    }
+  });
+
+  it("keeps git.push indeterminate no-retry recovery visible live and after resume", () => {
+    const oid = "0123456789abcdef0123456789abcdef01234567";
+    const result = {
+      kind: "git_push_result",
+      status: "indeterminate",
+      repository: "https://github.com/keel-harness/keel.git",
+      branch: "feature/publish",
+      destinationRef: "refs/heads/feature/publish",
+      commit: oid,
+      observedRef: null,
+      transport: "srt:vendored verified HTTPS with address guard",
+      automaticRetry: false,
+      actionMayHaveExecuted: true,
+    };
+    const output =
+      "git.push did not confirm the requested ref state; a ref update may have executed; " +
+      "do not retry automatically; restart, then inspect the independent remote ref and audit\n\n" +
+      JSON.stringify(result);
+    const call = {
+      id: "git-push-indeterminate",
+      name: "git.push",
+      args: { remote: "origin", branch: "feature/publish", expectedHead: oid },
+    };
+    let live = initialView([{ role: "user", content: "publish the feature branch" }]);
+    live = reduce(live, { type: "tool-call", ...call });
+    live = reduce(
+      live,
+      markToolPresentationOutcome(
+        { type: "tool-result", id: call.id, ok: false, output },
+        "partial",
+      ),
+    );
+    const resumed = initialView(
+      [
+        { role: "user", content: "publish the feature branch" },
+        { role: "assistant", content: "", toolCalls: [call] },
+        { role: "tool", content: output, toolCallId: call.id, name: call.name },
+      ],
+      {},
+      { failedToolMessageIndexes: new Set([2]) },
+    );
+
+    for (const candidate of [live, resumed]) {
+      const frame = renderFrame(candidate);
+      expect(frame).toContain(
+        "next: do not retry automatically · restart, then inspect the independent remote ref and audit",
+      );
+      expect(frame).not.toContain("next: inspect the target before retrying");
+      const turn = conversationPlan(candidate).blocks.find((block) => block.kind === "turn");
+      expect(turn?.receipt).toContain(
+        "next: no automatic retry; restart, then inspect independent remote ref and audit",
+      );
+    }
+  });
+
+  it.each([
+    ["pushed", "pushed"],
+    ["already-at-commit", "already at commit"],
+  ] as const)(
+    "keeps a successful git.push %s result visible live and after resume",
+    (status, label) => {
+      const oid = "0123456789abcdef0123456789abcdef01234567";
+      const output = JSON.stringify({
+        kind: "git_push_result",
+        status,
+        repository: "https://github.com/keel-harness/keel.git",
+        branch: "feature/publish",
+        destinationRef: "refs/heads/feature/publish",
+        commit: oid,
+        observedRef: oid,
+        transport: "srt:vendored verified HTTPS with address guard",
+        automaticRetry: false,
+        actionMayHaveExecuted: status === "pushed",
+      });
+      const call = {
+        id: `git-push-${status}`,
+        name: "git.push",
+        args: { remote: "origin", branch: "feature/publish", expectedHead: oid },
+      };
+      let live = initialView([{ role: "user", content: "publish the feature branch" }]);
+      live = reduce(live, { type: "tool-call", ...call });
+      live = reduce(live, { type: "tool-result", id: call.id, ok: true, output });
+      const resumed = initialView([
+        { role: "user", content: "publish the feature branch" },
+        { role: "assistant", content: "", toolCalls: [call] },
+        { role: "tool", content: output, toolCallId: call.id, name: call.name },
+      ]);
+
+      for (const candidate of [live, resumed]) {
+        const interactive = renderFrame(candidate);
+        expect(interactive).toContain(
+          `result: ${label} · refs/heads/feature/publish @ 0123456789ab`,
+        );
+        const turn = conversationPlan(candidate).blocks.find((block) => block.kind === "turn");
+        expect(turn?.receipt).toContain(`git.push ${label}`);
+        const tool = candidate.items.find(
+          (item): item is Extract<(typeof candidate.items)[number], { kind: "tool" }> =>
+            item.kind === "tool" && item.name === "git.push",
+        );
+        expect(tool === undefined ? undefined : toolEvidenceLineForItem(tool)).toEqual({
+          kind: "tool",
+          text: `git.push: ${label} · refs/heads/feature/publish @ 0123456789ab`,
+        });
+      }
+    },
+  );
+
   it.each([
     [
       "Autopilot did not auto-resolve this egress review because no matching exact-domain grant was active",
@@ -466,8 +617,79 @@ describe("headless renderer", () => {
     expect(exactProcessRunReviewSummaryForInformation(view.activeApproval?.information)).toBe(
       summary,
     );
-    expect(frame).toContain(summary);
+    const lines = frame.split("\n");
+    const targetStart = lines.indexOf("  Effective target");
+    const targetEnd = lines.indexOf("  Why");
+    expect(
+      lines
+        .slice(targetStart + 1, targetEnd)
+        .map((line) => line.slice(2))
+        .join("\n"),
+    ).toBe(summary);
     expect(frame).toContain("' leading  repeated  trailing ' ''");
+    expect(frame).toContain("[a] Approve once");
+    expect(frame).toContain("[d] Deny");
+    expect(frame).not.toContain("[s] Session");
+  });
+
+  it("preserves the complete exact git.push card in the interactive headless surface", () => {
+    const oid = "0123456789abcdef0123456789abcdef01234567";
+    const summary = [
+      "Git push requires approval.",
+      "Repository: https://github.com/keel-harness/keel.git",
+      "Destination: refs/heads/feature/release",
+      `Commit: ${oid}`,
+      "Subject: release candidate",
+      "Commit facts: 2026-08-10T12:00:00Z; 1; 2 files; +3 -1",
+      "Workspace: clean; uncommitted changes are excluded",
+      "Effect: create this branch or fast-forward it to this commit; the remote may receive every missing object reachable from the commit",
+      "Blocked: force, deletion, tags, hooks, submodule recursion, redirects, and remote-default-branch writes",
+      "Credential: operator Git credential helper (system/global config); secret stays in the Warden/SRT path",
+      "Approval: this occurrence once; expires in 120 seconds",
+    ].join("\n");
+    const information = associateExactGitPushReviewInformation(
+      {
+        requestedAction: { status: "available", value: "git.push" },
+        effectiveTarget: { status: "available", value: summary, completeness: "complete" },
+        reason: {
+          status: "available",
+          value: "Warden requires human authorization before publication",
+        },
+        policyDetail: {
+          status: "unavailable",
+          reason: "matched policy rule not reported by protocol 1.1",
+        },
+        exactResource: {
+          status: "unavailable",
+          reason: "git.push approval is occurrence-only",
+        },
+      },
+      summary,
+    );
+    if (information === undefined) throw new Error("expected exact git.push review information");
+    const view = reduce(initialView([], status), {
+      type: "approval-opened",
+      detail: summary,
+      sessionAvailable: false,
+      information,
+      losslessGitPushSummary: summary,
+    });
+
+    const frame = renderFrame(view);
+
+    expect(view.activeApproval?.detail).toBe(summary);
+    expect(exactGitPushReviewSummaryForInformation(view.activeApproval?.information)).toBe(summary);
+    const lines = frame.split("\n");
+    const targetStart = lines.indexOf("  Effective target");
+    const targetEnd = lines.indexOf("  Why");
+    expect(
+      lines
+        .slice(targetStart + 1, targetEnd)
+        .map((line) => line.slice(2))
+        .join("\n"),
+    ).toBe(summary);
+    expect(frame).toContain(oid);
+    expect(frame).toContain("operator Git credential helper (system/global config)");
     expect(frame).toContain("[a] Approve once");
     expect(frame).toContain("[d] Deny");
     expect(frame).not.toContain("[s] Session");

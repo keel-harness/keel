@@ -144,6 +144,8 @@ export interface WardenExecutorOptions {
   /** Controller-owned negotiated availability. Production sets this only when the workspace is
    * trusted and the Warden hello advertises process-run/v1. */
   readonly processRunAvailable?: boolean;
+  /** Controller-owned negotiated availability of the distinct typed publication authority. */
+  readonly gitPushAvailable?: boolean;
   /** Negotiated protocol-1.1 presentation closure. Production injects it only after validated hello
    * capability negotiation; older peers and capability-withholding wardens leave it absent. */
   readonly takeMutationPresentation?: (
@@ -343,7 +345,25 @@ function verifiedSandboxContainment(
 function terminalReviewRecoveryGuidance(
   toolName: string | undefined,
   processRunAvailable: boolean,
+  gitPushAvailable: boolean,
+  toolArgs?: ToolInvocationT["args"],
 ): string {
+  const argv = toolArgs?.["argv"];
+  const executable = Array.isArray(argv) && typeof argv[0] === "string" ? argv[0] : undefined;
+  const subcommand = Array.isArray(argv) && typeof argv[1] === "string" ? argv[1] : undefined;
+  const executableName = executable?.split(/[\\/]/u).at(-1);
+  if (
+    gitPushAvailable &&
+    toolName === "process.run" &&
+    executableName === "git" &&
+    subcommand === "push"
+  ) {
+    return (
+      "the raw process.run request remains terminal and was not run; submit a fresh git.push call " +
+      'such as {"remote":"origin","branch":"feature/name","expectedHead":"<full-lowercase-commit-oid>"}; ' +
+      "the Warden will resolve and review the fresh typed request"
+    );
+  }
   if (!processRunAvailable) return "simplify the request, then rerun";
   if (toolName === "bash") {
     return (
@@ -366,6 +386,8 @@ function renderReview(
   result: ExecuteResult,
   toolName: string | undefined,
   processRunAvailable: boolean,
+  gitPushAvailable = false,
+  toolArgs?: ToolInvocationT["args"],
 ): ToolResultT {
   const lifecycle =
     "review settlement was not confirmed and may remain pending in the current warden; do not retry or assume approval; restart the governed session before deciding again";
@@ -378,17 +400,25 @@ function renderReview(
   const noLiveReview =
     "no live review was opened by this kernel; no approval can be resolved from this result";
   return recoverableTerminalReviewResult(
-    `warden review required (not executed): ${summary}; ${noLiveReview}; ${terminalReviewRecoveryGuidance(toolName, processRunAvailable)}`,
+    `warden review required (not executed): ${summary}; ${noLiveReview}; ${terminalReviewRecoveryGuidance(toolName, processRunAvailable, gitPushAvailable, toolArgs)}`,
   );
 }
 
-function renderSettledReviewDenial(result: ExecuteResult, reason: string): ToolResultT {
+function renderSettledReviewDenial(
+  result: ExecuteResult,
+  reason: string,
+  toolName?: string,
+): ToolResultT {
   const summary = oneLineControlStripped(
     result.review?.summary ?? result.guidance ?? "human approval required",
   );
   const closureReason = oneLineControlStripped(reason);
+  const recovery =
+    toolName === "git.push"
+      ? "rerun Keel interactively to approve a fresh exact git.push request"
+      : "rerun only when a live approval surface is available";
   return terminalReviewResult(
-    `blocked by warden (not executed): review closed as denied; no review remains pending; ${closureReason}; ${summary}; rerun only when a live approval surface is available`,
+    `blocked by warden (not executed): review closed as denied; no review remains pending; ${closureReason}; ${summary}; ${recovery}`,
     "blocked",
   );
 }
@@ -431,7 +461,7 @@ function renderGitPushAttempt(
         ok: false,
         output: withBody(
           guidanceLine(
-            "git.push did not confirm the requested ref state; a ref update may have executed; do not retry automatically; inspect the independent remote ref and audit",
+            "git.push did not confirm the requested ref state; a ref update may have executed; do not retry automatically; restart, then inspect the independent remote ref and audit",
             guidance,
             "outcome indeterminate",
           ),
@@ -446,9 +476,9 @@ function renderGitPushAttempt(
       ok: false,
       output: withBody(
         guidanceLine(
-          "git.push failed before a ref update was launched",
+          "git.push did not establish the requested ref state; this result does not claim that no Git objects were transferred; no automatic retry was attempted",
           guidance,
-          "remote preflight failed",
+          "requested ref state not established",
         ),
         body,
       ),
@@ -461,6 +491,8 @@ function renderVerdict(
   result: ExecuteResult | ResolveReviewResult,
   toolName: string,
   processRunAvailable = false,
+  gitPushAvailable = false,
+  toolArgs?: ToolInvocationT["args"],
 ): ToolResultT {
   const gitPushAttempt = renderGitPushAttempt(result, toolName);
   if (gitPushAttempt !== undefined) return gitPushAttempt;
@@ -576,7 +608,7 @@ function renderVerdict(
         "blocked",
       );
     case "review":
-      return renderReview(result, toolName, processRunAvailable);
+      return renderReview(result, toolName, processRunAvailable, gitPushAvailable, toolArgs);
   }
 }
 
@@ -739,6 +771,7 @@ export class WardenExecutor implements ExecutorPort {
   readonly #autopilotReviewRouting: boolean;
   readonly #executeTimeoutMs: number | undefined;
   readonly #processRunAvailable: boolean;
+  readonly #gitPushAvailable: boolean;
   readonly #takeMutationPresentation: WardenExecutorOptions["takeMutationPresentation"];
   readonly #onMcpQuarantine: WardenExecutorOptions["onMcpQuarantine"];
   readonly #onReviewAutoResolved: WardenExecutorOptions["onReviewAutoResolved"];
@@ -807,6 +840,7 @@ export class WardenExecutor implements ExecutorPort {
     this.#autopilotReviewRouting = autopilotReviewRouting;
     this.#executeTimeoutMs = options.executeTimeoutMs;
     this.#processRunAvailable = options.processRunAvailable === true;
+    this.#gitPushAvailable = options.gitPushAvailable === true;
     this.#takeMutationPresentation = options.takeMutationPresentation;
     this.#onMcpQuarantine = options.onMcpQuarantine;
     this.#onReviewAutoResolved = options.onReviewAutoResolved;
@@ -921,6 +955,7 @@ export class WardenExecutor implements ExecutorPort {
         result,
         this.#executeCallOptions(undefined),
         "turn stopped before review input",
+        call.name,
       );
       return {
         rendered: closed.settlement.status === "resolved" ? stoppedToolResult() : closed.result,
@@ -932,6 +967,7 @@ export class WardenExecutor implements ExecutorPort {
         result,
         this.#executeCallOptions(undefined),
         reason,
+        call.name,
       );
       settlement.resolve(closed.settlement);
       return { rendered: closed.result };
@@ -949,6 +985,7 @@ export class WardenExecutor implements ExecutorPort {
           result,
           this.#executeCallOptions(undefined),
           "turn stopped before review input",
+          call.name,
         );
         settlement.resolve(closed.settlement);
         return {
@@ -972,6 +1009,7 @@ export class WardenExecutor implements ExecutorPort {
         result,
         this.#executeCallOptions(undefined),
         "turn stopped before review submission",
+        call.name,
       );
       settlement.resolve(closed.settlement);
       return {
@@ -1060,6 +1098,7 @@ export class WardenExecutor implements ExecutorPort {
     result: ExecuteResult,
     options?: WardenCallOptions,
     reason = "no live approval surface accepted the request",
+    toolName?: string,
   ): Promise<{ readonly result: ToolResultT; readonly settlement: WardenReviewSettlement }> {
     if (result.verdict !== "review" || result.review === undefined) {
       throw new Error("denyPendingReview requires a pending review result");
@@ -1096,7 +1135,7 @@ export class WardenExecutor implements ExecutorPort {
         };
       }
       return {
-        result: renderSettledReviewDenial(result, reason),
+        result: renderSettledReviewDenial(result, reason, toolName),
         settlement: { status: "resolved", verdict: "deny" },
       };
     } catch (error) {
@@ -1177,6 +1216,7 @@ export class WardenExecutor implements ExecutorPort {
                 "automated validators cannot open live approvals",
                 this.#autopilotReviewRouting,
               ),
+              call.name,
             )
           : undefined;
       if (terminalResolved !== undefined) return finish(terminalResolved.result);
@@ -1208,11 +1248,18 @@ export class WardenExecutor implements ExecutorPort {
             "no live approval surface accepted the request",
             this.#autopilotReviewRouting,
           ),
+          call.name,
         );
         return finish(closed.result);
       }
       const quarantineFailure = await this.#notifyMcpQuarantine(result, call.name);
-      const rendered = renderVerdict(result, call.name, this.#processRunAvailable);
+      const rendered = renderVerdict(
+        result,
+        call.name,
+        this.#processRunAvailable,
+        this.#gitPushAvailable,
+        call.args,
+      );
       if (quarantineFailure === undefined) {
         return this.#withMutationPresentation(call, { wardenResult: result, rendered });
       }

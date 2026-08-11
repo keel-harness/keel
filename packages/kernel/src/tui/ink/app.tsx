@@ -263,7 +263,13 @@ function ApprovalBlock({ approval }: { approval: UiActiveApproval }): React.JSX.
   const condensedSpacing = compact || terminalRows <= 24 || exactProcessRunConstrained;
   const noColor = plainTerminalMode();
   const railOnly = compact || limitedTerminalMode();
-  const approvalSurfaceColumns = Math.max(20, Math.min(88, columns - 1));
+  // ADR-0091 qualifies exact git.push evidence at 96 content columns. At a 100-column terminal,
+  // the round border plus horizontal padding consumes four cells, so the exact lane owns the full
+  // width; using the generic 88-column card would rewrap a valid 20-row summary out of view.
+  const approvalSurfaceColumns =
+    plan.losslessGitPushSummary !== undefined && columns >= 100
+      ? Math.min(100, columns)
+      : Math.max(20, Math.min(88, columns - 1));
   const approvalContentColumns = railOnly
     ? Math.max(1, columns - 2)
     : Math.max(1, approvalSurfaceColumns - 4);
@@ -273,10 +279,21 @@ function ApprovalBlock({ approval }: { approval: UiActiveApproval }): React.JSX.
       : plan.state === "denied" || plan.state === "failed"
         ? THEME.state.danger
         : THEME.state.warning;
-  const rows = approvalNoticeRows(plan, {
+  const noticeRows = approvalNoticeRows(plan, {
     compact: constrained,
     preserveDecisionEvidence: constrained && !compact,
   });
+  // A qualified git.push target can consume the complete 20-row evidence budget at 100 columns.
+  // Its lossless summary already states the effect, blocked operations, credential boundary, and
+  // occurrence-only approval. Keep that evidence and the two decisions together instead of
+  // letting duplicate generic metadata scroll the card title and target label out of view.
+  const rows =
+    plan.losslessGitPushSummary !== undefined &&
+    plan.state === "pending" &&
+    terminalRows <= 30 &&
+    !compact
+      ? noticeRows.filter((row) => row.kind === "evidence" || row.kind === "action")
+      : noticeRows;
   const content = (
     <>
       <Text bold {...(noColor ? {} : { color: tone })}>

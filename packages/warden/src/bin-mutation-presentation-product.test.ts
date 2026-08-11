@@ -27,6 +27,11 @@ describe("warden bin mutation-presentation product wiring", () => {
     vi.doMock("./srt-runtime-loader.js", () => ({
       createVendoredSrtSandboxComponents: async () => (sandbox === undefined ? {} : { sandbox }),
     }));
+    // This suite isolates mutation-presentation wiring. A trusted SRT fixture must not accidentally
+    // acquire the real host Git authority through PATH and then consume its synthetic temp root.
+    vi.doMock("./git-push-product.js", () => ({
+      resolveProductionGitExecutable: () => undefined,
+    }));
     vi.doMock("./egress-address-exceptions.js", () => ({
       ensureEgressAddressExceptionAuthorityHome: () => "/tmp/keel-home",
       loadEgressAddressExceptionSnapshot: () => ({

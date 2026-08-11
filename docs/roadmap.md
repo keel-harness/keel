@@ -32,6 +32,12 @@ The parts of keel you can rely on now:
 - **Connect-time egress address guard** — the vendored SRT TCP path resolves destinations in the
   warden immediately before each connection, rejects unsafe or mixed answer sets, and pins the
   vetted addresses to the final dial. The claim is backend-specific.
+- **Bounded typed Git push in current source** — trusted interactive macOS/Linux sessions can use
+  Git 2.x (2.39 or newer) and `git.push` to create or fast-forward one exact non-default feature ref
+  to one approved full commit OID over canonical HTTPS and `srt:vendored`, with one once-only human approval. Raw
+  `process.run git push`, force, deletion, tags, default-branch push, SSH, redirects, project
+  credential helpers, reusable grants, and automatic retry remain unavailable. Published
+  `keel-harness@0.1.1` predates this capability.
 
 See the [getting-started guide](guide/getting-started.md) for how to use these.
 
@@ -44,6 +50,9 @@ See the [getting-started guide](guide/getting-started.md) for how to use these.
 
 ## Next
 
+- **GitHub pull-request creation is next** — a separate typed, once-only HTTPS mutation after the
+  pushed head ref is independently verified. It remains unimplemented; no generic forge API, `gh`
+  shell escape, combined push-and-PR approval, or automatic retry is implied.
 - **Memory plane** — readable, reviewable, versioned agent memory. Today `packages/memory`
   is an honest placeholder; this is the next major capability.
 - **Turn on model routing** — the model gateway already ships in single-model *locked*

@@ -8,6 +8,7 @@ import {
   INTERACTIVE_CONSOLE_TARGET_CAPABILITY_PREFIX,
   MUTATION_PRESENTATION_CAPABILITY_V1,
   JsonRpcRequest,
+  PolicyInput,
   PROTOCOL_VERSION,
   SessionId,
   SideEffect,
@@ -210,6 +211,7 @@ import {
   GIT_PUSH_TOOL_NAME,
   type GitPushAuthority,
   type GitPushAuthorityContext,
+  type GitPushBindingAuthorityRequest,
 } from "./git-push-authority.js";
 
 type RpcId = string | number | null;
@@ -235,6 +237,17 @@ export const NON_ENFORCING_TIER = "none";
 export const ZERO_HASH = `sha256:${"0".repeat(64)}`;
 export const DEFAULT_AUDIT_SESSION_ID = "ses_01ARZ3NDEKTSV4RRFFQ69G5FAV";
 export const DEFAULT_MAX_LINE_BYTES = 1_048_576;
+const gitPushAuditAuthorities = new WeakMap<AuditSink, string>();
+let nextGitPushAuditAuthority = 1;
+
+function gitPushAuditAuthorityId(writer: AuditSink): string {
+  const existing = gitPushAuditAuthorities.get(writer);
+  if (existing !== undefined) return existing;
+  const created = `git-push-audit-authority-${String(nextGitPushAuditAuthority)}`;
+  nextGitPushAuditAuthority += 1;
+  gitPushAuditAuthorities.set(writer, created);
+  return created;
+}
 
 /** Max time the warden waits for an in-flight execution to reap during teardown before force-exiting
  *  anyway — so a pathological/hung reap can never wedge shutdown (used by both the SIGTERM path in
@@ -280,6 +293,8 @@ export interface WardenRpcHandlerOptions {
   gitPushAuthority?: GitPushAuthority;
   /** Stdio-owned check injected only for consume-first Git-push review resolution. */
   gitPushReviewPreExecutionCheck?: () => void;
+  /** Immutable revision for the active connect-time address-guard exception policy. */
+  gitPushAddressGuardRevision?: string;
 }
 
 interface RpcContext {
@@ -315,6 +330,7 @@ interface RpcContext {
   processRunReviewPreExecutionCheck?: () => void;
   gitPushAuthority?: GitPushAuthority;
   gitPushReviewPreExecutionCheck?: () => void;
+  gitPushAddressGuardRevision?: string;
 }
 
 interface ResolvedCommand {
@@ -468,6 +484,7 @@ function helloCapabilities(
     capabilities.push(PROCESS_RUN_CAPABILITY_V1);
   }
   if (
+    context.gitPushAddressGuardRevision !== undefined &&
     context.gitPushAuthority?.capabilityAvailable({
       workspaceTrusted: context.workspaceTrusted,
       auditAvailable: context.auditWriter !== undefined,
@@ -965,6 +982,55 @@ function auditProvenanceInfo(input: PolicyInputT) {
   return { inputTags: [...input.provenance.inputTags], resultTag: null };
 }
 
+async function resolveGitPushBindingAuthority(
+  context: RpcContext,
+  request: GitPushBindingAuthorityRequest,
+) {
+  if (context.auditWriter === undefined) {
+    throw new Error("git.push audit authority is unavailable");
+  }
+  if (context.gitPushAddressGuardRevision === undefined) {
+    throw new Error("git.push address-guard revision is unavailable");
+  }
+  const args = request.executeParams.toolCall.args;
+  const exactStringArg = (name: "remote" | "branch" | "expectedHead"): string => {
+    const value = args[name];
+    if (typeof value !== "string") {
+      throw new Error(`git.push ${name} binding argument is not a string`);
+    }
+    return value;
+  };
+  const policyInput = PolicyInput.parse({
+    tool: { name: request.executeParams.toolCall.name, args },
+    normalized: {
+      argv: [
+        GIT_PUSH_TOOL_NAME,
+        exactStringArg("remote"),
+        exactStringArg("branch"),
+        exactStringArg("expectedHead"),
+      ],
+      decodedLayers: [],
+    },
+    sideEffect: request.sideEffect,
+    workspace: { path: context.workspaceRoot, trusted: context.workspaceTrusted },
+    provenance: request.executeParams.provenanceContext,
+    egress: { isEgress: true, domain: request.host, gitRemote: request.canonicalUrl },
+    session: {
+      id: request.executeParams.sessionId,
+      mode: "enforced",
+      promptCountThisSession: 0,
+    },
+    principal: { osUser: context.env["USER"] ?? "local" },
+  });
+  return {
+    policyInput,
+    policyDecision: await context.policy.evaluate(policyInput),
+    policyPack: context.policy.packRef,
+    addressGuardRevision: context.gitPushAddressGuardRevision,
+    auditAuthorityId: gitPushAuditAuthorityId(context.auditWriter),
+  };
+}
+
 function sideEffectMayHaveMutated(input: PolicyInputT): boolean {
   return input.sideEffect.dynamic.effectKinds.some(
     (kind) => kind === "fs_write" || kind === "network_write" || kind === "unknown",
@@ -1103,7 +1169,7 @@ function auditWriteError(
         : "audit write failed";
   const next =
     failureContext.actionMayHaveExecuted === true
-      ? "inspect the session audit and workspace state before deciding whether to retry"
+      ? "do not retry automatically; inspect the session audit and workspace state first"
       : undefined;
   const responseMessage =
     next === undefined ? `${prefix}: ${message}` : `${prefix}: ${message}; ${next}`;
@@ -6446,6 +6512,7 @@ async function methodResult(
           const gitPushAuthority = context.gitPushAuthority;
           if (
             gitPushAuthority === undefined ||
+            context.gitPushAddressGuardRevision === undefined ||
             !gitPushAuthority.capabilityAvailable({
               workspaceTrusted: context.workspaceTrusted,
               auditAvailable: context.auditWriter !== undefined,
@@ -6462,6 +6529,7 @@ async function methodResult(
             workspaceRoot: context.workspaceRoot,
             ...(context.auditDir === undefined ? {} : { auditDir: context.auditDir }),
             ...(context.signal === undefined ? {} : { signal: context.signal }),
+            resolveBindingAuthority: (request) => resolveGitPushBindingAuthority(context, request),
             appendAudit: (input: AuditAppendInput) => appendAuditSeq(context, input),
           };
           try {
@@ -7030,7 +7098,11 @@ async function methodResult(
               ...(context.gitPushReviewPreExecutionCheck === undefined
                 ? {}
                 : { preExecutionCheck: context.gitPushReviewPreExecutionCheck }),
-              appendAudit: (input: AuditAppendInput) => appendAuditSeq(context, input),
+              resolveBindingAuthority: (request) =>
+                resolveGitPushBindingAuthority(context, request),
+              appendAudit: (input: AuditAppendInput, failureContext) =>
+                appendAuditSeq(context, input, failureContext),
+              isAuditFailure: (error: unknown) => error instanceof AuditAppendRpcError,
             },
             gitPushReview,
             {
@@ -8046,6 +8118,9 @@ async function buildRpcContext(options: WardenRpcHandlerOptions = {}): Promise<R
     ...(options.gitPushReviewPreExecutionCheck === undefined
       ? {}
       : { gitPushReviewPreExecutionCheck: options.gitPushReviewPreExecutionCheck }),
+    ...(options.gitPushAddressGuardRevision === undefined
+      ? {}
+      : { gitPushAddressGuardRevision: options.gitPushAddressGuardRevision }),
   };
 }
 
@@ -8117,8 +8192,10 @@ export interface StdioWardenServerOptions {
   shutdownReapBudgetMs?: number;
   /** Process-owned sandbox/resolver teardown. Runs before the production embedder closes audit. */
   shutdownRuntime?: () => Promise<void>;
-  /** Release-safe seam; omitted by the production Warden and injected only by non-release tests. */
+  /** Release-safe seam; production supplies the strict authority and tests may inject a fixture. */
   gitPushAuthority?: GitPushAuthority;
+  /** Required alongside gitPushAuthority; no placeholder revision is accepted. */
+  gitPushAddressGuardRevision?: string;
 }
 
 export interface StdioWardenServer {
@@ -8187,6 +8264,9 @@ export function runStdioWardenServer(options: StdioWardenServerOptions = {}): St
     ...(options.gitPushAuthority === undefined
       ? {}
       : { gitPushAuthority: options.gitPushAuthority }),
+    ...(options.gitPushAddressGuardRevision === undefined
+      ? {}
+      : { gitPushAddressGuardRevision: options.gitPushAddressGuardRevision }),
     ...(options.typedMutationRunner === undefined
       ? {}
       : { typedMutationRunner: options.typedMutationRunner }),

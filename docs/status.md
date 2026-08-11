@@ -35,7 +35,9 @@ sandbox and profile checks, and per-session audit:
 - capability-negotiated trusted direct-argv `process.run`;
 - the trusted `read`/`search`/`write`/`edit` file tools;
 - `lifecycle.run`;
-- reviewed, pinned local-stdio MCP calls, under the bounded ADR-0084 contract.
+- reviewed, pinned local-stdio MCP calls, under the bounded ADR-0084 contract;
+- in current source, typed `git.push` for one once-only human-approved HTTPS feature-branch create or
+  fast-forward in a trusted interactive macOS/Linux session.
 
 Phase 2B signed, offline-verifiable evidence bundles are implemented for exported audit evidence.
 
@@ -44,6 +46,17 @@ existing broad process sandbox profile, and intent/outcome audit. It adds no she
 model-controlled environment, working directory, stdin, or background authority, and does not make
 the invoked executable inherently safe. Its live-model efficacy remains `NOT_RUN`; the shipped
 evidence proves the governed product path, not that arbitrary models will choose it effectively.
+
+`git.push` is deliberately narrower than a generic Git command. It binds one canonical HTTPS
+repository, one exact non-default `refs/heads/*` destination, and one full commit OID; runs supported
+Git 2.x (2.39 or newer) through `srt:vendored` verified TLS and the active address guard; and uses only operator
+system/global credential-helper authority. Force, deletion, tags, default-branch push, SSH,
+redirects, project helpers, reusable grants, and automatic retry are unavailable. Raw
+`process.run git push` remains terminal. Indeterminate attempts require a restart followed by
+independent remote-ref and audit inspection before a deliberate fresh request.
+
+This describes current source, not the published `keel-harness@0.1.1` bytes. Published-carrier proof
+remains release-gated, and pull-request creation remains unimplemented.
 
 ## What keel does not claim
 
@@ -60,8 +73,7 @@ elicitation are not claimed either.
 - provider API egress governance;
 - remote, localhost, and unreviewed MCP;
 - general plugin and registry governance;
-- governed remote Git and pull-request publication (`git push` and PR-creation commands currently
-  stop as terminal external writes; publish reviewed local commits from the host);
+- GitHub pull-request creation and other forge mutations;
 - Phase-3 provenance;
 - the durable "memory-first" plane — `packages/memory` is a placeholder, a Phase-3 roadmap goal;
 - public compliance and full resource containment;

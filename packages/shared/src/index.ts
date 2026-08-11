@@ -19,6 +19,7 @@ export * from "./common/formats.js";
 export * from "./common/ulid.js";
 export * from "./common/keel-home.js";
 export * from "./common/search-path.js";
+export * from "./common/git-push-version.js";
 // Kernel↔warden data contracts (ADR-0071 P1-10): pure MCP wire/launch shapes + the
 // cross-process wiring constants, so the kernel imports no warden enforcement library.
 export * from "./common/subprocess-contracts.js";

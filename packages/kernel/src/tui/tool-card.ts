@@ -71,6 +71,20 @@ const MAX_LIVE_OUTPUT = 160;
 function recoveryFor(item: UiToolActivity, outcome: string): string | undefined {
   const reviewRecovery = reviewSettlementRecovery(reviewSettlementPresentation(item));
   if (reviewRecovery !== undefined) return `next: ${reviewRecovery}`;
+  if (
+    outcome === "partial" &&
+    item.name === "git.push" &&
+    item.summary.startsWith("remote state unconfirmed · refs/heads/")
+  ) {
+    return "next: do not retry automatically · restart, then inspect the independent remote ref and audit";
+  }
+  if (
+    outcome === "blocked" &&
+    item.name === "git.push" &&
+    item.summary.includes("interactive git.push approval required")
+  ) {
+    return "next: rerun Keel interactively to approve a fresh exact git.push request";
+  }
   if (outcome === "blocked" && item.summary.startsWith(TUI_TERMINAL_REVIEW_TRUTH.summaryPrefix)) {
     return `next: ${
       item.summary.includes(TUI_LITERAL_PROCESS_RETRY.summary)

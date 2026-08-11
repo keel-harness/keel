@@ -954,6 +954,7 @@ export async function createProductionWardenRuntime(
       principal,
       executeTimeoutMs: options.executeTimeoutMs ?? PRODUCTION_WARDEN_EXECUTE_TIMEOUT_MS,
       processRunAvailable,
+      gitPushAvailable,
       ...(options.onReviewAutoResolved === undefined
         ? {}
         : { onReviewAutoResolved: options.onReviewAutoResolved }),

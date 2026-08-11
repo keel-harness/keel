@@ -151,6 +151,20 @@ describe("CI packaging workflow", () => {
     expect(packagedWarden).toBeGreaterThan(packagedSrt);
   });
 
+  it("requires the production git.push authority in Warden carriers without crossing into Kernel", () => {
+    const build = readFileSync(join(repoRoot, "packaging", "build.ts"), "utf8");
+
+    expect(build).toContain(
+      'const GIT_PUSH_PRODUCTION_AUTHORITY = "packages/warden/src/git-push.ts"',
+    );
+    expect(build).toContain("production Git-push authority is absent from the Warden carrier");
+    expect(build).toContain("Git-push authority crossed the Kernel process boundary");
+    expect(build).toContain("FORBIDDEN_GIT_PUSH_CARRIER_MARKERS");
+    expect(build).toContain('"createGitPushWalkingSkeletonAuthority"');
+    expect(build).toContain('"KEEL_GIT_PUSH_FIXTURE"');
+    expect(build).not.toContain("non-release Git-push fixture authority crossed");
+  });
+
   it("does not advertise a prebuild-missing Warden bin from the private workspace package", () => {
     const wardenManifest = JSON.parse(
       readFileSync(join(repoRoot, "packages", "warden", "package.json"), "utf8"),
@@ -317,6 +331,7 @@ describe("CI packaging workflow", () => {
     expect(productSetup).toContain("it.runIf(condition)");
 
     expect(smoke).toContain("egress-address-guard/v1");
+    expect(smoke).toContain('hello.capabilities.includes("git-push/v1")');
     expect(smoke).toContain("warden.resolveReview");
     expect(smoke).toContain("egress-address-exceptions.v1.json");
     expect(smoke).toContain("requested.review?.allowCommand");
@@ -464,6 +479,7 @@ describe("CI packaging workflow", () => {
     expect(workflow).toContain("Smoke native compiled warden enforcement");
     expect(workflow).toContain('node packaging/smoke-compiled-warden.mjs "$BIN"');
     expect(smoke).toContain('KEEL_INTERNAL_WARDEN_STDIO: "1"');
+    expect(smoke).toContain('hello.capabilities.includes("git-push/v1")');
     expect(smoke).not.toContain("ANTHROPIC_API_KEY");
     expect(smoke).not.toContain("OPENAI_API_KEY");
     const selfTest = execFileSync(process.execPath, [smokePath, "--self-test"], {
