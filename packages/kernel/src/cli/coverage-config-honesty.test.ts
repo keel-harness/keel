@@ -10,6 +10,18 @@ function readRepoFile(path: string): string {
 }
 
 describe("coverage configuration honesty", () => {
+  it("keeps test-support modules out of production dist and coverage claims", () => {
+    const buildConfig = JSON.parse(readRepoFile("packages/kernel/tsconfig.build.json")) as {
+      readonly exclude?: readonly string[];
+    };
+    const coverageConfig = readRepoFile("vitest.config.ts");
+    const workflow = readRepoFile(".github/workflows/ci.yml");
+
+    expect(buildConfig.exclude).toContain("**/*.test-support.ts");
+    expect(coverageConfig).toContain('"**/*.test-support.ts"');
+    expect(workflow).toContain("-name '*.test-support.*'");
+  });
+
   it("caps test concurrency below the measured child-process contention limit", () => {
     const config = readRepoFile("vitest.config.ts");
 

@@ -73,6 +73,7 @@ export default defineConfig({
       exclude: [
         "**/*.test.ts",
         "**/*.test.tsx",
+        "**/*.test-support.ts",
         "packages/kernel/src/cli/bin.ts",
         "packages/warden/src/bin.ts",
         // Ink render components (ADR-0003): thin maps over the ViewModel, exempt from line/branch

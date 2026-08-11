@@ -178,10 +178,10 @@ jobs:
       - name: Build (emit dist; library code only)
         run: pnpm build
 
-      - name: Verify dist excludes test files (I10 honesty)
+      - name: Verify dist excludes test code (I10 honesty)
         run: |
-          if find packages -path '*/dist/*' -name '*.test.*' | grep .; then
-            echo "::error::test files leaked into dist"; exit 1
+          if find packages -path '*/dist/*' \( -name '*.test.*' -o -name '*.test-support.*' \) | grep .; then
+            echo "::error::test code leaked into dist"; exit 1
           fi
 
       - name: Verify built @keel/eval loads copied TB-2 data
