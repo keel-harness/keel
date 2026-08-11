@@ -29,6 +29,11 @@ export interface GitCredentialAuthorization {
   readonly secret: string;
 }
 
+export interface GitCredentialBearerAuthorization {
+  readonly scheme: "Bearer";
+  readonly secret: string;
+}
+
 export interface GitCredentialBrokerIdentity {
   readonly version: typeof BROKER_VERSION;
   readonly gitExecutableDigest: string;
@@ -68,6 +73,11 @@ export interface GitCredentialBroker {
     expectedIdentity: GitCredentialBrokerIdentity,
     signal?: AbortSignal,
   ): Promise<GitCredentialAuthorization>;
+  resolveBearer?(
+    context: GitCredentialContext,
+    expectedIdentity: GitCredentialBrokerIdentity,
+    signal?: AbortSignal,
+  ): Promise<GitCredentialBearerAuthorization>;
 }
 
 export interface GitCredentialBrokerOptions {
@@ -425,7 +435,9 @@ function checkedResult(
 /** Construct the parent-side, system/global-only ADR-0091 credential authority. */
 export function createGitCredentialBroker(
   options: GitCredentialBrokerOptions,
-): GitCredentialBroker {
+): GitCredentialBroker & {
+  resolveBearer: NonNullable<GitCredentialBroker["resolveBearer"]>;
+} {
   const gitExecutable = realpathSync(options.gitExecutable);
   const tempRoot = realpathSync(options.tempRoot);
   const rootStat = statSync(tempRoot);
@@ -503,39 +515,51 @@ export function createGitCredentialBroker(
     };
   };
 
+  const resolveCredential = async (
+    context: GitCredentialContext,
+    expectedIdentity: GitCredentialBrokerIdentity,
+    signal?: AbortSignal,
+  ): Promise<ParsedGitCredential> => {
+    if (resolving) {
+      throw new GitCredentialBrokerError("Git credential resolution is already in progress");
+    }
+    resolving = true;
+    try {
+      const currentIdentity = await inspect(context);
+      if (!identityEqual(currentIdentity, expectedIdentity)) {
+        throw new GitCredentialBrokerError("Git credential helper identity changed after review");
+      }
+      const stdin = `protocol=https\nhost=${context.host}\npath=${context.path}\n\n`;
+      const output = checkedResult(
+        await invoke(
+          ["-c", "credential.useHttpPath=true", "credential", "fill"],
+          stdin,
+          maxOutputBytes,
+          signal,
+        ),
+        "resolution",
+      );
+      return parseGitCredentialOutput(output, context);
+    } finally {
+      resolving = false;
+    }
+  };
+
   return {
     sourceClass: "operator Git credential helper (system/global config)",
     inspect,
     async resolve(context, expectedIdentity, signal) {
-      if (resolving) {
-        throw new GitCredentialBrokerError("Git credential resolution is already in progress");
-      }
-      resolving = true;
-      try {
-        const currentIdentity = await inspect(context);
-        if (!identityEqual(currentIdentity, expectedIdentity)) {
-          throw new GitCredentialBrokerError("Git credential helper identity changed after review");
-        }
-        const stdin = `protocol=https\nhost=${context.host}\npath=${context.path}\n\n`;
-        const output = checkedResult(
-          await invoke(
-            ["-c", "credential.useHttpPath=true", "credential", "fill"],
-            stdin,
-            maxOutputBytes,
-            signal,
-          ),
-          "resolution",
-        );
-        const credential = parseGitCredentialOutput(output, context);
-        return {
-          scheme: "Basic",
-          secret: Buffer.from(`${credential.username}:${credential.password}`, "utf8").toString(
-            "base64",
-          ),
-        };
-      } finally {
-        resolving = false;
-      }
+      const credential = await resolveCredential(context, expectedIdentity, signal);
+      return {
+        scheme: "Basic",
+        secret: Buffer.from(`${credential.username}:${credential.password}`, "utf8").toString(
+          "base64",
+        ),
+      };
+    },
+    async resolveBearer(context, expectedIdentity, signal) {
+      const credential = await resolveCredential(context, expectedIdentity, signal);
+      return { scheme: "Bearer", secret: credential.password };
     },
   };
 }

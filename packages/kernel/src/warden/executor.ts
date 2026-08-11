@@ -414,8 +414,8 @@ function renderSettledReviewDenial(
   );
   const closureReason = oneLineControlStripped(reason);
   const recovery =
-    toolName === "git.push"
-      ? "rerun Keel interactively to approve a fresh exact git.push request"
+    toolName === "git.push" || toolName === "github.pr.create"
+      ? `rerun Keel interactively to approve a fresh exact ${toolName} request`
       : "rerun only when a live approval surface is available";
   return terminalReviewResult(
     `blocked by warden (not executed): review closed as denied; no review remains pending; ${closureReason}; ${summary}; ${recovery}`,
@@ -487,6 +487,52 @@ function renderGitPushAttempt(
   );
 }
 
+function renderGithubPrCreateAttempt(
+  result: ExecuteResult | ResolveReviewResult,
+  toolName: string,
+): ToolResultT | undefined {
+  if (toolName !== "github.pr.create" || result.verdict !== "deny" || !isObject(result.result)) {
+    return undefined;
+  }
+  const detail = result.result;
+  if (detail["kind"] !== "github_pr_create_result") return undefined;
+  const status = detail["status"];
+  if (status !== "failed" && status !== "indeterminate") return undefined;
+  const mayHaveExecuted = detail["actionMayHaveExecuted"] === true;
+  const body = renderJsonValue(result.result);
+  const guidance = resultGuidance(result);
+  if (status === "indeterminate" || mayHaveExecuted) {
+    return markToolPresentationOutcome(
+      {
+        ok: false,
+        output: withBody(
+          guidanceLine(
+            "github.pr.create could not confirm whether the pull request was created; do not retry automatically; inspect GitHub and the audit before deciding",
+            guidance,
+            "outcome indeterminate",
+          ),
+          body,
+        ),
+      },
+      "partial",
+    );
+  }
+  return markToolPresentationOutcome(
+    {
+      ok: false,
+      output: withBody(
+        guidanceLine(
+          "github.pr.create did not create the requested pull request; no automatic retry was attempted",
+          guidance,
+          "pull request not created",
+        ),
+        body,
+      ),
+    },
+    "failed",
+  );
+}
+
 function renderVerdict(
   result: ExecuteResult | ResolveReviewResult,
   toolName: string,
@@ -496,6 +542,8 @@ function renderVerdict(
 ): ToolResultT {
   const gitPushAttempt = renderGitPushAttempt(result, toolName);
   if (gitPushAttempt !== undefined) return gitPushAttempt;
+  const githubPrCreateAttempt = renderGithubPrCreateAttempt(result, toolName);
+  if (githubPrCreateAttempt !== undefined) return githubPrCreateAttempt;
   const typedToolFailure = typedToolFailureDetail(result, toolName);
   if (
     typedToolFailure !== undefined &&
@@ -639,7 +687,7 @@ function renderRecoverableInvalidParams(
   error: unknown,
 ): ToolResultT | undefined {
   if (
-    (call.name !== "process.run" && call.name !== "git.push") ||
+    (call.name !== "process.run" && call.name !== "git.push" && call.name !== "github.pr.create") ||
     !(error instanceof WardenClientError) ||
     error.code !== "INVALID_PARAMS" ||
     error.rpcCode !== -32602 ||
@@ -664,7 +712,9 @@ function renderRecoverableInvalidParams(
   const correction =
     call.name === "process.run"
       ? "correct the argv and submit a fresh process.run call"
-      : "correct remote, branch, and expectedHead, then submit a fresh git.push call";
+      : call.name === "git.push"
+        ? "correct remote, branch, and expectedHead, then submit a fresh git.push call"
+        : "correct repository, branches, commit, title, body, and flags, then submit a fresh github.pr.create call";
   return markToolPresentationOutcome(
     {
       ok: false,

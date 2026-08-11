@@ -104,6 +104,10 @@ import {
   associateExactGitPushReviewInformation,
   exactGitPushReviewSummaryForInformation,
 } from "../warden/git-push-review-presentation.js";
+import {
+  associateExactGithubPrCreateReviewInformation,
+  exactGithubPrCreateReviewSummaryForInformation,
+} from "../warden/github-pr-create-review-presentation.js";
 
 // `stripControl` / `stripControlLine` (the security-critical control-byte sanitizers) are defined in
 // `./strip.js` — extracted so that one chokepoint is auditable in isolation (TUI-2) — and re-exported
@@ -289,7 +293,8 @@ function sanitizedApprovalInformation(
   const authenticatedReviewSummary =
     losslessReviewSummary !== undefined &&
     (exactProcessRunReviewSummaryForInformation(information) === losslessReviewSummary ||
-      exactGitPushReviewSummaryForInformation(information) === losslessReviewSummary)
+      exactGitPushReviewSummaryForInformation(information) === losslessReviewSummary ||
+      exactGithubPrCreateReviewSummaryForInformation(information) === losslessReviewSummary)
       ? losslessReviewSummary
       : undefined;
   const requestedAction =
@@ -356,11 +361,22 @@ function sanitizedApprovalInformation(
           };
   const sanitized = { requestedAction, effectiveTarget, reason, policyDetail, exactResource };
   if (authenticatedReviewSummary === undefined) return sanitized;
-  return sanitized.requestedAction.status === "available" &&
-    sanitized.requestedAction.value === "git.push"
-    ? (associateExactGitPushReviewInformation(sanitized, authenticatedReviewSummary) ?? sanitized)
-    : (associateExactProcessRunReviewInformation(sanitized, authenticatedReviewSummary) ??
-        sanitized);
+  if (sanitized.requestedAction.status === "available") {
+    if (sanitized.requestedAction.value === "git.push") {
+      return (
+        associateExactGitPushReviewInformation(sanitized, authenticatedReviewSummary) ?? sanitized
+      );
+    }
+    if (sanitized.requestedAction.value === "github.pr.create") {
+      return (
+        associateExactGithubPrCreateReviewInformation(sanitized, authenticatedReviewSummary) ??
+        sanitized
+      );
+    }
+  }
+  return (
+    associateExactProcessRunReviewInformation(sanitized, authenticatedReviewSummary) ?? sanitized
+  );
 }
 
 /** Calm interrupt note (§8.6 — one line, no stack trace). Neutral wording so it is honest in BOTH the
@@ -3185,11 +3201,13 @@ export function reduce(view: ViewModel, ev: KernelEventT | UiInputEventT): ViewM
         ev.losslessGitPushSummary !== undefined ||
         (ev.information?.requestedAction.status === "available" &&
           (ev.information.requestedAction.value === "process.run" ||
-            ev.information.requestedAction.value === "git.push"));
+            ev.information.requestedAction.value === "git.push" ||
+            ev.information.requestedAction.value === "github.pr.create"));
       const exactReviewSummary =
         exactEventSummary !== undefined &&
         (exactProcessRunReviewSummaryForInformation(ev.information) === exactEventSummary ||
-          exactGitPushReviewSummaryForInformation(ev.information) === exactEventSummary)
+          exactGitPushReviewSummaryForInformation(ev.information) === exactEventSummary ||
+          exactGithubPrCreateReviewSummaryForInformation(ev.information) === exactEventSummary)
           ? exactEventSummary
           : undefined;
       const exactReviewPresentationFailed =
@@ -3199,8 +3217,9 @@ export function reduce(view: ViewModel, ev: KernelEventT | UiInputEventT): ViewM
           ev.sessionAvailable);
       const exactReviewFailureMessage =
         ev.information?.requestedAction.status === "available" &&
-        ev.information.requestedAction.value === "git.push"
-          ? "exact git.push review presentation failed; action will be denied"
+        (ev.information.requestedAction.value === "git.push" ||
+          ev.information.requestedAction.value === "github.pr.create")
+          ? `exact ${ev.information.requestedAction.value} review presentation failed; action will be denied`
           : "exact process.run review presentation failed; action will be denied";
       return withDerived({
         ...approvalBase,

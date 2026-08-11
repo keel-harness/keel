@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { GitPushAuthority } from "./git-push-authority.js";
+import type { GithubPrCreateAuthority } from "./github-pr-create-authority.js";
 import type { SandboxPort } from "./sandbox.js";
 
 describe("warden git.push product wiring", () => {
@@ -15,6 +16,11 @@ describe("warden git.push product wiring", () => {
       toolName: "git.push",
       transportRequirements: { credentialTlsTermination: true },
     } as GitPushAuthority;
+    const githubAuthority = {
+      capability: "github-pr-create/v1",
+      toolName: "github.pr.create",
+      transportRequirements: { credentialTlsTermination: true },
+    } as GithubPrCreateAuthority;
     const broker = { sourceClass: "operator Git credential helper (system/global config)" };
     const sandbox: SandboxPort = {
       status: () => ({
@@ -27,10 +33,17 @@ describe("warden git.push product wiring", () => {
     };
     const createGitCredentialBroker = vi.fn(() => broker);
     const createGitPushProductionAuthority = vi.fn(() => authority);
+    const createGithubPrCreateProductionAuthority = vi.fn(() => githubAuthority);
     const resolveProductionGitExecutable = vi.fn(
       (_options: Record<string, unknown>): { path: string; version: string } | undefined => ({
         path: "/usr/bin/git",
         version: "2.39.5",
+      }),
+    );
+    const resolveProductionCurlExecutable = vi.fn(
+      (_options: Record<string, unknown>): { path: string; version: string } | undefined => ({
+        path: "/usr/bin/curl",
+        version: "8.7.1",
       }),
     );
     const createVendoredSrtSandboxComponents = vi.fn(async () => ({ sandbox }));
@@ -41,6 +54,8 @@ describe("warden git.push product wiring", () => {
     vi.doMock("./git-credential-broker.js", () => ({ createGitCredentialBroker }));
     vi.doMock("./git-push.js", () => ({ createGitPushProductionAuthority }));
     vi.doMock("./git-push-product.js", () => ({ resolveProductionGitExecutable }));
+    vi.doMock("./github-pr-create.js", () => ({ createGithubPrCreateProductionAuthority }));
+    vi.doMock("./github-pr-create-product.js", () => ({ resolveProductionCurlExecutable }));
     vi.doMock("./srt-runtime-loader.js", () => ({ createVendoredSrtSandboxComponents }));
     vi.doMock("./egress-address-exceptions.js", () => ({
       ensureEgressAddressExceptionAuthorityHome: () => "/tmp/keel-home",
@@ -111,11 +126,14 @@ describe("warden git.push product wiring", () => {
 
     return {
       authority,
+      githubAuthority,
       broker,
       createGitCredentialBroker,
       createGitPushProductionAuthority,
+      createGithubPrCreateProductionAuthority,
       createVendoredSrtSandboxComponents,
       resolveProductionGitExecutable,
+      resolveProductionCurlExecutable,
       runStdioWardenServer,
     };
   }
@@ -146,6 +164,20 @@ describe("warden git.push product wiring", () => {
       gitVersion: "2.39.5",
       tempRoot: "/private/tmp/keel-git-push-product-root",
     });
+    expect(mocked.resolveProductionCurlExecutable).toHaveBeenCalledWith({
+      workspaceRoot: "/workspace",
+      env: process.env,
+      platform: process.platform,
+    });
+    expect(mocked.createGithubPrCreateProductionAuthority).toHaveBeenCalledWith({
+      productionCapability: true,
+      credentialBroker: mocked.broker,
+      gitExecutable: "/usr/bin/git",
+      gitVersion: "2.39.5",
+      curlExecutable: "/usr/bin/curl",
+      curlVersion: "8.7.1",
+      tempRoot: "/private/tmp/keel-git-push-product-root",
+    });
     expect(mocked.createVendoredSrtSandboxComponents).toHaveBeenCalledWith(
       expect.objectContaining({ credentialTlsTermination: true }),
     );
@@ -153,6 +185,8 @@ describe("warden git.push product wiring", () => {
       expect.objectContaining({
         gitPushAuthority: mocked.authority,
         gitPushAddressGuardRevision: "none",
+        githubPrCreateAuthority: mocked.githubAuthority,
+        githubPrCreateAddressGuardRevision: "none",
       }),
     );
   });
@@ -172,7 +206,11 @@ describe("warden git.push product wiring", () => {
     expect(mocked.resolveProductionGitExecutable).not.toHaveBeenCalled();
     expect(mocked.createGitCredentialBroker).not.toHaveBeenCalled();
     expect(mocked.createGitPushProductionAuthority).not.toHaveBeenCalled();
+    expect(mocked.createGithubPrCreateProductionAuthority).not.toHaveBeenCalled();
     expect(mocked.runStdioWardenServer.mock.calls[0]?.[0]).not.toHaveProperty("gitPushAuthority");
+    expect(mocked.runStdioWardenServer.mock.calls[0]?.[0]).not.toHaveProperty(
+      "githubPrCreateAuthority",
+    );
   });
 
   it("withholds capability when no supported Git executable is identified", async () => {
@@ -187,9 +225,31 @@ describe("warden git.push product wiring", () => {
 
     expect(mocked.createGitCredentialBroker).not.toHaveBeenCalled();
     expect(mocked.createGitPushProductionAuthority).not.toHaveBeenCalled();
+    expect(mocked.createGithubPrCreateProductionAuthority).not.toHaveBeenCalled();
     expect(mocked.createVendoredSrtSandboxComponents).not.toHaveBeenCalledWith(
       expect.objectContaining({ credentialTlsTermination: true }),
     );
     expect(mocked.runStdioWardenServer.mock.calls[0]?.[0]).not.toHaveProperty("gitPushAuthority");
+    expect(mocked.runStdioWardenServer.mock.calls[0]?.[0]).not.toHaveProperty(
+      "githubPrCreateAuthority",
+    );
+  });
+
+  it("keeps git.push but withholds github.pr.create when curl is unsupported", async () => {
+    const mocked = mockProductModules();
+    mocked.resolveProductionCurlExecutable.mockReturnValue(undefined);
+    vi.stubEnv("KEEL_WARDEN_SANDBOX", "srt");
+    vi.stubEnv("KEEL_WARDEN_WORKSPACE_ROOT", "/workspace");
+    vi.stubEnv("KEEL_WARDEN_WORKSPACE_TRUSTED", "1");
+
+    const { runWardenFromEnv } = await import("./bin.js");
+    await runWardenFromEnv();
+
+    expect(mocked.createGitPushProductionAuthority).toHaveBeenCalledOnce();
+    expect(mocked.createGithubPrCreateProductionAuthority).not.toHaveBeenCalled();
+    expect(mocked.runStdioWardenServer.mock.calls[0]?.[0]).toHaveProperty("gitPushAuthority");
+    expect(mocked.runStdioWardenServer.mock.calls[0]?.[0]).not.toHaveProperty(
+      "githubPrCreateAuthority",
+    );
   });
 });

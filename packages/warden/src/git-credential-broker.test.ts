@@ -335,6 +335,33 @@ describe("ADR-0091 Warden Git credential broker", () => {
     expect(fill.env).not.toHaveProperty("GIT_DIR");
   });
 
+  it("resolves a GitHub bearer token from only the helper password", async () => {
+    const root = privateRoot();
+    const canaryUser = `ignored-${randomBytes(8).toString("hex")}`;
+    const canarySecret = `github_pat_${randomBytes(24).toString("base64url")}`;
+    const runProcess = vi.fn(async (request: GitCredentialProcessRequest) => {
+      if (request.argv.includes("--exec-path")) return result(`${root}\n`);
+      if (request.argv.at(-1) === "fill") {
+        return result(exactCredentialOutput(canaryUser, canarySecret));
+      }
+      return result("credential.helper\nosxkeychain\u0000");
+    });
+    const broker = createGitCredentialBroker({
+      gitExecutable: fakeGit(root),
+      tempRoot: root,
+      runProcess,
+    });
+    const identity = await broker.inspect(context);
+
+    const authorization = await broker.resolveBearer(context, identity);
+
+    expect(authorization).toEqual({ scheme: "Bearer", secret: canarySecret });
+    expect(JSON.stringify(authorization)).not.toContain(canaryUser);
+    expect(JSON.stringify(authorization)).not.toContain(
+      Buffer.from(`${canaryUser}:${canarySecret}`, "utf8").toString("base64"),
+    );
+  });
+
   it("rejects helper/config drift before invoking credential fill", async () => {
     const root = privateRoot();
     let inspection = 0;
@@ -461,7 +488,7 @@ describe("ADR-0091 Warden Git credential broker", () => {
     const first = broker.resolve(context, identity);
     await fillDidStart;
 
-    await expect(broker.resolve(context, identity)).rejects.toThrow(/already in progress/u);
+    await expect(broker.resolveBearer(context, identity)).rejects.toThrow(/already in progress/u);
     releaseFill();
     await expect(first).resolves.toEqual({
       scheme: "Basic",

@@ -51,6 +51,9 @@ import type { GitPushAuthority } from "./git-push-authority.js";
 import { createGitCredentialBroker } from "./git-credential-broker.js";
 import { createGitPushProductionAuthority } from "./git-push.js";
 import { resolveProductionGitExecutable } from "./git-push-product.js";
+import type { GithubPrCreateAuthority } from "./github-pr-create-authority.js";
+import { createGithubPrCreateProductionAuthority } from "./github-pr-create.js";
+import { resolveProductionCurlExecutable } from "./github-pr-create-product.js";
 
 export { INTERNAL_MCP_DISCOVERY_ENV, MCP_DISCOVERY_REQUEST_ENV } from "./mcp/local-stdio.js";
 
@@ -105,11 +108,13 @@ async function sandboxComponentsFromEnv(
   credentialProxyRules?: readonly CredentialProxyRule[],
   resolveDestination?: BoundedEgressAddressResolver["resolveDestination"],
   gitPushAuthority?: GitPushAuthority,
+  githubPrCreateAuthority?: GithubPrCreateAuthority,
 ): Promise<SandboxComponentsFromEnv> {
   if (process.env["KEEL_WARDEN_SANDBOX"] !== "srt") return {};
   const credentialTlsTermination =
     (credentialProxyRules !== undefined && credentialProxyRules.length > 0) ||
-    gitPushAuthority?.transportRequirements.credentialTlsTermination === true;
+    gitPushAuthority?.transportRequirements.credentialTlsTermination === true ||
+    githubPrCreateAuthority?.transportRequirements.credentialTlsTermination === true;
   const options = {
     ...(credentialTlsTermination ? { credentialTlsTermination: true } : {}),
     ...(resolveDestination === undefined ? {} : { resolveDestination }),
@@ -331,6 +336,7 @@ export async function runMcpDiscoveryFromEnv(): Promise<void> {
 export interface RunWardenFromEnvOptions {
   /** Injected only by a product entrypoint that has already constructed the typed authority. */
   readonly gitPushAuthority?: GitPushAuthority;
+  readonly githubPrCreateAuthority?: GithubPrCreateAuthority;
 }
 
 export async function runWardenFromEnv(
@@ -380,15 +386,16 @@ export async function runWardenFromEnv(
     }
 
     let gitPushAuthority = runtimeOptions.gitPushAuthority;
+    let githubPrCreateAuthority = runtimeOptions.githubPrCreateAuthority;
     if (
-      gitPushAuthority === undefined &&
+      (gitPushAuthority === undefined || githubPrCreateAuthority === undefined) &&
       workspaceTrusted &&
       process.env["KEEL_WARDEN_SANDBOX"] === "srt"
     ) {
       sandboxTempRoot.assertOwned();
       const tempRoot = sandboxTempRoot.declaredTempRoots[0];
       if (tempRoot === undefined || sandboxTempRoot.declaredTempRoots.length !== 1) {
-        throw new Error("git.push requires one Warden-owned temporary root");
+        throw new Error("governed publication requires one Warden-owned temporary root");
       }
       const resolvedGit = resolveProductionGitExecutable({
         workspaceRoot,
@@ -402,13 +409,31 @@ export async function runWardenFromEnv(
           tempRoot,
           env: process.env,
         });
-        gitPushAuthority = createGitPushProductionAuthority({
-          productionCapability: true,
-          credentialBroker,
-          gitExecutable,
-          gitVersion: resolvedGit.version,
-          tempRoot,
+        if (gitPushAuthority === undefined) {
+          gitPushAuthority = createGitPushProductionAuthority({
+            productionCapability: true,
+            credentialBroker,
+            gitExecutable,
+            gitVersion: resolvedGit.version,
+            tempRoot,
+          });
+        }
+        const resolvedCurl = resolveProductionCurlExecutable({
+          workspaceRoot,
+          env: process.env,
+          platform: process.platform,
         });
+        if (githubPrCreateAuthority === undefined && resolvedCurl !== undefined) {
+          githubPrCreateAuthority = createGithubPrCreateProductionAuthority({
+            productionCapability: true,
+            credentialBroker,
+            gitExecutable,
+            gitVersion: resolvedGit.version,
+            curlExecutable: resolvedCurl.path,
+            curlVersion: resolvedCurl.version,
+            tempRoot,
+          });
+        }
       }
     }
 
@@ -421,6 +446,7 @@ export async function runWardenFromEnv(
         : (hostname, port, signal) =>
             activeEgressResolver.resolveDestination(hostname, port, signal),
       gitPushAuthority,
+      githubPrCreateAuthority,
     );
     if (quarantineRequested) await sandboxComponents.shutdown?.();
 
@@ -483,6 +509,10 @@ export async function runWardenFromEnv(
       ...(mutationPresentation === undefined ? {} : { mutationPresentation }),
       ...(gitPushAuthority === undefined ? {} : { gitPushAuthority }),
       ...(gitPushAddressGuardRevision === undefined ? {} : { gitPushAddressGuardRevision }),
+      ...(githubPrCreateAuthority === undefined ? {} : { githubPrCreateAuthority }),
+      ...(gitPushAddressGuardRevision === undefined
+        ? {}
+        : { githubPrCreateAddressGuardRevision: gitPushAddressGuardRevision }),
       mcpTrustedServers,
       validationPostureId,
       workspaceTrusted,

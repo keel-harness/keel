@@ -68,6 +68,7 @@ import { GROSS_RUNWAY_PREFLIGHT_CODE } from "../events.js";
 import { createFinalAnswerPresentation } from "./final-answer-presentation.js";
 import { exactProcessRunReviewSummaryForInformation } from "../warden/process-run-review-presentation.js";
 import { exactGitPushReviewSummaryForInformation } from "../warden/git-push-review-presentation.js";
+import { exactGithubPrCreateReviewSummaryForInformation } from "../warden/github-pr-create-review-presentation.js";
 
 export interface RunSessionOpts {
   readonly model: ModelPort;
@@ -510,7 +511,8 @@ async function runSessionImpl(
             event.losslessGitPushSummary !== undefined ||
             (event.information.requestedAction.status === "available" &&
               (event.information.requestedAction.value === "process.run" ||
-                event.information.requestedAction.value === "git.push"));
+                event.information.requestedAction.value === "git.push" ||
+                event.information.requestedAction.value === "github.pr.create"));
           view = reduce(view, {
             type: "approval-opened",
             detail: event.detail,
@@ -533,6 +535,8 @@ async function runSessionImpl(
               (exactProcessRunReviewSummaryForInformation(view.activeApproval.information) !==
                 exactEventSummary &&
                 exactGitPushReviewSummaryForInformation(view.activeApproval.information) !==
+                  exactEventSummary &&
+                exactGithubPrCreateReviewSummaryForInformation(view.activeApproval.information) !==
                   exactEventSummary))
           ) {
             opts.reviewDecisions?.cancelPending();

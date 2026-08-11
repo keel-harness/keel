@@ -222,6 +222,74 @@ describe("interactive review-decision input", () => {
     expect(events).toEqual([]);
   });
 
+  it("opens only an exact github.pr.create request and retains all approval bytes", async () => {
+    const controller = createInteractiveReviewDecisionController();
+    const { events } = recordPresentation(controller);
+    const oid = "0123456789abcdef0123456789abcdef01234567";
+    const summary = [
+      "GitHub pull request creation requires approval.",
+      "Repository: keel-harness/keel",
+      "Remote: https://github.com/keel-harness/keel.git",
+      `Head: refs/heads/feature/pr @ ${oid}`,
+      "Base: refs/heads/main",
+      'Title JSON: "Ship"',
+      'Body JSON: "Exact body"',
+      "Draft: no",
+      "Maintainers may modify: yes",
+      "Effect: create one GitHub pull request and trigger repository notifications",
+      "Blocked: merge, auto-merge, labels, reviews, releases, deployments, and branch mutation",
+      "Credential: operator Git credential helper (system/global config); token stays in the Warden/SRT path",
+      "Approval: this occurrence once; expires in 120 seconds",
+    ].join("\n");
+    const toolCall = {
+      id: "github-pr-review",
+      name: "github.pr.create",
+      args: {
+        remote: "origin",
+        repository: "keel-harness/keel",
+        head: "feature/pr",
+        expectedHead: oid,
+        base: "main",
+        title: "Ship",
+        body: "Exact body",
+        draft: false,
+        maintainerCanModify: true,
+      },
+    };
+
+    const approved = controller.onReviewRequired({
+      toolCall,
+      review: {
+        reviewId: "github_pr_create_review_1",
+        summary,
+        allowCommand: "keel approve github_pr_create_review_1 --scope once",
+      },
+    });
+    expect(events.at(-1)).toMatchObject({
+      kind: "opened",
+      detail: summary,
+      sessionAvailable: false,
+      losslessGitPushSummary: summary,
+      information: {
+        requestedAction: { status: "available", value: "github.pr.create" },
+        effectiveTarget: { status: "available", value: summary, completeness: "complete" },
+      },
+    });
+    expect(controller.handleInput(line("a"))).toBe(true);
+    await expect(approved).resolves.toEqual({ approved: true, scope: "once" });
+
+    expect(
+      controller.onReviewRequired({
+        toolCall,
+        review: {
+          reviewId: "github_pr_create_review_2",
+          summary: summary.replace('Title JSON: "Ship"', 'Title JSON: "Forged"'),
+          allowCommand: "keel approve github_pr_create_review_2 --scope once",
+        },
+      }),
+    ).toBeUndefined();
+  });
+
   it("does not mistake a literal omitted-marker argv byte sequence for Warden abbreviation", () => {
     const controller = createInteractiveReviewDecisionController();
     const { events } = recordPresentation(controller);

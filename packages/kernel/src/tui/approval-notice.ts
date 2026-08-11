@@ -3,6 +3,7 @@ import { graphemeSpans, takeDisplayCells, terminalDisplayWidth } from "./display
 import { stripControlLine } from "./strip.js";
 import { exactProcessRunReviewSummaryForInformation } from "../warden/process-run-review-presentation.js";
 import { exactGitPushReviewSummaryForInformation } from "../warden/git-push-review-presentation.js";
+import { exactGithubPrCreateReviewSummaryForInformation } from "../warden/github-pr-create-review-presentation.js";
 
 export interface ApprovalNoticePlan {
   readonly heading:
@@ -133,7 +134,9 @@ export function approvalNoticePlan(approval: UiActiveApproval): ApprovalNoticePl
   const associatedProcessRunSummary = exactProcessRunReviewSummaryForInformation(
     approval.information,
   );
-  const associatedGitPushSummary = exactGitPushReviewSummaryForInformation(approval.information);
+  const associatedGitPushSummary =
+    exactGitPushReviewSummaryForInformation(approval.information) ??
+    exactGithubPrCreateReviewSummaryForInformation(approval.information);
   const losslessProcessRunSummary =
     associatedProcessRunSummary !== undefined &&
     approval.detail === associatedProcessRunSummary &&
@@ -151,12 +154,14 @@ export function approvalNoticePlan(approval: UiActiveApproval): ApprovalNoticePl
     approval.state === "pending" &&
     approval.information?.requestedAction.status === "available" &&
     (approval.information.requestedAction.value === "process.run" ||
-      approval.information.requestedAction.value === "git.push") &&
+      approval.information.requestedAction.value === "git.push" ||
+      approval.information.requestedAction.value === "github.pr.create") &&
     losslessReviewSummary === undefined;
   const exactReviewFailureMessage =
     approval.information?.requestedAction.status === "available" &&
-    approval.information.requestedAction.value === "git.push"
-      ? "exact git.push review presentation failed; action will be denied"
+    (approval.information.requestedAction.value === "git.push" ||
+      approval.information.requestedAction.value === "github.pr.create")
+      ? `exact ${approval.information.requestedAction.value} review presentation failed; action will be denied`
       : "exact process.run review presentation failed; action will be denied";
   const effectiveApproval: UiActiveApproval = exactReviewPresentationFailed
     ? {

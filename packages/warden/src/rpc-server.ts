@@ -213,6 +213,13 @@ import {
   type GitPushAuthorityContext,
   type GitPushBindingAuthorityRequest,
 } from "./git-push-authority.js";
+import {
+  GITHUB_PR_CREATE_CAPABILITY_V1,
+  GITHUB_PR_CREATE_TOOL_NAME,
+  type GithubPrCreateAuthority,
+  type GithubPrCreateAuthorityContext,
+  type GithubPrCreateBindingAuthorityRequest,
+} from "./github-pr-create-authority.js";
 
 type RpcId = string | number | null;
 type ExecuteParams = ReturnType<(typeof WARDEN_METHODS)["warden.execute"]["params"]["parse"]>;
@@ -295,6 +302,10 @@ export interface WardenRpcHandlerOptions {
   gitPushReviewPreExecutionCheck?: () => void;
   /** Immutable revision for the active connect-time address-guard exception policy. */
   gitPushAddressGuardRevision?: string;
+  /** Release-safe governed GitHub pull-request authority. */
+  githubPrCreateAuthority?: GithubPrCreateAuthority;
+  githubPrCreateReviewPreExecutionCheck?: () => void;
+  githubPrCreateAddressGuardRevision?: string;
 }
 
 interface RpcContext {
@@ -331,6 +342,9 @@ interface RpcContext {
   gitPushAuthority?: GitPushAuthority;
   gitPushReviewPreExecutionCheck?: () => void;
   gitPushAddressGuardRevision?: string;
+  githubPrCreateAuthority?: GithubPrCreateAuthority;
+  githubPrCreateReviewPreExecutionCheck?: () => void;
+  githubPrCreateAddressGuardRevision?: string;
 }
 
 interface ResolvedCommand {
@@ -449,7 +463,8 @@ function statusResult(context: RpcContext): unknown {
     pendingReviews:
       context.reviewState.pending.size +
       context.interactiveConsoleState.pendingReviews.size +
-      (context.gitPushAuthority?.pendingReviewCount() ?? 0),
+      (context.gitPushAuthority?.pendingReviewCount() ?? 0) +
+      (context.githubPrCreateAuthority?.pendingReviewCount() ?? 0),
   };
 }
 
@@ -492,6 +507,16 @@ function helloCapabilities(
     }) === true
   ) {
     capabilities.push(GIT_PUSH_CAPABILITY_V1);
+  }
+  if (
+    context.githubPrCreateAddressGuardRevision !== undefined &&
+    context.githubPrCreateAuthority?.capabilityAvailable({
+      workspaceTrusted: context.workspaceTrusted,
+      auditAvailable: context.auditWriter !== undefined,
+      sandbox,
+    }) === true
+  ) {
+    capabilities.push(GITHUB_PR_CREATE_CAPABILITY_V1);
   }
   if (
     // QC §8: the console is an operator-configured privileged surface — withhold it (advertisement
@@ -1027,6 +1052,61 @@ async function resolveGitPushBindingAuthority(
     policyDecision: await context.policy.evaluate(policyInput),
     policyPack: context.policy.packRef,
     addressGuardRevision: context.gitPushAddressGuardRevision,
+    auditAuthorityId: gitPushAuditAuthorityId(context.auditWriter),
+  };
+}
+
+async function resolveGithubPrCreateBindingAuthority(
+  context: RpcContext,
+  request: GithubPrCreateBindingAuthorityRequest,
+) {
+  if (context.auditWriter === undefined) {
+    throw new Error("github.pr.create audit authority is unavailable");
+  }
+  if (context.githubPrCreateAddressGuardRevision === undefined) {
+    throw new Error("github.pr.create address-guard revision is unavailable");
+  }
+  const args = request.executeParams.toolCall.args;
+  const exactArg = (name: string): string => {
+    const value = args[name];
+    if (typeof value !== "string" && typeof value !== "boolean") {
+      throw new Error(`github.pr.create ${name} binding argument is invalid`);
+    }
+    return String(value);
+  };
+  const policyInput = PolicyInput.parse({
+    tool: { name: request.executeParams.toolCall.name, args },
+    normalized: {
+      argv: [
+        GITHUB_PR_CREATE_TOOL_NAME,
+        exactArg("remote"),
+        exactArg("repository"),
+        exactArg("head"),
+        exactArg("expectedHead"),
+        exactArg("base"),
+        exactArg("title"),
+        exactArg("body"),
+        exactArg("draft"),
+        exactArg("maintainerCanModify"),
+      ],
+      decodedLayers: [],
+    },
+    sideEffect: request.sideEffect,
+    workspace: { path: context.workspaceRoot, trusted: context.workspaceTrusted },
+    provenance: request.executeParams.provenanceContext,
+    egress: { isEgress: true, domain: request.host, gitRemote: request.canonicalUrl },
+    session: {
+      id: request.executeParams.sessionId,
+      mode: "enforced",
+      promptCountThisSession: 0,
+    },
+    principal: { osUser: context.env["USER"] ?? "local" },
+  });
+  return {
+    policyInput,
+    policyDecision: await context.policy.evaluate(policyInput),
+    policyPack: context.policy.packRef,
+    addressGuardRevision: context.githubPrCreateAddressGuardRevision,
     auditAuthorityId: gitPushAuditAuthorityId(context.auditWriter),
   };
 }
@@ -6508,6 +6588,44 @@ async function methodResult(
         if (isInteractiveConsoleToolName(p.toolCall.name)) {
           return await executeInteractiveConsole(context, p);
         }
+        if (p.toolCall.name === GITHUB_PR_CREATE_TOOL_NAME) {
+          const authority = context.githubPrCreateAuthority;
+          if (
+            authority === undefined ||
+            context.githubPrCreateAddressGuardRevision === undefined ||
+            !authority.capabilityAvailable({
+              workspaceTrusted: context.workspaceTrusted,
+              auditAvailable: context.auditWriter !== undefined,
+              sandbox: readSandboxStatus(context.sandbox),
+            }) ||
+            context.auditWriter === undefined
+          ) {
+            return rpcError(null, -32000, "github.pr.create authority is unavailable", {
+              code: "WARDEN_NOT_READY",
+            });
+          }
+          const authorityContext: GithubPrCreateAuthorityContext = {
+            sandbox: context.sandbox,
+            workspaceRoot: context.workspaceRoot,
+            ...(context.auditDir === undefined ? {} : { auditDir: context.auditDir }),
+            ...(context.signal === undefined ? {} : { signal: context.signal }),
+            resolveBindingAuthority: (request) =>
+              resolveGithubPrCreateBindingAuthority(context, request),
+            appendAudit: (input: AuditAppendInput) => appendAuditSeq(context, input),
+          };
+          try {
+            return await authority.request(authorityContext, p);
+          } catch (error) {
+            if (authority.isInvalidParams(error)) {
+              const auditSeq = authority.auditInvalidParams(authorityContext, p, error);
+              return rpcError(null, -32602, error.message, {
+                code: "INVALID_PARAMS",
+                auditSeq,
+              });
+            }
+            throw error;
+          }
+        }
         if (p.toolCall.name === GIT_PUSH_TOOL_NAME) {
           const gitPushAuthority = context.gitPushAuthority;
           if (
@@ -7079,6 +7197,38 @@ async function methodResult(
       }
       case "warden.resolveReview": {
         const p = WARDEN_METHODS["warden.resolveReview"].params.parse(params);
+        const githubAuthority = context.githubPrCreateAuthority;
+        const githubReview = githubAuthority?.consumeReview(p.reviewId);
+        if (githubReview !== undefined && githubAuthority !== undefined) {
+          if (context.auditWriter === undefined) {
+            return rpcError(null, -32000, "github.pr.create audit authority is unavailable", {
+              code: "AUDIT_UNAVAILABLE",
+            });
+          }
+          return await githubAuthority.resolve(
+            {
+              sandbox: context.sandbox,
+              workspaceRoot: context.workspaceRoot,
+              ...(context.auditDir === undefined ? {} : { auditDir: context.auditDir }),
+              ...(context.signal === undefined ? {} : { signal: context.signal }),
+              ...(context.githubPrCreateReviewPreExecutionCheck === undefined
+                ? {}
+                : { preExecutionCheck: context.githubPrCreateReviewPreExecutionCheck }),
+              resolveBindingAuthority: (request) =>
+                resolveGithubPrCreateBindingAuthority(context, request),
+              appendAudit: (input: AuditAppendInput, failureContext) =>
+                appendAuditSeq(context, input, failureContext),
+              isAuditFailure: (error: unknown) => error instanceof AuditAppendRpcError,
+            },
+            githubReview,
+            {
+              reviewId: p.reviewId,
+              approved: p.approved,
+              principal: p.principal,
+              ...(p.scope === undefined ? {} : { scope: p.scope }),
+            },
+          );
+        }
         const gitPushAuthority = context.gitPushAuthority;
         const gitPushReview = gitPushAuthority?.consumeReview(p.reviewId);
         if (gitPushReview !== undefined && gitPushAuthority !== undefined) {
@@ -8121,6 +8271,19 @@ async function buildRpcContext(options: WardenRpcHandlerOptions = {}): Promise<R
     ...(options.gitPushAddressGuardRevision === undefined
       ? {}
       : { gitPushAddressGuardRevision: options.gitPushAddressGuardRevision }),
+    ...(options.githubPrCreateAuthority === undefined
+      ? {}
+      : { githubPrCreateAuthority: options.githubPrCreateAuthority }),
+    ...(options.githubPrCreateReviewPreExecutionCheck === undefined
+      ? {}
+      : {
+          githubPrCreateReviewPreExecutionCheck: options.githubPrCreateReviewPreExecutionCheck,
+        }),
+    ...(options.githubPrCreateAddressGuardRevision === undefined
+      ? {}
+      : {
+          githubPrCreateAddressGuardRevision: options.githubPrCreateAddressGuardRevision,
+        }),
   };
 }
 
@@ -8128,6 +8291,7 @@ type ResolveReviewTempPrecheckDisposition =
   | "non-executing"
   | "exact-process-run"
   | "exact-git-push"
+  | "exact-github-pr-create"
   | "ordinary-review";
 
 function resolveReviewTempPrecheckDisposition(
@@ -8135,6 +8299,7 @@ function resolveReviewTempPrecheckDisposition(
   reviewState: EgressReviewState,
   interactiveConsoleState: ConsoleRuntimeState,
   gitPushAuthority: GitPushAuthority | undefined,
+  githubPrCreateAuthority: GithubPrCreateAuthority | undefined,
 ): ResolveReviewTempPrecheckDisposition {
   // The caller invokes this helper only after methodOf parsed the same immutable frame and found
   // warden.resolveReview, so JSON parsing cannot newly fail and the method need not be re-routed.
@@ -8147,6 +8312,9 @@ function resolveReviewTempPrecheckDisposition(
     return "ordinary-review";
   }
   if (gitPushAuthority?.hasPendingReview(params.data.reviewId) === true) return "exact-git-push";
+  if (githubPrCreateAuthority?.hasPendingReview(params.data.reviewId) === true) {
+    return "exact-github-pr-create";
+  }
   const review = reviewState.pending.get(params.data.reviewId);
   if (review === undefined) return "non-executing";
   return review.kind === "process-run" ? "exact-process-run" : "ordinary-review";
@@ -8196,6 +8364,8 @@ export interface StdioWardenServerOptions {
   gitPushAuthority?: GitPushAuthority;
   /** Required alongside gitPushAuthority; no placeholder revision is accepted. */
   gitPushAddressGuardRevision?: string;
+  githubPrCreateAuthority?: GithubPrCreateAuthority;
+  githubPrCreateAddressGuardRevision?: string;
 }
 
 export interface StdioWardenServer {
@@ -8267,6 +8437,14 @@ export function runStdioWardenServer(options: StdioWardenServerOptions = {}): St
     ...(options.gitPushAddressGuardRevision === undefined
       ? {}
       : { gitPushAddressGuardRevision: options.gitPushAddressGuardRevision }),
+    ...(options.githubPrCreateAuthority === undefined
+      ? {}
+      : { githubPrCreateAuthority: options.githubPrCreateAuthority }),
+    ...(options.githubPrCreateAddressGuardRevision === undefined
+      ? {}
+      : {
+          githubPrCreateAddressGuardRevision: options.githubPrCreateAddressGuardRevision,
+        }),
     ...(options.typedMutationRunner === undefined
       ? {}
       : { typedMutationRunner: options.typedMutationRunner }),
@@ -8312,6 +8490,7 @@ export function runStdioWardenServer(options: StdioWardenServerOptions = {}): St
             reviewState,
             interactiveConsoleState,
             options.gitPushAuthority,
+            options.githubPrCreateAuthority,
           )
         : undefined;
     let requestedPresentationPeerMinor: number | null = null;
@@ -8363,7 +8542,13 @@ export function runStdioWardenServer(options: StdioWardenServerOptions = {}): St
               ...negotiatedRequestHandlerOptions,
               gitPushReviewPreExecutionCheck: exactReviewPreExecutionCheck,
             }
-          : negotiatedRequestHandlerOptions;
+          : resolvePrecheckDisposition === "exact-github-pr-create" &&
+              validateSandboxTempRoot !== undefined
+            ? {
+                ...negotiatedRequestHandlerOptions,
+                githubPrCreateReviewPreExecutionCheck: exactReviewPreExecutionCheck,
+              }
+            : negotiatedRequestHandlerOptions;
     const handled = await handleRpcLineWithSidecar(line, requestHandlerOptions);
     const response = handled.response;
     if (

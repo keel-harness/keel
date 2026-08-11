@@ -262,6 +262,85 @@ describe("WardenExecutor", () => {
     expect(toolControlFailureCode(result)).toBeUndefined();
   });
 
+  it("returns an audited pre-execution github.pr.create INVALID_PARAMS result for correction", async () => {
+    const client = new FakeWardenClient({
+      error: new WardenClientError("INVALID_PARAMS", "expectedHead must be full lowercase SHA-1", {
+        rpcCode: -32602,
+        details: { code: "INVALID_PARAMS", auditSeq: 44 },
+      }),
+    });
+    const executor = new WardenExecutor({ client, sessionId: SESSION_ID });
+
+    const result = await executor.execute(
+      call("github.pr.create", {
+        remote: "origin",
+        repository: "keel-harness/keel",
+        head: "feature/x",
+        expectedHead: "abc",
+        base: "main",
+        title: "Title",
+        body: "Body",
+        draft: false,
+        maintainerCanModify: true,
+      }),
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.output).toContain("github.pr.create INVALID_PARAMS");
+    expect(result.output).toContain("not executed");
+    expect(result.output).toContain("submit a fresh github.pr.create call");
+    expect(toolPresentationOutcome(result)).toBe("failed");
+    expect(toolControlFailureCode(result)).toBeUndefined();
+  });
+
+  it.each([
+    ["failed", false, "failed", "no automatic retry was attempted"],
+    ["indeterminate", true, "partial", "could not confirm whether the pull request was created"],
+  ] as const)(
+    "renders github.pr.create %s with truthful retry and completion posture",
+    async (status, actionMayHaveExecuted, outcome, expected) => {
+      const executor = new WardenExecutor({
+        client: clientReturning({
+          verdict: "deny",
+          result: {
+            kind: "github_pr_create_result",
+            status,
+            repository: "keel-harness/keel",
+            head: "feature/x",
+            base: "main",
+            commit: "0123456789abcdef0123456789abcdef01234567",
+            number: null,
+            url: null,
+            automaticRetry: false,
+            actionMayHaveExecuted,
+          },
+          auditSeq: 9,
+        }),
+        sessionId: SESSION_ID,
+      });
+
+      const result = await executor.execute(
+        call("github.pr.create", {
+          remote: "origin",
+          repository: "keel-harness/keel",
+          head: "feature/x",
+          expectedHead: "0123456789abcdef0123456789abcdef01234567",
+          base: "main",
+          title: "Title",
+          body: "Body",
+          draft: false,
+          maintainerCanModify: true,
+        }),
+      );
+
+      expect(result.ok).toBe(false);
+      expect(result.output).toContain(expected);
+      expect(result.output).toContain('"automaticRetry":false');
+      expect(result.output).not.toContain("blocked by warden (not executed)");
+      expect(toolPresentationOutcome(result)).toBe(outcome);
+    },
+  );
+
   it.each([
     ["failed", true, "partial", "a ref update may have executed"],
     ["indeterminate", true, "partial", "a ref update may have executed"],

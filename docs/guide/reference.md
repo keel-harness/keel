@@ -35,7 +35,7 @@ not fail). Usage errors and unknown flags exit non-zero. One known gap: `keel au
 usage errors print a message but exit zero today.
 
 **Remote Git and pull requests.** In a trusted interactive macOS/Linux session, current source can
-offer the model the typed `git.push` tool:
+offer the model two separate typed tools. Push takes:
 
 ```json
 {"remote":"origin","branch":"feature/name","expectedHead":"<full-lowercase-commit-oid>"}
@@ -49,9 +49,33 @@ credential helpers, reusable grants, and automatic retry are not supported. `kee
 these non-secret prerequisites and one remediation when possible; it never resolves or prints a
 credential.
 
-Raw `process.run git push` remains terminal. Pull-request creation remains unimplemented, and the
-published `keel-harness@0.1.1` carrier predates this capability; published-carrier proof remains a
-separate release gate.
+After the exact head has been pushed, `github.pr.create` takes:
+
+```json
+{
+  "remote": "origin",
+  "repository": "owner/name",
+  "head": "feature/name",
+  "expectedHead": "<full-lowercase-commit-oid>",
+  "base": "main",
+  "title": "Exact title",
+  "body": "Exact body",
+  "draft": false,
+  "maintainerCanModify": true
+}
+```
+
+The PR authority is GitHub.com-only and same-repository-only. It revalidates the current local head,
+the canonical remote, the remote head OID, and the base before sending at most one GitHub REST create
+request through `srt:vendored`; it then verifies the exact resulting PR. An exact existing PR is
+returned without another mutation. The PR gets a complete once-only approval separate from the push
+approval. GitHub Enterprise, forks/cross-repository heads, `gh`, generic forge APIs, merge and
+auto-merge, labels, assignees, reviewers and reviews, comments, releases, deployments, branch
+mutation, combined approvals, and automatic retry are not supported. A `failed` result is definitive;
+an `indeterminate` result requires audit and GitHub inspection before a deliberate fresh request.
+
+Raw `process.run git push` remains terminal. The published `keel-harness@0.1.1` carrier predates
+both `git.push` and `github.pr.create`; published-carrier proof remains a separate release gate.
 
 **One-shot review behavior.** Existing scoped authority, including an exact session or Plan grant or
 an eligible Autopilot rule, gets the first chance to resolve a review. If it is still pending,

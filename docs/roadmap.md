@@ -38,6 +38,12 @@ The parts of keel you can rely on now:
   `process.run git push`, force, deletion, tags, default-branch push, SSH, redirects, project
   credential helpers, reusable grants, and automatic retry remain unavailable. Published
   `keel-harness@0.1.1` predates this capability.
+- **Bounded typed GitHub.com PR creation in current source** — `github.pr.create` gives one
+  same-repository GitHub.com PR a separate once-only human approval after independently verifying
+  the pushed head OID and base. It sends at most one create request through `srt:vendored` and
+  verifies the exact result. GitHub Enterprise, forks/cross-repository heads, generic forge APIs,
+  `gh`, combined push-and-PR approval, merge/auto-merge, labels, reviews, releases, deployments, and
+  automatic retry remain unavailable. Published `keel-harness@0.1.1` predates this capability.
 
 See the [getting-started guide](guide/getting-started.md) for how to use these.
 
@@ -50,9 +56,6 @@ See the [getting-started guide](guide/getting-started.md) for how to use these.
 
 ## Next
 
-- **GitHub pull-request creation is next** — a separate typed, once-only HTTPS mutation after the
-  pushed head ref is independently verified. It remains unimplemented; no generic forge API, `gh`
-  shell escape, combined push-and-PR approval, or automatic retry is implied.
 - **Memory plane** — readable, reviewable, versioned agent memory. Today `packages/memory`
   is an honest placeholder; this is the next major capability.
 - **Turn on model routing** — the model gateway already ships in single-model *locked*
