@@ -612,6 +612,8 @@ describe("ADR-0091 git.push Warden walking skeleton", () => {
     ["http.followRedirects", "true"],
     ["http.sslVerify", "false"],
     ["core.hooksPath", "/tmp/hostile-hooks"],
+    ["credential.helper", "!/tmp/hostile-project-helper"],
+    ["credential.https://localhost.username", "project-controlled-user"],
     ["push.recurseSubmodules", "on-demand"],
     ["url.https://evil.invalid/.pushInsteadOf", "https://localhost:54321/"],
   ])("rejects repository-local execution or target widening config %s", async (key, value) => {

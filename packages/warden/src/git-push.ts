@@ -499,7 +499,7 @@ async function rejectRepositoryConfigWidening(
       "--no-includes",
       "--name-only",
       "--get-regexp",
-      "^(remote\\..*\\.(mirror|proxy|proxyauthmethod|push|receivepack|vcs)|http\\.(followredirects|proxy|proxyauthmethod|sslbackend|sslcert|sslcertpasswordprotected|sslkey|sslcainfo|sslcapath|sslverify|extraheader|curloptresolve)|core\\.(hookspath|fsmonitor)|push\\.(followtags|gpgsign|pushoption|recursesubmodules|useforceifincludes)|submodule\\.recurse|protocol\\..*\\.allow|url\\..*\\.(insteadof|pushinsteadof))$",
+      "^(remote\\..*\\.(mirror|proxy|proxyauthmethod|push|receivepack|vcs)|http\\.(followredirects|proxy|proxyauthmethod|sslbackend|sslcert|sslcertpasswordprotected|sslkey|sslcainfo|sslcapath|sslverify|extraheader|curloptresolve)|core\\.(hookspath|fsmonitor)|credential(\\..*)?\\..*|push\\.(followtags|gpgsign|pushoption|recursesubmodules|useforceifincludes)|submodule\\.recurse|protocol\\..*\\.allow|url\\..*\\.(insteadof|pushinsteadof))$",
     ],
     { allowExitOne: true },
   );

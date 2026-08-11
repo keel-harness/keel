@@ -1,7 +1,7 @@
 import { Buffer } from "node:buffer";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { chmodSync, mkdirSync, realpathSync, statSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, realpathSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 const BROKER_VERSION = "git-credential-broker/v1" as const;
@@ -95,6 +95,19 @@ function exactFileDigest(path: string): string {
   if (!stat.isFile()) throw new GitCredentialBrokerError("Git executable is not an ordinary file");
   return sha256(
     [canonical, stat.dev, stat.ino, stat.size, stat.mtimeNs]
+      .map((part) => String(part))
+      .join("\u0000"),
+  );
+}
+
+function exactDirectoryDigest(path: string): string {
+  const canonical = realpathSync(path);
+  const stat = statSync(canonical, { bigint: true });
+  if (!stat.isDirectory()) {
+    throw new GitCredentialBrokerError("Git credential helper exec path is not a directory");
+  }
+  return sha256(
+    [canonical, stat.dev, stat.ino, stat.mode, stat.mtimeNs]
       .map((part) => String(part))
       .join("\u0000"),
   );
@@ -201,6 +214,51 @@ function parseHelperRecords(
     throw new GitCredentialBrokerError("operator Git credential helper count is outside the bound");
   }
   return records;
+}
+
+function parseGitExecPath(output: string): string {
+  if (!output.endsWith("\n") || output.includes("\r") || output.includes("\u0000")) {
+    throw new GitCredentialBrokerError("Git credential helper exec path is malformed");
+  }
+  const path = output.slice(0, -1);
+  if (!path.startsWith("/") || path.includes("\n") || Buffer.byteLength(path, "utf8") > 1_024) {
+    throw new GitCredentialBrokerError("Git credential helper exec path is malformed");
+  }
+  return realpathSync(path);
+}
+
+function executableOnPath(name: string, searchPath: string): string | undefined {
+  if (name.startsWith("/")) return existsSync(name) ? realpathSync(name) : undefined;
+  for (const directory of searchPath.split(":")) {
+    if (!directory.startsWith("/")) continue;
+    const candidate = join(directory, name);
+    if (existsSync(candidate)) return realpathSync(candidate);
+  }
+  return undefined;
+}
+
+function helperExecutableDigests(
+  helpers: readonly { readonly key: string; readonly value: string }[],
+  gitExecPath: string,
+  searchPath: string,
+): readonly string[] {
+  const identities = new Set<string>();
+  if (existsSync("/bin/sh")) identities.add(exactFileDigest("/bin/sh"));
+  identities.add(exactDirectoryDigest(gitExecPath));
+  for (const helper of helpers) {
+    if (helper.value === "") continue;
+    const shellSnippet = helper.value.startsWith("!");
+    const command = shellSnippet ? helper.value.slice(1).trimStart() : helper.value;
+    const firstToken = /^([^\s"'\\]+)(?:\s|$)/u.exec(command)?.[1];
+    if (firstToken === undefined) continue;
+    const executable = shellSnippet
+      ? executableOnPath(firstToken, searchPath)
+      : firstToken.startsWith("/")
+        ? executableOnPath(firstToken, searchPath)
+        : executableOnPath(`git-credential-${firstToken}`, `${gitExecPath}:${searchPath}`);
+    if (executable !== undefined) identities.add(exactFileDigest(executable));
+  }
+  return [...identities].sort();
 }
 
 function safeOperatorEnv(input: NodeJS.ProcessEnv, brokerRoot: string): Record<string, string> {
@@ -332,7 +390,7 @@ function identityEqual(
 
 function checkedResult(
   result: GitCredentialProcessResult,
-  phase: "configuration" | "helpers" | "resolution",
+  phase: "configuration" | "executable" | "helpers" | "resolution",
   allowMissingHelpers = false,
 ): string {
   if (result.timedOut) throw new GitCredentialBrokerError(`Git credential ${phase} timed out`);
@@ -414,11 +472,17 @@ export function createGitCredentialBroker(
       true,
     );
     const helpers = parseHelperRecords(helperOutput);
+    const gitExecPath = parseGitExecPath(
+      checkedResult(await invoke(["--exec-path"], "", maxOutputBytes), "executable"),
+    );
+    const executableDigests = helperExecutableDigests(helpers, gitExecPath, env["PATH"]!);
     return {
       version: BROKER_VERSION,
       gitExecutableDigest: exactFileDigest(gitExecutable),
       configurationDigest: sha256(configuration),
-      helperDigest: sha256(helperOutput),
+      helperDigest: sha256(
+        `${helperOutput}\u0000${gitExecPath}\u0000${executableDigests.join("\u0000")}`,
+      ),
       helperCount: helpers.filter((helper) => helper.value !== "").length,
     };
   };
