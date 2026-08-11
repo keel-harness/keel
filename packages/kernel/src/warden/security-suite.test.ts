@@ -185,6 +185,12 @@ describe("Phase-2A security suite v1", () => {
       outPath: exportDir,
     });
     await client.call("warden.shutdown", {});
+    // The shutdown response acknowledges the Warden-side request. The production lifecycle then
+    // closes the child and waits for its synchronous final checkpoint/lock release before any host
+    // consumer reads the chain. Mirror that complete lifecycle here: reading immediately after the
+    // RPC response can race the child process's final checkpoint append and observe a partial JSONL
+    // line under cross-process scheduling pressure.
+    await client.close();
 
     const logPath = join(auditDir, `${SESSION_ID}.jsonl`);
     const records = readAuditJsonl(logPath);
@@ -310,6 +316,7 @@ describe("Phase-2A security suite v1", () => {
     expect(reviewedEgress.output).not.toContain(secret);
 
     await client.call("warden.shutdown", {});
+    await client.close();
 
     expect(existsSync(policyPath)).toBe(false);
     expect(existsSync(executionLog) ? readFileSync(executionLog, "utf8") : "").toBe("");
