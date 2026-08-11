@@ -142,9 +142,69 @@ describe("ADR-0091 operator Git credential protocol", () => {
       /canonical HTTPS repository/u,
     );
   });
+
+  it.each([
+    ["protocol", { protocol: "http" }],
+    ["oversized host", { host: `${"a".repeat(250)}.com` }],
+    ["IP literal", { host: "127.0.0.1" }],
+    ["empty DNS label", { host: "bad..example" }],
+    ["empty path", { path: "" }],
+    ["leading path slash", { path: "/owner/repo.git" }],
+    ["oversized path", { path: "a".repeat(385) }],
+    ["noncanonical path byte", { path: "owner/repo%2egit" }],
+    ["path traversal", { path: "owner/../repo.git" }],
+  ])("rejects an invalid %s credential context", (_label, override) => {
+    const invalidContext = { ...context, ...override } as typeof context;
+    expect(() => parseGitCredentialOutput(exactCredentialOutput("u", "p"), invalidContext)).toThrow(
+      /canonical HTTPS repository/u,
+    );
+  });
+
+  it.each([
+    ["missing final newline", exactCredentialOutput("u", "p").slice(0, -1)],
+    ["carriage return", exactCredentialOutput("u", "p").replace("username=u", "username=u\r")],
+    ["missing key delimiter", exactCredentialOutput("u", "p").replace("username=u", "username")],
+    ["invisible format byte", exactCredentialOutput("u\u200b", "p")],
+    ["oversized username", exactCredentialOutput("u".repeat(257), "p")],
+    ["oversized password", exactCredentialOutput("u", "p".repeat(4_097))],
+  ])("rejects %s credential framing", (_label, output) => {
+    expect(() => parseGitCredentialOutput(output, context)).toThrow(GitCredentialBrokerError);
+  });
 });
 
 describe("ADR-0091 Warden Git credential broker", () => {
+  it.each([
+    ["zero timeout", { timeoutMs: 0 }],
+    ["fractional timeout", { timeoutMs: 1.5 }],
+    ["oversized timeout", { timeoutMs: 5_001 }],
+    ["zero output bound", { maxOutputBytes: 0 }],
+    ["fractional output bound", { maxOutputBytes: 1.5 }],
+    ["oversized output bound", { maxOutputBytes: 8_193 }],
+  ])("rejects a %s at construction", (_label, override) => {
+    const root = privateRoot();
+    expect(() =>
+      createGitCredentialBroker({
+        gitExecutable: fakeGit(root),
+        tempRoot: root,
+        ...override,
+      }),
+    ).toThrow(GitCredentialBrokerError);
+  });
+
+  it("rejects a non-directory or non-private broker temporary root", () => {
+    const root = privateRoot();
+    const fileRoot = join(root, "ordinary-file");
+    writeFileSync(fileRoot, "not a directory\n", { mode: 0o600 });
+    expect(() =>
+      createGitCredentialBroker({ gitExecutable: fakeGit(root), tempRoot: fileRoot }),
+    ).toThrow(/owner-only/u);
+
+    chmodSync(root, 0o755);
+    expect(() =>
+      createGitCredentialBroker({ gitExecutable: join(root, "git"), tempRoot: root }),
+    ).toThrow(/owner-only/u);
+  });
+
   it("binds system/global helper configuration without resolving a credential", async () => {
     const root = privateRoot();
     const requests: GitCredentialProcessRequest[] = [];
@@ -174,6 +234,48 @@ describe("ADR-0091 Warden Git credential broker", () => {
     expect(requests).toHaveLength(3);
     expect(requests.every((request) => request.argv.includes("credential"))).toBe(false);
     expect(requests.every((request) => request.stdin === "")).toBe(true);
+  });
+
+  it("rejects non-file Git and non-directory helper executable identities", async () => {
+    const directoryGitRoot = privateRoot();
+    const directoryGitBroker = createGitCredentialBroker({
+      gitExecutable: directoryGitRoot,
+      tempRoot: directoryGitRoot,
+      runProcess: async (request) => {
+        if (request.argv.includes("--exec-path")) return result(`${directoryGitRoot}\n`);
+        return result("credential.helper\nosxkeychain\u0000");
+      },
+    });
+    await expect(directoryGitBroker.inspect(context)).rejects.toThrow(/ordinary file/u);
+
+    const fileExecRoot = privateRoot();
+    const gitExecutable = fakeGit(fileExecRoot);
+    const fileExecBroker = createGitCredentialBroker({
+      gitExecutable,
+      tempRoot: fileExecRoot,
+      runProcess: async (request) => {
+        if (request.argv.includes("--exec-path")) return result(`${gitExecutable}\n`);
+        return result("credential.helper\nosxkeychain\u0000");
+      },
+    });
+    await expect(fileExecBroker.inspect(context)).rejects.toThrow(/not a directory/u);
+  });
+
+  it.each([
+    ["relative", "relative/git-core\n"],
+    ["embedded newline", "/operator/git\ncore\n"],
+    ["oversized", `/${"a".repeat(1_025)}\n`],
+  ])("rejects a %s Git helper exec path", async (_label, execPathOutput) => {
+    const root = privateRoot();
+    const broker = createGitCredentialBroker({
+      gitExecutable: fakeGit(root),
+      tempRoot: root,
+      runProcess: async (request) => {
+        if (request.argv.includes("--exec-path")) return result(execPathOutput);
+        return result("credential.helper\nosxkeychain\u0000");
+      },
+    });
+    await expect(broker.inspect(context)).rejects.toThrow(/exec path is malformed/u);
   });
 
   it("resolves only with credential fill after exact identity revalidation", async () => {
@@ -286,14 +388,28 @@ describe("ADR-0091 Warden Git credential broker", () => {
   });
 
   it("enforces the real helper-process timeout without returning helper diagnostics", async () => {
-    const broker = realHelperBroker(`process.stdin.resume(); setInterval(() => {}, 1_000);`, {
-      timeoutMs: 1_000,
-    });
+    const broker = realHelperBroker(
+      `process.stdin.resume(); setTimeout(() => process.exit(0), 60_000);`,
+      { timeoutMs: 1_000 },
+    );
     const identity = await broker.inspect(context);
 
     const startedAt = performance.now();
     await expect(broker.resolve(context, identity)).rejects.toThrow(/resolution timed out/u);
     expect(performance.now() - startedAt).toBeLessThan(3_000);
+  });
+
+  it("aborts a real in-flight helper process and fails closed", async () => {
+    const broker = realHelperBroker(
+      `process.stdin.resume(); setTimeout(() => process.exit(0), 60_000);`,
+    );
+    const identity = await broker.inspect(context);
+    const controller = new AbortController();
+    controller.abort();
+
+    await expect(broker.resolve(context, identity, controller.signal)).rejects.toThrow(
+      GitCredentialBrokerError,
+    );
   });
 
   it("enforces the real helper-process output bound without returning credential bytes", async () => {

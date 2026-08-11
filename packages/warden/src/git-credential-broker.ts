@@ -207,7 +207,7 @@ function parseHelperRecords(
         !/^credential(?:\..+)?\.helper$/iu.test(key) ||
         Buffer.byteLength(key, "utf8") > 512 ||
         Buffer.byteLength(value, "utf8") > 2_048 ||
-        (value !== "" && (!/^[\x20-\x7e]+$/u.test(value) || UNSAFE_VALUE.test(value)))
+        (value !== "" && !/^[\x20-\x7e]+$/u.test(value))
       ) {
         throw new GitCredentialBrokerError(
           "operator Git credential helper configuration is malformed",
