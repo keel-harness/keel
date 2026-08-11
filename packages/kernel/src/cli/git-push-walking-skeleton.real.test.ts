@@ -95,6 +95,19 @@ function git(args: readonly string[], cwd?: string): string {
   return result.stdout.trim();
 }
 
+function unrelatedRemoteRefs(remoteGitDir: string, destinationRef: string): string {
+  return git([
+    "--git-dir",
+    remoteGitDir,
+    "for-each-ref",
+    "--format=%(refname)%09%(objectname)%09%(objecttype)",
+    "refs",
+  ])
+    .split("\n")
+    .filter((line) => line !== "" && !line.startsWith(`${destinationRef}\t`))
+    .join("\n");
+}
+
 interface GitRequestObservation {
   readonly authorization?: string;
   readonly host?: string;
@@ -319,6 +332,24 @@ async function startSmartGitFixture(): Promise<SmartGitFixture> {
   const projectRoot = tempDir("keel-git-push-upstream-");
   const remoteGitDir = join(projectRoot, "repo.git");
   git(["init", "--bare", remoteGitDir]);
+  const seed = join(projectRoot, "seed");
+  git(["init", "--initial-branch=main", seed]);
+  writeFileSync(join(seed, "README.md"), "# governed upstream fixture\n");
+  git(["add", "README.md"], seed);
+  git(
+    [
+      "-c",
+      "user.name=Keel Fixture",
+      "-c",
+      "user.email=fixture@keel.invalid",
+      "commit",
+      "-m",
+      "seed governed upstream default branch",
+    ],
+    seed,
+  );
+  git(["--git-dir", remoteGitDir, "fetch", seed, "HEAD:refs/heads/main"]);
+  git(["--git-dir", remoteGitDir, "symbolic-ref", "HEAD", "refs/heads/main"]);
   git(["--git-dir", remoteGitDir, "config", "http.receivepack", "true"]);
   const requests: GitRequestObservation[] = [];
   const serverNames: string[] = [];
@@ -668,6 +699,8 @@ suite("ADR-0091 git.push walking skeleton (real sandbox)", () => {
     const home = tempDir("keel-git-push-home-");
     const auditDir = tempDir("keel-git-push-audit-");
     const branch = "feature/walking-skeleton";
+    const destinationRef = `refs/heads/${branch}`;
+    const unrelatedRefsBefore = unrelatedRemoteRefs(fixture.remoteGitDir, destinationRef);
     const env: NodeJS.ProcessEnv = {
       KEEL_HOME: home,
       KEEL_NO_SNAPSHOT: "1",
@@ -783,9 +816,8 @@ suite("ADR-0091 git.push walking skeleton (real sandbox)", () => {
       ui.queue.push({ kind: "command", name: "/exit" });
       await done;
 
-      expect(git(["--git-dir", fixture.remoteGitDir, "rev-parse", `refs/heads/${branch}`])).toBe(
-        head,
-      );
+      expect(git(["--git-dir", fixture.remoteGitDir, "rev-parse", destinationRef])).toBe(head);
+      expect(unrelatedRemoteRefs(fixture.remoteGitDir, destinationRef)).toBe(unrelatedRefsBefore);
       expect(fixture.requests.length).toBeGreaterThanOrEqual(3);
       const credential = observedCredential(fixture);
       expect(
@@ -864,7 +896,9 @@ suite("ADR-0091 git.push walking skeleton (real sandbox)", () => {
     const fixture = await startSmartGitFixture();
     const { cwd, head: baseHead } = createWorkspace(fixture.canonicalUrl);
     const branch = "feature/fast-forward";
-    git(["--git-dir", fixture.remoteGitDir, "fetch", cwd, `${baseHead}:refs/heads/${branch}`]);
+    const destinationRef = `refs/heads/${branch}`;
+    git(["--git-dir", fixture.remoteGitDir, "fetch", cwd, `${baseHead}:${destinationRef}`]);
+    const unrelatedRefsBefore = unrelatedRemoteRefs(fixture.remoteGitDir, destinationRef);
     writeFileSync(join(cwd, "second.txt"), "fast-forward commit\n");
     git(["add", "second.txt"], cwd);
     git(
@@ -932,9 +966,8 @@ suite("ADR-0091 git.push walking skeleton (real sandbox)", () => {
       ui.queue.push({ kind: "command", name: "/exit" });
       await done;
 
-      expect(git(["--git-dir", fixture.remoteGitDir, "rev-parse", `refs/heads/${branch}`])).toBe(
-        head,
-      );
+      expect(git(["--git-dir", fixture.remoteGitDir, "rev-parse", destinationRef])).toBe(head);
+      expect(unrelatedRemoteRefs(fixture.remoteGitDir, destinationRef)).toBe(unrelatedRefsBefore);
       expect(git(["merge-base", "--is-ancestor", baseHead, head], cwd)).toBe("");
       const credential = observedCredential(fixture);
       expect(
@@ -966,7 +999,9 @@ suite("ADR-0091 git.push walking skeleton (real sandbox)", () => {
     const fixture = await startSmartGitFixture();
     const { cwd, head: baseHead } = createWorkspace(fixture.canonicalUrl);
     const branch = "feature/non-fast-forward";
-    git(["--git-dir", fixture.remoteGitDir, "fetch", cwd, `${baseHead}:refs/heads/${branch}`]);
+    const destinationRef = `refs/heads/${branch}`;
+    git(["--git-dir", fixture.remoteGitDir, "fetch", cwd, `${baseHead}:${destinationRef}`]);
+    const unrelatedRefsBefore = unrelatedRemoteRefs(fixture.remoteGitDir, destinationRef);
 
     writeFileSync(join(cwd, "local.txt"), "local child\n");
     git(["add", "local.txt"], cwd);
@@ -1052,9 +1087,10 @@ suite("ADR-0091 git.push walking skeleton (real sandbox)", () => {
       ui.queue.push({ kind: "command", name: "/exit" });
       await done;
 
-      expect(git(["--git-dir", fixture.remoteGitDir, "rev-parse", `refs/heads/${branch}`])).toBe(
+      expect(git(["--git-dir", fixture.remoteGitDir, "rev-parse", destinationRef])).toBe(
         remoteHead,
       );
+      expect(unrelatedRemoteRefs(fixture.remoteGitDir, destinationRef)).toBe(unrelatedRefsBefore);
       const sessionId = listSessions(env)[0]!.id;
       const session = readSession(sessionId, env);
       const result = session.events.find(
