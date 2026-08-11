@@ -322,6 +322,10 @@ describe("ADR-0091 git.push Warden walking skeleton", () => {
     "https://github.com/owner\\repo.git",
     "https://github.com/owner/repo%20name.git",
     "https://github.com/owner/repo.git/",
+    "https://github.com",
+    `https://github.com/${"a".repeat(385)}`,
+    `https://${["a".repeat(63), "b".repeat(63), "c".repeat(63), "d".repeat(63)].join(".")}/repo.git`,
+    `https://a.test/${"a".repeat(500)}`,
   ])("rejects non-canonical or authority-widening production URL %s", (url) => {
     expect(() => parseCanonicalGitHttpsUrl(url)).toThrow(GitPushInvalidParamsError);
   });
@@ -481,6 +485,15 @@ describe("ADR-0091 git.push Warden walking skeleton", () => {
       /grafts are unsupported/u,
     ],
     [
+      "HTTP alternates",
+      (workspace: ReturnType<typeof makeWorkspace>) => {
+        const info = join(workspace.path, ".git", "objects", "info");
+        mkdirSync(info, { recursive: true });
+        writeFileSync(join(info, "http-alternates"), "https://objects.invalid/\n");
+      },
+      /HTTP alternate object databases are unsupported/u,
+    ],
+    [
       "replacement refs",
       (workspace: ReturnType<typeof makeWorkspace>) => {
         git(
@@ -529,6 +542,40 @@ describe("ADR-0091 git.push Warden walking skeleton", () => {
       /object store must stay inside the trusted workspace/u,
     );
     expect(h.state.pending.size).toBe(0);
+  });
+
+  it("rejects symlinked and oversized repository config authority", async () => {
+    const symlinked = makeWorkspace();
+    const symlinkConfig = join(symlinked.path, ".git", "config");
+    const realConfig = join(symlinked.path, ".git", "config.real");
+    renameSync(symlinkConfig, realConfig);
+    symlinkSync("config.real", symlinkConfig);
+    await expect(request(harness({ workspace: symlinked }))).rejects.toThrow(
+      /repository config must be one ordinary in-repository file/u,
+    );
+
+    const oversized = makeWorkspace();
+    const oversizedConfig = join(oversized.path, ".git", "config");
+    writeFileSync(
+      oversizedConfig,
+      `${readFileSync(oversizedConfig, "utf8")}\n# ${"x".repeat(65 * 1024)}\n`,
+    );
+    await expect(request(harness({ workspace: oversized }))).rejects.toThrow(
+      /repository config is outside its bounded authority/u,
+    );
+  });
+
+  it("rejects ambient alternate-object authority before review", async () => {
+    const previous = process.env["GIT_ALTERNATE_OBJECT_DIRECTORIES"];
+    process.env["GIT_ALTERNATE_OBJECT_DIRECTORIES"] = tempDir("keel-git-push-ambient-alt-");
+    try {
+      await expect(request(harness())).rejects.toThrow(
+        /alternate object databases are unsupported/u,
+      );
+    } finally {
+      if (previous === undefined) delete process.env["GIT_ALTERNATE_OBJECT_DIRECTORIES"];
+      else process.env["GIT_ALTERNATE_OBJECT_DIRECTORIES"] = previous;
+    }
   });
 
   it.each([
