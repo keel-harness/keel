@@ -41,6 +41,8 @@ import {
   resolveGitPushReview,
   type GitPushRuntimeContext,
   type GitPushRuntimeState,
+  type GitPushProductionConfig,
+  type GitPushWalkingSkeletonConfig,
   type PendingGitPushReview,
 } from "./git-push.js";
 
@@ -162,7 +164,9 @@ function sandboxResult(
   };
 }
 
-function testState(nowMs: () => number): GitPushRuntimeState {
+function testState(
+  nowMs: () => number,
+): GitPushRuntimeState & { readonly config: GitPushWalkingSkeletonConfig } {
   return createGitPushRuntimeState({
     advertiseTestCapability: true,
     fixture: {
@@ -205,7 +209,10 @@ function brokerState(nowMs: () => number, broker: GitCredentialBroker): GitPushR
   });
 }
 
-function productionState(nowMs: () => number, broker: GitCredentialBroker): GitPushRuntimeState {
+function productionState(
+  nowMs: () => number,
+  broker: GitCredentialBroker,
+): GitPushRuntimeState & { readonly config: GitPushProductionConfig } {
   return createGitPushRuntimeState({
     productionCapability: true,
     credentialBroker: broker,
@@ -673,6 +680,9 @@ describe("ADR-0091 git.push Warden walking skeleton", () => {
 
   it("routes capability, invalid params, and exact-once settlement through the RPC authority", async () => {
     const h = harness();
+    if (!("advertiseTestCapability" in h.state.config)) {
+      throw new Error("expected non-release fixture state");
+    }
     const gitPushAuthority = createGitPushWalkingSkeletonAuthority(h.state.config);
     const auditDir = tempDir("keel-git-push-rpc-audit-");
     const writer = AuditChainWriter.open({
@@ -1083,7 +1093,9 @@ describe("ADR-0091 git.push Warden walking skeleton", () => {
 
     const workspace = makeWorkspace();
     const h = harness({ workspace, state: productionState(() => 1_000, broker) });
-    await expect(request(h)).rejects.toThrow(/canonical bounded ASCII HTTPS|default port/u);
+    await expect(request(h)).rejects.toThrow(
+      /canonical bounded ASCII HTTPS|canonical lowercase DNS/u,
+    );
     expect(externalNetworkExecutions(h)).toEqual([]);
   });
 
