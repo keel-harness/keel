@@ -1112,4 +1112,122 @@ suite("ADR-0091 git.push walking skeleton (real sandbox)", () => {
       await fixture.close();
     }
   }, 60_000);
+
+  it("reports one real protected-branch rejection without changing any remote ref", async () => {
+    const fixture = await startSmartGitFixture();
+    const { cwd, head } = createWorkspace(fixture.canonicalUrl);
+    const branch = "feature/protected";
+    const destinationRef = `refs/heads/${branch}`;
+    const unrelatedRefsBefore = unrelatedRemoteRefs(fixture.remoteGitDir, destinationRef);
+    const updateHook = join(fixture.remoteGitDir, "hooks", "update");
+    writeFileSync(
+      updateHook,
+      `#!/bin/sh
+if [ "$1" = ${JSON.stringify(destinationRef)} ]; then
+  printf '%s\n' 'protected by server policy' >&2
+  exit 1
+fi
+exit 0
+`,
+      { mode: 0o700 },
+    );
+    chmodSync(updateHook, 0o700);
+
+    const home = tempDir("keel-git-push-protected-home-");
+    const auditDir = tempDir("keel-git-push-protected-audit-");
+    const env: NodeJS.ProcessEnv = {
+      KEEL_HOME: home,
+      KEEL_NO_SNAPSHOT: "1",
+      USER: PRINCIPAL.osUser,
+    };
+    const ui = new TestUI();
+    const warden = spawnedGitPushWarden({ auditDir, fixture, workspaceRoot: cwd });
+    const done = runKeelCommand(undefined, {
+      model: new ScriptedModel({
+        turns: [
+          {
+            toolCalls: [
+              {
+                name: "git.push",
+                args: { remote: "origin", branch, expectedHead: head },
+              },
+            ],
+          },
+          { text: "handled protected branch" },
+        ],
+      }),
+      ui,
+      cwd,
+      env,
+      trustFlag: true,
+      warden,
+    });
+
+    try {
+      ui.queue.push({ kind: "line", text: "attempt the protected branch" });
+      await waitFor(ui, "protected-branch git.push approval", (view) => {
+        const frame = renderFrame(view);
+        return frame.includes("approval required") && frame.includes(head);
+      });
+      expect(fixture.requests).toEqual([]);
+      ui.queue.push({ kind: "command", name: "/approve", args: "once" });
+      await waitFor(
+        ui,
+        "protected-branch rejection settlement",
+        (view) =>
+          view.awaitingInput === true && renderFrame(view).includes("handled protected branch"),
+        35_000,
+      );
+      ui.queue.push({ kind: "command", name: "/exit" });
+      await done;
+
+      expect(
+        git([
+          "--git-dir",
+          fixture.remoteGitDir,
+          "for-each-ref",
+          "--format=%(objectname)",
+          destinationRef,
+        ]),
+      ).toBe("");
+      expect(unrelatedRemoteRefs(fixture.remoteGitDir, destinationRef)).toBe(unrelatedRefsBefore);
+      expect(
+        fixture.requests.filter(
+          (request) =>
+            request.method === "POST" && request.url?.endsWith("/git-receive-pack") === true,
+        ),
+      ).toHaveLength(1);
+
+      const credential = observedCredential(fixture);
+      expect(
+        fixture.requests.every((request) => request.authorization === credential.authorization),
+      ).toBe(true);
+      const sessionId = listSessions(env)[0]!.id;
+      const session = readSession(sessionId, env);
+      const result = session.events.find(
+        (event) => event.type === "tool_result" && event.name === "git.push",
+      );
+      expect(result).toMatchObject({ type: "tool_result", isError: true });
+      if (result?.type !== "tool_result") {
+        throw new Error("expected protected-branch git.push tool result");
+      }
+      expect(result.output).toContain('"status":"failed"');
+      expect(result.output).toContain('"automaticRetry":false');
+      expect(result.output).toContain('"actionMayHaveExecuted":false');
+      expectCredentialAbsent(JSON.stringify(session.events), credential);
+      expectCredentialAbsent(ui.rendered.join("\n"), credential);
+
+      const auditText = readFileSync(join(auditDir, `${sessionId}.jsonl`), "utf8");
+      expectCredentialAbsent(auditText, credential);
+      const records = auditText
+        .trim()
+        .split("\n")
+        .map((line) => AnyAuditRecord.parse(JSON.parse(line)));
+      expect(verifyChain(toChainRecords(records)).ok).toBe(true);
+    } finally {
+      ui.queue.push({ kind: "command", name: "/exit" });
+      await done.catch(() => undefined);
+      await fixture.close();
+    }
+  }, 60_000);
 });

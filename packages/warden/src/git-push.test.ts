@@ -796,6 +796,37 @@ describe("ADR-0091 git.push Warden walking skeleton", () => {
     expect(externalNetworkExecutions(h)).toEqual([]);
   });
 
+  it("denies when the reviewed commit object disappears before approval consumption", async () => {
+    const h = harness();
+    const review = await request(h);
+    const objectPath = join(
+      h.workspace.path,
+      ".git",
+      "objects",
+      h.workspace.head.slice(0, 2),
+      h.workspace.head.slice(2),
+    );
+    const retained = join(tempDir("keel-git-push-retained-object-"), h.workspace.head);
+    renameSync(objectPath, retained);
+
+    const result = await resolveGitPushReview(h.context, review, {
+      reviewId: review.reviewId,
+      approved: true,
+      scope: "once",
+      principal,
+    });
+
+    expect(result).toMatchObject({
+      verdict: "deny",
+      result: { reason: "request facts changed; submit a fresh request" },
+    });
+    expect(externalNetworkExecutions(h)).toEqual([]);
+    expect(h.audits.at(-1)?.payload).toMatchObject({
+      reason: "git.push revalidation failed",
+      actionMayHaveExecuted: false,
+    });
+  });
+
   it("routes capability, invalid params, and exact-once settlement through the RPC authority", async () => {
     const h = harness();
     if (!("advertiseTestCapability" in h.state.config)) {
@@ -2357,6 +2388,19 @@ describe("ADR-0091 git.push Warden walking skeleton", () => {
     mkdirSync(info, { recursive: true });
     writeFileSync(join(info, "alternates"), `${tempDir("keel-git-push-alt-")}\n`);
     await expect(request(alternate)).rejects.toThrow(/alternate object databases/u);
+  });
+
+  it("rejects a symbolic branch whose expectedHead is a non-commit object", async () => {
+    const workspace = makeWorkspace();
+    const blobPath = join(workspace.path, "non-commit.txt");
+    writeFileSync(blobPath, "not a commit\n");
+    const blob = git(["hash-object", "-w", blobPath], workspace.path);
+    writeFileSync(join(workspace.path, ".git", "refs", "heads", "main"), `${blob}\n`);
+    const h = harness({ workspace: { path: workspace.path, head: blob } });
+
+    await expect(request(h)).rejects.toThrow(/expectedHead does not identify a commit/u);
+    expect(h.state.pending.size).toBe(0);
+    expect(externalNetworkExecutions(h)).toEqual([]);
   });
 
   it("supports parented and empty commits while preserving exact bounded facts", async () => {
