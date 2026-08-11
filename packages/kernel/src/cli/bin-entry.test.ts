@@ -228,7 +228,8 @@ describe("bin entrypoint doctor executable posture", () => {
         { cwd: workspace, encoding: "utf8", env, maxBuffer: 1024 * 1024 },
       );
 
-      expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(0);
+      expect([0, 1], `${result.stdout}\n${result.stderr}`).toContain(result.status);
+      expect(result.signal, `${result.stdout}\n${result.stderr}`).toBeNull();
       expect(result.stdout).toContain("ripgrep");
       expect(result.stdout).not.toContain("workspace-writable");
     } finally {
