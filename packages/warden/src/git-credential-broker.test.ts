@@ -23,6 +23,9 @@ function privateRoot(): string {
 function fakeGit(root: string): string {
   const path = join(root, "git");
   writeFileSync(path, "#!/bin/sh\nexit 1\n", { mode: 0o700 });
+  writeFileSync(join(root, "git-credential-osxkeychain"), "#!/bin/sh\nexit 1\n", {
+    mode: 0o700,
+  });
   return path;
 }
 
@@ -99,6 +102,7 @@ describe("ADR-0091 Warden Git credential broker", () => {
     const requests: GitCredentialProcessRequest[] = [];
     const runProcess = vi.fn(async (request: GitCredentialProcessRequest) => {
       requests.push(request);
+      if (request.argv.includes("--exec-path")) return result(`${root}\n`);
       if (request.argv.includes("--list")) {
         return result(
           "global\u0000file:/operator/.gitconfig\u0000credential.helper\nosxkeychain\u0000",
@@ -119,7 +123,7 @@ describe("ADR-0091 Warden Git credential broker", () => {
     expect(identity.helperCount).toBe(1);
     expect(identity.configurationDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
     expect(identity.helperDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
-    expect(requests).toHaveLength(2);
+    expect(requests).toHaveLength(3);
     expect(requests.every((request) => request.argv.includes("credential"))).toBe(false);
     expect(requests.every((request) => request.stdin === "")).toBe(true);
   });
@@ -131,6 +135,7 @@ describe("ADR-0091 Warden Git credential broker", () => {
     const requests: GitCredentialProcessRequest[] = [];
     const runProcess = vi.fn(async (request: GitCredentialProcessRequest) => {
       requests.push(request);
+      if (request.argv.includes("--exec-path")) return result(`${root}\n`);
       if (request.argv.at(-2) === "credential" && request.argv.at(-1) === "fill") {
         return result(exactCredentialOutput(canaryUser, canarySecret));
       }
@@ -180,6 +185,7 @@ describe("ADR-0091 Warden Git credential broker", () => {
     const requests: GitCredentialProcessRequest[] = [];
     const runProcess = vi.fn(async (request: GitCredentialProcessRequest) => {
       requests.push(request);
+      if (request.argv.includes("--exec-path")) return result(`${root}\n`);
       if (request.argv.includes("--list")) {
         inspection += 1;
         return result(`global\u0000credential.helper\nhelper-${String(inspection)}\u0000`);
@@ -205,6 +211,7 @@ describe("ADR-0091 Warden Git credential broker", () => {
   ] as const)("fails closed on %s without including helper output", async (_label, override) => {
     const root = privateRoot();
     const runProcess = vi.fn(async (request: GitCredentialProcessRequest) => {
+      if (request.argv.includes("--exec-path")) return result(`${root}\n`);
       if (request.argv.at(-1) === "fill") {
         return result("", override);
       }
@@ -235,6 +242,7 @@ describe("ADR-0091 Warden Git credential broker", () => {
       fillStarted = resolve;
     });
     const runProcess = vi.fn(async (request: GitCredentialProcessRequest) => {
+      if (request.argv.includes("--exec-path")) return result(`${root}\n`);
       if (request.argv.at(-1) === "fill") {
         fillStarted();
         await fillBlocked;
@@ -271,10 +279,31 @@ describe("ADR-0091 Warden Git credential broker", () => {
       const broker = createGitCredentialBroker({
         gitExecutable: fakeGit(root),
         tempRoot: root,
-        runProcess: async (request) =>
-          request.argv.includes("--list") ? result("config\u0000") : result(helperOutput),
+        runProcess: async (request) => {
+          if (request.argv.includes("--exec-path")) return result(`${root}\n`);
+          return request.argv.includes("--list") ? result("config\u0000") : result(helperOutput);
+        },
       });
       await expect(broker.inspect(context)).rejects.toThrow(GitCredentialBrokerError);
     }
+  });
+
+  it("binds resolved helper executable identity and detects binary drift", async () => {
+    const root = privateRoot();
+    const gitExecutable = fakeGit(root);
+    const helperPath = join(root, "git-credential-osxkeychain");
+    const runProcess = vi.fn(async (request: GitCredentialProcessRequest) => {
+      if (request.argv.includes("--exec-path")) return result(`${root}\n`);
+      if (request.argv.includes("--list")) return result("credential.helper\nosxkeychain\u0000");
+      return result("credential.helper\nosxkeychain\u0000");
+    });
+    const broker = createGitCredentialBroker({ gitExecutable, tempRoot: root, runProcess });
+    const before = await broker.inspect(context);
+
+    writeFileSync(helperPath, "#!/bin/sh\nexit 2\n", { mode: 0o700 });
+    const after = await broker.inspect(context);
+
+    expect(after.configurationDigest).toBe(before.configurationDigest);
+    expect(after.helperDigest).not.toBe(before.helperDigest);
   });
 });
