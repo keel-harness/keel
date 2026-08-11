@@ -59,6 +59,15 @@ export const TUI_LITERAL_PROCESS_RETRY = {
   recovery: "agent may try one fresh literal package/VCS request if available; otherwise ask you",
 } as const;
 
+/** Controller-derived recovery for a provider attempt whose exact pull-request state remains
+ * unconfirmed. Every compact surface must preserve the executor's no-automatic-retry boundary. */
+export const TUI_GITHUB_PR_INDETERMINATE = {
+  summaryPrefix: "PR state unconfirmed ·",
+  reason: "the GitHub pull-request state could not be confirmed after the provider attempt",
+  recovery:
+    "do not retry automatically · restart, then inspect GitHub and the audit before deciding",
+} as const;
+
 /** Controller-derived Autopilot review boundaries. The compact reason is short enough to remain
  * visible in a 40-column receipt when the fuller summary is truncated from the `what` line. */
 export const TUI_AUTOPILOT_REVIEW_BOUNDARY = {

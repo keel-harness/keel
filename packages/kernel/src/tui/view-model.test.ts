@@ -243,6 +243,182 @@ describe("view-model reducer", () => {
     expect(view.items[0]).toMatchObject({ summary: content });
   });
 
+  it.each([
+    { status: "indeterminate", actionMayHaveExecuted: true, ok: true },
+    { status: "created", actionMayHaveExecuted: true, ok: false },
+  ] as const)(
+    "fails visible when github.pr.create $status contradicts outer ok=$ok",
+    ({ status, actionMayHaveExecuted, ok }) => {
+      const oid = "0123456789abcdef0123456789abcdef01234567";
+      const confirmed = status === "created";
+      const result = {
+        kind: "github_pr_create_result",
+        status,
+        repository: "keel-harness/keel",
+        head: "feature/publish",
+        base: "main",
+        commit: oid,
+        number: confirmed ? 314 : null,
+        url: confirmed ? "https://github.com/keel-harness/keel/pull/314" : null,
+        automaticRetry: false,
+        actionMayHaveExecuted,
+      };
+      const output = JSON.stringify(result);
+      const call = {
+        id: "contradiction",
+        name: "github.pr.create",
+        args: {
+          repository: "keel-harness/keel",
+          head: "feature/publish",
+          base: "main",
+          expectedHead: oid,
+        },
+      };
+      let live = initialView(seed);
+      live = reduce(live, { type: "tool-call", ...call });
+      live = reduce(live, { type: "tool-result", id: call.id, ok, output });
+      const resumed = initialView(
+        [
+          { role: "assistant", content: "", toolCalls: [call] },
+          { role: "tool", content: output, toolCallId: call.id, name: call.name },
+        ],
+        {},
+        { failedToolMessageIndexes: ok ? new Set() : new Set([1]) },
+      );
+
+      for (const candidate of [live, resumed]) {
+        expect(itemOutcome(candidate, candidate.items.length - 1)).toBe("failed");
+        expect(candidate.items.at(-1)).toMatchObject({
+          kind: "tool",
+          name: "github.pr.create",
+          status: "error",
+          summary: output,
+        });
+        expect((candidate.items.at(-1) as { summary?: string }).summary).not.toMatch(
+          /created PR|PR state unconfirmed/u,
+        );
+      }
+    },
+  );
+
+  it.each([
+    ["created", true, 314, true, "done", "created PR #314"],
+    ["already-exists", false, 314, true, "done", "PR #314 already exists"],
+    ["failed", false, null, false, "failed", "PR not created"],
+    ["indeterminate", true, null, false, "partial", "PR state unconfirmed"],
+  ] as const)(
+    "presents and rehydrates a %s github.pr.create result as human-readable %s truth",
+    (status, actionMayHaveExecuted, number, ok, outcome, label) => {
+      const oid = "0123456789abcdef0123456789abcdef01234567";
+      const result = {
+        kind: "github_pr_create_result",
+        status,
+        repository: "keel-harness/keel",
+        head: "feature/publish",
+        base: "main",
+        commit: oid,
+        number,
+        url: number === null ? null : `https://github.com/keel-harness/keel/pull/${number}`,
+        automaticRetry: false,
+        actionMayHaveExecuted,
+      };
+      const output = ok
+        ? JSON.stringify(result)
+        : `${label}: bounded Warden guidance\n\n${JSON.stringify(result)}`;
+      const call = {
+        id: "pr",
+        name: "github.pr.create",
+        args: {
+          repository: "keel-harness/keel",
+          head: "feature/publish",
+          base: "main",
+          expectedHead: oid,
+        },
+      };
+      let live = initialView(seed);
+      live = reduce(live, { type: "tool-call", ...call });
+      live = reduce(
+        live,
+        outcome === "partial" || outcome === "failed"
+          ? markToolPresentationOutcome({ type: "tool-result", id: call.id, ok, output }, outcome)
+          : { type: "tool-result", id: call.id, ok, output },
+      );
+      const resumed = initialView(
+        [
+          { role: "assistant", content: "", toolCalls: [call] },
+          { role: "tool", content: output, toolCallId: call.id, name: call.name },
+        ],
+        {},
+        { failedToolMessageIndexes: ok ? new Set() : new Set([1]) },
+      );
+
+      for (const candidate of [live, resumed]) {
+        expect(itemOutcome(candidate, candidate.items.length - 1)).toBe(outcome);
+        expect(candidate.items.at(-1)).toMatchObject({
+          kind: "tool",
+          name: "github.pr.create",
+          status: ok ? "ok" : "error",
+          subject: "keel-harness/keel · feature/publish → main",
+          summary: `${label} · keel-harness/keel · feature/publish → main @ 0123456789ab`,
+        });
+        expect((candidate.items.at(-1) as { summary?: string }).summary).not.toContain(
+          "github_pr_create_result",
+        );
+      }
+    },
+  );
+
+  it("does not promote an incomplete github.pr.create lookalike to resumed indeterminate truth", () => {
+    const content = JSON.stringify({
+      kind: "github_pr_create_result",
+      status: "indeterminate",
+      actionMayHaveExecuted: true,
+    });
+    const view = initialView(
+      [{ role: "tool", content, toolCallId: "forged", name: "github.pr.create" }],
+      {},
+      { failedToolMessageIndexes: new Set([0]) },
+    );
+
+    expect(itemOutcome(view, 0)).toBe("failed");
+    expect(view.items[0]).toMatchObject({ summary: content });
+  });
+
+  it.each([
+    { status: "created", number: null, url: null, actionMayHaveExecuted: true },
+    {
+      status: "created",
+      number: 314,
+      url: "https://github.com/other/repo/pull/314",
+      actionMayHaveExecuted: true,
+    },
+    {
+      status: "indeterminate",
+      number: 314,
+      url: "https://github.com/keel-harness/keel/pull/314",
+      actionMayHaveExecuted: true,
+    },
+    { status: "failed", number: null, url: null, actionMayHaveExecuted: true },
+  ])("rejects inconsistent github.pr.create status authority %#", (variant) => {
+    const content = JSON.stringify({
+      kind: "github_pr_create_result",
+      repository: "keel-harness/keel",
+      head: "feature/publish",
+      base: "main",
+      commit: "0123456789abcdef0123456789abcdef01234567",
+      automaticRetry: false,
+      ...variant,
+    });
+    const view = initialView(
+      [{ role: "tool", content, toolCallId: "inconsistent", name: "github.pr.create" }],
+      {},
+      { failedToolMessageIndexes: new Set([0]) },
+    );
+
+    expect(itemOutcome(view, 0)).toBe("failed");
+    expect(view.items[0]).toMatchObject({ summary: content });
+  });
+
   it("keeps a settled review denial blocked across live presentation and resume", () => {
     const output =
       "blocked by warden (not executed): review closed as denied; no review remains pending; command review for rm stale.txt; turn stopped before review submission; rerun only when a live approval surface is available";

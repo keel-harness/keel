@@ -98,6 +98,21 @@ describe("tool-card plan", () => {
     expect(toolCardPlan(item, undefined).recovery).not.toContain("retry");
   });
 
+  it("preserves github.pr.create no-retry recovery for an unconfirmed provider state", () => {
+    const item = markToolPresentationOutcome(
+      tool({
+        name: "github.pr.create",
+        status: "error",
+        summary: "PR state unconfirmed · keel-harness/keel · feature/publish → main @ 0123456789ab",
+      }),
+      "partial",
+    );
+
+    expect(toolCardPlan(item, undefined).recovery).toBe(
+      "next: do not retry automatically · restart, then inspect GitHub and the audit before deciding",
+    );
+  });
+
   it("does not turn successful tool content into controller-owned review recovery", () => {
     const plan = toolCardPlan(
       tool({

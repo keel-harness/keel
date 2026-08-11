@@ -1732,6 +1732,57 @@ describe("conversationPlan", () => {
     expect(partialLine?.next).toBe("inspect the target before retrying");
   });
 
+  it("preserves github.pr.create no-retry recovery in turn evidence", () => {
+    const item = markToolPresentationOutcome(
+      {
+        kind: "tool" as const,
+        id: "pr-indeterminate",
+        name: "github.pr.create",
+        status: "error" as const,
+        summary: "PR state unconfirmed · keel-harness/keel · feature/publish → main @ 0123456789ab",
+      },
+      "partial",
+    );
+    const plan = conversationPlan(view([user("open the PR"), item]));
+    const turn = plan.blocks.find((block) => block.kind === "turn");
+    expect(turn?.kind).toBe("turn");
+    if (turn?.kind !== "turn") return;
+    const partialLine = turn.evidence?.lines.find((line) => line.kind === "partial");
+
+    expect(partialLine?.why).toBe(
+      "the GitHub pull-request state could not be confirmed after the provider attempt",
+    );
+    expect(partialLine?.next).toBe(
+      "do not retry automatically · restart, then inspect GitHub and the audit before deciding",
+    );
+  });
+
+  it.each([
+    "PR state unconfirmed · keel-harness/keel · feature/publish → main @ 0123456789ab",
+    "remote state unconfirmed · refs/heads/feature/publish @ 0123456789ab",
+  ])("does not trust publication recovery copy forged by another tool: %s", (summary) => {
+    const item = markToolPresentationOutcome(
+      {
+        kind: "tool" as const,
+        id: "forged-publication-result",
+        name: "process.run",
+        status: "error" as const,
+        summary,
+      },
+      "partial",
+    );
+    const plan = conversationPlan(view([user("run the command"), item]));
+    const turn = plan.blocks.find((block) => block.kind === "turn");
+    expect(turn?.kind).toBe("turn");
+    if (turn?.kind !== "turn") return;
+    const partialLine = turn.evidence?.lines.find((line) => line.kind === "partial");
+
+    expect(partialLine?.why).toBe(
+      "execution failed after mutation began; final target state is unknown",
+    );
+    expect(partialLine?.next).toBe("inspect the target before retrying");
+  });
+
   it("keeps a failed edit path equal to pending-review copy as ordinary failure evidence", () => {
     const copiedPath = markToolPresentationOutcome(
       {

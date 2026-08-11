@@ -34,6 +34,7 @@ import {
 } from "./review-settlement-presentation.js";
 import {
   TUI_AUTOPILOT_REVIEW_BOUNDARY,
+  TUI_GITHUB_PR_INDETERMINATE,
   TUI_LITERAL_PROCESS_RETRY,
   TUI_MANUAL_RECOVERY_GUIDANCE,
   TUI_TERMINAL_REVIEW_TRUTH,
@@ -704,9 +705,17 @@ function toolProblemReason(
   >,
   detail = "",
   reviewSettlement?: ReviewSettlementPresentationOutcome,
+  toolName?: string,
 ): string {
   if (outcome === "partial" && reviewSettlement === "partial") {
     return "review settlement crossed the deadline; final execution state is unknown";
+  }
+  if (
+    outcome === "partial" &&
+    toolName === "github.pr.create" &&
+    detail.startsWith(TUI_GITHUB_PR_INDETERMINATE.summaryPrefix)
+  ) {
+    return TUI_GITHUB_PR_INDETERMINATE.reason;
   }
   if (outcome === "partial")
     return "execution failed after mutation began; final target state is unknown";
@@ -751,12 +760,19 @@ function toolProblemNext(
   >,
   detail = "",
   reviewSettlement?: ReviewSettlementPresentationOutcome,
+  toolName?: string,
 ): string {
   const reviewRecovery = reviewSettlementRecovery(reviewSettlement);
   if (reviewRecovery !== undefined) return reviewRecovery;
   if (outcome === "partial") {
-    if (detail.startsWith("remote state unconfirmed · refs/heads/")) {
+    if (toolName === "git.push" && detail.startsWith("remote state unconfirmed · refs/heads/")) {
       return "do not retry automatically · restart, then inspect the independent remote ref and audit";
+    }
+    if (
+      toolName === "github.pr.create" &&
+      detail.startsWith(TUI_GITHUB_PR_INDETERMINATE.summaryPrefix)
+    ) {
+      return TUI_GITHUB_PR_INDETERMINATE.recovery;
     }
     return "inspect the target before retrying";
   }
@@ -971,8 +987,8 @@ function toolEvidenceLine(
     return {
       kind: problemOutcome,
       text,
-      why: toolProblemReason(problemOutcome, summary, reviewSettlement),
-      next: toolProblemNext(problemOutcome, summary, reviewSettlement),
+      why: toolProblemReason(problemOutcome, summary, reviewSettlement, item.name),
+      next: toolProblemNext(problemOutcome, summary, reviewSettlement, item.name),
     };
   }
   if (outcome === "limited") {

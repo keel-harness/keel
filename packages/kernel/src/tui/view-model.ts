@@ -1527,6 +1527,132 @@ function gitPushResultSummary(result: GitPushResultProjection): string {
   );
 }
 
+interface GithubPrCreateResultProjection {
+  readonly status: "created" | "already-exists" | "failed" | "indeterminate";
+  readonly repository: string;
+  readonly head: string;
+  readonly base: string;
+  readonly commit: string;
+  readonly number: number | null;
+  readonly actionMayHaveExecuted: boolean;
+}
+
+const GITHUB_PR_REPOSITORY =
+  /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?\/[A-Za-z0-9_.-]{1,100}$/u;
+const GITHUB_PR_FULL_OID = /^[0-9a-f]{40}$/u;
+
+function validGithubPrRepository(value: unknown): value is string {
+  if (typeof value !== "string" || !GITHUB_PR_REPOSITORY.test(value)) return false;
+  const name = value.slice(value.indexOf("/") + 1);
+  return name !== "." && name !== ".." && !name.startsWith("-") && !name.endsWith(".");
+}
+
+function validGithubPrBranch(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    /^[\x21-\x7e]{1,128}$/u.test(value) &&
+    value !== "HEAD" &&
+    value !== "@" &&
+    !value.startsWith("refs/") &&
+    !value.startsWith(".") &&
+    !value.endsWith(".") &&
+    !value.endsWith(".lock") &&
+    !value.includes("..") &&
+    !value.includes("@{") &&
+    !/[\\~^:?*[\]]/u.test(value)
+  );
+}
+
+/** Parse only the complete executor-owned result envelope. This is presentation truth, never
+ * authorization input; strict status/number/URL pairs prevent historical JSON lookalikes from
+ * manufacturing a confirmed or retry-sensitive pull-request outcome. */
+function parseGithubPrCreateResultProjection(
+  name: string,
+  output: string,
+): GithubPrCreateResultProjection | undefined {
+  if (name !== "github.pr.create") return undefined;
+  const trimmed = output.trim();
+  if (trimmed.length === 0 || trimmed.length > 8_192) return undefined;
+  const separator = trimmed.lastIndexOf("\n\n");
+  const body = (separator === -1 ? trimmed : trimmed.slice(separator + 2)).trim();
+  if (!body.startsWith("{") || !body.endsWith("}")) return undefined;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(body);
+  } catch {
+    return undefined;
+  }
+  if (!isRecord(parsed) || parsed["kind"] !== "github_pr_create_result") return undefined;
+  const status = parsed["status"];
+  const repository = parsed["repository"];
+  const head = parsed["head"];
+  const base = parsed["base"];
+  const commit = parsed["commit"];
+  const number = parsed["number"];
+  const url = parsed["url"];
+  const actionMayHaveExecuted = parsed["actionMayHaveExecuted"];
+  if (
+    (status !== "created" &&
+      status !== "already-exists" &&
+      status !== "failed" &&
+      status !== "indeterminate") ||
+    !validGithubPrRepository(repository) ||
+    !validGithubPrBranch(head) ||
+    !validGithubPrBranch(base) ||
+    head === base ||
+    typeof commit !== "string" ||
+    !GITHUB_PR_FULL_OID.test(commit) ||
+    parsed["automaticRetry"] !== false ||
+    typeof actionMayHaveExecuted !== "boolean"
+  ) {
+    return undefined;
+  }
+  const confirmed = status === "created" || status === "already-exists";
+  if (
+    confirmed !== (typeof number === "number" && Number.isSafeInteger(number) && number > 0) ||
+    (confirmed
+      ? url !== `https://github.com/${repository}/pull/${String(number)}`
+      : number !== null || url !== null) ||
+    (status === "created" && actionMayHaveExecuted !== true) ||
+    (status === "already-exists" && actionMayHaveExecuted !== false) ||
+    (status === "failed" && actionMayHaveExecuted !== false) ||
+    (status === "indeterminate" && actionMayHaveExecuted !== true)
+  ) {
+    return undefined;
+  }
+  return {
+    status,
+    repository,
+    head,
+    base,
+    commit,
+    number: confirmed ? (number as number) : null,
+    actionMayHaveExecuted,
+  };
+}
+
+function githubPrCreateResultSummary(result: GithubPrCreateResultProjection): string {
+  const label =
+    result.status === "created"
+      ? `created PR #${String(result.number)}`
+      : result.status === "already-exists"
+        ? `PR #${String(result.number)} already exists`
+        : result.status === "indeterminate" || result.actionMayHaveExecuted
+          ? "PR state unconfirmed"
+          : "PR not created";
+  return truncateLine(
+    `${label} · ${result.repository} · ${result.head} → ${result.base} @ ${result.commit.slice(0, 12)}`,
+    MAX_LIVE_OUTPUT_LEN,
+  );
+}
+
+function githubPrCreateResultMatchesOk(
+  result: GithubPrCreateResultProjection,
+  ok: boolean,
+): boolean {
+  return ok === (result.status === "created" || result.status === "already-exists");
+}
+
 function bashEnvelopeCommandFailed(env: BashResultEnvelope): boolean {
   return (
     env.complete && ((env.exitCode !== undefined && env.exitCode !== 0) || env.signal !== undefined)
@@ -1668,9 +1794,17 @@ function toolResultSummary(
   ok: boolean,
   output: string,
   outcome: ReturnType<typeof toolPresentationOutcome>,
+  sourceOk: boolean,
 ): string {
   const gitPushResult = parseGitPushResultProjection(name, output);
   if (gitPushResult !== undefined) return gitPushResultSummary(gitPushResult);
+  const githubPrCreateResult = parseGithubPrCreateResultProjection(name, output);
+  if (
+    githubPrCreateResult !== undefined &&
+    githubPrCreateResultMatchesOk(githubPrCreateResult, sourceOk)
+  ) {
+    return githubPrCreateResultSummary(githubPrCreateResult);
+  }
   const cleanedOutput = ok ? undefined : stripControlLine(output).trim();
   if (cleanedOutput !== undefined) {
     const reviewSettlementOutcome = kernelReviewSettlementOutcome(cleanedOutput);
@@ -1769,6 +1903,23 @@ function toolInvocationSubject(name: string, args: JsonObjectT): string | undefi
       return undefined;
     }
     return truncateLine(`${remote}/${branch} @ ${expectedHead.slice(0, 12)}`, MAX_TOOL_SUBJECT_LEN);
+  }
+  if (name === "github.pr.create") {
+    const repository = args["repository"];
+    const head = args["head"];
+    const base = args["base"];
+    const expectedHead = args["expectedHead"];
+    if (
+      !validGithubPrRepository(repository) ||
+      !validGithubPrBranch(head) ||
+      !validGithubPrBranch(base) ||
+      head === base ||
+      typeof expectedHead !== "string" ||
+      !GITHUB_PR_FULL_OID.test(expectedHead)
+    ) {
+      return undefined;
+    }
+    return truncateLine(`${repository} · ${head} → ${base}`, MAX_TOOL_SUBJECT_LEN);
   }
   if (name !== "read" && name !== "write" && name !== "edit") return undefined;
   const path = args["path"];
@@ -2588,6 +2739,19 @@ function resumedToolOutcome(
       ? "partial"
       : "failed";
   }
+  const githubPrCreateResult = parseGithubPrCreateResultProjection(name, content);
+  if (
+    githubPrCreateResult !== undefined &&
+    !githubPrCreateResultMatchesOk(githubPrCreateResult, !failed)
+  ) {
+    return "failed";
+  }
+  if (failed && githubPrCreateResult !== undefined) {
+    return githubPrCreateResult.status === "indeterminate" ||
+      githubPrCreateResult.actionMayHaveExecuted
+      ? "partial"
+      : "failed";
+  }
   if (!failed) return undefined;
   if (content === INTERRUPTED_TOOL_RESULT || content === KERNEL_STRINGS.toolAborted)
     return "stopped";
@@ -2667,6 +2831,7 @@ function seedItem(
         !presentationFailed,
         m.content,
         outcome,
+        !failed,
       ),
       ...(subject !== undefined ? { subject } : {}),
       ...(mutationPresentation === undefined ? {} : { mutationPresentation }),
@@ -3530,13 +3695,21 @@ export function reduce(view: ViewModel, ev: KernelEventT | UiInputEventT): ViewM
         (target.name === "bash" || target.name === "process.run")
           ? parseCommandResultEnvelope(target.name, ev.output)
           : undefined;
-      const outcome =
-        taggedOutcome ??
-        (bashEnvelope !== undefined &&
-        (bashEnvelopeCommandFailed(bashEnvelope) ||
-          bashEnvelopeTestPresentation(bashEnvelope)?.failed === true)
-          ? "failed"
-          : undefined);
+      const githubPrCreateResult =
+        target?.kind === "tool"
+          ? parseGithubPrCreateResultProjection(target.name, ev.output)
+          : undefined;
+      const githubPrCreateContractFailure =
+        githubPrCreateResult !== undefined &&
+        !githubPrCreateResultMatchesOk(githubPrCreateResult, ev.ok);
+      const outcome = githubPrCreateContractFailure
+        ? "failed"
+        : (taggedOutcome ??
+          (bashEnvelope !== undefined &&
+          (bashEnvelopeCommandFailed(bashEnvelope) ||
+            bashEnvelopeTestPresentation(bashEnvelope)?.failed === true)
+            ? "failed"
+            : undefined));
       const presentationOk = ev.ok && outcome !== "failed";
       const reviewSettlementOutcome = ev.ok
         ? undefined
@@ -3561,7 +3734,14 @@ export function reduce(view: ViewModel, ev: KernelEventT | UiInputEventT): ViewM
             // mega-line would otherwise make firstLine/lastMeaningfulLine return the whole blob and be
             // stored + re-rendered whole. Slice the raw output to the bound FIRST (head for success's
             // first line, tail for a failure's last line) so the work is bounded too, then truncate.
-            summary: toolResultSummary(it.name, it.summary, presentationOk, ev.output, outcome),
+            summary: toolResultSummary(
+              it.name,
+              it.summary,
+              presentationOk,
+              ev.output,
+              outcome,
+              ev.ok,
+            ),
             ...(it.subject !== undefined ? { subject: it.subject } : {}),
             ...(it.diff !== undefined ? { diff: it.diff } : {}),
             ...(hasPresentationResolver
