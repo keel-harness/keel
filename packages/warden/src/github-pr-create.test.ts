@@ -120,7 +120,11 @@ describe("github.pr.create strict contract", () => {
         available: true,
         backend: "srt:vendored",
         enforcementTier: "sandbox:srt",
-        features: ["egress-address-guard/v1", "credential-tls-termination/v1"],
+        features: [
+          "egress-address-guard/v1",
+          "credential-tls-termination/v1",
+          "srt-launch-authority/v1",
+        ],
       },
     } as const;
     expect(githubPrCreateCapabilityAvailable(enforcing)).toBe(true);

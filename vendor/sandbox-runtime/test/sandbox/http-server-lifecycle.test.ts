@@ -26,6 +26,22 @@ function selectBunRuntime(): void {
 }
 
 describe('HTTP proxy server lifecycle', () => {
+  it('permanently rejects a connection accepted before launch authority activates', () => {
+    let active = false
+    const server = createHttpProxyServer({
+      filter: () => true,
+      proxyAuthToken: 'a'.repeat(64),
+      isProxyAuthActive: () => active,
+    })
+    const acceptedBeforeActivation = new Socket()
+
+    server.emit('connection', acceptedBeforeActivation)
+    active = true
+
+    expect(acceptedBeforeActivation.destroyed).toBe(true)
+    server.removeAllListeners()
+  })
+
   it('drains a Node CONNECT-upgraded client before server close settles', async () => {
     const server = createHttpProxyServer({ filter: () => true })
     server.removeAllListeners('connect')
@@ -139,7 +155,7 @@ describe('HTTP proxy server lifecycle', () => {
     await expect(forceCloseHttpServer(server)).rejects.toBe(forceCloseError)
   })
 
-  it('logs and resolves a synchronous Node close callback error', async () => {
+  it('logs and rejects a synchronous Node close callback error', async () => {
     process.env.SRT_DEBUG = '1'
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
     const server: ForceCloseHttpServer = {
@@ -149,7 +165,7 @@ describe('HTTP proxy server lifecycle', () => {
       closeAllConnections() {},
     }
 
-    await expect(forceCloseHttpServer(server)).resolves.toBeUndefined()
+    await expect(forceCloseHttpServer(server)).rejects.toThrow('close callback failed')
     expect(consoleError).toHaveBeenCalledWith(
       '[SandboxDebug] Error closing HTTP proxy server: close callback failed',
     )

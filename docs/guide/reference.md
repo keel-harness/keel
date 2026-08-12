@@ -43,11 +43,15 @@ offer the model two separate typed tools. Push takes:
 
 The Warden requires Git 2.x (2.39 or newer), exactly one canonical HTTPS remote URL, an operator
 system/global credential helper, enforcing `srt:vendored` verified TLS plus connect-time address
-guarding, and one lossless human approval for that occurrence once. It can create or ordinarily fast-forward one exact
+guarding, `srt-launch-authority/v1` per-launch authenticated proxy/credential isolation, and one
+lossless human approval for that occurrence once. It can create or ordinarily fast-forward one exact
 non-default feature ref. Force, deletion, tags, default branch writes, SSH, redirects, project
 credential helpers, reusable grants, and automatic retry are not supported. `keel doctor` reports
 these non-secret prerequisites and one remediation when possible; it never resolves or prints a
-credential.
+credential. Retired network-bearing proxy endpoints are permanently excluded, so exhausting the finite endpoint
+space withholds both publication tools and fails closed. Compact registry V2 makes the 25,536-port
+range the first bound. Exact deny-all launches allocate no proxy endpoint or credential authority,
+so offline endpointless execution remains available at capacity.
 
 After the exact head has been pushed, `github.pr.create` takes:
 

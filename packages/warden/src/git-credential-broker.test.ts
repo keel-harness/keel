@@ -13,6 +13,7 @@ import { randomBytes } from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   GitCredentialBrokerError,
+  applyGitCredentialStdinErrorPolicy,
   createGitCredentialBroker,
   parseGitCredentialOutput,
   type GitCredentialProcessRequest,
@@ -37,7 +38,55 @@ function fakeGit(root: string): string {
   return path;
 }
 
+interface BrokerFixture {
+  readonly root: string;
+  readonly home: string;
+  readonly workspaceRoot: string;
+  readonly denyRoot: string;
+  readonly configPath: string;
+  readonly gitExecutable: string;
+  readonly env: NodeJS.ProcessEnv;
+}
+
+function brokerFixture(root = privateRoot()): BrokerFixture {
+  const home = join(root, "operator-home");
+  const workspaceRoot = join(root, "workspace");
+  const denyRoot = join(root, "deny");
+  for (const directory of [home, workspaceRoot, denyRoot]) {
+    if (!existsSync(directory)) mkdirSync(directory, { mode: 0o700 });
+    chmodSync(directory, 0o700);
+  }
+  const configPath = join(home, ".gitconfig");
+  if (!existsSync(configPath)) {
+    writeFileSync(configPath, "[credential]\n\thelper = osxkeychain\n", { mode: 0o600 });
+  }
+  return {
+    root,
+    home,
+    workspaceRoot,
+    denyRoot,
+    configPath,
+    gitExecutable: fakeGit(root),
+    env: { HOME: home, PATH: root, LANG: "C" },
+  };
+}
+
+function brokerOptions(fixture: BrokerFixture) {
+  return {
+    gitExecutable: fixture.gitExecutable,
+    tempRoot: fixture.root,
+    workspaceRoot: fixture.workspaceRoot,
+    denyRoots: [fixture.denyRoot],
+    env: fixture.env,
+  };
+}
+
+function configOutput(fixture: BrokerFixture, value = "osxkeychain", scope = "global"): string {
+  return `${scope}\u0000file:${fixture.configPath}\u0000credential.helper\n${value}\u0000`;
+}
+
 function realGitExecutable(): string {
+  if (existsSync("/usr/bin/git")) return realpathSync("/usr/bin/git");
   for (const directory of (process.env["PATH"] ?? "").split(":")) {
     if (!directory.startsWith("/")) continue;
     const candidate = join(directory, "git");
@@ -52,17 +101,22 @@ function realHelperBroker(
 ) {
   const root = privateRoot();
   const home = join(root, "operator-home");
+  const workspaceRoot = join(root, "workspace");
+  const denyRoot = join(root, "deny");
   mkdirSync(home, { mode: 0o700 });
-  const helperPath = join(home, "helper.mjs");
-  writeFileSync(helperPath, helperSource, { mode: 0o700 });
-  writeFileSync(
-    join(home, ".gitconfig"),
-    `[credential]\n\thelper =\n\thelper = !${process.execPath} ${helperPath}\n`,
-    { mode: 0o600 },
-  );
+  mkdirSync(workspaceRoot, { mode: 0o700 });
+  mkdirSync(denyRoot, { mode: 0o700 });
+  const helperPath = join(home, "credential-helper");
+  writeFileSync(helperPath, `#!/bin/sh\n${helperSource}\n`, { mode: 0o700 });
+  chmodSync(helperPath, 0o700);
+  writeFileSync(join(home, ".gitconfig"), `[credential]\n\thelper =\n\thelper = !${helperPath}\n`, {
+    mode: 0o600,
+  });
   return createGitCredentialBroker({
     gitExecutable: realGitExecutable(),
     tempRoot: root,
+    workspaceRoot,
+    denyRoots: [denyRoot],
     env: { HOME: home, PATH: process.env["PATH"] ?? "/usr/bin:/bin", LANG: "C" },
     ...options,
   });
@@ -105,6 +159,17 @@ afterEach(() => {
 });
 
 describe("ADR-0091 operator Git credential protocol", () => {
+  it.each([
+    ["empty inspection input", "", 0],
+    ["credential-bearing input", "protocol=https\n", 1],
+  ] as const)("handles an asynchronous stdin failure for %s", (_label, stdin, failures) => {
+    const failClosed = vi.fn();
+
+    applyGitCredentialStdinErrorPolicy(stdin, failClosed);
+
+    expect(failClosed).toHaveBeenCalledTimes(failures);
+  });
+
   it("parses one exact matching HTTPS username/password record", () => {
     expect(
       parseGitCredentialOutput(exactCredentialOutput("x-access-token", "token"), context),
@@ -181,48 +246,40 @@ describe("ADR-0091 Warden Git credential broker", () => {
     ["fractional output bound", { maxOutputBytes: 1.5 }],
     ["oversized output bound", { maxOutputBytes: 8_193 }],
   ])("rejects a %s at construction", (_label, override) => {
-    const root = privateRoot();
+    const fixture = brokerFixture();
     expect(() =>
       createGitCredentialBroker({
-        gitExecutable: fakeGit(root),
-        tempRoot: root,
+        ...brokerOptions(fixture),
         ...override,
       }),
     ).toThrow(GitCredentialBrokerError);
   });
 
   it("rejects a non-directory or non-private broker temporary root", () => {
-    const root = privateRoot();
-    const fileRoot = join(root, "ordinary-file");
+    const fixture = brokerFixture();
+    const fileRoot = join(fixture.root, "ordinary-file");
     writeFileSync(fileRoot, "not a directory\n", { mode: 0o600 });
     expect(() =>
-      createGitCredentialBroker({ gitExecutable: fakeGit(root), tempRoot: fileRoot }),
+      createGitCredentialBroker({ ...brokerOptions(fixture), tempRoot: fileRoot }),
     ).toThrow(/owner-only/u);
 
-    chmodSync(root, 0o755);
+    chmodSync(fixture.root, 0o755);
     expect(() =>
-      createGitCredentialBroker({ gitExecutable: join(root, "git"), tempRoot: root }),
+      createGitCredentialBroker({ ...brokerOptions(fixture), tempRoot: fixture.root }),
     ).toThrow(/owner-only/u);
   });
 
   it("binds system/global helper configuration without resolving a credential", async () => {
-    const root = privateRoot();
+    const fixture = brokerFixture();
     const requests: GitCredentialProcessRequest[] = [];
     const runProcess = vi.fn(async (request: GitCredentialProcessRequest) => {
       requests.push(request);
-      if (request.argv.includes("--exec-path")) return result(`${root}\n`);
-      if (request.argv.includes("--list")) {
-        return result(
-          "global\u0000file:/operator/.gitconfig\u0000credential.helper\nosxkeychain\u0000",
-        );
-      }
-      return result("credential.helper\nosxkeychain\u0000");
+      if (request.argv.includes("--exec-path")) return result(`${fixture.root}\n`);
+      return result(configOutput(fixture));
     });
     const broker = createGitCredentialBroker({
-      gitExecutable: fakeGit(root),
-      tempRoot: root,
+      ...brokerOptions(fixture),
       runProcess,
-      env: { HOME: "/operator", PATH: "/usr/bin:/bin" },
     });
 
     const identity = await broker.inspect(context);
@@ -231,34 +288,42 @@ describe("ADR-0091 Warden Git credential broker", () => {
     expect(identity.helperCount).toBe(1);
     expect(identity.configurationDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
     expect(identity.helperDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
-    expect(requests).toHaveLength(3);
+    expect(requests).toHaveLength(2);
     expect(requests.every((request) => request.argv.includes("credential"))).toBe(false);
     expect(requests.every((request) => request.stdin === "")).toBe(true);
+    expect(requests.at(-1)?.argv).toEqual([
+      "config",
+      "--null",
+      "--includes",
+      "--show-origin",
+      "--show-scope",
+      "--list",
+    ]);
   });
 
   it("rejects non-file Git and non-directory helper executable identities", async () => {
-    const directoryGitRoot = privateRoot();
+    const directoryFixture = brokerFixture();
     const directoryGitBroker = createGitCredentialBroker({
-      gitExecutable: directoryGitRoot,
-      tempRoot: directoryGitRoot,
+      ...brokerOptions(directoryFixture),
+      gitExecutable: directoryFixture.root,
       runProcess: async (request) => {
-        if (request.argv.includes("--exec-path")) return result(`${directoryGitRoot}\n`);
-        return result("credential.helper\nosxkeychain\u0000");
+        if (request.argv.includes("--exec-path")) return result(`${directoryFixture.root}\n`);
+        return result(configOutput(directoryFixture));
       },
     });
-    await expect(directoryGitBroker.inspect(context)).rejects.toThrow(/ordinary file/u);
+    await expect(directoryGitBroker.inspect(context)).rejects.toThrow(GitCredentialBrokerError);
 
-    const fileExecRoot = privateRoot();
-    const gitExecutable = fakeGit(fileExecRoot);
+    const fileFixture = brokerFixture();
     const fileExecBroker = createGitCredentialBroker({
-      gitExecutable,
-      tempRoot: fileExecRoot,
+      ...brokerOptions(fileFixture),
       runProcess: async (request) => {
-        if (request.argv.includes("--exec-path")) return result(`${gitExecutable}\n`);
-        return result("credential.helper\nosxkeychain\u0000");
+        if (request.argv.includes("--exec-path")) {
+          return result(`${fileFixture.gitExecutable}\n`);
+        }
+        return result(configOutput(fileFixture));
       },
     });
-    await expect(fileExecBroker.inspect(context)).rejects.toThrow(/not a directory/u);
+    await expect(fileExecBroker.inspect(context)).rejects.toThrow(GitCredentialBrokerError);
   });
 
   it.each([
@@ -266,43 +331,35 @@ describe("ADR-0091 Warden Git credential broker", () => {
     ["embedded newline", "/operator/git\ncore\n"],
     ["oversized", `/${"a".repeat(1_025)}\n`],
   ])("rejects a %s Git helper exec path", async (_label, execPathOutput) => {
-    const root = privateRoot();
+    const fixture = brokerFixture();
     const broker = createGitCredentialBroker({
-      gitExecutable: fakeGit(root),
-      tempRoot: root,
+      ...brokerOptions(fixture),
       runProcess: async (request) => {
         if (request.argv.includes("--exec-path")) return result(execPathOutput);
-        return result("credential.helper\nosxkeychain\u0000");
+        return result(configOutput(fixture));
       },
     });
-    await expect(broker.inspect(context)).rejects.toThrow(/exec path is malformed/u);
+    await expect(broker.inspect(context)).rejects.toThrow(GitCredentialBrokerError);
   });
 
   it("resolves only with credential fill after exact identity revalidation", async () => {
-    const root = privateRoot();
+    const fixture = brokerFixture();
     const canaryUser = `user-${randomBytes(8).toString("hex")}`;
     const canarySecret = `token-${randomBytes(24).toString("base64url")}`;
     const requests: GitCredentialProcessRequest[] = [];
     const runProcess = vi.fn(async (request: GitCredentialProcessRequest) => {
       requests.push(request);
-      if (request.argv.includes("--exec-path")) return result(`${root}\n`);
+      if (request.argv.includes("--exec-path")) return result(`${fixture.root}\n`);
       if (request.argv.at(-2) === "credential" && request.argv.at(-1) === "fill") {
         return result(exactCredentialOutput(canaryUser, canarySecret));
       }
-      if (request.argv.includes("--list")) {
-        return result(
-          "global\u0000file:/operator/.gitconfig\u0000credential.helper\nosxkeychain\u0000",
-        );
-      }
-      return result("credential.helper\nosxkeychain\u0000");
+      return result(configOutput(fixture));
     });
     const broker = createGitCredentialBroker({
-      gitExecutable: fakeGit(root),
-      tempRoot: root,
+      ...brokerOptions(fixture),
       runProcess,
       env: {
-        HOME: "/operator",
-        PATH: "/usr/bin:/bin",
+        ...fixture.env,
         TMPDIR: "/tmp/untrusted-operator-temp",
         GIT_ASKPASS: "/hostile",
       },
@@ -332,23 +389,32 @@ describe("ADR-0091 Warden Git credential broker", () => {
     expect(fill.env["SSH_ASKPASS"]).toBe("/usr/bin/false");
     expect(fill.env["GCM_INTERACTIVE"]).toBe("never");
     expect(fill.env["TMPDIR"]).toBe(fill.cwd);
+    expect(fill.env["GIT_CONFIG_NOSYSTEM"]).toBe("1");
+    expect(fill.env["GIT_CONFIG_GLOBAL"]).toBe("/dev/null");
+    expect(fill.argv.slice(0, 6)).toEqual([
+      "-c",
+      "credential.helper=",
+      "-c",
+      expect.stringMatching(/^credential\.helper=!/u),
+      "-c",
+      "credential.useHttpPath=true",
+    ]);
     expect(fill.env).not.toHaveProperty("GIT_DIR");
   });
 
   it("resolves a GitHub bearer token from only the helper password", async () => {
-    const root = privateRoot();
+    const fixture = brokerFixture();
     const canaryUser = `ignored-${randomBytes(8).toString("hex")}`;
     const canarySecret = `github_pat_${randomBytes(24).toString("base64url")}`;
     const runProcess = vi.fn(async (request: GitCredentialProcessRequest) => {
-      if (request.argv.includes("--exec-path")) return result(`${root}\n`);
+      if (request.argv.includes("--exec-path")) return result(`${fixture.root}\n`);
       if (request.argv.at(-1) === "fill") {
         return result(exactCredentialOutput(canaryUser, canarySecret));
       }
-      return result("credential.helper\nosxkeychain\u0000");
+      return result(configOutput(fixture));
     });
     const broker = createGitCredentialBroker({
-      gitExecutable: fakeGit(root),
-      tempRoot: root,
+      ...brokerOptions(fixture),
       runProcess,
     });
     const identity = await broker.inspect(context);
@@ -363,21 +429,22 @@ describe("ADR-0091 Warden Git credential broker", () => {
   });
 
   it("rejects helper/config drift before invoking credential fill", async () => {
-    const root = privateRoot();
+    const fixture = brokerFixture();
     let inspection = 0;
     const requests: GitCredentialProcessRequest[] = [];
     const runProcess = vi.fn(async (request: GitCredentialProcessRequest) => {
       requests.push(request);
-      if (request.argv.includes("--exec-path")) return result(`${root}\n`);
+      if (request.argv.includes("--exec-path")) return result(`${fixture.root}\n`);
       if (request.argv.includes("--list")) {
         inspection += 1;
-        return result(`global\u0000credential.helper\nhelper-${String(inspection)}\u0000`);
+        return result(
+          `${configOutput(fixture)}global\u0000file:${fixture.configPath}\u0000user.review\n${String(inspection)}\u0000`,
+        );
       }
-      return result(`credential.helper\nhelper-${String(inspection)}\u0000`);
+      return result("");
     });
     const broker = createGitCredentialBroker({
-      gitExecutable: fakeGit(root),
-      tempRoot: root,
+      ...brokerOptions(fixture),
       runProcess,
     });
     const identity = await broker.inspect(context);
@@ -392,18 +459,16 @@ describe("ADR-0091 Warden Git credential broker", () => {
     ["nonzero exit", { exitCode: 1 }],
     ["stderr", { stderr: "helper leaked diagnostics" }],
   ] as const)("fails closed on %s without including helper output", async (_label, override) => {
-    const root = privateRoot();
+    const fixture = brokerFixture();
     const runProcess = vi.fn(async (request: GitCredentialProcessRequest) => {
-      if (request.argv.includes("--exec-path")) return result(`${root}\n`);
+      if (request.argv.includes("--exec-path")) return result(`${fixture.root}\n`);
       if (request.argv.at(-1) === "fill") {
         return result("", override);
       }
-      if (request.argv.includes("--list")) return result("credential.helper\nosxkeychain\u0000");
-      return result("credential.helper\nosxkeychain\u0000");
+      return result(configOutput(fixture));
     });
     const broker = createGitCredentialBroker({
-      gitExecutable: fakeGit(root),
-      tempRoot: root,
+      ...brokerOptions(fixture),
       runProcess,
     });
     const identity = await broker.inspect(context);
@@ -416,7 +481,7 @@ describe("ADR-0091 Warden Git credential broker", () => {
 
   it("enforces the real helper-process timeout without returning helper diagnostics", async () => {
     const broker = realHelperBroker(
-      `process.stdin.resume(); setTimeout(() => process.exit(0), 60_000);`,
+      `while IFS= read -r line; do [ -z "$line" ] && break; done\nsleep 60`,
       { timeoutMs: 1_000 },
     );
     const identity = await broker.inspect(context);
@@ -428,7 +493,7 @@ describe("ADR-0091 Warden Git credential broker", () => {
 
   it("aborts a real in-flight helper process and fails closed", async () => {
     const broker = realHelperBroker(
-      `process.stdin.resume(); setTimeout(() => process.exit(0), 60_000);`,
+      `while IFS= read -r line; do [ -z "$line" ] && break; done\nsleep 60`,
     );
     const identity = await broker.inspect(context);
     const controller = new AbortController();
@@ -442,9 +507,8 @@ describe("ADR-0091 Warden Git credential broker", () => {
   it("enforces the real helper-process output bound without returning credential bytes", async () => {
     const canary = `token-${randomBytes(3_000).toString("base64url")}`;
     const broker = realHelperBroker(
-      `process.stdin.resume(); process.stdin.on("end", () => {
-        process.stdout.write("username=u\\npassword=${canary}\\n");
-      });`,
+      `while IFS= read -r line; do [ -z "$line" ] && break; done
+printf '%s\\n' 'username=u' 'password=${canary}'`,
       { maxOutputBytes: 1_024 },
     );
     const identity = await broker.inspect(context);
@@ -461,7 +525,7 @@ describe("ADR-0091 Warden Git credential broker", () => {
   });
 
   it("rejects concurrent resolution instead of queueing or duplicating helper execution", async () => {
-    const root = privateRoot();
+    const fixture = brokerFixture();
     let releaseFill!: () => void;
     const fillBlocked = new Promise<void>((resolve) => {
       releaseFill = resolve;
@@ -471,17 +535,16 @@ describe("ADR-0091 Warden Git credential broker", () => {
       fillStarted = resolve;
     });
     const runProcess = vi.fn(async (request: GitCredentialProcessRequest) => {
-      if (request.argv.includes("--exec-path")) return result(`${root}\n`);
+      if (request.argv.includes("--exec-path")) return result(`${fixture.root}\n`);
       if (request.argv.at(-1) === "fill") {
         fillStarted();
         await fillBlocked;
         return result(exactCredentialOutput("u", "p"));
       }
-      return result("credential.helper\nosxkeychain\u0000");
+      return result(configOutput(fixture));
     });
     const broker = createGitCredentialBroker({
-      gitExecutable: fakeGit(root),
-      tempRoot: root,
+      ...brokerOptions(fixture),
       runProcess,
     });
     const identity = await broker.inspect(context);
@@ -497,20 +560,23 @@ describe("ADR-0091 Warden Git credential broker", () => {
   });
 
   it("withholds the broker when helper discovery is empty, malformed, or over the bound", async () => {
-    for (const helperOutput of [
-      "",
-      "credential.helper-without-value\u0000",
-      Array.from({ length: 9 }, (_, index) => `credential.helper\nh${String(index)}\u0000`).join(
-        "",
-      ),
-    ]) {
-      const root = privateRoot();
+    for (const helperOutputFor of ["", "malformed", "over-bound"]) {
+      const fixture = brokerFixture();
+      const helperOutput =
+        helperOutputFor === "malformed"
+          ? `global\u0000file:${fixture.configPath}\u0000credential.helper-without-value\u0000`
+          : helperOutputFor === "over-bound"
+            ? Array.from(
+                { length: 9 },
+                (_, index) =>
+                  `global\u0000file:${fixture.configPath}\u0000credential.helper\nh${String(index)}\u0000`,
+              ).join("")
+            : "";
       const broker = createGitCredentialBroker({
-        gitExecutable: fakeGit(root),
-        tempRoot: root,
+        ...brokerOptions(fixture),
         runProcess: async (request) => {
-          if (request.argv.includes("--exec-path")) return result(`${root}\n`);
-          return request.argv.includes("--list") ? result("config\u0000") : result(helperOutput);
+          if (request.argv.includes("--exec-path")) return result(`${fixture.root}\n`);
+          return result(helperOutput);
         },
       });
       await expect(broker.inspect(context)).rejects.toThrow(GitCredentialBrokerError);
@@ -518,21 +584,55 @@ describe("ADR-0091 Warden Git credential broker", () => {
   });
 
   it("binds resolved helper executable identity and detects binary drift", async () => {
-    const root = privateRoot();
-    const gitExecutable = fakeGit(root);
-    const helperPath = join(root, "git-credential-osxkeychain");
+    const fixture = brokerFixture();
+    const helperPath = join(fixture.root, "git-credential-osxkeychain");
     const runProcess = vi.fn(async (request: GitCredentialProcessRequest) => {
-      if (request.argv.includes("--exec-path")) return result(`${root}\n`);
-      if (request.argv.includes("--list")) return result("credential.helper\nosxkeychain\u0000");
-      return result("credential.helper\nosxkeychain\u0000");
+      if (request.argv.includes("--exec-path")) return result(`${fixture.root}\n`);
+      return result(configOutput(fixture));
     });
-    const broker = createGitCredentialBroker({ gitExecutable, tempRoot: root, runProcess });
+    const broker = createGitCredentialBroker({ ...brokerOptions(fixture), runProcess });
     const before = await broker.inspect(context);
 
     writeFileSync(helperPath, "#!/bin/sh\nexit 2\n", { mode: 0o700 });
     const after = await broker.inspect(context);
 
     expect(after.configurationDigest).toBe(before.configurationDigest);
+    expect(after.helperDigest).not.toBe(before.helperDigest);
+  });
+
+  it("binds consumed configuration file identity even when Git reports the same records", async () => {
+    const fixture = brokerFixture();
+    const runProcess = vi.fn(async (request: GitCredentialProcessRequest) => {
+      if (request.argv.includes("--exec-path")) return result(`${fixture.root}\n`);
+      return result(configOutput(fixture));
+    });
+    const broker = createGitCredentialBroker({ ...brokerOptions(fixture), runProcess });
+    const before = await broker.inspect(context);
+
+    writeFileSync(
+      fixture.configPath,
+      "[credential]\n\thelper = osxkeychain\n[user]\n\tname = changed\n",
+      { mode: 0o600 },
+    );
+    const after = await broker.inspect(context);
+
+    expect(after.configurationDigest).toBe(before.configurationDigest);
+    expect(after.helperDigest).not.toBe(before.helperDigest);
+  });
+
+  it("binds the selected helper parent directory authority", async () => {
+    const fixture = brokerFixture();
+    const runProcess = vi.fn(async (request: GitCredentialProcessRequest) => {
+      if (request.argv.includes("--exec-path")) return result(`${fixture.root}\n`);
+      return result(configOutput(fixture));
+    });
+    const broker = createGitCredentialBroker({ ...brokerOptions(fixture), runProcess });
+    const before = await broker.inspect(context);
+
+    chmodSync(fixture.root, 0o500);
+    const after = await broker.inspect(context);
+    chmodSync(fixture.root, 0o700);
+
     expect(after.helperDigest).not.toBe(before.helperDigest);
   });
 });

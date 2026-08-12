@@ -7,7 +7,12 @@ import { PassThrough } from "node:stream";
 import { pathToFileURL } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import { PROTOCOL_VERSION } from "@keel/shared";
-import { attachWardenClient, startWardenClient, WardenClientError } from "./client.js";
+import {
+  attachWardenClient,
+  DEFAULT_WARDEN_TERMINATE_GRACE_MS,
+  startWardenClient,
+  WardenClientError,
+} from "./client.js";
 import { WardenExecutor } from "./executor.js";
 import { mutationPresentationResolverFor } from "./mutation-presentation-resolver.js";
 
@@ -946,6 +951,9 @@ describe("kernel warden process client", () => {
 });
 
 describe("warden process lifecycle — no orphan on kernel death (P1-19)", () => {
+  it("keeps the kernel force-kill grace above the Warden's bounded lifecycle budget", () => {
+    expect(DEFAULT_WARDEN_TERMINATE_GRACE_MS).toBe(28_000);
+  });
   // A warden whose event loop is kept alive by a ref'd handle AFTER stdin EOF — exactly the srt
   // proxy / console-broker handle that, in production, turns a would-be natural process exit into a
   // LIVE orphan holding the audit lock. Without an EOF-triggered shutdown it never exits; with it,

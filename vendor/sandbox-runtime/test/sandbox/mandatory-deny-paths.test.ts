@@ -646,6 +646,31 @@ describe.if(isSupportedPlatform)(
           cleanupBwrapMountPoints()
         })
 
+        it('does not retain a failed-wrap path that could delete a later legitimate file', async () => {
+          const failedWrapDir = join(TEST_DIR, 'failed-wrap-cleanup')
+          mkdirSync(failedWrapDir, { recursive: true })
+          const protectedFile = join(failedWrapDir, 'credential-helper')
+
+          await expect(
+            wrapCommandWithSandboxLinux({
+              command: 'true',
+              needsNetworkRestriction: false,
+              readConfig: undefined,
+              writeConfig: {
+                allowOnly: [failedWrapDir],
+                denyWithinAllow: [protectedFile],
+              },
+              binShell: 'keel-definitely-missing-shell',
+              enableWeakerNestedSandbox: true,
+              allowAllUnixSockets: true,
+            }),
+          ).rejects.toThrow(/not found in PATH/)
+
+          writeFileSync(protectedFile, '')
+          cleanupBwrapMountPoints()
+          expect(existsSync(protectedFile)).toBe(true)
+        })
+
         // --- Concurrent sandbox mount point cleanup ---
         //
         // When two sandboxed commands run concurrently and one finishes first,

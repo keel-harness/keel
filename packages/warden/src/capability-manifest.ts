@@ -236,6 +236,7 @@ function isFilesystemRoot(path: string): boolean {
 function assertSafeWorkspaceRoot(
   workspaceRoot: string,
   homeRoot: string,
+  keelConfigDir: string,
   realpath: (path: string) => string,
 ): void {
   if (isFilesystemRoot(workspaceRoot)) {
@@ -246,6 +247,12 @@ function assertSafeWorkspaceRoot(
     isInsideCanonical(workspaceRoot, homeRoot, realpath)
   ) {
     throw new InvalidSandboxProfileError("workspace root must not be the user home directory");
+  }
+  if (
+    isInsideCanonical(keelConfigDir, workspaceRoot, realpath) &&
+    isInsideCanonical(workspaceRoot, keelConfigDir, realpath)
+  ) {
+    throw new InvalidSandboxProfileError("workspace root must not be the Keel authority root");
   }
 }
 
@@ -467,7 +474,8 @@ export function buildSandboxProfileFromCapabilityManifest(
   const workspaceRoot = normalizePath(options.workspaceRoot);
   const declaredTempRoots = uniqueNormalized(options.declaredTempRoots ?? []);
   const homeRoot = normalizePath(homeRootFromEnv(env));
-  assertSafeWorkspaceRoot(workspaceRoot, homeRoot, realpath);
+  const keelConfigDir = normalizePath(resolveWardenKeelHome(env));
+  assertSafeWorkspaceRoot(workspaceRoot, homeRoot, keelConfigDir, realpath);
   const canonicalHome = canonicalHomeRoot(homeRoot, realpath);
   const homeSecretSpellings = uniqueNormalized([
     ...homeCredentialSecretRoots(homeRoot),
@@ -479,7 +487,6 @@ export function buildSandboxProfileFromCapabilityManifest(
       ? homeSecretSpellings.map((path) => canonicalExistingPath(path, realpath))
       : []),
   ]);
-  const keelConfigDir = normalizePath(resolveWardenKeelHome(env));
   const auditDir = normalizePath(options.auditDir ?? join(keelConfigDir, "audit"));
   const policyDir = normalizePath(options.policyDir ?? join(keelConfigDir, "policy"));
   const ctx: ProjectionContext = {

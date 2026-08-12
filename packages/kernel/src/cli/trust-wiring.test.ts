@@ -168,12 +168,13 @@ describe("runKeelCommand trust-gates the environment snapshot (trust-before-pars
   it("trusted: built-in skills are discovered and stubs are seeded, but local `skill` is not advertised in governed mode", async () => {
     // uses keel's real shipped skills/ (commit-message, debug-failing-test)
     const cwd = tmp();
+    const keelHome = tmp();
     const model = new CapturingModel();
     await runKeelCommand("hello", {
       model,
       ui: new HeadlessUI(),
       cwd,
-      env: { KEEL_HOME: cwd, KEEL_TRUST: "1" },
+      env: { KEEL_HOME: keelHome, KEEL_TRUST: "1" },
       warden: processCapabilityWarden(tmp()),
     });
     expect(model.firstTools?.map((t) => t.name)).toEqual(GOVERNED_TOOLS);

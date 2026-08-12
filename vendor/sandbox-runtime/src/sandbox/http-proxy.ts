@@ -103,10 +103,20 @@ export interface HttpProxyServerOptions {
    * and reach the filter callback.
    */
   proxyAuthToken?: string
+
+  /** Mutable host-owned token reference used by revocable launch authority. */
+  getProxyAuthToken?: () => string | undefined
+
+  /** Host-owned revocation/readiness predicate for launch-scoped authority. */
+  isProxyAuthActive?: () => boolean
+
+  /** Mutable host-owned TLS authority reference cleared during revocation. */
+  getMitmCA?: () => MitmCA | undefined
 }
 
 type AcceptedSocketState = {
   readonly sockets: Set<Socket>
+  readonly childCleanups: Set<() => Promise<void>>
   draining: boolean
 }
 
@@ -116,7 +126,7 @@ const acceptedSocketsByServer = new WeakMap<Server, AcceptedSocketState>()
  * Destroy every TCP client accepted by this proxy, including CONNECT sockets
  * that Node removes from `server.closeAllConnections()` after upgrade.
  */
-export function destroyTrackedHttpProxyConnections(server: Server): void {
+export async function destroyTrackedHttpProxyConnections(server: Server): Promise<void> {
   const state = acceptedSocketsByServer.get(server)
   if (state === undefined) return
   // Node may have accepted a connection in libuv before close() stopped the
@@ -125,17 +135,26 @@ export function destroyTrackedHttpProxyConnections(server: Server): void {
   state.draining = true
   for (const socket of state.sockets) socket.destroy()
   state.sockets.clear()
+  const results = await Promise.allSettled(
+    [...state.childCleanups].map(cleanup => cleanup()),
+  )
+  const failure = results.find(result => result.status === 'rejected')
+  if (failure?.status === 'rejected') throw failure.reason
 }
 
 export function createHttpProxyServer(options: HttpProxyServerOptions): Server {
   const server = createServer()
   const acceptedSocketState: AcceptedSocketState = {
     sockets: new Set<Socket>(),
+    childCleanups: new Set<() => Promise<void>>(),
     draining: false,
   }
   acceptedSocketsByServer.set(server, acceptedSocketState)
   server.on('connection', socket => {
-    if (acceptedSocketState.draining) {
+    // Readiness is sampled at accept time, not merely when the later HTTP
+    // request is parsed. A client accepted while a launch is still inactive
+    // must never be able to hold that connection until activation.
+    if (acceptedSocketState.draining || options.isProxyAuthActive?.() === false) {
       socket.destroy()
       return
     }
@@ -144,12 +163,23 @@ export function createHttpProxyServer(options: HttpProxyServerOptions): Server {
   })
 
   const checkAuth = (got: string | undefined): boolean => {
-    if (!options.proxyAuthToken) return true
+    if (options.isProxyAuthActive?.() === false) return false
+    const token =
+      options.getProxyAuthToken === undefined
+        ? options.proxyAuthToken
+        : options.getProxyAuthToken()
+    if (token === undefined) {
+      return options.getProxyAuthToken === undefined && options.proxyAuthToken === undefined
+    }
     const m = /^basic\s+([a-z0-9+/=]+)\s*$/i.exec(got ?? '')
     if (!m) return false
     const decoded = Buffer.from(m[1]!, 'base64').toString('utf8')
     const sep = decoded.indexOf(':')
-    return sep > 0 && decoded.slice(sep + 1) === options.proxyAuthToken
+    return (
+      sep === 3 &&
+      decoded.slice(0, sep) === 'srt' &&
+      decoded.slice(sep + 1) === token
+    )
   }
 
   // Handle CONNECT requests for HTTPS traffic
@@ -208,7 +238,9 @@ export function createHttpProxyServer(options: HttpProxyServerOptions): Server {
       // (tlsTerminate and mitmProxy are mutually exclusive at the config
       // layer, so the first two never both apply.)
       let wrote200 = false
-      if (options.mitmCA) {
+      const activeMitmCA =
+        options.getMitmCA === undefined ? options.mitmCA : options.getMitmCA()
+      if (activeMitmCA) {
         if (clientGone) return
         // We can only terminate TLS. CONNECT also carries non-TLS streams —
         // notably SSH on Linux, where the sandbox's own GIT_SSH_COMMAND
@@ -222,8 +254,8 @@ export function createHttpProxyServer(options: HttpProxyServerOptions): Server {
         const peeked = await peekForClientHello(socket, head)
         if (clientGone) return
         if (peeked.isTLS) {
-          terminateAndForward(
-            options.mitmCA,
+          const terminated = terminateAndForward(
+            activeMitmCA,
             options.filterRequest,
             options.mutateHeaders,
             socket,
@@ -235,6 +267,11 @@ export function createHttpProxyServer(options: HttpProxyServerOptions): Server {
               resolveDestination: options.resolveDestination,
               signal: dialAbort.signal,
             },
+          )
+          acceptedSocketState.childCleanups.add(terminated.close)
+          void terminated.closed.then(
+            () => acceptedSocketState.childCleanups.delete(terminated.close),
+            () => acceptedSocketState.childCleanups.delete(terminated.close),
           )
           return
         }

@@ -9,11 +9,12 @@
 import { createServer as createHttpServer } from "node:http";
 import { createServer as createHttpsServer } from "node:https";
 import type { Server } from "node:net";
-import { readFileSync, realpathSync } from "node:fs";
+import { chmodSync, mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { createSecureContext } from "node:tls";
 import { fileURLToPath } from "node:url";
-import { beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { createVendoredSrtSandboxComponents } from "./srt-runtime-loader.js";
 import { isRealSandboxRequired, resolveRealSandboxGate } from "./real-sandbox-gate.js";
@@ -40,19 +41,27 @@ interface HttpsFixture {
   close(): Promise<void>;
 }
 
-function listen(server: Server): Promise<number> {
-  return new Promise((resolveListen, reject) => {
-    server.once("error", reject);
-    server.listen(0, "localhost", () => {
-      server.removeListener("error", reject);
-      const address = server.address();
-      if (address === null || typeof address === "string") {
-        reject(new Error("expected a TCP fixture address"));
-        return;
-      }
-      resolveListen(address.port);
-    });
-  });
+async function listen(server: Server): Promise<number> {
+  // Launch-proxy leases intentionally make 40000-65535 permanently unavailable
+  // to later governed profiles. Keep the localhost-only credential fixture out
+  // of that authority range so the test cannot accidentally request a retired
+  // proxy endpoint that the launch resolver must deny.
+  for (let port = 20_000; port < 40_000; port += 1) {
+    try {
+      await new Promise<void>((resolveListen, reject) => {
+        const onError = (error: NodeJS.ErrnoException) => reject(error);
+        server.once("error", onError);
+        server.listen(port, "127.0.0.1", () => {
+          server.removeListener("error", onError);
+          resolveListen();
+        });
+      });
+      return port;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EADDRINUSE") throw error;
+    }
+  }
+  throw new Error("no credential fixture port is available outside the launch range");
 }
 
 function closeServer(server: Server): Promise<void> {
@@ -130,6 +139,8 @@ function expectSecretAbsent(value: unknown, ...secrets: readonly string[]): void
 suite("real SRT verified-HTTPS credential injection (opt-in)", () => {
   let sandbox: SandboxPort;
   let launchPreparer: SrtSandboxLaunchPreparer;
+  let authorityRoot: string;
+  let shutdownSandbox: (() => Promise<void>) | undefined;
 
   beforeAll(async () => {
     const configuredCa = process.env["NODE_EXTRA_CA_CERTS"];
@@ -138,9 +149,14 @@ suite("real SRT verified-HTTPS credential injection (opt-in)", () => {
         `real credential-TLS tests require NODE_EXTRA_CA_CERTS=${fixtureCaCert} before Node starts`,
       );
     }
+    authorityRoot = realpathSync(mkdtempSync(join(tmpdir(), "keel-real-tls-authority-")));
+    chmodSync(authorityRoot, 0o700);
     const components = await createVendoredSrtSandboxComponents({
       credentialTlsTermination: true,
+      launchAuthorityRegistryPath: join(authorityRoot, "endpoint-leases.json"),
+      resolveDestination: async () => [{ address: "127.0.0.1", family: 4 }],
     });
+    shutdownSandbox = components.shutdown;
     const status = components.sandbox.status();
     const gate = resolveRealSandboxGate({
       required,
@@ -154,6 +170,11 @@ suite("real SRT verified-HTTPS credential injection (opt-in)", () => {
     sandbox = components.sandbox;
     launchPreparer = components.launchPreparer;
   }, 30_000);
+
+  afterAll(async () => {
+    await shutdownSandbox?.();
+    if (authorityRoot !== undefined) rmSync(authorityRoot, { recursive: true, force: true });
+  });
 
   it("keeps real credential bytes out of the prepared child argv and environment", async () => {
     const swapSecret = "keel-real-swap-secret-adr0066";
@@ -180,7 +201,7 @@ suite("real SRT verified-HTTPS credential injection (opt-in)", () => {
       expectSecretAbsent(launch.descriptor, swapSecret, placeholderSecret);
       expect(JSON.stringify(launch.descriptor)).toContain(placeholder);
     } finally {
-      launch.cleanup();
+      await launch.cleanup();
     }
   });
 

@@ -157,7 +157,11 @@ const activeStatus: SandboxStatus = {
   available: true,
   backend: "srt:vendored",
   enforcementTier: "sandbox:srt",
-  features: [CREDENTIAL_TLS_TERMINATION_CAPABILITY, EGRESS_ADDRESS_GUARD_CAPABILITY],
+  features: [
+    CREDENTIAL_TLS_TERMINATION_CAPABILITY,
+    EGRESS_ADDRESS_GUARD_CAPABILITY,
+    "srt-launch-authority/v1",
+  ],
 };
 
 function request(head: string): GithubPrCreateExecuteParams {
@@ -599,6 +603,19 @@ describe("ADR-0091 governed github.pr.create authority", () => {
     });
     await expect(
       unavailable.authority.request(unavailable.context, request(unavailable.source.head)),
+    ).rejects.toThrow(/transport boundary is unavailable/u);
+
+    const processScopedProxy = harness([], {
+      sandboxStatus: {
+        ...activeStatus,
+        features: [CREDENTIAL_TLS_TERMINATION_CAPABILITY, EGRESS_ADDRESS_GUARD_CAPABILITY],
+      },
+    });
+    await expect(
+      processScopedProxy.authority.request(
+        processScopedProxy.context,
+        request(processScopedProxy.source.head),
+      ),
     ).rejects.toThrow(/transport boundary is unavailable/u);
 
     const wrongTool = harness();

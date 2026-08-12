@@ -985,6 +985,48 @@ describe('allowWrite glob suffix handling', () => {
     },
   )
 
+  it(
+    'does not re-expose a read-hidden directory when exact allowWrite and denyWrite overlap it',
+    async () => {
+      const authorityAlias = join(
+        tmpdir(),
+        `srt-test-exact-hidden-authority-${Date.now()}`,
+      )
+      mkdirSync(authorityAlias, { recursive: true })
+      const authorityRoot = realpathSync(authorityAlias)
+      writeFileSync(join(authorityRoot, 'endpoint-registry.json'), 'secret')
+
+      try {
+        const result = await wrapCommandWithSandboxLinux({
+          command: `cat ${join(authorityRoot, 'endpoint-registry.json')}`,
+          needsNetworkRestriction: false,
+          readConfig: {
+            denyOnly: [authorityRoot],
+            allowWithinDeny: [],
+          },
+          writeConfig: {
+            allowOnly: [authorityRoot],
+            denyWithinAllow: [authorityRoot],
+          },
+          enableWeakerNestedSandbox: true,
+          allowAllUnixSockets: true,
+          mandatoryDenySearchDepth: 0,
+        })
+
+        const tmpfsAt = result.indexOf(`--tmpfs ${authorityRoot}`)
+        const readOnlyAt = result.indexOf(`--remount-ro ${authorityRoot}`)
+        expect(tmpfsAt).toBeGreaterThan(-1)
+        expect(readOnlyAt).toBeGreaterThan(tmpfsAt)
+        expect(
+          result.lastIndexOf(`--bind ${authorityRoot} ${authorityRoot}`),
+        ).toBeLessThan(tmpfsAt)
+        expect(result).not.toContain(`--ro-bind ${authorityRoot} ${authorityRoot}`)
+      } finally {
+        rmSync(authorityRoot, { recursive: true, force: true })
+      }
+    },
+  )
+
   // The #190 case must keep working: a denyRead tmpfs over an ancestor of an
   // allowed write path wipes denyWrite binds under that write path; they are
   // restored by emitting denyWrite after the denyRead re-binds. The tmpfs

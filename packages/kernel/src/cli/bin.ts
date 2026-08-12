@@ -232,6 +232,7 @@ function gatherDoctorInput(): DoctorInput {
   const versions = process.versions as Record<string, string | undefined>;
   const runtime = doctorRuntime(versions); // pure + tested (doctor.ts)
   const workspaceRoot = process.cwd();
+  const wardenStart = doctorWardenStart();
   const probe = (commandOrPath: string, args: readonly string[]): string | null => {
     const executable = resolveDoctorExecutable(commandOrPath, {
       workspaceRoot,
@@ -274,10 +275,16 @@ function gatherDoctorInput(): DoctorInput {
   const socatVersionRaw = process.platform === "linux" ? probeOrPresent("socat", ["-V"]) : null;
   const sandboxExecPresent =
     process.platform === "darwin" ? existsSync("/usr/bin/sandbox-exec") : null;
-  const { gitVersionRaw, gitRemoteUrlRaw, gitCredentialHelperConfigured } = gatherDoctorGitProbe({
+  const {
+    gitVersionRaw,
+    gitRemoteUrlRaw,
+    gitCredentialHelperConfigured,
+    gitCredentialHelperAuthorityIssue,
+  } = gatherDoctorGitProbe({
     workspaceRoot: process.cwd(),
     env: process.env,
     platform: process.platform,
+    ...(wardenStart === undefined ? {} : { wardenStart }),
   });
   return {
     runtime,
@@ -293,13 +300,16 @@ function gatherDoctorInput(): DoctorInput {
     gitVersionRaw,
     gitRemoteUrlRaw,
     gitCredentialHelperConfigured,
+    ...(gitCredentialHelperAuthorityIssue === undefined
+      ? {}
+      : { gitCredentialHelperAuthorityIssue }),
     credentialProxyConfigRaw: process.env[CREDENTIAL_PROXY_CONFIG_ENV] ?? null,
     cwd: process.cwd(),
     egressAddressExceptionStore: gatherEgressExceptionStoreProbe(),
     // keel's own executable bytes. The warden entry executes as the process that decides policy;
     // ripgrep is spawned by it. Doctor REPORTS (never enforces) when any of them sits inside the
     // model-writable workspace — see `harnessOutsideWorkspaceCheck`.
-    harnessExecutablePaths: doctorHarnessExecutablePaths(rgExecutable, doctorWardenStart()),
+    harnessExecutablePaths: doctorHarnessExecutablePaths(rgExecutable, wardenStart),
   };
 }
 

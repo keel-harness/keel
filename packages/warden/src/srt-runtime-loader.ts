@@ -5,17 +5,18 @@ import {
   type SrtSandboxLaunchPreparer,
   type SrtRuntimeAdapter,
   type SrtSandboxPortOptions,
+  executePreparedSrtLaunch,
 } from "./srt-sandbox.js";
 import type {
   SandboxExecutionResult,
   SandboxPort,
   SandboxProcessRunner,
-  SandboxProcessRunnerOptions,
   SandboxStatus,
 } from "./sandbox.js";
 import {
   CREDENTIAL_TLS_TERMINATION_CAPABILITY,
   EGRESS_ADDRESS_GUARD_CAPABILITY,
+  SRT_LAUNCH_AUTHORITY_CAPABILITY,
 } from "./sandbox.js";
 
 interface VendoredSrtDependencyCheck {
@@ -73,6 +74,24 @@ export interface VendoredSrtManager {
   checkDependencies(): VendoredSrtDependencyCheck;
   initialize(config: VendoredSrtRuntimeConfig): Promise<void>;
   updateConfig(config: VendoredSrtRuntimeConfig): void;
+  supportsLaunchAuthority?: () => boolean;
+  launchAuthorityCapacityAvailable?: () => boolean;
+  initializeLaunchAuthority?: (endpointRegistryPath: string) => void;
+  prepareLaunchAuthority?: (
+    config: VendoredSrtRuntimeConfig,
+    options: {
+      readonly command: string;
+      readonly binShell?: string;
+      readonly abortSignal?: AbortSignal;
+      readonly endpointRegistryPath: string;
+    },
+  ) => Promise<{
+    readonly argv: string[];
+    readonly env: NodeJS.ProcessEnv;
+    revoke(): void | Promise<void>;
+    release(): void | Promise<void>;
+    cleanup(): void | Promise<void>;
+  }>;
   wrapWithSandboxArgv(
     command: string,
     binShell: string | undefined,
@@ -101,11 +120,15 @@ export interface VendoredSrtSandboxPortOptions {
   readonly credentialTlsTermination?: boolean;
   /** Initialization-scoped Warden authority for connect-time destination resolution. */
   readonly resolveDestination?: SrtResolveDestination;
+  /** Owner-only persistent lease registry outside every governed filesystem profile. */
+  readonly launchAuthorityRegistryPath?: string;
 }
 
 export interface VendoredSrtSandboxComponents {
   readonly sandbox: SandboxPort;
   readonly launchPreparer?: SrtSandboxLaunchPreparer;
+  /** Withholds new work without releasing filesystem state used by live processes. */
+  readonly quarantine: () => void;
   /** Stops accepting sandbox work and tears down the process-scoped SRT proxy infrastructure. */
   readonly shutdown: () => Promise<void>;
 }
@@ -242,6 +265,22 @@ function completeVendoredRuntimeConfig(
   };
 }
 
+function completeVendoredLaunchRuntimeConfig(
+  customConfig: unknown,
+  credentialTlsTermination: boolean,
+  resolveDestination: SrtResolveDestination | undefined,
+): VendoredSrtRuntimeConfig {
+  const completed = completeVendoredRuntimeConfig(
+    customConfig,
+    credentialTlsTermination,
+    resolveDestination,
+  );
+  return {
+    ...completed,
+    network: { ...completed.network, inheritProxyEnv: false },
+  };
+}
+
 function unavailablePort(status: UnavailableVendoredSrtStatus): SandboxPort {
   return {
     status: () => status,
@@ -252,7 +291,7 @@ function unavailablePort(status: UnavailableVendoredSrtStatus): SandboxPort {
 }
 
 function unavailableComponents(status: UnavailableVendoredSrtStatus): VendoredSrtSandboxComponents {
-  return { sandbox: unavailablePort(status), shutdown: async () => {} };
+  return { sandbox: unavailablePort(status), quarantine: () => {}, shutdown: async () => {} };
 }
 
 function unavailableStatus(reason: string, fixCommand: string): UnavailableVendoredSrtStatus {
@@ -352,22 +391,20 @@ export async function createVendoredSrtSandboxPort(
   return components.sandbox;
 }
 
-function runnerOptions(signal: AbortSignal | undefined): SandboxProcessRunnerOptions | undefined {
-  return signal === undefined ? undefined : { signal };
-}
-
 function sandboxFromLaunchPreparer(
   launchPreparer: SrtSandboxLaunchPreparer,
   runner: SandboxProcessRunner,
+  onLifecycleFailure?: () => void,
 ): SandboxPort {
   return {
     status: () => launchPreparer.status(),
     async execute(invocation, profile, executeOptions): Promise<SandboxExecutionResult> {
       const launch = await launchPreparer.prepareLaunch(invocation, profile, executeOptions);
       try {
-        return await runner.run(launch.descriptor, runnerOptions(executeOptions?.signal));
-      } finally {
-        launch.cleanup();
+        return await executePreparedSrtLaunch(launch, runner, executeOptions?.signal);
+      } catch (error) {
+        onLifecycleFailure?.();
+        throw error;
       }
     },
   };
@@ -378,6 +415,7 @@ export async function createVendoredSrtSandboxComponents(
 ): Promise<VendoredSrtSandboxComponents> {
   const credentialTlsTermination = options.credentialTlsTermination === true;
   const resolveDestination = options.resolveDestination;
+  const launchAuthorityRegistryPath = options.launchAuthorityRegistryPath;
   const importRuntime = options.importRuntime ?? importVendoredSrtRuntime;
   let runtimeModule: VendoredSrtModule;
   try {
@@ -415,25 +453,53 @@ export async function createVendoredSrtSandboxComponents(
     );
   }
 
-  try {
-    await manager.initialize(
-      initialVendoredRuntimeConfig(credentialTlsTermination, resolveDestination),
-    );
-  } catch (error) {
-    if (resolveDestination !== undefined) {
-      try {
-        await manager.reset!();
-      } catch {
-        // Initialization may already have opened proxy listeners. If their authoritative reset
-        // fails, do not keep a Warden process alive beside potentially unmanaged partial state.
-        throw new Error("guarded sandbox initialization cleanup failed");
-      }
+  const launchAuthorityAvailable =
+    launchAuthorityRegistryPath !== undefined &&
+    resolveDestination !== undefined &&
+    manager.supportsLaunchAuthority?.() === true &&
+    manager.initializeLaunchAuthority !== undefined &&
+    manager.prepareLaunchAuthority !== undefined &&
+    manager.reset !== undefined;
+
+  if (launchAuthorityAvailable) {
+    try {
+      manager.initializeLaunchAuthority!(launchAuthorityRegistryPath);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return unavailableComponents(
+        unavailableStatus(`launch authority initialization failed: ${message}`, "restart keel"),
+      );
     }
-    const message = error instanceof Error ? error.message : String(error);
-    return unavailableComponents(
-      unavailableStatus(`sandbox initialization failed: ${message}`, "keel doctor"),
-    );
   }
+
+  if (!launchAuthorityAvailable) {
+    try {
+      await manager.initialize(
+        initialVendoredRuntimeConfig(credentialTlsTermination, resolveDestination),
+      );
+    } catch (error) {
+      if (resolveDestination !== undefined) {
+        try {
+          await manager.reset!();
+        } catch {
+          // Initialization may already have opened proxy listeners. If their authoritative reset
+          // fails, do not keep a Warden process alive beside potentially unmanaged partial state.
+          throw new Error("guarded sandbox initialization cleanup failed");
+        }
+      }
+      const message = error instanceof Error ? error.message : String(error);
+      return unavailableComponents(
+        unavailableStatus(`sandbox initialization failed: ${message}`, "keel doctor"),
+      );
+    }
+  }
+
+  let stopped = false;
+  let shutdownPromise: Promise<void> | undefined;
+  const quarantineRuntime = (cause: unknown): never => {
+    stopped = true;
+    throw cause;
+  };
 
   const runtime: SrtRuntimeAdapter = {
     initialize: async () => {},
@@ -444,9 +510,57 @@ export async function createVendoredSrtSandboxComponents(
     wrapWithSandboxArgv: (command, binShell, customConfig, abortSignal) =>
       manager.wrapWithSandboxArgv(command, binShell, customConfig, abortSignal),
     cleanupAfterCommand: () => manager.cleanupAfterCommand?.(),
+    ...(launchAuthorityAvailable
+      ? {
+          prepareLaunch: async (command, binShell, customConfig, abortSignal) => {
+            try {
+              return await manager.prepareLaunchAuthority!(
+                completeVendoredLaunchRuntimeConfig(
+                  customConfig,
+                  credentialTlsTermination,
+                  resolveDestination,
+                ),
+                {
+                  command,
+                  ...(binShell === undefined ? {} : { binShell }),
+                  ...(abortSignal === undefined ? {} : { abortSignal }),
+                  endpointRegistryPath: launchAuthorityRegistryPath,
+                },
+              );
+            } catch (error) {
+              if (
+                typeof error === "object" &&
+                error !== null &&
+                "code" in error &&
+                error.code === "SRT_LAUNCH_AUTHORITY_CAPACITY"
+              ) {
+                throw error;
+              }
+              return quarantineRuntime(error);
+            }
+          },
+        }
+      : {}),
   };
 
   const activeStatus: SandboxStatus = Object.freeze({
+    available: true,
+    backend: VENDORED_SRT_BACKEND,
+    enforcementTier: "sandbox:srt",
+    ...(!credentialTlsTermination && resolveDestination === undefined && !launchAuthorityAvailable
+      ? {}
+      : {
+          features: Object.freeze([
+            ...(credentialTlsTermination ? [CREDENTIAL_TLS_TERMINATION_CAPABILITY] : []),
+            ...(resolveDestination === undefined ? [] : [EGRESS_ADDRESS_GUARD_CAPABILITY]),
+            ...(launchAuthorityAvailable ? [SRT_LAUNCH_AUTHORITY_CAPABILITY] : []),
+          ]),
+        }),
+  });
+  const stoppedStatus: UnavailableVendoredSrtStatus = Object.freeze(
+    unavailableStatus("sandbox runtime is stopped", "restart keel"),
+  );
+  const capacityStatus: SandboxStatus = Object.freeze({
     available: true,
     backend: VENDORED_SRT_BACKEND,
     enforcementTier: "sandbox:srt",
@@ -459,12 +573,19 @@ export async function createVendoredSrtSandboxComponents(
           ]),
         }),
   });
-  const stoppedStatus: UnavailableVendoredSrtStatus = Object.freeze(
-    unavailableStatus("sandbox runtime is stopped", "restart keel"),
-  );
-  let stopped = false;
-  let shutdownPromise: Promise<void> | undefined;
-  const status = (): SandboxStatus => (stopped ? stoppedStatus : activeStatus);
+  const status = (): SandboxStatus => {
+    if (stopped) return stoppedStatus;
+    if (launchAuthorityAvailable) {
+      try {
+        if (manager.launchAuthorityCapacityAvailable?.() === false) {
+          return capacityStatus;
+        }
+      } catch {
+        return unavailableStatus("launch authority capacity check failed", "restart keel");
+      }
+    }
+    return activeStatus;
+  };
   const portOptions = {
     runtime,
     status: activeStatus,
@@ -477,17 +598,72 @@ export async function createVendoredSrtSandboxComponents(
     status,
     async prepareLaunch(invocation, profile, executeOptions) {
       if (stopped) throw new Error(stoppedStatus.reason);
-      return underlyingLaunchPreparer.prepareLaunch(invocation, profile, executeOptions);
+      const launch = await underlyingLaunchPreparer.prepareLaunch(
+        invocation,
+        profile,
+        executeOptions,
+      );
+      if (stopped) {
+        try {
+          await launch.cleanup();
+        } catch (error) {
+          throw new Error("launch authority cleanup after runtime stop failed", {
+            cause: error,
+          });
+        }
+        throw new Error(stoppedStatus.reason);
+      }
+      return {
+        descriptor: launch.descriptor,
+        async revoke() {
+          try {
+            await launch.revoke();
+          } catch (error) {
+            stopped = true;
+            // Revocation is called before process settlement. Quarantine new launches now, but do
+            // not globally reset filesystem mount state until the caller kills/reaps the process.
+            throw error;
+          }
+        },
+        async release() {
+          try {
+            await launch.release();
+          } catch (error) {
+            stopped = true;
+            // A failed release retains Warden control over a live process. Its terminal close path
+            // performs process settlement before cleanup/reset may release filesystem mount state.
+            throw error;
+          }
+        },
+        async cleanup() {
+          try {
+            await launch.cleanup();
+          } catch (error) {
+            stopped = true;
+            // Other launch processes can still be live. Quarantine immediately, then defer global
+            // reset until controller-owned shutdown has settled every process in this runtime.
+            throw error;
+          }
+        },
+      };
     },
   };
   const runner = options.runner ?? createNodeSandboxProcessRunner();
   return {
-    sandbox: sandboxFromLaunchPreparer(launchPreparer, runner),
+    sandbox: sandboxFromLaunchPreparer(launchPreparer, runner, () => {
+      stopped = true;
+    }),
     launchPreparer,
+    quarantine: () => {
+      stopped = true;
+    },
     shutdown: () => {
       if (shutdownPromise !== undefined) return shutdownPromise;
       stopped = true;
       shutdownPromise = manager.reset?.() ?? Promise.resolve();
+      void shutdownPromise.catch(() => {
+        shutdownPromise = undefined;
+      });
       return shutdownPromise;
     },
   };

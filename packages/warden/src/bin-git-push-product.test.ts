@@ -27,7 +27,11 @@ describe("warden git.push product wiring", () => {
         available: true,
         backend: "srt:vendored",
         enforcementTier: "sandbox:srt",
-        features: ["credential-tls-termination/v1", "egress-address-guard/v1"],
+        features: [
+          "credential-tls-termination/v1",
+          "egress-address-guard/v1",
+          "srt-launch-authority/v1",
+        ],
       }),
       execute: async () => ({ exitCode: 0, signal: null, stdout: "", stderr: "" }),
     };
@@ -83,7 +87,7 @@ describe("warden git.push product wiring", () => {
     vi.doMock("./credential-proxy.js", () => ({ credentialProxyRulesFromEnvValues: vi.fn() }));
     vi.doMock("./rpc-server.js", () => ({
       DEFAULT_MAX_LINE_BYTES: 1024,
-      WARDEN_TEARDOWN_BUDGET_MS: 2_000,
+      WARDEN_TEARDOWN_BUDGET_MS: 24_000,
       runStdioWardenServer,
     }));
     vi.doMock("./audit/checkpoint-key.js", () => ({
@@ -96,6 +100,7 @@ describe("warden git.push product wiring", () => {
     }));
     vi.doMock("./capability-manifest.js", () => ({
       resolveWardenKeelHome: () => "/tmp/keel-home",
+      homeCredentialSecretRoots: () => ["/operator-secret-root"],
     }));
     vi.doMock("./typed-mutation-runner.js", () => ({
       createSandboxTypedMutationRunner: () => ({
@@ -155,6 +160,11 @@ describe("warden git.push product wiring", () => {
     expect(mocked.createGitCredentialBroker).toHaveBeenCalledWith({
       gitExecutable: "/usr/bin/git",
       tempRoot: "/private/tmp/keel-git-push-product-root",
+      workspaceRoot: "/workspace",
+      denyRoots: [
+        "/tmp/keel-home",
+        ...(process.env["HOME"] === undefined ? [] : ["/operator-secret-root"]),
+      ],
       env: process.env,
     });
     expect(mocked.createGitPushProductionAuthority).toHaveBeenCalledWith({
@@ -179,7 +189,10 @@ describe("warden git.push product wiring", () => {
       tempRoot: "/private/tmp/keel-git-push-product-root",
     });
     expect(mocked.createVendoredSrtSandboxComponents).toHaveBeenCalledWith(
-      expect.objectContaining({ credentialTlsTermination: true }),
+      expect.objectContaining({
+        credentialTlsTermination: true,
+        launchAuthorityRegistryPath: "/tmp/keel-home/srt-endpoint-leases.json",
+      }),
     );
     expect(mocked.runStdioWardenServer).toHaveBeenCalledWith(
       expect.objectContaining({

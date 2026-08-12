@@ -9,7 +9,11 @@ import {
   createSrtSandboxPort,
   type SrtRuntimeAdapter,
 } from "./srt-sandbox.js";
-import type { SandboxProfile, SandboxProcessRunner } from "./sandbox.js";
+import type {
+  SandboxProcessRunner,
+  SandboxProcessRunnerOptions,
+  SandboxProfile,
+} from "./sandbox.js";
 
 function profile(writeRoot: string): SandboxProfile {
   return {
@@ -109,9 +113,161 @@ describe("SrtSandboxPort", () => {
       env: { PATH: "/usr/bin", TERM: "xterm-256color" },
     });
     expect(cleanupCalls).toBe(0);
-    prepared.cleanup();
-    prepared.cleanup();
+    await prepared.cleanup();
+    await prepared.cleanup();
     expect(cleanupCalls).toBe(1);
+  });
+
+  it("shares in-flight launch cleanup but retries a rejected settlement", async () => {
+    let cleanupCalls = 0;
+    const preparer = createSrtSandboxLaunchPreparer({
+      runtime: {
+        prepareLaunch: async () => ({
+          argv: ["/usr/bin/env", "true"],
+          env: { PATH: "/usr/bin" },
+          revoke: async () => {},
+          release: async () => {},
+          cleanup: async () => {
+            cleanupCalls += 1;
+            await Promise.resolve();
+            if (cleanupCalls === 1) throw new Error("drain not confirmed");
+          },
+        }),
+        wrapWithSandboxArgv: async () => {
+          throw new Error("legacy wrapping must not run");
+        },
+      },
+      status: {
+        available: true,
+        backend: "srt:fake",
+        enforcementTier: "sandbox:srt",
+      },
+    });
+    const prepared = await preparer.prepareLaunch({ command: "true" }, {});
+
+    const first = prepared.cleanup();
+    const second = prepared.cleanup();
+    await expect(first).rejects.toThrow("drain not confirmed");
+    await expect(second).rejects.toThrow("drain not confirmed");
+    expect(cleanupCalls).toBe(1);
+    await expect(prepared.cleanup()).resolves.toBeUndefined();
+    expect(cleanupCalls).toBe(2);
+  });
+
+  it("memoizes legacy external-session release independently from terminal cleanup", async () => {
+    let cleanupCalls = 0;
+    const preparer = createSrtSandboxLaunchPreparer({
+      runtime: {
+        wrapWithSandboxArgv: async () => ({ argv: ["/usr/bin/env", "true"], env: {} }),
+        cleanupAfterCommand: () => {
+          cleanupCalls += 1;
+        },
+      },
+      status: { available: true, backend: "srt:fake", enforcementTier: "sandbox:srt" },
+    });
+    const prepared = await preparer.prepareLaunch({ command: "true" }, {});
+
+    expect(prepared.release()).toBeUndefined();
+    expect(prepared.release()).toBeUndefined();
+    expect(cleanupCalls).toBe(1);
+  });
+
+  it("memoizes each launch settlement independently and retries synchronous and async failures", async () => {
+    let revokeCalls = 0;
+    let releaseCalls = 0;
+    let cleanupCalls = 0;
+    const preparer = createSrtSandboxLaunchPreparer({
+      runtime: {
+        prepareLaunch: async () => ({
+          argv: ["/usr/bin/env", "true"],
+          env: { PATH: "/usr/bin" },
+          revoke: () => {
+            revokeCalls += 1;
+            if (revokeCalls === 1) throw new Error("revoke retry required");
+          },
+          release: () => {
+            releaseCalls += 1;
+            return releaseCalls === 1
+              ? Promise.reject(new Error("release retry required"))
+              : Promise.resolve();
+          },
+          cleanup: () => {
+            cleanupCalls += 1;
+            if (cleanupCalls === 1) throw new Error("cleanup retry required");
+          },
+        }),
+        wrapWithSandboxArgv: async () => {
+          throw new Error("legacy wrapping must not run");
+        },
+      },
+      status: {
+        available: true,
+        backend: "srt:fake",
+        enforcementTier: "sandbox:srt",
+      },
+    });
+    const prepared = await preparer.prepareLaunch({ command: "true" }, {});
+
+    expect(() => prepared.revoke()).toThrow("revoke retry required");
+    expect(prepared.revoke()).toBeUndefined();
+    expect(prepared.revoke()).toBeUndefined();
+    expect(revokeCalls).toBe(2);
+
+    const firstRelease = prepared.release();
+    expect(prepared.release()).toBe(firstRelease);
+    await expect(firstRelease).rejects.toThrow("release retry required");
+    await expect(prepared.release()).resolves.toBeUndefined();
+    await expect(prepared.release()).resolves.toBeUndefined();
+    expect(releaseCalls).toBe(2);
+
+    expect(() => prepared.cleanup()).toThrow("cleanup retry required");
+    expect(prepared.cleanup()).toBeUndefined();
+    expect(prepared.cleanup()).toBeUndefined();
+    expect(cleanupCalls).toBe(2);
+  });
+
+  it("leaves process-global cleanup to the per-launch manager when a later preparation fails", async () => {
+    let preparationCalls = 0;
+    let globalCleanupCalls = 0;
+    let liveLaunchCleanupCalls = 0;
+    const preparer = createSrtSandboxLaunchPreparer({
+      runtime: {
+        prepareLaunch: async () => {
+          preparationCalls += 1;
+          if (preparationCalls === 2) throw new Error("second launch wrap failed");
+          return {
+            argv: ["/usr/bin/env", "true"],
+            env: { PATH: "/usr/bin" },
+            revoke: async () => {},
+            release: async () => {},
+            cleanup: async () => {
+              liveLaunchCleanupCalls += 1;
+            },
+          };
+        },
+        cleanupAfterCommand: () => {
+          globalCleanupCalls += 1;
+        },
+        wrapWithSandboxArgv: async () => {
+          throw new Error("legacy wrapping must not run");
+        },
+      },
+      status: {
+        available: true,
+        backend: "srt:fake",
+        enforcementTier: "sandbox:srt",
+      },
+    });
+    const liveLaunch = await preparer.prepareLaunch({ command: "first" }, {});
+
+    await expect(preparer.prepareLaunch({ command: "second" }, {})).rejects.toThrow(
+      "second launch wrap failed",
+    );
+
+    expect(globalCleanupCalls).toBe(0);
+    expect(liveLaunchCleanupCalls).toBe(0);
+    await liveLaunch.cleanup();
+    expect(liveLaunchCleanupCalls).toBe(1);
   });
 
   it("prepares argv-bearing invocations as a shell-quoted command for the srt runtime", async () => {
@@ -371,7 +527,7 @@ describe("SrtSandboxPort", () => {
     const updateCalls: unknown[] = [];
     const wrappedCalls: unknown[] = [];
     const descriptors: unknown[] = [];
-    const runnerOptions: unknown[] = [];
+    const runnerOptions: Array<SandboxProcessRunnerOptions | undefined> = [];
     const port = createSrtSandboxPort({
       runtime: {
         updateConfig: (config) => {
@@ -481,7 +637,7 @@ describe("SrtSandboxPort", () => {
     let cleanupCalls = 0;
     const wrappedCalls: unknown[] = [];
     const descriptors: unknown[] = [];
-    const runnerOptions: unknown[] = [];
+    const runnerOptions: Array<SandboxProcessRunnerOptions | undefined> = [];
     const port = createSrtSandboxPort({
       runtime: {
         initialize: async () => {
@@ -541,7 +697,12 @@ describe("SrtSandboxPort", () => {
         env: { PATH: "/usr/bin" },
       },
     ]);
-    expect(runnerOptions).toEqual([{ signal: abortController.signal }, undefined]);
+    expect(runnerOptions[0]?.signal).toBe(abortController.signal);
+    expect(runnerOptions[1]?.signal).toBeUndefined();
+    for (const options of runnerOptions) {
+      expect(typeof options?.beforeProcessGroupSettlement).toBe("function");
+      expect(typeof options?.onProcessGroupSettled).toBe("function");
+    }
     expect(cleanupCalls).toBe(2);
   });
 
@@ -703,6 +864,39 @@ describe("createNodeSandboxProcessRunner", () => {
     ).rejects.toThrow(/ENOENT|spawn/);
   });
 
+  it("reports both spawn and authority-revocation failures", async () => {
+    const runner = createNodeSandboxProcessRunner();
+
+    await expect(
+      runner.run(
+        { argv: ["/definitely/not/a/keel/sandbox/runtime"], env: {} },
+        {
+          beforeProcessGroupSettlement: () => {
+            throw new Error("authority revocation failed");
+          },
+        },
+      ),
+    ).rejects.toThrow("sandbox spawn and lifecycle settlement failed");
+  });
+
+  it("fails the launch when authority revocation fails after a normal process exit", async () => {
+    const runner = createNodeSandboxProcessRunner();
+
+    await expect(
+      runner.run(
+        {
+          argv: [process.execPath, "-e", "process.exit(0)"],
+          env: process.env,
+        },
+        {
+          beforeProcessGroupSettlement: () => {
+            throw new Error("authority revocation failed");
+          },
+        },
+      ),
+    ).rejects.toThrow("sandbox lifecycle settlement failed");
+  });
+
   it("kills the child process when the execution signal aborts", async () => {
     const runner = createNodeSandboxProcessRunner();
     const abortController = new AbortController();
@@ -725,7 +919,19 @@ describe("createNodeSandboxProcessRunner", () => {
   });
 
   it("honors a signal already aborted before spawn listeners are registered", async () => {
-    const runner = createNodeSandboxProcessRunner({ killGraceMs: 0 });
+    let processGroupAlive = true;
+    const runner = createNodeSandboxProcessRunner({
+      killGraceMs: 0,
+      killProcess: (pid, signal) => {
+        process.kill(pid, signal);
+        if (signal === "SIGTERM") processGroupAlive = false;
+      },
+      processGroupController: {
+        isAlive: () => processGroupAlive,
+        wait: async () => {},
+        nowMs: () => 0,
+      },
+    });
     const abortController = new AbortController();
     abortController.abort();
 
@@ -743,8 +949,23 @@ describe("createNodeSandboxProcessRunner", () => {
     });
   });
 
+  it("terminates the direct child on platforms without process-group signaling", async () => {
+    const runner = createNodeSandboxProcessRunner({ platform: "win32" });
+    const abortController = new AbortController();
+    const result = runner.run(
+      {
+        argv: [process.execPath, "-e", "setTimeout(() => {}, 10_000)"],
+        env: process.env,
+      },
+      { signal: abortController.signal },
+    );
+    abortController.abort();
+
+    await expect(result).resolves.toMatchObject({ exitCode: null, signal: "SIGTERM" });
+  });
+
   it.skipIf(process.platform === "win32")(
-    "falls back to direct-child signaling when process-group signaling fails",
+    "fails closed when process-group signaling cannot establish group absence",
     async () => {
       const abortController = new AbortController();
       let groupKillAttempts = 0;
@@ -765,18 +986,118 @@ describe("createNodeSandboxProcessRunner", () => {
       );
       abortController.abort();
 
-      await expect(result).resolves.toMatchObject({
-        exitCode: null,
-        signal: "SIGTERM",
+      await expect(result).rejects.toThrow(/sandbox lifecycle settlement failed/u);
+      expect(groupKillAttempts).toBeGreaterThanOrEqual(1);
+    },
+  );
+
+  it.skipIf(process.platform === "win32")(
+    "orders authority revocation before TERM and KILL and cleanup after confirmed absence",
+    async () => {
+      const events: string[] = [];
+      let alive = true;
+      let now = 0;
+      const runner = createNodeSandboxProcessRunner({
+        killGraceMs: 10,
+        processSettlementTimeoutMs: 100,
+        killProcess: (_pid, signal) => {
+          events.push(signal);
+          if (signal === "SIGKILL") alive = false;
+        },
+        processGroupController: {
+          isAlive: () => alive,
+          wait: async () => {
+            now += 10;
+          },
+          nowMs: () => now,
+        },
       });
-      expect(groupKillAttempts).toBe(1);
+      const port = createSrtSandboxPort({
+        runtime: {
+          prepareLaunch: async () => ({
+            argv: [process.execPath, "-e", "process.exit(0)"],
+            env: process.env,
+            revoke: () => {
+              events.push("revoke");
+            },
+            release: () => {},
+            cleanup: () => {
+              events.push("cleanup");
+            },
+          }),
+          wrapWithSandboxArgv: async () => {
+            throw new Error("legacy wrap must not run");
+          },
+        },
+        runner,
+        status: { available: true, backend: "srt:fake", enforcementTier: "sandbox:srt" },
+      });
+
+      await expect(port.execute({ command: "true" }, {})).resolves.toMatchObject({ exitCode: 0 });
+      expect(events).toEqual(["revoke", "SIGTERM", "SIGKILL", "cleanup"]);
+    },
+  );
+
+  it.skipIf(process.platform === "win32")(
+    "withholds filesystem cleanup when process-group absence cannot be confirmed",
+    async () => {
+      const events: string[] = [];
+      const runner = createNodeSandboxProcessRunner({
+        processGroupController: {
+          isAlive: () => {
+            throw Object.assign(new Error("group probe denied"), { code: "EPERM" });
+          },
+          wait: async () => {},
+          nowMs: () => 0,
+        },
+      });
+      const port = createSrtSandboxPort({
+        runtime: {
+          prepareLaunch: async () => ({
+            argv: [process.execPath, "-e", "process.exit(0)"],
+            env: process.env,
+            revoke: () => {
+              events.push("revoke");
+            },
+            release: () => {},
+            cleanup: () => {
+              events.push("cleanup");
+            },
+          }),
+          wrapWithSandboxArgv: async () => {
+            throw new Error("legacy wrap must not run");
+          },
+        },
+        runner,
+        status: { available: true, backend: "srt:fake", enforcementTier: "sandbox:srt" },
+      });
+
+      await expect(port.execute({ command: "true" }, {})).rejects.toThrow(
+        /sandbox lifecycle settlement failed/u,
+      );
+      expect(events).toEqual(["revoke"]);
     },
   );
 
   it.skipIf(process.platform === "win32")(
     "escalates to SIGKILL when an aborted process ignores SIGTERM",
     async () => {
-      const runner = createNodeSandboxProcessRunner({ killGraceMs: 25 });
+      let processGroupAlive = true;
+      let now = 0;
+      const runner = createNodeSandboxProcessRunner({
+        killGraceMs: 25,
+        killProcess: (pid, signal) => {
+          process.kill(pid, signal);
+          if (signal === "SIGKILL") processGroupAlive = false;
+        },
+        processGroupController: {
+          isAlive: () => processGroupAlive,
+          wait: async (milliseconds) => {
+            now += milliseconds;
+          },
+          nowMs: () => now,
+        },
+      });
       const abortController = new AbortController();
       const dir = mkdtempSync(join(tmpdir(), "keel-sandbox-runner-sigkill-"));
       const readyMarker = join(dir, "sigterm-handler-ready");
@@ -849,6 +1170,81 @@ describe("createNodeSandboxProcessRunner", () => {
         expect(fileSize(marker)).toBe(sizeAfterAbort);
       } finally {
         abortController.abort();
+        rmSync(dir, { recursive: true, force: true });
+      }
+    },
+  );
+
+  it.skipIf(process.platform === "win32")(
+    "does not return after normal parent exit until a resistant process-group descendant is gone",
+    async () => {
+      const runner = createNodeSandboxProcessRunner({ killGraceMs: 25 });
+      const dir = mkdtempSync(join(tmpdir(), "keel-sandbox-runner-normal-exit-"));
+      const marker = join(dir, "descendant-heartbeat");
+      const descendantScript =
+        "const fs=require('node:fs'); const marker=process.argv[1]; " +
+        "process.on('SIGHUP',()=>{}); process.on('SIGTERM',()=>{}); " +
+        "setInterval(() => fs.appendFileSync(marker, 'x'), 25); " +
+        "setTimeout(() => process.exit(0), 5000);";
+      const parentScript =
+        "const { spawn } = require('node:child_process'); " +
+        "const marker = process.argv[1]; " +
+        "const child = spawn(process.execPath, ['-e', process.argv[2], marker], { stdio: 'ignore' }); " +
+        "child.unref(); " +
+        "const fs = require('node:fs'); " +
+        "const timer = setInterval(() => { " +
+        "  try { if (fs.statSync(marker).size > 0) { clearInterval(timer); process.exit(0); } } catch {} " +
+        "}, 10);";
+
+      try {
+        await expect(
+          runner.run({
+            argv: [process.execPath, "-e", parentScript, marker, descendantScript],
+            env: process.env,
+          }),
+        ).resolves.toMatchObject({ exitCode: 0 });
+
+        const sizeAfterSettlement = fileSize(marker);
+        await sleep(200);
+        expect(fileSize(marker)).toBe(sizeAfterSettlement);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    },
+  );
+
+  it.skipIf(process.platform === "win32")(
+    "starts settlement on direct exit even when a resistant descendant inherits output pipes",
+    async () => {
+      const runner = createNodeSandboxProcessRunner({ killGraceMs: 25 });
+      const dir = mkdtempSync(join(tmpdir(), "keel-sandbox-runner-inherited-pipes-"));
+      const marker = join(dir, "descendant-heartbeat");
+      const descendantScript =
+        "const fs=require('node:fs'); const marker=process.argv[1]; " +
+        "process.on('SIGHUP',()=>{}); process.on('SIGTERM',()=>{}); " +
+        "setInterval(() => fs.appendFileSync(marker, 'x'), 25); " +
+        "setTimeout(() => process.exit(0), 5000);";
+      const parentScript =
+        "const { spawn } = require('node:child_process'); const fs=require('node:fs'); " +
+        "const marker=process.argv[1]; " +
+        "const child=spawn(process.execPath,['-e',process.argv[2],marker],{stdio:'inherit'}); " +
+        "child.unref(); const timer=setInterval(() => { " +
+        "try { if (fs.statSync(marker).size > 0) { clearInterval(timer); process.exit(0); } } catch {} " +
+        "}, 10);";
+
+      try {
+        const startedAt = Date.now();
+        await expect(
+          runner.run({
+            argv: [process.execPath, "-e", parentScript, marker, descendantScript],
+            env: process.env,
+          }),
+        ).resolves.toMatchObject({ exitCode: 0 });
+        expect(Date.now() - startedAt).toBeLessThan(2_000);
+        const sizeAfterSettlement = fileSize(marker);
+        await sleep(200);
+        expect(fileSize(marker)).toBe(sizeAfterSettlement);
+      } finally {
         rmSync(dir, { recursive: true, force: true });
       }
     },

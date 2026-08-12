@@ -81,6 +81,7 @@ describe("warden bin interactive console product wiring", () => {
     }));
     vi.doMock("./capability-manifest.js", () => ({
       resolveWardenKeelHome: () => "/tmp/keel-home",
+      homeCredentialSecretRoots: () => [],
     }));
     vi.doMock("./credential-proxy.js", () => ({
       credentialProxyRulesFromEnvValues: vi.fn(),
@@ -162,6 +163,7 @@ describe("warden bin interactive console product wiring", () => {
     }));
     vi.doMock("./capability-manifest.js", () => ({
       resolveWardenKeelHome: () => "/tmp/keel-home",
+      homeCredentialSecretRoots: () => [],
     }));
     vi.doMock("./credential-proxy.js", () => ({
       credentialProxyRulesFromEnvValues: vi.fn(),

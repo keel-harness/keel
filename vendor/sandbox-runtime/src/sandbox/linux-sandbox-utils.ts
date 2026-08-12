@@ -67,6 +67,75 @@ export interface LinuxSandboxParams {
   abortSignal?: AbortSignal
 }
 
+export async function stopLinuxBridgeProcess(
+  proc: ChildProcess,
+  label = 'Linux',
+): Promise<void> {
+  if (!proc.pid) return
+  await new Promise<void>((resolve, reject) => {
+    const pid = proc.pid!
+    let killTimer: ReturnType<typeof setTimeout> | undefined
+    let failureTimer: ReturnType<typeof setTimeout> | undefined
+    let groupPoll: ReturnType<typeof setInterval> | undefined
+    const settle = (error?: Error) => {
+      if (killTimer !== undefined) clearTimeout(killTimer)
+      if (failureTimer !== undefined) clearTimeout(failureTimer)
+      if (groupPoll !== undefined) clearInterval(groupPoll)
+      proc.removeListener('exit', onExit)
+      if (error === undefined) resolve()
+      else reject(error)
+    }
+    const groupIsAlive = () => {
+      try {
+        process.kill(-pid, 0)
+        return true
+      } catch (error) {
+        return (error as NodeJS.ErrnoException).code === 'EPERM'
+      }
+    }
+    const checkGroup = () => {
+      if (!groupIsAlive()) settle()
+    }
+    const onExit = () => checkGroup()
+    proc.once('exit', onExit)
+    groupPoll = setInterval(checkGroup, 10)
+    try {
+      process.kill(-pid, 'SIGTERM')
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ESRCH') settle()
+      else settle(error as Error)
+      return
+    }
+    killTimer = setTimeout(() => {
+      try {
+        process.kill(-pid, 'SIGKILL')
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ESRCH') {
+          settle()
+          return
+        }
+        settle(error as Error)
+        return
+      }
+      failureTimer = setTimeout(
+        () => {
+          checkGroup()
+          if (groupIsAlive()) {
+            settle(
+              new Error(
+                `${label} bridge process group settlement was not confirmed`,
+              ),
+            )
+          }
+        },
+        400,
+      )
+      failureTimer.unref?.()
+    }, 1_500)
+    killTimer.unref?.()
+  })
+}
+
 /** Default max depth for searching dangerous files */
 const DEFAULT_MANDATORY_DENY_SEARCH_DEPTH = 3
 
@@ -289,11 +358,85 @@ async function linuxGetMandatoryDenyPaths(
   return [...new Set(denyPaths)]
 }
 
-// Track mount points created by bwrap for non-existent deny paths.
+// Track mount points created by bwrap for non-existent deny paths and the
+// generated empty-directory sources used for nested deny binds.
 // When bwrap does --ro-bind /dev/null /nonexistent/path, it creates an empty
 // file on the host as a mount point. These persist after bwrap exits and must
 // be cleaned up explicitly.
-const bwrapMountPoints: Set<string> = new Set()
+const bwrapMountPointOwners: Map<string, number> = new Map()
+const bwrapGeneratedBindSourceOwners: Map<string, number> = new Map()
+
+function registerBwrapMountPoint(
+  mountPoint: string,
+  invocationMountPoints: Set<string>,
+): void {
+  if (invocationMountPoints.has(mountPoint)) return
+  invocationMountPoints.add(mountPoint)
+  bwrapMountPointOwners.set(
+    mountPoint,
+    (bwrapMountPointOwners.get(mountPoint) ?? 0) + 1,
+  )
+  registerExitCleanupHandler()
+}
+
+function registerGeneratedBwrapBindSource(
+  source: string,
+  invocationBindSources: Set<string>,
+): void {
+  if (invocationBindSources.has(source)) return
+  invocationBindSources.add(source)
+  bwrapGeneratedBindSourceOwners.set(
+    source,
+    (bwrapGeneratedBindSourceOwners.get(source) ?? 0) + 1,
+  )
+  registerExitCleanupHandler()
+}
+
+function removeEmptyBwrapPath(target: string): void {
+  try {
+    const stat = fs.statSync(target)
+    if (stat.isFile() && stat.size === 0) {
+      fs.unlinkSync(target)
+      logForDebugging(
+        `[Sandbox Linux] Cleaned up bwrap mount path (file): ${target}`,
+      )
+    } else if (stat.isDirectory() && fs.readdirSync(target).length === 0) {
+      fs.rmdirSync(target)
+      logForDebugging(
+        `[Sandbox Linux] Cleaned up bwrap mount path (dir): ${target}`,
+      )
+    }
+  } catch {
+    // Ignore cleanup errors — the path may have already been removed.
+  }
+}
+
+function abandonFailedBwrapInvocation(
+  invocationMountPoints: Set<string>,
+  invocationBindSources: Set<string>,
+): void {
+  if (activeSandboxCount > 0) activeSandboxCount--
+  for (const mountPoint of invocationMountPoints) {
+    const owners = bwrapMountPointOwners.get(mountPoint)
+    if (owners === undefined || owners <= 1) {
+      bwrapMountPointOwners.delete(mountPoint)
+    } else {
+      bwrapMountPointOwners.set(mountPoint, owners - 1)
+    }
+  }
+  for (const source of invocationBindSources) {
+    const owners = bwrapGeneratedBindSourceOwners.get(source)
+    if (owners === undefined || owners <= 1) {
+      bwrapGeneratedBindSourceOwners.delete(source)
+      // The command was never returned to a caller, so no sandbox can hold
+      // this generated source. It is safe to remove immediately even while a
+      // different launch remains active.
+      removeEmptyBwrapPath(source)
+    } else {
+      bwrapGeneratedBindSourceOwners.set(source, owners - 1)
+    }
+  }
+}
 
 // Number of wrapped commands that have been generated but whose cleanup has
 // not yet run. cleanupBwrapMountPoints() defers file deletion while this is
@@ -313,7 +456,7 @@ function registerExitCleanupHandler(): void {
   }
 
   process.on('exit', () => {
-    cleanupBwrapMountPoints({ force: true })
+    cleanupBwrapMountPointsOnProcessExit()
   })
 
   exitHandlerRegistered = true
@@ -337,8 +480,8 @@ function registerExitCleanupHandler(): void {
  * is unhashed, so path lookup no longer finds the mount) and the deny rule
  * stops applying inside that sandbox.
  *
- * Pass `{ force: true }` to delete unconditionally — used by the process-exit
- * handler and reset() where deferral is not meaningful.
+ * Pass `{ force: true }` only after the controller has proved every process settled. Process exit
+ * alone is not settlement and never overrides an active count.
  */
 export function cleanupBwrapMountPoints(opts?: { force?: boolean }): void {
   if (!opts?.force) {
@@ -355,32 +498,27 @@ export function cleanupBwrapMountPoints(opts?: { force?: boolean }): void {
     activeSandboxCount = 0
   }
 
-  for (const mountPoint of bwrapMountPoints) {
-    try {
-      // Only remove if it's still the empty file/directory bwrap created.
-      // If something else has written real content, leave it alone.
-      const stat = fs.statSync(mountPoint)
-      if (stat.isFile() && stat.size === 0) {
-        fs.unlinkSync(mountPoint)
-        logForDebugging(
-          `[Sandbox Linux] Cleaned up bwrap mount point (file): ${mountPoint}`,
-        )
-      } else if (stat.isDirectory()) {
-        // Empty directory mount points are created for intermediate
-        // components (Fix 2). Only remove if still empty.
-        const entries = fs.readdirSync(mountPoint)
-        if (entries.length === 0) {
-          fs.rmdirSync(mountPoint)
-          logForDebugging(
-            `[Sandbox Linux] Cleaned up bwrap mount point (dir): ${mountPoint}`,
-          )
-        }
-      }
-    } catch {
-      // Ignore cleanup errors — the file may have already been removed
-    }
+  for (const mountPoint of bwrapMountPointOwners.keys()) {
+    // Only remove if it is still the empty file/directory bwrap created. If
+    // something else has written real content, leave it alone.
+    removeEmptyBwrapPath(mountPoint)
   }
-  bwrapMountPoints.clear()
+  for (const source of bwrapGeneratedBindSourceOwners.keys()) {
+    removeEmptyBwrapPath(source)
+  }
+  bwrapMountPointOwners.clear()
+  bwrapGeneratedBindSourceOwners.clear()
+}
+
+/** Preserve live deny-mount sources on crash or bounded unclean exit. */
+export function cleanupBwrapMountPointsOnProcessExit(): void {
+  if (activeSandboxCount > 0) {
+    logForDebugging(
+      `[Sandbox Linux] Preserving mount points on exit — ${activeSandboxCount} sandbox(es) may still be active`,
+    )
+    return
+  }
+  cleanupBwrapMountPoints({ force: true })
 }
 
 /**
@@ -503,12 +641,15 @@ export async function initializeLinuxNetworkBridge(
   httpProxyPort: number,
   socksProxyPort: number,
   socatPath?: string,
+  socketRoot: string = tmpdir(),
+  socketId: string = randomBytes(8).toString('hex'),
 ): Promise<LinuxNetworkBridgeContext> {
   const socat = socatPath ?? 'socat'
-  const socketId = randomBytes(8).toString('hex')
-  const httpSocketPath = join(tmpdir(), `claude-http-${socketId}.sock`)
-  const socksSocketPath = join(tmpdir(), `claude-socks-${socketId}.sock`)
+  const httpSocketPath = join(socketRoot, `keel-http-${socketId}.sock`)
+  const socksSocketPath = join(socketRoot, `keel-socks-${socketId}.sock`)
+  const spawned: ChildProcess[] = []
 
+  try {
   // Start HTTP bridge
   const httpSocatArgs = [
     `UNIX-LISTEN:${httpSocketPath},fork,reuseaddr`,
@@ -519,7 +660,9 @@ export async function initializeLinuxNetworkBridge(
 
   const httpBridgeProcess = spawn(socat, httpSocatArgs, {
     stdio: 'ignore',
+    detached: true,
   })
+  spawned.push(httpBridgeProcess)
 
   // Add error and exit handlers to monitor bridge health. These must be
   // registered before the !pid check: when spawn fails (e.g. socat is
@@ -551,7 +694,9 @@ export async function initializeLinuxNetworkBridge(
 
   const socksBridgeProcess = spawn(socat, socksSocatArgs, {
     stdio: 'ignore',
+    detached: true,
   })
+  spawned.push(socksBridgeProcess)
 
   // Add error and exit handlers to monitor bridge health — registered
   // before the !pid check for the same reason as the HTTP bridge above.
@@ -569,7 +714,7 @@ export async function initializeLinuxNetworkBridge(
     // Clean up HTTP bridge
     if (httpBridgeProcess.pid) {
       try {
-        process.kill(httpBridgeProcess.pid, 'SIGTERM')
+        process.kill(-httpBridgeProcess.pid, 'SIGTERM')
       } catch {
         // Ignore errors
       }
@@ -605,14 +750,14 @@ export async function initializeLinuxNetworkBridge(
       // Clean up both processes
       if (httpBridgeProcess.pid) {
         try {
-          process.kill(httpBridgeProcess.pid, 'SIGTERM')
+          process.kill(-httpBridgeProcess.pid, 'SIGTERM')
         } catch {
           // Ignore errors
         }
       }
       if (socksBridgeProcess.pid) {
         try {
-          process.kill(socksBridgeProcess.pid, 'SIGTERM')
+          process.kill(-socksBridgeProcess.pid, 'SIGTERM')
         } catch {
           // Ignore errors
         }
@@ -632,6 +777,23 @@ export async function initializeLinuxNetworkBridge(
     socksBridgeProcess,
     httpProxyPort,
     socksProxyPort,
+  }
+  } catch (error) {
+    const settlements = await Promise.allSettled(
+      spawned.map(process => stopLinuxBridgeProcess(process)),
+    )
+    for (const socketPath of [httpSocketPath, socksSocketPath]) {
+      try {
+        fs.rmSync(socketPath, { force: true })
+      } catch {
+        // The preparation remains failed closed; the caller's durable endpoint
+        // lease prevents reuse when socket cleanup cannot be confirmed.
+      }
+    }
+    if (settlements.some(result => result.status === 'rejected')) {
+      throw new Error('Linux bridge initialization cleanup failed', { cause: error })
+    }
+    throw error
   }
 }
 
@@ -754,9 +916,11 @@ function pushReadDenyDirMounts(
   const denySep = normalizedPath === '/' ? '/' : normalizedPath + '/'
   args.push('--tmpfs', normalizedPath)
 
-  // tmpfs wiped any earlier write binds under this path — restore them.
+  // tmpfs wiped any earlier write binds strictly under this path — restore them.
+  // Never re-bind an exact-path allowWrite: doing so would expose the entire
+  // host directory that this tmpfs exists to hide.
   for (const writePath of allowedWritePaths) {
-    if (writePath.startsWith(denySep) || writePath === normalizedPath) {
+    if (writePath.startsWith(denySep)) {
       args.push('--bind', writePath, writePath)
       logForDebugging(
         `[Sandbox Linux] Re-bound write path wiped by denyRead tmpfs: ${writePath}`,
@@ -782,7 +946,7 @@ function pushReadDenyDirMounts(
       if (
         allowedWritePaths.some(
           w =>
-            (w.startsWith(denySep) || w === normalizedPath) &&
+            w.startsWith(denySep) &&
             (allowPath === w || allowPath.startsWith(w + '/')),
         )
       ) {
@@ -807,6 +971,8 @@ async function generateFilesystemArgs(
   mandatoryDenySearchDepth: number = DEFAULT_MANDATORY_DENY_SEARCH_DEPTH,
   allowGitConfig = false,
   abortSignal?: AbortSignal,
+  invocationMountPoints: Set<string> = new Set(),
+  invocationBindSources: Set<string> = new Set(),
 ): Promise<string[]> {
   const args: string[] = []
   // fs already imported
@@ -918,8 +1084,8 @@ async function generateFilesystemArgs(
       // doesn't exist yet, bypassing the deny rule entirely.
       //
       // bwrap creates empty files on the host as mount points for these binds.
-      // We track them in bwrapMountPoints so cleanupBwrapMountPoints() can
-      // remove them after the command exits.
+      // We track their destinations and any generated bind sources so
+      // cleanupBwrapMountPoints() can remove them after the command exits.
       if (!fs.existsSync(normalizedPath)) {
         // Fix 1 (worktree): If any existing component in the deny path is a
         // file (not a directory), skip the deny entirely. You can't mkdir
@@ -958,16 +1124,15 @@ async function generateFilesystemArgs(
             const emptyDir = fs.mkdtempSync(
               path.join(tmpdir(), 'claude-empty-'),
             )
+            registerGeneratedBwrapBindSource(emptyDir, invocationBindSources)
             denyWriteArgs.push('--ro-bind', emptyDir, firstNonExistent)
-            bwrapMountPoints.add(firstNonExistent)
-            registerExitCleanupHandler()
+            registerBwrapMountPoint(firstNonExistent, invocationMountPoints)
             logForDebugging(
               `[Sandbox Linux] Mounted empty dir at ${firstNonExistent} to block creation of ${normalizedPath}`,
             )
           } else {
             denyWriteArgs.push('--ro-bind', '/dev/null', firstNonExistent)
-            bwrapMountPoints.add(firstNonExistent)
-            registerExitCleanupHandler()
+            registerBwrapMountPoint(firstNonExistent, invocationMountPoints)
             logForDebugging(
               `[Sandbox Linux] Mounted /dev/null at ${firstNonExistent} to block creation of ${normalizedPath}`,
             )
@@ -1110,7 +1275,7 @@ async function generateFilesystemArgs(
       if (!underTmpfs) return false
       const reExposedByWriteBind = allowedWritePaths.some(
         writePath =>
-          (writePath === tmpfsDir || writePath.startsWith(tmpfsDir + '/')) &&
+          writePath.startsWith(tmpfsDir + '/') &&
           (dest === writePath || dest.startsWith(writePath + '/')),
       )
       return !reExposedByWriteBind
@@ -1157,20 +1322,28 @@ async function generateFilesystemArgs(
   }
 
   // A read-denied directory is represented by a writable tmpfs so its host contents stay hidden.
-  // When denyWrite overlaps that hidden region, leaving the tmpfs writable makes the governed
-  // command observe a false success even though only ephemeral bytes changed. Remount every
-  // overlapping tmpfs read-only after the stacking repairs above, then make any explicitly
-  // re-bound write child covered by the deny root read-only as well. This preserves read hiding,
-  // keeps unrelated allowWrite carve-outs writable, and makes authority writes fail structurally.
+  // Under an allow-only write policy that tmpfs must not silently become a new writable region:
+  // leaving it writable makes the governed command observe a false success even though only
+  // ephemeral bytes changed. Remount it read-only unless that exact directory is an allowWrite
+  // mount. Child allowWrite bind mounts retain their own writable mount flags. An overlapping
+  // denyWrite independently requires the same remount and makes any explicitly re-bound write
+  // child covered by the deny root read-only as well.
   const remountedTmpfs = new Set<string>()
   for (const tmpfsDir of tmpfsDirs) {
+    const readMaskOutsideExactWriteAllow =
+      writeConfig !== undefined && !allowedWritePaths.includes(tmpfsDir)
     const overlapsHiddenWriteDeny = hiddenDenyWriteDests.some(
       dest =>
         dest === tmpfsDir ||
         dest.startsWith(tmpfsDir + '/') ||
         tmpfsDir.startsWith(dest + '/'),
     )
-    if (!overlapsHiddenWriteDeny || remountedTmpfs.has(tmpfsDir)) continue
+    if (
+      (!readMaskOutsideExactWriteAllow && !overlapsHiddenWriteDeny) ||
+      remountedTmpfs.has(tmpfsDir)
+    ) {
+      continue
+    }
     remountedTmpfs.add(tmpfsDir)
     args.push('--remount-ro', tmpfsDir)
     logForDebugging(
@@ -1181,7 +1354,10 @@ async function generateFilesystemArgs(
   const reboundReadOnly = new Set<string>()
   for (const writePath of allowedWritePaths) {
     const coveredByHiddenWriteDeny = hiddenDenyWriteDests.some(
-      dest => writePath === dest || writePath.startsWith(dest + '/'),
+      // The exact write bind was masked by the denyRead tmpfs and must stay
+      // masked. Only strict child binds were restored and need a read-only
+      // layer when the hidden denyWrite root covers them.
+      dest => writePath.startsWith(dest + '/'),
     )
     if (!coveredByHiddenWriteDeny || reboundReadOnly.has(writePath)) continue
     reboundReadOnly.add(writePath)
@@ -1298,6 +1474,8 @@ export async function wrapCommandWithSandboxLinux(
   activeSandboxCount++
 
   const bwrapArgs: string[] = ['--new-session', '--die-with-parent']
+  const invocationMountPoints = new Set<string>()
+  const invocationBindSources = new Set<string>()
   let applySeccompPrefix: string | undefined
 
   try {
@@ -1367,10 +1545,6 @@ export async function wrapCommandWithSandboxLinux(
           )
         }
 
-        // Bind both sockets into the sandbox
-        bwrapArgs.push('--bind', httpSocketPath, httpSocketPath)
-        bwrapArgs.push('--bind', socksSocketPath, socksSocketPath)
-
         // Add proxy environment variables
         // HTTP_PROXY points to the socat listener inside the sandbox (port 3128)
         // which forwards to the Unix socket that bridges to the host's proxy server
@@ -1418,8 +1592,36 @@ export async function wrapCommandWithSandboxLinux(
       mandatoryDenySearchDepth,
       allowGitConfig,
       abortSignal,
+      invocationMountPoints,
+      invocationBindSources,
     )
-    bwrapArgs.push(...fsArgs)
+    if (needsNetworkRestriction && httpSocketPath && socksSocketPath) {
+      // Filesystem denyRead may mask the owner-only authority root containing these sockets.
+      // Layer back only the two authenticated bridge endpoints after every filesystem mask but
+      // before the masked tmpfs is remounted read-only. Binding them earlier lets a later parent
+      // tmpfs hide them (ENOENT); binding them after remount cannot create the destination (EROFS).
+      // No other byte or directory entry from that root is exposed.
+      const bridgeBindArgs = [
+        '--bind',
+        httpSocketPath,
+        httpSocketPath,
+        '--bind',
+        socksSocketPath,
+        socksSocketPath,
+      ]
+      const firstReadOnlyRemount = fsArgs.indexOf('--remount-ro')
+      if (firstReadOnlyRemount === -1) {
+        bwrapArgs.push(...fsArgs, ...bridgeBindArgs)
+      } else {
+        bwrapArgs.push(
+          ...fsArgs.slice(0, firstReadOnlyRemount),
+          ...bridgeBindArgs,
+          ...fsArgs.slice(firstReadOnlyRemount),
+        )
+      }
+    } else {
+      bwrapArgs.push(...fsArgs)
+    }
 
     // Always bind /dev
     bwrapArgs.push('--dev', '/dev')
@@ -1502,11 +1704,10 @@ export async function wrapCommandWithSandboxLinux(
 
     return wrappedCommand
   } catch (error) {
-    // Undo the activeSandboxCount increment — the caller won't call
-    // cleanupBwrapMountPoints() for a wrap that threw.
-    if (activeSandboxCount > 0) {
-      activeSandboxCount--
-    }
+    // The caller never receives a launch handle for a failed wrap. Remove only this invocation's
+    // ownership: transferring its paths into a concurrent live launch would let that later cleanup
+    // delete a legitimate file created after the failed preparation.
+    abandonFailedBwrapInvocation(invocationMountPoints, invocationBindSources)
     throw error
   }
 }

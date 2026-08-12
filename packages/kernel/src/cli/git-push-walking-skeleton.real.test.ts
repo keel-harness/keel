@@ -7,6 +7,7 @@
  */
 import { spawn, spawnSync } from "node:child_process";
 import { Buffer } from "node:buffer";
+import { randomBytes } from "node:crypto";
 import { createServer as createHttpsServer } from "node:https";
 import { createSecureContext } from "node:tls";
 import type { IncomingMessage, ServerResponse } from "node:http";
@@ -566,28 +567,28 @@ function spawnedGitPushWarden(options: {
   const entryDir = tempDir("keel-git-push-warden-entry-");
   const entryPath = join(entryDir, "warden.mjs");
   const tempRoot = tempDir("keel-git-push-warden-temp-");
+  const authorityRoot = tempDir("keel-git-push-warden-authority-");
   const helperHome = tempDir("keel-git-push-helper-home-");
-  const helperPath = join(helperHome, "credential-helper.mjs");
+  const helperPath = join(helperHome, "credential-helper");
   const helperConfigPath = join(helperHome, ".gitconfig");
+  const helperCredentialPath = join(helperHome, "credential-store");
   const gitExecutable = resolve(spawnSync("which", ["git"], { encoding: "utf8" }).stdout.trim());
   writeFileSync(
-    helperPath,
-    `#!/usr/bin/env node
-      import { randomBytes } from "node:crypto";
-      process.stdin.resume();
-      process.stdin.on("end", () => {
-        const username = "u-" + randomBytes(12).toString("hex");
-        const password = "p-" + randomBytes(32).toString("base64url");
-        process.stdout.write("username=" + username + "\\npassword=" + password + "\\n");
-      });
-    `,
-    { mode: 0o700 },
-  );
-  writeFileSync(
-    helperConfigPath,
-    `[credential]\n\thelper =\n\thelper = !${process.execPath} ${helperPath}\n`,
+    helperCredentialPath,
+    `username=u-${randomBytes(12).toString("hex")}\npassword=p-${randomBytes(32).toString("base64url")}\n`,
     { mode: 0o600 },
   );
+  writeFileSync(
+    helperPath,
+    `#!/bin/sh
+while IFS= read -r line; do [ -z "$line" ] && break; done
+/bin/cat "$HOME/credential-store"
+`,
+    { mode: 0o700 },
+  );
+  writeFileSync(helperConfigPath, `[credential]\n\thelper =\n\thelper = !${helperPath}\n`, {
+    mode: 0o600,
+  });
   writeFileSync(
     entryPath,
     `
@@ -608,6 +609,8 @@ function spawnedGitPushWarden(options: {
       const credentialBroker = createGitCredentialBroker({
         gitExecutable: ${JSON.stringify(gitExecutable)},
         tempRoot: ${JSON.stringify(tempRoot)},
+        workspaceRoot: ${JSON.stringify(options.workspaceRoot)},
+        denyRoots: [${JSON.stringify(authorityRoot)}],
         env: {
           HOME: ${JSON.stringify(helperHome)},
           PATH: ${JSON.stringify(process.env["PATH"] ?? "/usr/bin:/bin")},
@@ -628,6 +631,7 @@ function spawnedGitPushWarden(options: {
       const components = await createVendoredSrtSandboxComponents({
         credentialTlsTermination:
           gitPushAuthority.transportRequirements.credentialTlsTermination,
+        launchAuthorityRegistryPath: ${JSON.stringify(join(authorityRoot, "endpoint-leases.json"))},
         resolveDestination: async (hostname, port) => {
           if (hostname !== fixture.host || port !== fixture.port) {
             throw new Error("fixture resolver refused unbound destination");

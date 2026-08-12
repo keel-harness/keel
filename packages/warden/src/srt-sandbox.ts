@@ -6,7 +6,6 @@ import type {
   SandboxInvocation,
   SandboxPort,
   SandboxProcessRunner,
-  SandboxProcessRunnerOptions,
   SandboxProfile,
   SandboxSpawnDescriptor,
   SandboxStatus,
@@ -55,6 +54,18 @@ export interface SrtRuntimeAdapter {
   initialize?: () => Promise<void>;
   updateConfig?: (customConfig: SrtRuntimeConfig) => void;
   cleanupAfterCommand?: () => void;
+  prepareLaunch?: (
+    command: string,
+    binShell: string | undefined,
+    customConfig: SrtRuntimeConfig,
+    abortSignal: AbortSignal | undefined,
+  ) => Promise<{
+    argv: string[];
+    env: NodeJS.ProcessEnv;
+    revoke(): void | Promise<void>;
+    release(): void | Promise<void>;
+    cleanup(): void | Promise<void>;
+  }>;
   wrapWithSandboxArgv(
     command: string,
     binShell: string | undefined,
@@ -92,7 +103,9 @@ export interface SrtSandboxLaunchPreparerOptions {
 
 export interface SrtSandboxPreparedLaunch {
   readonly descriptor: SandboxSpawnDescriptor;
-  cleanup(): void;
+  revoke(): void | Promise<void>;
+  release(): void | Promise<void>;
+  cleanup(): void | Promise<void>;
 }
 
 export interface SrtSandboxLaunchPreparer {
@@ -107,6 +120,12 @@ export interface SrtSandboxLaunchPreparer {
 export interface NodeSandboxProcessRunnerOptions {
   readonly killProcess?: (pid: number, signal: NodeJS.Signals) => void;
   readonly killGraceMs?: number;
+  readonly processSettlementTimeoutMs?: number;
+  readonly processGroupController?: {
+    isAlive(processGroupId: number): boolean;
+    wait(milliseconds: number): Promise<void>;
+    nowMs(): number;
+  };
   readonly platform?: NodeJS.Platform;
   // Per-stream cap on captured stdout/stderr (QC §5). The warden buffers the child's whole output
   // into a JS string (and the audit payload); an unbounded stream (`yes`, `cat /dev/zero`) would grow
@@ -116,6 +135,9 @@ export interface NodeSandboxProcessRunnerOptions {
 }
 
 const DEFAULT_PROCESS_GROUP_KILL_GRACE_MS = 250;
+const DEFAULT_PROCESS_GROUP_SETTLEMENT_TIMEOUT_MS = 2_000;
+const DEFAULT_PROCESS_GROUP_POLL_MS = 10;
+const DEFAULT_PROCESS_OUTPUT_DRAIN_MS = 100;
 
 // 8 MiB per stream. Generous for any useful command output (the kernel truncates tool results far
 // smaller before the model sees them) while bounding the warden's per-command buffer to ~16 MiB.
@@ -212,12 +234,6 @@ function sandboxEnvFor(
   };
 }
 
-function processRunnerOptions(
-  executeOptions: SandboxExecuteOptions | undefined,
-): SandboxProcessRunnerOptions | undefined {
-  return executeOptions?.signal === undefined ? undefined : { signal: executeOptions.signal };
-}
-
 function sandboxSpawnDescriptor(
   invocation: SandboxInvocation,
   wrapped: { readonly argv: readonly string[]; readonly env: NodeJS.ProcessEnv },
@@ -262,95 +278,277 @@ export function createNodeSandboxProcessRunner(
     });
   const platform = options.platform ?? process.platform;
   const killGraceMs = options.killGraceMs ?? DEFAULT_PROCESS_GROUP_KILL_GRACE_MS;
+  const processSettlementTimeoutMs =
+    options.processSettlementTimeoutMs ?? DEFAULT_PROCESS_GROUP_SETTLEMENT_TIMEOUT_MS;
+  const processGroups =
+    options.processGroupController ??
+    ({
+      isAlive(processGroupId: number): boolean {
+        try {
+          process.kill(-processGroupId, 0);
+          return true;
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code === "ESRCH") return false;
+          throw error;
+        }
+      },
+      wait: async (milliseconds: number): Promise<void> => {
+        await new Promise<void>((resolve) => {
+          setTimeout(resolve, milliseconds);
+        });
+      },
+      nowMs: () => Date.now(),
+    } as const);
   const maxOutputBytes = options.maxOutputBytes ?? DEFAULT_MAX_OUTPUT_BYTES;
 
   return {
-    run(descriptor, options) {
+    async run(descriptor, runOptions) {
       const command = descriptor.argv[0];
       if (command === undefined) {
         return Promise.reject(new Error("sandbox spawn descriptor argv must not be empty"));
       }
       const args = descriptor.argv.slice(1);
-      return new Promise<SandboxExecutionResult>((resolve, reject) => {
-        const spawnOptions: SpawnOptionsWithoutStdio = {
-          detached: canSignalProcessGroup(platform),
-          env: descriptor.env,
-          shell: false,
-        };
-        if (descriptor.cwd !== undefined) spawnOptions.cwd = descriptor.cwd;
-        const child = spawn(command, args, spawnOptions);
-        // Cap each captured stream so a flooding child cannot OOM the warden (QC §5). Once the cap is
-        // reached we stop accumulating (the `data` handler still fires, draining the pipe so the child
-        // isn't blocked) and append a one-time truncation marker.
-        const makeSink = (): { push: (chunk: string) => void; value: () => string } => {
-          let buf = "";
-          let bytes = 0;
-          let truncated = false;
-          return {
-            push(chunk: string): void {
-              if (truncated) return;
-              const chunkBytes = Buffer.byteLength(chunk, "utf8");
-              if (bytes + chunkBytes <= maxOutputBytes) {
-                buf += chunk;
-                bytes += chunkBytes;
-                return;
-              }
-              buf += `\n[keel: output truncated — exceeded ${String(maxOutputBytes)} bytes]`;
-              truncated = true;
-            },
-            value: () => buf,
-          };
-        };
-        const stdoutSink = makeSink();
-        const stderrSink = makeSink();
-        let killTimer: NodeJS.Timeout | undefined;
-        const signalSandboxProcess = (signal: NodeJS.Signals): void => {
-          if (canSignalProcessGroup(platform) && child.pid !== undefined) {
-            try {
-              killProcess(-child.pid, signal);
-              return;
-            } catch {
-              // Fall back to direct-child signaling below.
-            }
-          }
-          child.kill(signal);
-        };
-        const onAbort = (): void => {
-          signalSandboxProcess("SIGTERM");
-          if (killGraceMs <= 0) return;
-          killTimer = setTimeout(() => {
-            signalSandboxProcess("SIGKILL");
-          }, killGraceMs);
-          killTimer.unref();
-        };
-        if (options?.signal?.aborted === true) {
-          onAbort();
-        } else {
-          options?.signal?.addEventListener("abort", onAbort, { once: true });
-        }
-        child.stdout.setEncoding("utf8");
-        child.stderr.setEncoding("utf8");
-        child.stdout.on("data", (chunk: string) => {
-          stdoutSink.push(chunk);
-        });
-        child.stderr.on("data", (chunk: string) => {
-          stderrSink.push(chunk);
-        });
-        const cleanup = (): void => {
-          if (killTimer !== undefined) clearTimeout(killTimer);
-          options?.signal?.removeEventListener("abort", onAbort);
-        };
-        child.once("error", (error) => {
-          cleanup();
-          reject(error);
-        });
-        child.once("close", (exitCode, signal) => {
-          cleanup();
-          resolve({ exitCode, signal, stdout: stdoutSink.value(), stderr: stderrSink.value() });
-        });
+      let triggerSettlement: (() => void) | undefined;
+      const settlementRequested = new Promise<void>((resolve) => {
+        triggerSettlement = resolve;
       });
+      let childPid: number | undefined;
+      let childSpawned = false;
+      let triggerSpawned: (() => void) | undefined;
+      const childSpawnedPromise = new Promise<void>((resolve) => {
+        triggerSpawned = resolve;
+      });
+      let signalSandboxProcess: ((signal: NodeJS.Signals) => void) | undefined;
+      let processGroupSignalError: unknown;
+      let settlementNeedsTermination = false;
+      let closeOutputPipes: (() => void) | undefined;
+      let outputClosed = false;
+      let resolveOutputClosed: (() => void) | undefined;
+      const outputClosedPromise = new Promise<void>((resolve) => {
+        resolveOutputClosed = resolve;
+      });
+      let stdoutValue: (() => string) | undefined;
+      let stderrValue: (() => string) | undefined;
+      const childOutcome = new Promise<Pick<SandboxExecutionResult, "exitCode" | "signal">>(
+        (resolve, reject) => {
+          const spawnOptions: SpawnOptionsWithoutStdio = {
+            detached: canSignalProcessGroup(platform),
+            env: descriptor.env,
+            shell: false,
+          };
+          if (descriptor.cwd !== undefined) spawnOptions.cwd = descriptor.cwd;
+          const child = spawn(command, args, spawnOptions);
+          childPid = child.pid;
+          // Cap each captured stream so a flooding child cannot OOM the warden (QC §5). Once the cap is
+          // reached we stop accumulating (the `data` handler still fires, draining the pipe so the child
+          // isn't blocked) and append a one-time truncation marker.
+          const makeSink = (): { push: (chunk: string) => void; value: () => string } => {
+            let buf = "";
+            let bytes = 0;
+            let truncated = false;
+            return {
+              push(chunk: string): void {
+                if (truncated) return;
+                const chunkBytes = Buffer.byteLength(chunk, "utf8");
+                if (bytes + chunkBytes <= maxOutputBytes) {
+                  buf += chunk;
+                  bytes += chunkBytes;
+                  return;
+                }
+                buf += `\n[keel: output truncated — exceeded ${String(maxOutputBytes)} bytes]`;
+                truncated = true;
+              },
+              value: () => buf,
+            };
+          };
+          const stdoutSink = makeSink();
+          const stderrSink = makeSink();
+          stdoutValue = stdoutSink.value;
+          stderrValue = stderrSink.value;
+          closeOutputPipes = () => {
+            child.stdout.destroy();
+            child.stderr.destroy();
+          };
+          signalSandboxProcess = (signal: NodeJS.Signals): void => {
+            if (canSignalProcessGroup(platform) && child.pid !== undefined) {
+              try {
+                killProcess(-child.pid, signal);
+                return;
+              } catch (error) {
+                if ((error as NodeJS.ErrnoException).code !== "ESRCH") {
+                  processGroupSignalError = error;
+                }
+                // Fall back to direct-child signaling below.
+              }
+            }
+            child.kill(signal);
+          };
+          const onAbort = (): void => {
+            settlementNeedsTermination = true;
+            if (childSpawned) triggerSettlement?.();
+          };
+          if (runOptions?.signal?.aborted === true) {
+            onAbort();
+          } else {
+            runOptions?.signal?.addEventListener("abort", onAbort, { once: true });
+          }
+          child.stdout.setEncoding("utf8");
+          child.stderr.setEncoding("utf8");
+          child.stdout.on("data", (chunk: string) => {
+            stdoutSink.push(chunk);
+          });
+          child.stderr.on("data", (chunk: string) => {
+            stderrSink.push(chunk);
+          });
+          const cleanup = (): void => {
+            runOptions?.signal?.removeEventListener("abort", onAbort);
+          };
+          child.once("error", (error) => {
+            cleanup();
+            triggerSpawned?.();
+            triggerSettlement?.();
+            reject(error);
+          });
+          child.once("spawn", () => {
+            childSpawned = true;
+            triggerSpawned?.();
+            if (settlementNeedsTermination) triggerSettlement?.();
+          });
+          child.once("exit", (exitCode, signal) => {
+            cleanup();
+            triggerSettlement?.();
+            resolve({ exitCode, signal });
+          });
+          child.once("close", () => {
+            outputClosed = true;
+            resolveOutputClosed?.();
+          });
+        },
+      );
+      // Spawn errors can arrive before lifecycle revocation/settlement finishes. Attach a handler
+      // immediately; the authoritative await below still observes and reports the rejection.
+      void childOutcome.catch(() => undefined);
+
+      await childSpawnedPromise;
+      await settlementRequested;
+      let revocationError: unknown;
+      try {
+        await runOptions?.beforeProcessGroupSettlement?.();
+      } catch (error) {
+        revocationError = error;
+      }
+
+      let settlementError: unknown;
+      if (canSignalProcessGroup(platform) && childPid !== undefined) {
+        try {
+          const startedAt = processGroups.nowMs();
+          const gracefulDeadline = startedAt + killGraceMs;
+          const absoluteDeadline = startedAt + processSettlementTimeoutMs;
+          signalSandboxProcess!("SIGTERM");
+          while (processGroups.isAlive(childPid) && processGroups.nowMs() < gracefulDeadline) {
+            await processGroups.wait(DEFAULT_PROCESS_GROUP_POLL_MS);
+          }
+          if (processGroups.isAlive(childPid)) signalSandboxProcess!("SIGKILL");
+          while (processGroups.isAlive(childPid) && processGroups.nowMs() < absoluteDeadline) {
+            await processGroups.wait(DEFAULT_PROCESS_GROUP_POLL_MS);
+          }
+          if (processGroups.isAlive(childPid)) {
+            throw new Error("sandbox process-group settlement was not confirmed");
+          }
+          if (processGroupSignalError !== undefined) {
+            throw processGroupSignalError instanceof Error
+              ? processGroupSignalError
+              : new Error("sandbox process-group signal failed");
+          }
+        } catch (error) {
+          settlementError = error;
+        }
+      } else if (settlementNeedsTermination) {
+        signalSandboxProcess!("SIGTERM");
+      }
+      if (settlementError === undefined) await runOptions?.onProcessGroupSettled?.();
+
+      if (settlementError === undefined && !outputClosed) {
+        let drainTimer: NodeJS.Timeout | undefined;
+        await Promise.race([
+          outputClosedPromise,
+          new Promise<void>((resolve) => {
+            drainTimer = setTimeout(resolve, DEFAULT_PROCESS_OUTPUT_DRAIN_MS);
+            drainTimer.unref();
+          }),
+        ]);
+        if (drainTimer !== undefined) clearTimeout(drainTimer);
+        if (!outputClosed) closeOutputPipes?.();
+      }
+
+      if (settlementError !== undefined) {
+        closeOutputPipes?.();
+        throw new AggregateError(
+          [revocationError, settlementError].filter(
+            (failure): failure is NonNullable<typeof failure> => failure !== undefined,
+          ),
+          "sandbox lifecycle settlement failed",
+        );
+      }
+
+      let outcome: Pick<SandboxExecutionResult, "exitCode" | "signal">;
+      try {
+        outcome = await childOutcome;
+      } catch (error) {
+        if (revocationError !== undefined || settlementError !== undefined) {
+          throw new AggregateError(
+            [error, revocationError, settlementError].filter(
+              (failure): failure is NonNullable<typeof failure> => failure !== undefined,
+            ),
+            "sandbox spawn and lifecycle settlement failed",
+          );
+        }
+        throw error;
+      }
+      if (revocationError !== undefined) {
+        throw new AggregateError([revocationError], "sandbox lifecycle settlement failed");
+      }
+      return { ...outcome, stdout: stdoutValue!(), stderr: stderrValue!() };
     },
   };
+}
+
+export async function executePreparedSrtLaunch(
+  launch: SrtSandboxPreparedLaunch,
+  runner: SandboxProcessRunner,
+  signal: AbortSignal | undefined,
+): Promise<SandboxExecutionResult> {
+  let lifecycleStarted = false;
+  let authorityRevoked = false;
+  let processGroupSettled = false;
+  const beforeProcessGroupSettlement = async (): Promise<void> => {
+    lifecycleStarted = true;
+    await launch.revoke();
+    authorityRevoked = true;
+  };
+  const onProcessGroupSettled = (): void => {
+    processGroupSettled = true;
+  };
+  try {
+    const result = await runner.run(launch.descriptor, {
+      ...(signal === undefined ? {} : { signal }),
+      beforeProcessGroupSettlement,
+      onProcessGroupSettled,
+    });
+    // Custom runners are a trusted Warden test/integration seam. A runner that does not implement
+    // the lifecycle callbacks retains the historic contract that resolution proves termination.
+    if (!lifecycleStarted) {
+      await beforeProcessGroupSettlement();
+      processGroupSettled = true;
+    }
+    return result;
+  } finally {
+    if (!lifecycleStarted) {
+      await beforeProcessGroupSettlement();
+      processGroupSettled = true;
+    }
+    if (authorityRevoked && processGroupSettled) await launch.cleanup();
+  }
 }
 
 export function createSrtSandboxLaunchPreparer(
@@ -371,7 +569,7 @@ export function createSrtSandboxLaunchPreparer(
       if (!currentStatus.available) {
         throw new Error(currentStatus.reason ?? "sandbox backend unavailable");
       }
-      if (!initialized) {
+      if (options.runtime.prepareLaunch === undefined && !initialized) {
         await options.runtime.initialize?.();
         initialized = true;
       }
@@ -379,26 +577,104 @@ export function createSrtSandboxLaunchPreparer(
         ...profileToSrtConfig(profile),
         ...credentialProxyToSrtConfig(executeOptions?.credentialProxy),
       };
-      options.runtime.updateConfig?.(customConfig);
       let wrapped: { argv: string[]; env: NodeJS.ProcessEnv };
+      let revoke: () => void | Promise<void>;
+      let release: () => void | Promise<void>;
+      let cleanup: () => void | Promise<void>;
+      const preparePerLaunch = options.runtime.prepareLaunch;
+      const perLaunchAuthority = preparePerLaunch !== undefined;
       try {
-        wrapped = await options.runtime.wrapWithSandboxArgv(
-          sandboxCommandForInvocation(invocation),
-          options.binShell,
-          customConfig,
-          executeOptions?.signal,
-        );
+        if (perLaunchAuthority) {
+          const launch = await preparePerLaunch(
+            sandboxCommandForInvocation(invocation),
+            options.binShell,
+            customConfig,
+            executeOptions?.signal,
+          );
+          wrapped = launch;
+          revoke = () => launch.revoke();
+          release = () => launch.release();
+          cleanup = () => launch.cleanup();
+        } else {
+          options.runtime.updateConfig?.(customConfig);
+          wrapped = await options.runtime.wrapWithSandboxArgv(
+            sandboxCommandForInvocation(invocation),
+            options.binShell,
+            customConfig,
+            executeOptions?.signal,
+          );
+          revoke = () => {};
+          release = () => options.runtime.cleanupAfterCommand?.();
+          cleanup = () => options.runtime.cleanupAfterCommand?.();
+        }
       } catch (error) {
-        options.runtime.cleanupAfterCommand?.();
+        // The per-launch manager owns exact rollback for a preparation that never returned a
+        // launch handle. Calling the legacy process-global cleanup hook here can decrement or
+        // delete filesystem mount state belonging to a different, still-live launch.
+        if (!perLaunchAuthority) options.runtime.cleanupAfterCommand?.();
         throw error;
       }
-      let cleaned = false;
+      let cleanupResult: void | Promise<void> | undefined;
+      let cleanupStarted = false;
+      let revokeResult: void | Promise<void> | undefined;
+      let revokeStarted = false;
+      let releaseResult: void | Promise<void> | undefined;
+      let releaseStarted = false;
       return {
         descriptor: sandboxSpawnDescriptor(invocation, wrapped, executeOptions?.credentialProxy),
-        cleanup(): void {
-          if (cleaned) return;
-          cleaned = true;
-          options.runtime.cleanupAfterCommand?.();
+        revoke(): void | Promise<void> {
+          if (revokeStarted) return revokeResult;
+          revokeStarted = true;
+          try {
+            revokeResult = revoke();
+          } catch (error) {
+            revokeStarted = false;
+            revokeResult = undefined;
+            throw error;
+          }
+          if (revokeResult !== undefined) {
+            void Promise.resolve(revokeResult).catch(() => {
+              revokeStarted = false;
+              revokeResult = undefined;
+            });
+          }
+          return revokeResult;
+        },
+        release(): void | Promise<void> {
+          if (releaseStarted) return releaseResult;
+          releaseStarted = true;
+          try {
+            releaseResult = release();
+          } catch (error) {
+            releaseStarted = false;
+            releaseResult = undefined;
+            throw error;
+          }
+          if (releaseResult !== undefined) {
+            void Promise.resolve(releaseResult).catch(() => {
+              releaseStarted = false;
+              releaseResult = undefined;
+            });
+          }
+          return releaseResult;
+        },
+        cleanup(): void | Promise<void> {
+          if (cleanupStarted) return cleanupResult;
+          cleanupStarted = true;
+          try {
+            cleanupResult = cleanup();
+          } catch (error) {
+            cleanupStarted = false;
+            cleanupResult = undefined;
+            throw error;
+          }
+          if (cleanupResult !== undefined) {
+            void Promise.resolve(cleanupResult).catch(() => {
+              cleanupStarted = false;
+              cleanupResult = undefined;
+            });
+          }
+          return cleanupResult;
         },
       };
     },
@@ -417,11 +693,7 @@ export function createSrtSandboxPort(options: SrtSandboxPortOptions): SandboxPor
       executeOptions?: SandboxExecuteOptions,
     ): Promise<SandboxExecutionResult> {
       const launch = await launchPreparer.prepareLaunch(invocation, profile, executeOptions);
-      try {
-        return await runner.run(launch.descriptor, processRunnerOptions(executeOptions));
-      } finally {
-        launch.cleanup();
-      }
+      return await executePreparedSrtLaunch(launch, runner, executeOptions?.signal);
     },
   };
 }

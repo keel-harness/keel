@@ -34,7 +34,10 @@ The parts of keel you can rely on now:
   vetted addresses to the final dial. The claim is backend-specific.
 - **Bounded typed Git push in current source** — trusted interactive macOS/Linux sessions can use
   Git 2.x (2.39 or newer) and `git.push` to create or fast-forward one exact non-default feature ref
-  to one approved full commit OID over canonical HTTPS and `srt:vendored`, with one once-only human approval. Raw
+  to one approved full commit OID over canonical HTTPS and `srt:vendored`, with
+  `srt-launch-authority/v1` binding unique authenticated proxy endpoints plus one immutable
+  configuration/credential snapshot to each network-bearing launch, and one once-only human approval.
+  Exact deny-all launches receive an endpointless network-denied OS profile with no proxy authority. Raw
   `process.run git push`, force, deletion, tags, default-branch push, SSH, redirects, project
   credential helpers, reusable grants, and automatic retry remain unavailable. Published
   `keel-harness@0.1.1` predates this capability.
@@ -44,10 +47,13 @@ The parts of keel you can rely on now:
   verifies the exact result. GitHub Enterprise, forks/cross-repository heads, generic forge APIs,
   `gh`, combined push-and-PR approval, merge/auto-merge, labels, reviews, releases, deployments, and
   automatic retry remain unavailable. Published `keel-harness@0.1.1` predates this capability.
+  Current source permanently excludes retired network-bearing endpoints; compact registry V2 makes
+  the 25,536-port range the first capacity bound. Exhaustion fails closed for network-bearing
+  launches while endpointless deny-all execution remains available; safe reuse remains future work.
 
 See the [getting-started guide](guide/getting-started.md) for how to use these.
 
-## Now — finishing for the first public release
+## Now — hardening the public pre-alpha
 
 - **TUI polish** to a "no dead-ends" bar: every surface either works or honestly says it
   is unavailable.

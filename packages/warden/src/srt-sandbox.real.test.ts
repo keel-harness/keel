@@ -85,10 +85,19 @@ function runUnsandboxed(
 
 suite("real SRT sandbox enforcement (opt-in: KEEL_REQUIRE_REAL_SANDBOX=1)", () => {
   let sandbox: SandboxPort;
+  let shutdownSandbox: (() => Promise<void>) | undefined;
   let workRoot: string;
+  let authorityRoot: string;
 
   beforeAll(async () => {
-    const { sandbox: real } = await createVendoredSrtSandboxComponents();
+    authorityRoot = realpathSync(mkdtempSync(join(tmpdir(), "keel-real-srt-authority-")));
+    chmodSync(authorityRoot, 0o700);
+    const components = await createVendoredSrtSandboxComponents({
+      launchAuthorityRegistryPath: join(authorityRoot, "endpoint-leases.json"),
+      resolveDestination: async () => [{ address: "127.0.0.1", family: 4 }],
+    });
+    const real = components.sandbox;
+    shutdownSandbox = components.shutdown;
     const status = real.status();
     const gate = resolveRealSandboxGate({
       required,
@@ -98,7 +107,22 @@ suite("real SRT sandbox enforcement (opt-in: KEEL_REQUIRE_REAL_SANDBOX=1)", () =
     if (gate.action === "fail") throw new Error(gate.reason);
     // `required` is true whenever beforeAll runs (else the suite is describe.skip), so the only
     // non-fail outcome here is "run".
-    sandbox = real;
+    sandbox = {
+      status: () => real.status(),
+      execute: (invocation, profile, options) =>
+        real.execute(
+          invocation,
+          {
+            ...profile,
+            filesystem: {
+              ...profile.filesystem,
+              denyRead: [...(profile.filesystem?.denyRead ?? []), authorityRoot],
+              denyWrite: [...(profile.filesystem?.denyWrite ?? []), authorityRoot],
+            },
+          },
+          options,
+        ),
+    };
     // realpathSync: macOS seatbelt canonicalizes paths (/var → /private/var), so the profile paths
     // must be the resolved form or even allowed writes would be denied.
     workRoot = realpathSync(mkdtempSync(join(tmpdir(), "keel-real-sbx-")));
@@ -107,9 +131,13 @@ suite("real SRT sandbox enforcement (opt-in: KEEL_REQUIRE_REAL_SANDBOX=1)", () =
     // runner. This is init latency, not a correctness signal.
   }, 30_000);
 
-  afterAll(() => {
+  afterAll(async () => {
+    await shutdownSandbox?.();
     if (workRoot !== undefined && existsSync(workRoot)) {
       rmSync(workRoot, { recursive: true, force: true });
+    }
+    if (authorityRoot !== undefined && existsSync(authorityRoot)) {
+      rmSync(authorityRoot, { recursive: true, force: true });
     }
   });
 
@@ -120,6 +148,59 @@ suite("real SRT sandbox enforcement (opt-in: KEEL_REQUIRE_REAL_SANDBOX=1)", () =
     const status = sandbox.status();
     expect(status.available).toBe(true);
     expect(status.enforcementTier).toBe("sandbox:srt");
+    expect(status.features).toContain("srt-launch-authority/v1");
+  });
+
+  it("DENIES governed child reads and writes across the durable launch-authority root", async () => {
+    const registryPath = join(authorityRoot, "endpoint-leases.json");
+    expect(readFileSync(registryPath, "utf8")).toContain('"version":2');
+
+    const result = await sandbox.execute(
+      {
+        command: process.execPath,
+        argv: [
+          process.execPath,
+          "-e",
+          "const fs=require('node:fs');try{process.stdout.write(fs.readFileSync(process.argv[1],'utf8'))}catch{process.stdout.write('DENIED')}",
+          registryPath,
+        ],
+      },
+      { filesystem: { denyRead: [], allowRead: [], allowWrite: [], denyWrite: [] } },
+    );
+
+    expect(result.stdout).not.toContain('"version":2');
+
+    const attemptedWrite = join(authorityRoot, "governed-write");
+    const writeResult = await sandbox.execute(
+      {
+        command: "/usr/bin/touch",
+        argv: ["/usr/bin/touch", attemptedWrite],
+      },
+      { filesystem: { denyRead: [], allowRead: [], allowWrite: [], denyWrite: [] } },
+    );
+
+    expect(writeResult.exitCode).not.toBe(0);
+    expect(existsSync(attemptedWrite)).toBe(false);
+  });
+
+  it("keeps the durable authority root hidden under an exact write allow", async () => {
+    const profile = {
+      filesystem: { denyRead: [], allowRead: [], allowWrite: [authorityRoot], denyWrite: [] },
+    };
+    const registryPath = join(authorityRoot, "endpoint-leases.json");
+    const readResult = await sandbox.execute(
+      { command: "/bin/cat", argv: ["/bin/cat", registryPath] },
+      profile,
+    );
+    expect(readResult.stdout).not.toContain('"version":2');
+
+    const target = join(authorityRoot, "exact-allow-governed-write");
+    const writeResult = await sandbox.execute(
+      { command: "/usr/bin/touch", argv: ["/usr/bin/touch", target] },
+      profile,
+    );
+    expect(writeResult.exitCode).not.toBe(0);
+    expect(existsSync(target)).toBe(false);
   });
 
   it("discovers a local-stdio MCP server through the real vendored sandbox", async () => {

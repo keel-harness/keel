@@ -1,0 +1,54 @@
+From: Keel maintainers <maintainers@keel.dev>
+Date: Tue, 11 Aug 2026 00:00:00 -0400
+Subject: [PATCH] bind SRT authority to one governed launch
+
+Local patch record against @anthropic-ai/sandbox-runtime v0.0.59
+(3f4233f173227ca2e9dfde8c4985bc31811a64fc).
+
+The reviewed postimage is carried in these vendored paths:
+
+- src/sandbox/endpoint-lease-registry.ts
+- src/sandbox/http-proxy.ts
+- src/sandbox/linux-sandbox-utils.ts
+- src/sandbox/sandbox-manager.ts
+- src/sandbox/socks-proxy.ts
+- src/sandbox/tls-terminate-proxy.ts
+- test/sandbox/endpoint-lease-registry.test.ts
+- test/sandbox/endpoint-lease-registry-aba.test.ts
+- test/sandbox/endpoint-lease-child.ts
+- test/sandbox/http-server-lifecycle.test.ts
+- test/sandbox/launch-authority-lifecycle.test.ts
+- test/sandbox/launch-authority.test.ts
+- test/sandbox/linux-bridge-process-group.test.ts
+- test/sandbox/mandatory-deny-paths.test.ts
+- test/sandbox/socks-server-lifecycle.test.ts
+- test/sandbox/tls-loopback-lifecycle.test.ts
+
+Contract anchors required by Keel's vendor verifier:
+
+- srt-launch-authority/v1
+- LAUNCH_AUTHORITY_DRAIN_TIMEOUT_MS = 2_000
+- EndpointLeaseRegistry.claimGeneration
+- per-launch proxy authority requires a destination resolver
+- state.draining = true
+- launchLifecycleTail
+- structurallyDeniesAllNetwork
+- SRT_LAUNCH_AUTHORITY_CAPACITY
+- stopLinuxBridgeProcess
+- revoke(): Promise<void>
+- release(): Promise<void>
+- releaseLaunchFilesystemState
+- filesystem mount state follows process settlement
+- process exit retains mount sources while any sandbox count remains active
+- failed wraps surrender only their invocation-owned mount paths
+- generated nested-deny bind sources follow invocation ownership and settlement
+- authenticated Linux bridge binds follow filesystem masks and precede read-only remount
+- Linux launch tests distinguish inner bridge ports from host authority ports
+- controller-owned reset replaces vendored process exit and signal hooks
+
+This record is an inventory/contract patch because the Keel extension adds new files
+and composes several earlier local patches. The exact reviewable diff is the Git commit
+that adds this record; `VENDOR.md` documents rationale, security impact, compatibility,
+evidence, and upstream status. `tools/vendor/verify-sandbox-runtime.mjs` pins SHA-256
+postimages for every source and regression path listed above so later drift fails the
+vendor gate until a new reviewed patch record updates those digests.

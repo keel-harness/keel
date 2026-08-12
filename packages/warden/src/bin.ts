@@ -12,7 +12,7 @@ import type { SandboxPort } from "./sandbox.js";
 import type { ConsoleSandboxLaunchPreparer } from "./interactive-console/tmux-broker.js";
 import { createWardenSandboxTempRoot } from "./sandbox-temp-root.js";
 import { interactiveConsoleProductOptionsFromEnv } from "./interactive-console/product-config.js";
-import { resolveWardenKeelHome } from "./capability-manifest.js";
+import { homeCredentialSecretRoots, resolveWardenKeelHome } from "./capability-manifest.js";
 import { loadOrCreateAuditCheckpointKey } from "./audit/checkpoint-key.js";
 import { SessionAuditLog } from "./audit/session-log.js";
 import {
@@ -101,7 +101,35 @@ export function installSandboxTempRootFromEnv(
 interface SandboxComponentsFromEnv {
   readonly sandbox?: SandboxPort;
   readonly consoleLaunchPreparer?: ConsoleSandboxLaunchPreparer;
+  readonly quarantine?: () => void;
   readonly shutdown?: () => Promise<void>;
+}
+
+async function shutdownRuntimeAuthorities(
+  egressResolver: BoundedEgressAddressResolver | undefined,
+  sandboxShutdown: (() => Promise<void>) | undefined,
+): Promise<void> {
+  const settlements = await Promise.allSettled([
+    Promise.resolve().then(async () => {
+      const outcome = await egressResolver?.shutdown();
+      if (outcome !== undefined && !outcome.drained) {
+        throw new Error("egress resolver shutdown did not drain active lookups");
+      }
+    }),
+    Promise.resolve().then(() => sandboxShutdown?.()),
+  ]);
+  const failures: Error[] = [];
+  for (const settlement of settlements) {
+    if (settlement.status !== "rejected") continue;
+    failures.push(
+      settlement.reason instanceof Error
+        ? settlement.reason
+        : new Error("runtime authority teardown rejected without an Error"),
+    );
+  }
+  if (failures.length > 0) {
+    throw new AggregateError(failures, "runtime authority teardown failed");
+  }
 }
 
 async function sandboxComponentsFromEnv(
@@ -109,6 +137,7 @@ async function sandboxComponentsFromEnv(
   resolveDestination?: BoundedEgressAddressResolver["resolveDestination"],
   gitPushAuthority?: GitPushAuthority,
   githubPrCreateAuthority?: GithubPrCreateAuthority,
+  launchAuthorityRegistryPath?: string,
 ): Promise<SandboxComponentsFromEnv> {
   if (process.env["KEEL_WARDEN_SANDBOX"] !== "srt") return {};
   const credentialTlsTermination =
@@ -118,6 +147,7 @@ async function sandboxComponentsFromEnv(
   const options = {
     ...(credentialTlsTermination ? { credentialTlsTermination: true } : {}),
     ...(resolveDestination === undefined ? {} : { resolveDestination }),
+    ...(launchAuthorityRegistryPath === undefined ? {} : { launchAuthorityRegistryPath }),
   };
   const components =
     Object.keys(options).length === 0
@@ -125,6 +155,7 @@ async function sandboxComponentsFromEnv(
       : await createVendoredSrtSandboxComponents(options);
   return {
     sandbox: components.sandbox,
+    quarantine: components.quarantine,
     shutdown: components.shutdown,
     ...(components.launchPreparer === undefined
       ? {}
@@ -135,7 +166,15 @@ async function sandboxComponentsFromEnv(
 async function sandboxFromEnv(
   credentialProxyRules?: readonly CredentialProxyRule[],
 ): Promise<SandboxPort | undefined> {
-  return (await sandboxComponentsFromEnv(credentialProxyRules)).sandbox;
+  return (
+    await sandboxComponentsFromEnv(
+      credentialProxyRules,
+      undefined,
+      undefined,
+      undefined,
+      join(resolveWardenKeelHome(process.env), "srt-endpoint-leases.json"),
+    )
+  ).sandbox;
 }
 
 function auditDirFromEnv(home = resolveWardenKeelHome(process.env)): string {
@@ -375,7 +414,7 @@ export async function runWardenFromEnv(
         audit: egressAddressGuardAuditSink(auditLog),
         onQuarantine: () => {
           quarantineRequested = true;
-          void sandboxComponents.shutdown?.().catch(() => {});
+          sandboxComponents.quarantine?.();
         },
         ...(workspaceTrusted
           ? { allowsRestrictedAddress: exceptionSnapshot.allowsRestrictedAddress }
@@ -407,6 +446,13 @@ export async function runWardenFromEnv(
         const credentialBroker = createGitCredentialBroker({
           gitExecutable,
           tempRoot,
+          workspaceRoot,
+          denyRoots: [
+            keelHome,
+            ...(process.env["HOME"] === undefined
+              ? []
+              : homeCredentialSecretRoots(process.env["HOME"])),
+          ],
           env: process.env,
         });
         if (gitPushAuthority === undefined) {
@@ -447,8 +493,9 @@ export async function runWardenFromEnv(
             activeEgressResolver.resolveDestination(hostname, port, signal),
       gitPushAuthority,
       githubPrCreateAuthority,
+      join(keelHome, "srt-endpoint-leases.json"),
     );
-    if (quarantineRequested) await sandboxComponents.shutdown?.();
+    if (quarantineRequested) sandboxComponents.quarantine?.();
 
     const sandbox = sandboxComponents.sandbox;
     const lifecycleManifest = lifecycleManifestFromEnv(process.env);
@@ -517,7 +564,7 @@ export async function runWardenFromEnv(
       validationPostureId,
       workspaceTrusted,
       shutdownRuntime: async () => {
-        await Promise.allSettled([setupEgressResolver?.shutdown(), sandboxComponents.shutdown?.()]);
+        await shutdownRuntimeAuthorities(setupEgressResolver, sandboxComponents.shutdown);
       },
       ...interactiveConsoleOptions,
       onShutdown: ({ reaped }: { readonly reaped: boolean }) => {
@@ -540,7 +587,7 @@ export async function runWardenFromEnv(
         let reaped = false;
         try {
           const outcome = await Promise.race([
-            server.close().then(() => ({ reaped: true as const })),
+            server.closeWithOutcome(),
             new Promise<{ readonly reaped: false }>((resolve) => {
               setTimeout(() => resolve({ reaped: false }), WARDEN_TEARDOWN_BUDGET_MS).unref();
             }),
@@ -563,9 +610,30 @@ export async function runWardenFromEnv(
         // transport, and process exit remains the final memory boundary if cleanup itself fails.
       }
     }
-    await Promise.allSettled([setupEgressResolver?.shutdown(), sandboxComponents.shutdown?.()]);
+    let runtimeShutdownError: Error | undefined;
+    try {
+      await shutdownRuntimeAuthorities(setupEgressResolver, sandboxComponents.shutdown);
+    } catch (failure) {
+      runtimeShutdownError =
+        failure instanceof Error
+          ? failure
+          : new Error("runtime authority teardown rejected without an Error");
+    }
     if (setupAuditLog !== undefined) closeAuditLogForExit(setupAuditLog, reportAuditCloseError);
-    cleanupTypedMutationAndSandboxTempAfterReap(setupTypedMutationRunner, sandboxTempRoot, true);
+    cleanupTypedMutationAndSandboxTempAfterReap(
+      setupTypedMutationRunner,
+      sandboxTempRoot,
+      runtimeShutdownError === undefined,
+    );
+    if (runtimeShutdownError !== undefined) {
+      throw new AggregateError(
+        [
+          error instanceof Error ? error : new Error("warden startup rejected without an Error"),
+          runtimeShutdownError,
+        ],
+        "warden startup failed and runtime cleanup was not confirmed",
+      );
+    }
     throw error;
   }
 }

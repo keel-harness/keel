@@ -34,6 +34,12 @@ export interface SocksProxyServerOptions {
    * user "srt" with this token as the password.
    */
   proxyAuthToken?: string
+
+  /** Mutable host-owned token reference used by revocable launch authority. */
+  getProxyAuthToken?: () => string | undefined
+
+  /** Host-owned revocation/readiness predicate for launch-scoped authority. */
+  isProxyAuthActive?: () => boolean
 }
 
 export interface SocksProxyWrapper {
@@ -50,9 +56,18 @@ export function createSocksProxyServer(
   const socksServer = createServer()
   const canonicalHostByConnection = new WeakMap<object, string>()
 
-  if (options.proxyAuthToken) {
+  if (options.proxyAuthToken !== undefined || options.getProxyAuthToken !== undefined) {
     socksServer.setAuthHandler((conn, accept, deny) => {
-      if (conn.username === 'srt' && conn.password === options.proxyAuthToken) {
+      const token =
+        options.getProxyAuthToken === undefined
+          ? options.proxyAuthToken
+          : options.getProxyAuthToken()
+      if (
+        options.isProxyAuthActive?.() !== false &&
+        token !== undefined &&
+        conn.username === 'srt' &&
+        conn.password === token
+      ) {
         accept()
       } else {
         logForDebugging('SOCKS auth rejected', { level: 'error' })
@@ -180,7 +195,15 @@ export function createSocksProxyServer(
   const internalServer = (socksServer as unknown as { server?: NetServer })
     ?.server
   const openSockets = new Set<Socket>()
+  let draining = false
   internalServer?.on('connection', (socket: Socket) => {
+    // Permanently reject clients accepted before a launch becomes active.
+    // Authentication may occur later on the same socket, so checking only in
+    // the auth handler would let a held pre-activation client cross the gate.
+    if (draining || options.isProxyAuthActive?.() === false) {
+      socket.destroy()
+      return
+    }
     openSockets.add(socket)
     socket.once('close', () => openSockets.delete(socket))
   })
@@ -223,6 +246,7 @@ export function createSocksProxyServer(
     },
     async close(): Promise<void> {
       return new Promise((resolve, reject) => {
+        draining = true
         socksServer.close(error => {
           if (error) {
             // Only reject for actual errors, not for "already closed" states

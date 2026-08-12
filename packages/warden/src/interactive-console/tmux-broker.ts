@@ -1,8 +1,9 @@
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { setTimeout as sleep } from "node:timers/promises";
 import { JsonObject, type JsonObjectT } from "@keel/shared";
 import type {
   ConsoleBrokerCloseResult,
@@ -30,6 +31,8 @@ export const SYSTEM_TMUX_CONSOLE_BROKER_KIND = "system-tmux-private-socket:v1";
 
 const DEFAULT_TMUX_TIMEOUT_MS = 10_000;
 const DEFAULT_TMUX_KILL_GRACE_MS = 100;
+const DEFAULT_TMUX_PROCESS_SETTLEMENT_TIMEOUT_MS = 2_000;
+const DEFAULT_TMUX_PROCESS_POLL_MS = 10;
 const MAX_TMUX_OUTPUT_BYTES = 1_048_576;
 const MAX_DIRECT_TMUX_DESCRIPTOR_ARGV_BYTES = 16_384;
 const TARGET_ENV_EXECUTABLE = "/usr/bin/env";
@@ -68,6 +71,10 @@ const TARGET_ENV_ALLOWLIST = new Set([
   "USER",
 ]);
 
+function throwableError(value: unknown): Error {
+  return value instanceof Error ? value : new Error(String(value), { cause: value });
+}
+
 export interface TmuxCommandRequest {
   readonly argv: readonly string[];
   readonly env: NodeJS.ProcessEnv;
@@ -100,7 +107,9 @@ export interface ConsoleSandboxLaunchPreparer {
     executeOptions?: Pick<SandboxExecuteOptions, "signal">,
   ): Promise<{
     readonly descriptor: SandboxSpawnDescriptor;
-    cleanup(): void;
+    revoke(): void | Promise<void>;
+    release(): void | Promise<void>;
+    cleanup(): void | Promise<void>;
   }>;
 }
 
@@ -112,6 +121,14 @@ export interface SystemTmuxConsoleBrokerOptions {
   readonly runner?: TmuxCommandRunner;
   readonly privateRoot?: string;
   readonly env?: NodeJS.ProcessEnv;
+  readonly processGroupController?: TmuxProcessGroupController;
+}
+
+export interface TmuxProcessGroupController {
+  isAlive(processGroupId: number): boolean;
+  signal(processGroupId: number, signal: NodeJS.Signals): void;
+  wait(milliseconds: number): Promise<void>;
+  nowMs(): number;
 }
 
 export interface ProbeSystemTmuxConsoleBrokerOptions {
@@ -126,7 +143,58 @@ interface TmuxHandleState {
   readonly paneId: string;
   readonly panePid: number;
   readonly processIdentity: JsonObjectT;
-  cleanup(): void;
+  processSettled: boolean;
+  revoke(): void | Promise<void>;
+  release(): void | Promise<void>;
+  cleanup(): void | Promise<void>;
+}
+
+interface PendingTmuxSettlement {
+  readonly sessionName: string;
+  panePid?: number;
+  revokeSettled: boolean;
+  cleanupSettled: boolean;
+  processSettled: boolean;
+  revoke(): void | Promise<void>;
+  cleanup(): void | Promise<void>;
+}
+
+export function createNodeTmuxProcessGroupController(
+  options: {
+    readonly killProcess?: (pid: number, signal: NodeJS.Signals | 0) => void;
+    readonly wait?: (milliseconds: number) => Promise<void>;
+    readonly nowMs?: () => number;
+  } = {},
+): TmuxProcessGroupController {
+  const killProcess =
+    options.killProcess ??
+    ((pid: number, signal: NodeJS.Signals | 0): void => {
+      process.kill(pid, signal);
+    });
+  return {
+    isAlive(processGroupId) {
+      try {
+        killProcess(-processGroupId, 0);
+        return true;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ESRCH") return false;
+        throw error;
+      }
+    },
+    signal(processGroupId, signal) {
+      try {
+        killProcess(-processGroupId, signal);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
+      }
+    },
+    wait:
+      options.wait ??
+      (async (milliseconds) => {
+        await sleep(milliseconds);
+      }),
+    nowMs: options.nowMs ?? (() => Date.now()),
+  };
 }
 
 function sha256(value: string): string {
@@ -542,7 +610,12 @@ export function createSystemTmuxConsoleBroker(
   writeTmuxConfig(configPath);
   const env = brokerEnv(options.env);
   const handles = new Map<string, TmuxHandleState>();
+  const pendingSettlements = new Map<string, PendingTmuxSettlement>();
   const releasedSessions = new Set<string>();
+  const processGroups = options.processGroupController ?? createNodeTmuxProcessGroupController();
+  let disposed = false;
+  let opening = false;
+  let privateServerSettled = false;
   const configuredTmuxStatus =
     options.tmuxStatus ??
     ({
@@ -615,13 +688,80 @@ export function createSystemTmuxConsoleBroker(
   async function runTmuxStatus(
     args: readonly string[],
     signal?: AbortSignal,
+    timeoutMs = DEFAULT_TMUX_TIMEOUT_MS,
   ): Promise<TmuxCommandResult> {
     return await runner.run({
       argv: [options.tmuxPath, "-S", socketPath, "-f", configPath, ...args],
       env,
-      timeoutMs: DEFAULT_TMUX_TIMEOUT_MS,
+      timeoutMs,
       ...(signal === undefined ? {} : { signal }),
     });
+  }
+
+  async function recoverPanePid(
+    sessionName: string,
+    signal?: AbortSignal,
+  ): Promise<number | undefined> {
+    try {
+      const result = await runTmuxStatus(
+        ["display-message", "-p", "-t", `=${sessionName}`, TMUX_PANE_IDENTITY_FORMAT],
+        signal,
+      );
+      if (result.exitCode !== 0) return undefined;
+      return parsePaneIdentity(result.stdout).panePid;
+    } catch {
+      return undefined;
+    }
+  }
+
+  async function settleTmuxProcessGroup(
+    sessionName: string,
+    panePid: number | undefined,
+    onProcessGroupResolved?: (processGroupId: number) => void,
+  ): Promise<void> {
+    const startedAt = processGroups.nowMs();
+    const gracefulDeadline = startedAt + DEFAULT_TMUX_KILL_GRACE_MS;
+    const absoluteDeadline = startedAt + DEFAULT_TMUX_PROCESS_SETTLEMENT_TIMEOUT_MS;
+    const tmuxAbort = new AbortController();
+    const tmuxAbortTimer = setTimeout(() => {
+      tmuxAbort.abort();
+    }, DEFAULT_TMUX_PROCESS_SETTLEMENT_TIMEOUT_MS);
+    tmuxAbortTimer.unref();
+    const processGroupId = panePid ?? (await recoverPanePid(sessionName, tmuxAbort.signal));
+    if (processGroupId !== undefined) onProcessGroupResolved?.(processGroupId);
+    if (processGroupId !== undefined && processGroups.isAlive(processGroupId)) {
+      processGroups.signal(processGroupId, "SIGTERM");
+    }
+
+    // tmux destroys session metadata and sends its own hangup, but its success is not process-reap
+    // proof: a pane group may ignore HUP/TERM and survive as an orphan. Never pass caller abort into
+    // this terminal-cleanup sequence.
+    const tmuxSettlement = runTmuxStatus(
+      ["kill-session", "-t", `=${sessionName}`],
+      tmuxAbort.signal,
+    ).catch(() => undefined);
+    void tmuxSettlement.finally(() => {
+      clearTimeout(tmuxAbortTimer);
+    });
+
+    if (processGroupId === undefined) {
+      tmuxAbort.abort();
+      throw new Error("tmux pane process-group settlement was not confirmed");
+    }
+    while (processGroups.isAlive(processGroupId) && processGroups.nowMs() < gracefulDeadline) {
+      await processGroups.wait(DEFAULT_TMUX_PROCESS_POLL_MS);
+    }
+    if (processGroups.isAlive(processGroupId)) {
+      processGroups.signal(processGroupId, "SIGKILL");
+    }
+    while (processGroups.isAlive(processGroupId) && processGroups.nowMs() < absoluteDeadline) {
+      await processGroups.wait(DEFAULT_TMUX_PROCESS_POLL_MS);
+    }
+    if (processGroups.isAlive(processGroupId)) {
+      tmuxAbort.abort();
+      throw new Error("tmux pane process-group settlement was not confirmed");
+    }
+    tmuxAbort.abort();
   }
 
   function stateForHandle(
@@ -636,6 +776,7 @@ export function createSystemTmuxConsoleBroker(
       return prepareSystemTmuxConsoleSandboxPlan(plan, privateRoot);
     },
     async open(request: ConsoleBrokerOpenRequest): Promise<ConsoleBrokerOpenResult> {
+      if (disposed) throw new Error("interactive console broker is disposed");
       if (!sandboxPlanDeniesBrokerRoot(request.sandbox, privateRoot)) {
         throw new Error("interactive console sandbox plan does not deny broker private root");
       }
@@ -645,73 +786,134 @@ export function createSystemTmuxConsoleBroker(
           `interactive console broker unavailable: ${status.reason ?? "status unavailable"}`,
         );
       }
-      const launch = await options.launchPreparer.prepareLaunch(
-        request.sandbox.invocation,
-        request.sandbox.profile,
-        request.signal === undefined ? undefined : { signal: request.signal },
-      );
       const sessionName = safeSessionName(request.handle);
-      let attemptedStart = false;
-      try {
-        validateDirectExecDescriptor(launch.descriptor);
-        const targetArgv = targetArgvForTmux({
-          privateRoot,
-          handle: request.handle,
-          descriptor: launch.descriptor,
-        });
-        attemptedStart = true;
-        const result = await runTmux(
-          [
-            "new-session",
-            "-d",
-            "-P",
-            "-F",
-            TMUX_PANE_IDENTITY_FORMAT,
-            "-s",
-            sessionName,
-            "-x",
-            String(request.operation.args.cols),
-            "-y",
-            String(request.operation.args.rows),
-            "-c",
-            launch.descriptor.cwd ?? request.profile.cwd,
-            "-E",
-            ...targetArgv,
-          ],
-          launch.descriptor.cwd ?? request.profile.cwd,
-          request.signal,
+      if (pendingSettlements.has(sessionName)) {
+        throw new Error("previous tmux session cleanup settlement was not confirmed");
+      }
+      if (opening || handles.size > 0 || pendingSettlements.size > 0) {
+        throw new Error(
+          "system tmux console supports one outstanding Warden-controlled session; close or release it before opening another",
         );
-        const identity = parsePaneIdentity(result.stdout);
-        if (identity.paneDead) throw new Error("tmux pane exited during open");
-        const processIdentity = tmuxPaneProcessIdentity({
-          sessionName,
-          sessionId: identity.sessionId,
-          paneId: identity.paneId,
-          panePid: identity.panePid,
-          socketPath,
-          tmuxVersion: options.tmuxVersion,
-        });
-        handles.set(request.handle, {
-          sessionName,
-          sessionId: identity.sessionId,
-          paneId: identity.paneId,
-          panePid: identity.panePid,
-          processIdentity,
-          cleanup: () => {
-            launch.cleanup();
-          },
-        });
-        return { processIdentity };
-      } catch (error) {
-        launch.cleanup();
-        if (attemptedStart) {
-          try {
-            await runTmuxStatus(["kill-session", "-t", `=${sessionName}`], request.signal);
-          } catch {
-            // Best-effort cleanup after an open failure. The open failure remains authoritative.
+      }
+      opening = true;
+      try {
+        const launch = await options.launchPreparer.prepareLaunch(
+          request.sandbox.invocation,
+          request.sandbox.profile,
+          request.signal === undefined ? undefined : { signal: request.signal },
+        );
+        let attemptedStart = false;
+        let panePid: number | undefined;
+        try {
+          validateDirectExecDescriptor(launch.descriptor);
+          const targetArgv = targetArgvForTmux({
+            privateRoot,
+            handle: request.handle,
+            descriptor: launch.descriptor,
+          });
+          attemptedStart = true;
+          const result = await runTmux(
+            [
+              "new-session",
+              "-d",
+              "-P",
+              "-F",
+              TMUX_PANE_IDENTITY_FORMAT,
+              "-s",
+              sessionName,
+              "-x",
+              String(request.operation.args.cols),
+              "-y",
+              String(request.operation.args.rows),
+              "-c",
+              launch.descriptor.cwd ?? request.profile.cwd,
+              "-E",
+              ...targetArgv,
+            ],
+            launch.descriptor.cwd ?? request.profile.cwd,
+            request.signal,
+          );
+          const identity = parsePaneIdentity(result.stdout);
+          panePid = identity.panePid;
+          if (identity.paneDead) throw new Error("tmux pane exited during open");
+          if (!processGroups.isAlive(identity.panePid)) {
+            throw new Error("tmux pane process group exited during open");
           }
+          const processIdentity = tmuxPaneProcessIdentity({
+            sessionName,
+            sessionId: identity.sessionId,
+            paneId: identity.paneId,
+            panePid: identity.panePid,
+            socketPath,
+            tmuxVersion: options.tmuxVersion,
+          });
+          handles.set(request.handle, {
+            sessionName,
+            sessionId: identity.sessionId,
+            paneId: identity.paneId,
+            panePid: identity.panePid,
+            processIdentity,
+            processSettled: false,
+            revoke: () => launch.revoke(),
+            release: () => launch.release(),
+            cleanup: () => launch.cleanup(),
+          });
+          return { processIdentity };
+        } catch (error) {
+          let revokeError: unknown;
+          let cleanupError: unknown;
+          let settlementError: unknown;
+          try {
+            await launch.revoke();
+          } catch (failure) {
+            revokeError = failure;
+          }
+          let processSettled = !attemptedStart;
+          if (attemptedStart) {
+            try {
+              await settleTmuxProcessGroup(sessionName, panePid, (resolvedPanePid) => {
+                panePid ??= resolvedPanePid;
+              });
+              processSettled = true;
+            } catch (failure) {
+              settlementError = failure;
+            }
+          }
+          if (processSettled) {
+            try {
+              await launch.cleanup();
+              revokeError = undefined;
+            } catch (failure) {
+              cleanupError = failure;
+            }
+          }
+          if (
+            revokeError !== undefined ||
+            cleanupError !== undefined ||
+            settlementError !== undefined
+          ) {
+            pendingSettlements.set(sessionName, {
+              sessionName,
+              ...(panePid === undefined ? {} : { panePid }),
+              revokeSettled: revokeError === undefined,
+              cleanupSettled: processSettled && cleanupError === undefined,
+              processSettled,
+              revoke: () => launch.revoke(),
+              cleanup: () => launch.cleanup(),
+            });
+            const failures = [error, revokeError, cleanupError, settlementError]
+              .filter((failure): failure is NonNullable<typeof failure> => failure !== undefined)
+              .map(throwableError);
+            const details = failures.map((failure) => failure.message).join("; ");
+            throw new AggregateError(
+              failures,
+              `tmux open failed: ${details}; cleanup settlement was not confirmed`,
+            );
+          }
+          throw error;
         }
-        throw error;
+      } finally {
+        opening = false;
       }
     },
     async checkProcessIdentity(
@@ -730,6 +932,11 @@ export function createSystemTmuxConsoleBroker(
       const result = await runTmuxStatus(
         ["display-message", "-p", "-t", target.paneId, TMUX_PANE_IDENTITY_FORMAT],
         request.signal,
+        request.operation.kind === "close" &&
+          request.operation.args.reason !== undefined &&
+          request.operation.args.reason !== "user"
+          ? DEFAULT_TMUX_PROCESS_SETTLEMENT_TIMEOUT_MS
+          : DEFAULT_TMUX_TIMEOUT_MS,
       );
       if (result.exitCode !== 0) {
         return {
@@ -816,6 +1023,7 @@ export function createSystemTmuxConsoleBroker(
     ): Promise<ConsoleBrokerReleaseResult> {
       const state = stateForHandle(request);
       if (state === undefined) return { released: false };
+      await state.release();
       handles.delete(request.handle.handle);
       releasedSessions.add(state.sessionName);
       return { released: true };
@@ -825,35 +1033,112 @@ export function createSystemTmuxConsoleBroker(
     ): Promise<ConsoleBrokerCloseResult> {
       const state = stateForHandle(request);
       if (state === undefined) return { closed: false };
-      const result = await runTmuxStatus(
-        ["kill-session", "-t", `=${state.sessionName}`],
-        request.signal,
-      );
-      if (result.exitCode !== 0) throw commandError(["kill-session", state.sessionName], result);
+      let revokeError: unknown;
+      try {
+        await state.revoke();
+      } catch (error) {
+        revokeError = error;
+      }
+      if (!state.processSettled) {
+        await settleTmuxProcessGroup(state.sessionName, state.panePid);
+        state.processSettled = true;
+      }
+      try {
+        await state.cleanup();
+        revokeError = undefined;
+      } catch (error) {
+        throw throwableError(error);
+      }
+      if (revokeError !== undefined) throw throwableError(revokeError);
       handles.delete(request.handle.handle);
-      state.cleanup();
       return { closed: true };
     },
     async dispose(): Promise<void> {
+      if (disposed) return;
       for (const [handle, state] of handles) {
-        handles.delete(handle);
         try {
-          await runTmuxStatus(["kill-session", "-t", `=${state.sessionName}`]);
+          await state.revoke();
         } catch {
-          // Disposal is best effort; broker close paths own authoritative audit.
-        } finally {
-          state.cleanup();
+          // Full cleanup below retries revocation after process settlement.
+        }
+        if (!state.processSettled) {
+          try {
+            await settleTmuxProcessGroup(state.sessionName, state.panePid);
+            state.processSettled = true;
+          } catch {
+            continue;
+          }
+        }
+        try {
+          await state.cleanup();
+          handles.delete(handle);
+        } catch {
+          // Retain the state so cleanup can be retried after server settlement.
         }
       }
+      for (const [sessionName, pending] of pendingSettlements) {
+        if (!pending.revokeSettled) {
+          try {
+            await pending.revoke();
+            pending.revokeSettled = true;
+          } catch {
+            // Full cleanup below retries revocation after process settlement.
+          }
+        }
+        if (!pending.processSettled) {
+          try {
+            await settleTmuxProcessGroup(sessionName, pending.panePid, (resolvedPanePid) => {
+              pending.panePid ??= resolvedPanePid;
+            });
+            pending.processSettled = true;
+          } catch {
+            continue;
+          }
+        }
+        if (!pending.cleanupSettled) {
+          try {
+            await pending.cleanup();
+            pending.revokeSettled = true;
+            pending.cleanupSettled = true;
+          } catch {
+            // Retain the state for a subsequent disposal attempt.
+          }
+        }
+        if (pending.cleanupSettled) pendingSettlements.delete(sessionName);
+      }
+      const processSettlementUnconfirmed =
+        [...handles.values()].some((state) => !state.processSettled) ||
+        [...pendingSettlements.values()].some((pending) => !pending.processSettled);
+      if (processSettlementUnconfirmed) {
+        throw new Error("tmux process settlement was not confirmed");
+      }
+      if (handles.size > 0 || pendingSettlements.size > 0) {
+        throw new Error("tmux authority cleanup settlement was not confirmed");
+      }
       if (releasedSessions.size > 0) {
+        disposed = true;
         return;
       }
-      try {
-        await runTmuxStatus(["kill-server"]);
-      } catch {
-        // Disposal is best effort; broker close paths own authoritative audit.
+      if (!privateServerSettled) {
+        let serverResult: TmuxCommandResult;
+        try {
+          serverResult = await runTmuxStatus(
+            ["kill-server"],
+            undefined,
+            DEFAULT_TMUX_PROCESS_SETTLEMENT_TIMEOUT_MS,
+          );
+        } catch (error) {
+          throw new Error("tmux process settlement was not confirmed", { cause: error });
+        }
+        if (serverResult.exitCode !== 0 && existsSync(socketPath)) {
+          throw new Error("tmux process settlement was not confirmed", {
+            cause: commandError(["kill-server"], serverResult),
+          });
+        }
+        privateServerSettled = true;
       }
       rmSync(privateRoot, { recursive: true, force: true });
+      disposed = true;
     },
   };
 }

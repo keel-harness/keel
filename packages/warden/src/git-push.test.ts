@@ -198,7 +198,11 @@ const activeStatus: SandboxStatus = {
   available: true,
   backend: "srt:vendored",
   enforcementTier: "sandbox:srt",
-  features: [CREDENTIAL_TLS_TERMINATION_CAPABILITY, EGRESS_ADDRESS_GUARD_CAPABILITY],
+  features: [
+    CREDENTIAL_TLS_TERMINATION_CAPABILITY,
+    EGRESS_ADDRESS_GUARD_CAPABILITY,
+    "srt-launch-authority/v1",
+  ],
 };
 
 function sandboxResult(
@@ -515,6 +519,14 @@ describe("ADR-0091 git.push Warden walking skeleton", () => {
         workspaceTrusted: true,
         auditAvailable: true,
         sandbox: { ...activeStatus, features: [EGRESS_ADDRESS_GUARD_CAPABILITY] },
+      },
+      {
+        workspaceTrusted: true,
+        auditAvailable: true,
+        sandbox: {
+          ...activeStatus,
+          features: [CREDENTIAL_TLS_TERMINATION_CAPABILITY, EGRESS_ADDRESS_GUARD_CAPABILITY],
+        },
       },
       {
         workspaceTrusted: true,

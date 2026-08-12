@@ -13,6 +13,7 @@ describe("warden address-guard product wiring", () => {
     const order: string[] = [];
     const appended: unknown[] = [];
     const closeAudit = vi.fn();
+    const quarantineSandbox = vi.fn();
     const shutdownSandbox = vi.fn(async () => {});
     const sandbox: SandboxPort = {
       status: () => ({
@@ -51,9 +52,10 @@ describe("warden address-guard product wiring", () => {
     const createVendoredSrtSandboxComponents = vi.fn(
       async (_options?: {
         readonly resolveDestination?: BoundedEgressAddressResolver["resolveDestination"];
+        readonly launchAuthorityRegistryPath?: string;
       }) => {
         order.push("sandbox");
-        return { sandbox, shutdown: shutdownSandbox };
+        return { sandbox, quarantine: quarantineSandbox, shutdown: shutdownSandbox };
       },
     );
     const runStdioWardenServer = vi.fn(
@@ -83,7 +85,7 @@ describe("warden address-guard product wiring", () => {
     vi.doMock("./rpc-server.js", () => ({
       DEFAULT_AUDIT_SESSION_ID: "ses_01ARZ3NDEKTSV4RRFFQ69G5FAV",
       DEFAULT_MAX_LINE_BYTES: 1024,
-      WARDEN_TEARDOWN_BUDGET_MS: 2_000,
+      WARDEN_TEARDOWN_BUDGET_MS: 24_000,
       runStdioWardenServer,
     }));
     vi.doMock("./audit/checkpoint-key.js", () => ({
@@ -145,6 +147,7 @@ describe("warden address-guard product wiring", () => {
       getResolverOptions: () => resolverOptions,
       loadEgressAddressExceptionSnapshot,
       order,
+      quarantineSandbox,
       resolver,
       runStdioWardenServer,
       sandbox,
@@ -176,6 +179,7 @@ describe("warden address-guard product wiring", () => {
       process.env,
     );
     const srtOptions = mocked.createVendoredSrtSandboxComponents.mock.calls[0]?.[0];
+    expect(srtOptions?.launchAuthorityRegistryPath).toBe("/tmp/keel-home/srt-endpoint-leases.json");
     const signal = new AbortController().signal;
     await srtOptions?.resolveDestination?.("api.example.com", 443, signal);
     expect(mocked.resolver.resolveDestination).toHaveBeenCalledWith("api.example.com", 443, signal);
@@ -217,7 +221,8 @@ describe("warden address-guard product wiring", () => {
 
     options.onQuarantine("denial-rate-quarantine");
     await Promise.resolve();
-    expect(mocked.shutdownSandbox).toHaveBeenCalledOnce();
+    expect(mocked.quarantineSandbox).toHaveBeenCalledOnce();
+    expect(mocked.shutdownSandbox).not.toHaveBeenCalled();
   });
 
   it("validates but does not activate exception authority for an untrusted workspace", async () => {

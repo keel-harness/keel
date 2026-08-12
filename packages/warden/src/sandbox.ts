@@ -11,6 +11,8 @@ export interface SandboxStatus {
 export const EGRESS_ADDRESS_GUARD_CAPABILITY = "egress-address-guard/v1";
 /** Process-local proof that the vendored SRT was initialized with verified HTTPS termination. */
 export const CREDENTIAL_TLS_TERMINATION_CAPABILITY = "credential-tls-termination/v1";
+/** Process-local proof that each governed launch owns immutable, revocable proxy authority. */
+export const SRT_LAUNCH_AUTHORITY_CAPABILITY = "srt-launch-authority/v1";
 
 export interface SandboxProfile {
   readonly filesystem?: {
@@ -60,6 +62,10 @@ export interface SandboxCredentialProxyConfig {
 
 export interface SandboxProcessRunnerOptions {
   readonly signal?: AbortSignal;
+  /** Revoke launch-local network authority before terminal process/group signaling begins. */
+  readonly beforeProcessGroupSettlement?: () => void | Promise<void>;
+  /** Called only after the runner has positively established process/group absence. */
+  readonly onProcessGroupSettled?: () => void | Promise<void>;
 }
 
 export interface SandboxExecuteOptions extends SandboxProcessRunnerOptions {

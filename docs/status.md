@@ -18,8 +18,8 @@ Two earlier versions are not release carriers:
 | `0.1.0` | Staged on 2026-08-01 but never approved, so it never became public. The registry has no `0.1.0` tarball. |
 | `0.0.1` | The original name-reservation placeholder. Superseded by `0.1.1`. |
 
-This is **not a stable or public-alpha release**. It is a pre-alpha carrier published during
-open-source preparation. Expect breaking changes.
+This is **not a stable or public-alpha release**. It is a public pre-alpha carrier. Expect breaking
+changes.
 
 Standalone Bun binaries remain test-only. ADR-0040 holds them back pending a review of linked
 LGPL components. Every npm publication follows the staged, human-approved flow in the
@@ -52,7 +52,10 @@ evidence proves the governed product path, not that arbitrary models will choose
 `git.push` is deliberately narrower than a generic Git command. It binds one canonical HTTPS
 repository, one exact non-default `refs/heads/*` destination, and one full commit OID; runs supported
 Git 2.x (2.39 or newer) through `srt:vendored` verified TLS and the active address guard; and uses only operator
-system/global credential-helper authority. Force, deletion, tags, default-branch push, SSH,
+system/global credential-helper authority. It is advertised only with `srt-launch-authority/v1`:
+unique authenticated proxy endpoints and an immutable configuration/credential snapshot are bound
+to that launch, then revoked and drained during cleanup. Exact deny-all launches allocate no proxy
+authority and use an endpointless network-denied OS profile. Force, deletion, tags, default-branch push, SSH,
 redirects, project helpers, reusable grants, and automatic retry are unavailable. Raw
 `process.run git push` remains terminal. Indeterminate attempts require a restart followed by
 independent remote-ref and audit inspection before a deliberate fresh request.
@@ -70,6 +73,11 @@ The PR path is same-repository and GitHub.com-only. It does not support GitHub E
 cross-repository heads, generic forge APIs, `gh`, combined push-and-PR approval, merge/auto-merge,
 labels, assignees, reviewers or reviews, comments, releases, deployments, or branch mutation.
 Repository permissions and protected-branch behavior remain server-enforced.
+
+The current capability never reuses a retired network-bearing endpoint because detached descendants
+may still hold an old sandbox profile. Compact registry V2 makes the 25,536-port range the first
+capacity bound; exhaustion withholds publication and other network-bearing launch authority while
+endpointless deny-all execution remains available pending a future migration design.
 
 This describes current source, not the published `keel-harness@0.1.1` bytes, which predates both
 typed publication capabilities. Published-carrier proof remains release-gated.
