@@ -519,11 +519,9 @@ jobs:
           set +e
           DEBIAN_OUT=$(docker run --rm --platform linux/amd64 \
             -v "$PWD/build/bin/keel-linux-x64:/keel:ro" \
+            -v "$PWD/packaging/smoke-debian-warden-stdio.sh:/smoke-debian-warden-stdio.sh:ro" \
             debian:12 \
-            sh -c 'printf "%s\n%s\n" \
-              "{\"jsonrpc\":\"2.0\",\"id\":\"h1\",\"method\":\"warden.hello\",\"params\":{\"kernelVersion\":\"0.0.0\",\"protocolVersion\":\"1.0.0\"}}" \
-              "{\"jsonrpc\":\"2.0\",\"id\":\"s1\",\"method\":\"warden.shutdown\",\"params\":{}}" \
-              | KEEL_INTERNAL_WARDEN_STDIO=1 /keel' 2>&1)
+            sh /smoke-debian-warden-stdio.sh /keel 2>&1)
           DEBIAN_STATUS=$?
           set -e
           if [ "$DEBIAN_STATUS" -ne 0 ]; then

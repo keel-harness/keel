@@ -612,14 +612,25 @@ describe("CI packaging workflow", () => {
     expect(urgentSteeringSmoke).toContain("root = Path(directory).resolve()");
   });
 
-  it("keeps Debian compiled-binary warden startup smoke from tripping pipefail after a successful match", () => {
+  it("sequences Debian compiled-binary shutdown only after the hello response is accepted", () => {
     const workflow = readFileSync(join(repoRoot, ".github", "workflows", "ci.yml"), "utf8");
+    const smoke = readFileSync(join(repoRoot, "packaging", "smoke-debian-warden-stdio.sh"), "utf8");
     const debianStep =
       workflow.match(
         /- name: Smoke Linux binary warden startup in Debian[\s\S]*?(?=\n {6}- name: Smoke compiled binary Phase-2B evidence export and verify)/,
       )?.[0] ?? "";
 
-    expect(debianStep).toContain("DEBIAN_OUT=$(docker run --rm --platform linux/amd64");
+    expect(debianStep).toContain(
+      '-v "$PWD/packaging/smoke-debian-warden-stdio.sh:/smoke-debian-warden-stdio.sh:ro"',
+    );
+    expect(debianStep).toContain("sh /smoke-debian-warden-stdio.sh /keel");
+    expect(debianStep).not.toContain("sh -c 'printf");
+    const helloAt = smoke.indexOf('"method":"warden.hello"');
+    const helloAcceptedAt = smoke.indexOf(`while ! grep -Fq '"wardenVersion"'`);
+    const shutdownAt = smoke.indexOf('"method":"warden.shutdown"');
+    expect(helloAt).toBeGreaterThan(-1);
+    expect(helloAcceptedAt).toBeGreaterThan(helloAt);
+    expect(shutdownAt).toBeGreaterThan(helloAcceptedAt);
     expect(debianStep).toContain(
       "printf 'Debian warden startup output missing hello response:\\n%s\\n' \"$DEBIAN_OUT\"",
     );
@@ -779,6 +790,7 @@ describe("CI packaging workflow", () => {
       "NODE_EXTRA_CA_CERTS=$PWD/vendor/sandbox-runtime/test/fixtures/tls-terminate/ca.crt",
     );
     expect(rootPkg.scripts?.["test:sandbox:real"]).toContain("vitest run");
+    expect(rootPkg.scripts?.["test:sandbox:real"]).toContain("--no-file-parallelism");
     expect(rootPkg.scripts?.["test:sandbox:real"]).toContain("srt-sandbox.real.test.ts");
 
     // A dedicated job runs it, arms the flag at job scope (belt-and-suspenders), and installs the
