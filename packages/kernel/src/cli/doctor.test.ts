@@ -164,7 +164,7 @@ describe("runDoctor — git.push non-secret preflight", () => {
       label: "git.push",
       status: "ok",
       detail:
-        "Git 2.39.5 · canonical origin HTTPS · operator helper configured · SRT/TLS/address guard session-gated",
+        "Git 2.39.5 · canonical origin HTTPS · operator helper authority eligible · SRT/TLS/address guard session-gated",
     });
   });
 
@@ -225,6 +225,26 @@ describe("runDoctor — git.push non-secret preflight", () => {
     expect(row).toMatchObject({ status: "warn", detail, fix });
     expect(row?.fix?.split("\n")).toHaveLength(1);
     expect(runDoctor({ ...base, ...input }).ok).toBe(true);
+  });
+
+  it("renders a bounded Warden-authored helper-authority remediation", () => {
+    const row = check(
+      {
+        ...gitReady,
+        gitCredentialHelperConfigured: false,
+        gitCredentialHelperAuthorityIssue: {
+          detail: "credential helper command is not one eligible fixed helper",
+          fix: "gh auth setup-git && keel doctor",
+        },
+      },
+      "git-push",
+    );
+
+    expect(row).toMatchObject({
+      status: "warn",
+      detail: "credential helper command is not one eligible fixed helper",
+      fix: "gh auth setup-git && keel doctor",
+    });
   });
 
   it("withholds readiness when the enforcing transport prerequisites are absent", () => {

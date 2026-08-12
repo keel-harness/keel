@@ -67,22 +67,40 @@ export interface LinuxSandboxParams {
   abortSignal?: AbortSignal
 }
 
-async function stopPartialBridgeProcess(proc: ChildProcess): Promise<void> {
-  if (!proc.pid || proc.exitCode !== null || proc.signalCode !== null) return
+export async function stopLinuxBridgeProcess(
+  proc: ChildProcess,
+  label = 'Linux',
+): Promise<void> {
+  if (!proc.pid) return
   await new Promise<void>((resolve, reject) => {
+    const pid = proc.pid!
     let killTimer: ReturnType<typeof setTimeout> | undefined
     let failureTimer: ReturnType<typeof setTimeout> | undefined
+    let groupPoll: ReturnType<typeof setInterval> | undefined
     const settle = (error?: Error) => {
       if (killTimer !== undefined) clearTimeout(killTimer)
       if (failureTimer !== undefined) clearTimeout(failureTimer)
+      if (groupPoll !== undefined) clearInterval(groupPoll)
       proc.removeListener('exit', onExit)
       if (error === undefined) resolve()
       else reject(error)
     }
-    const onExit = () => settle()
+    const groupIsAlive = () => {
+      try {
+        process.kill(-pid, 0)
+        return true
+      } catch (error) {
+        return (error as NodeJS.ErrnoException).code === 'EPERM'
+      }
+    }
+    const checkGroup = () => {
+      if (!groupIsAlive()) settle()
+    }
+    const onExit = () => checkGroup()
     proc.once('exit', onExit)
+    groupPoll = setInterval(checkGroup, 10)
     try {
-      process.kill(proc.pid!, 'SIGTERM')
+      process.kill(-pid, 'SIGTERM')
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ESRCH') settle()
       else settle(error as Error)
@@ -90,7 +108,7 @@ async function stopPartialBridgeProcess(proc: ChildProcess): Promise<void> {
     }
     killTimer = setTimeout(() => {
       try {
-        process.kill(proc.pid!, 'SIGKILL')
+        process.kill(-pid, 'SIGKILL')
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code === 'ESRCH') {
           settle()
@@ -100,7 +118,16 @@ async function stopPartialBridgeProcess(proc: ChildProcess): Promise<void> {
         return
       }
       failureTimer = setTimeout(
-        () => settle(new Error('Linux bridge process settlement was not confirmed')),
+        () => {
+          checkGroup()
+          if (groupIsAlive()) {
+            settle(
+              new Error(
+                `${label} bridge process group settlement was not confirmed`,
+              ),
+            )
+          }
+        },
         400,
       )
       failureTimer.unref?.()
@@ -564,6 +591,7 @@ export async function initializeLinuxNetworkBridge(
 
   const httpBridgeProcess = spawn(socat, httpSocatArgs, {
     stdio: 'ignore',
+    detached: true,
   })
   spawned.push(httpBridgeProcess)
 
@@ -597,6 +625,7 @@ export async function initializeLinuxNetworkBridge(
 
   const socksBridgeProcess = spawn(socat, socksSocatArgs, {
     stdio: 'ignore',
+    detached: true,
   })
   spawned.push(socksBridgeProcess)
 
@@ -616,7 +645,7 @@ export async function initializeLinuxNetworkBridge(
     // Clean up HTTP bridge
     if (httpBridgeProcess.pid) {
       try {
-        process.kill(httpBridgeProcess.pid, 'SIGTERM')
+        process.kill(-httpBridgeProcess.pid, 'SIGTERM')
       } catch {
         // Ignore errors
       }
@@ -652,14 +681,14 @@ export async function initializeLinuxNetworkBridge(
       // Clean up both processes
       if (httpBridgeProcess.pid) {
         try {
-          process.kill(httpBridgeProcess.pid, 'SIGTERM')
+          process.kill(-httpBridgeProcess.pid, 'SIGTERM')
         } catch {
           // Ignore errors
         }
       }
       if (socksBridgeProcess.pid) {
         try {
-          process.kill(socksBridgeProcess.pid, 'SIGTERM')
+          process.kill(-socksBridgeProcess.pid, 'SIGTERM')
         } catch {
           // Ignore errors
         }
@@ -682,7 +711,7 @@ export async function initializeLinuxNetworkBridge(
   }
   } catch (error) {
     const settlements = await Promise.allSettled(
-      spawned.map(process => stopPartialBridgeProcess(process)),
+      spawned.map(process => stopLinuxBridgeProcess(process)),
     )
     for (const socketPath of [httpSocketPath, socksSocketPath]) {
       try {

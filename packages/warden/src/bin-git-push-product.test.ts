@@ -100,6 +100,7 @@ describe("warden git.push product wiring", () => {
     }));
     vi.doMock("./capability-manifest.js", () => ({
       resolveWardenKeelHome: () => "/tmp/keel-home",
+      homeCredentialSecretRoots: () => ["/operator-secret-root"],
     }));
     vi.doMock("./typed-mutation-runner.js", () => ({
       createSandboxTypedMutationRunner: () => ({
@@ -159,6 +160,11 @@ describe("warden git.push product wiring", () => {
     expect(mocked.createGitCredentialBroker).toHaveBeenCalledWith({
       gitExecutable: "/usr/bin/git",
       tempRoot: "/private/tmp/keel-git-push-product-root",
+      workspaceRoot: "/workspace",
+      denyRoots: [
+        "/tmp/keel-home",
+        ...(process.env["HOME"] === undefined ? [] : ["/operator-secret-root"]),
+      ],
       env: process.env,
     });
     expect(mocked.createGitPushProductionAuthority).toHaveBeenCalledWith({

@@ -75,6 +75,11 @@ export interface DoctorInput {
   readonly gitRemoteUrlRaw?: string | null;
   /** Presence only. Doctor never retains or renders helper configuration/output. */
   readonly gitCredentialHelperConfigured?: boolean;
+  /** Bounded Warden-authored helper-authority denial and one remediation; no config/secret bytes. */
+  readonly gitCredentialHelperAuthorityIssue?: {
+    readonly detail: string;
+    readonly fix: string;
+  };
   /** Workspace root used only to resolve relative file source paths while validating explicit config. */
   readonly cwd?: string;
   /** Result of asking the process-separated Warden owner to validate this workspace's store. */
@@ -516,12 +521,15 @@ function gitPushCheck(input: DoctorInput): DoctorCheck | undefined {
     };
   }
   if (input.gitCredentialHelperConfigured !== true) {
+    const authorityIssue = input.gitCredentialHelperAuthorityIssue;
     return {
       ...base,
       status: "warn",
-      detail: "operator Git credential helper not configured",
+      detail: authorityIssue?.detail ?? "operator Git credential helper not configured",
       why: "git.push resolves credentials parent-side without exposing them to the model or child",
-      fix: "gh auth login --git-protocol https && gh auth setup-git && keel doctor",
+      fix:
+        authorityIssue?.fix ??
+        "gh auth login --git-protocol https && gh auth setup-git && keel doctor",
     };
   }
   if (!gitPushTransportReady(input)) {
@@ -536,7 +544,7 @@ function gitPushCheck(input: DoctorInput): DoctorCheck | undefined {
   return {
     ...base,
     status: "ok",
-    detail: `Git ${version} · canonical origin HTTPS · operator helper configured · SRT/TLS/address guard session-gated`,
+    detail: `Git ${version} · canonical origin HTTPS · operator helper authority eligible · SRT/TLS/address guard session-gated`,
   };
 }
 

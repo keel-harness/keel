@@ -1,4 +1,11 @@
-import { chmodSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import {
+  chmodSync,
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
 import { spawn } from 'node:child_process'
 import { once } from 'node:events'
 import { createServer as createHttpServer } from 'node:http'
@@ -185,6 +192,115 @@ function runPreparedLaunch(launch: {
 }
 
 suite('immutable per-launch SRT authority', () => {
+  it('uses an endpointless immutable profile for exact structural network denial', async () => {
+    const manager = SandboxManager as typeof SandboxManager & {
+      initializeLaunchAuthority(endpointRegistryPath: string): void
+      prepareLaunchAuthority(
+        config: SandboxRuntimeConfig,
+        options: {
+          command: string
+          binShell?: string
+          endpointRegistryPath: string
+        },
+      ): Promise<{ argv: string[]; env: NodeJS.ProcessEnv; cleanup(): Promise<void> }>
+    }
+    const registryPath = join(privateRoot(), 'leases.json')
+    const denied = config('denied.invalid', 443)
+    denied.network.allowedDomains = []
+    denied.network.deniedDomains = ['*']
+    denied.network.strictAllowlist = true
+    manager.initializeLaunchAuthority(registryPath)
+
+    for (let index = 0; index < 3; index++) {
+      const launch = await manager.prepareLaunchAuthority(denied, {
+        command: 'env',
+        binShell: '/bin/bash',
+        endpointRegistryPath: registryPath,
+      })
+      try {
+        const rendered = launch.argv.join(' ')
+        expect(rendered).not.toMatch(/srt:[0-9a-f]{64}@localhost/u)
+        expect(rendered).not.toMatch(/CLAUDE_CODE_HOST_HTTP_PROXY_PORT(?:=|\\=)\d+/u)
+        const execution = await runPreparedLaunch(launch)
+        expect(execution.exitCode).toBe(0)
+        expect(execution.stdout).not.toMatch(/^(?:HTTP|HTTPS|ALL|FTP|RSYNC|GRPC)_PROXY=/mu)
+        expect(execution.stdout).not.toMatch(/^(?:http|https|all|ftp|grpc)_proxy=/mu)
+      } finally {
+        await launch.cleanup()
+      }
+    }
+
+    expect(existsSync(registryPath)).toBe(true)
+    expect(JSON.parse(readFileSync(registryPath, 'utf8')).active).toEqual({})
+  })
+
+  it('does not deadlock when reset takes ownership immediately before launch cleanup', async () => {
+    const manager = SandboxManager as typeof SandboxManager & {
+      initializeLaunchAuthority(endpointRegistryPath: string): void
+      prepareLaunchAuthority(
+        config: SandboxRuntimeConfig,
+        options: {
+          command: string
+          binShell?: string
+          endpointRegistryPath: string
+        },
+      ): Promise<{ argv: string[]; env: NodeJS.ProcessEnv; cleanup(): Promise<void> }>
+    }
+    const registryPath = join(privateRoot(), 'leases.json')
+    manager.initializeLaunchAuthority(registryPath)
+    const launch = await manager.prepareLaunchAuthority(config('reset.invalid', 443), {
+      command: 'true',
+      binShell: '/bin/bash',
+      endpointRegistryPath: registryPath,
+    })
+
+    const resetting = manager.reset()
+    const cleaning = launch.cleanup()
+    let timeout: NodeJS.Timeout | undefined
+    try {
+      await expect(
+        Promise.race([
+          Promise.all([resetting, cleaning]),
+          new Promise<never>((_resolve, reject) => {
+            timeout = setTimeout(
+              () => reject(new Error('reset and launch cleanup deadlocked')),
+              2_500,
+            )
+          }),
+        ]),
+      ).resolves.toEqual([undefined, undefined])
+    } finally {
+      if (timeout !== undefined) clearTimeout(timeout)
+    }
+  })
+
+  it('retries cleanup after a transient durable retirement failure', async () => {
+    const manager = SandboxManager as typeof SandboxManager & {
+      initializeLaunchAuthority(endpointRegistryPath: string): void
+      prepareLaunchAuthority(
+        config: SandboxRuntimeConfig,
+        options: {
+          command: string
+          binShell?: string
+          endpointRegistryPath: string
+        },
+      ): Promise<{ argv: string[]; env: NodeJS.ProcessEnv; cleanup(): Promise<void> }>
+    }
+    const registryPath = join(privateRoot(), 'leases.json')
+    manager.initializeLaunchAuthority(registryPath)
+    const launch = await manager.prepareLaunchAuthority(config('retry.invalid', 443), {
+      command: 'true',
+      binShell: '/bin/bash',
+      endpointRegistryPath: registryPath,
+    })
+    const validRegistry = readFileSync(registryPath, 'utf8')
+    writeFileSync(registryPath, '{invalid', { mode: 0o600 })
+
+    await expect(launch.cleanup()).rejects.toThrow(/invalid endpoint lease registry/u)
+    writeFileSync(registryPath, validRegistry, { mode: 0o600 })
+    await expect(launch.cleanup()).resolves.toBeUndefined()
+  })
+
   it('isolates concurrent config and token authority, then revokes only the cleaned launch', async () => {
     const targetServer = createHttpServer((request, response) => {
       response.end(request.headers.authorization ?? 'none')
@@ -333,12 +449,17 @@ suite('immutable per-launch SRT authority', () => {
       expect(Date.now() - cleanupStarted).toBeLessThan(2_000)
       await first.cleanup()
       const durable = JSON.parse(readFileSync(registryPath, 'utf8')) as {
-        entries: Record<string, { state: string; endpoints: string[] }>
+        retiredPortBitmap: string
+        active: Record<string, { ports: [number, number] }>
       }
-      const firstLease = Object.values(durable.entries).find(entry =>
-        entry.endpoints.includes(`tcp:127.0.0.1:${firstProxy.port}`),
-      )
-      expect(firstLease?.state).toBe('tombstone')
+      const retired = Buffer.from(durable.retiredPortBitmap, 'base64')
+      const retiredIndex = firstProxy.port - 40_000
+      expect(
+        (retired[Math.floor(retiredIndex / 8)]! & (1 << (retiredIndex % 8))) !== 0,
+      ).toBe(true)
+      expect(
+        Object.values(durable.active).some(entry => entry.ports.includes(firstProxy.port)),
+      ).toBe(false)
       expect(
         await connectThroughProxy(firstProxy, { host: 'one.invalid', port: address.port }),
       ).toBe(0)

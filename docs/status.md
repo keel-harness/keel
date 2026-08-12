@@ -54,7 +54,8 @@ repository, one exact non-default `refs/heads/*` destination, and one full commi
 Git 2.x (2.39 or newer) through `srt:vendored` verified TLS and the active address guard; and uses only operator
 system/global credential-helper authority. It is advertised only with `srt-launch-authority/v1`:
 unique authenticated proxy endpoints and an immutable configuration/credential snapshot are bound
-to that launch, then revoked and drained during cleanup. Force, deletion, tags, default-branch push, SSH,
+to that launch, then revoked and drained during cleanup. Exact deny-all launches allocate no proxy
+authority and use an endpointless network-denied OS profile. Force, deletion, tags, default-branch push, SSH,
 redirects, project helpers, reusable grants, and automatic retry are unavailable. Raw
 `process.run git push` remains terminal. Indeterminate attempts require a restart followed by
 independent remote-ref and audit inspection before a deliberate fresh request.
@@ -73,9 +74,10 @@ cross-repository heads, generic forge APIs, `gh`, combined push-and-PR approval,
 labels, assignees, reviewers or reviews, comments, releases, deployments, or branch mutation.
 Repository permissions and protected-branch behavior remain server-enforced.
 
-V1 never reuses a retired launch endpoint because detached descendants may still hold an old sandbox
-profile. The durable registry therefore has a finite proxy-port space; exhaustion withholds the
-publication capabilities and fails closed pending a future registry migration design.
+The current capability never reuses a retired network-bearing endpoint because detached descendants
+may still hold an old sandbox profile. Compact registry V2 makes the 25,536-port range the first
+capacity bound; exhaustion withholds publication and other network-bearing launch authority while
+endpointless deny-all execution remains available pending a future migration design.
 
 This describes current source, not the published `keel-harness@0.1.1` bytes, which predates both
 typed publication capabilities. Published-carrier proof remains release-gated.

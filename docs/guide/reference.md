@@ -48,8 +48,10 @@ lossless human approval for that occurrence once. It can create or ordinarily fa
 non-default feature ref. Force, deletion, tags, default branch writes, SSH, redirects, project
 credential helpers, reusable grants, and automatic retry are not supported. `keel doctor` reports
 these non-secret prerequisites and one remediation when possible; it never resolves or prints a
-credential. Retired V1 proxy endpoints are permanently excluded, so exhausting the finite endpoint
-space withholds both publication tools and fails closed.
+credential. Retired network-bearing proxy endpoints are permanently excluded, so exhausting the finite endpoint
+space withholds both publication tools and fails closed. Compact registry V2 makes the 25,536-port
+range the first bound. Exact deny-all launches allocate no proxy endpoint or credential authority,
+so offline endpointless execution remains available at capacity.
 
 After the exact head has been pushed, `github.pr.create` takes:
 

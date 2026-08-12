@@ -151,7 +151,10 @@ export function createHttpProxyServer(options: HttpProxyServerOptions): Server {
   }
   acceptedSocketsByServer.set(server, acceptedSocketState)
   server.on('connection', socket => {
-    if (acceptedSocketState.draining) {
+    // Readiness is sampled at accept time, not merely when the later HTTP
+    // request is parsed. A client accepted while a launch is still inactive
+    // must never be able to hold that connection until activation.
+    if (acceptedSocketState.draining || options.isProxyAuthActive?.() === false) {
       socket.destroy()
       return
     }

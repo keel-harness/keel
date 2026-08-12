@@ -197,7 +197,10 @@ export function createSocksProxyServer(
   const openSockets = new Set<Socket>()
   let draining = false
   internalServer?.on('connection', (socket: Socket) => {
-    if (draining) {
+    // Permanently reject clients accepted before a launch becomes active.
+    // Authentication may occur later on the same socket, so checking only in
+    // the auth handler would let a held pre-activation client cross the gate.
+    if (draining || options.isProxyAuthActive?.() === false) {
       socket.destroy()
       return
     }

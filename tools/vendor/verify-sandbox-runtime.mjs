@@ -238,7 +238,7 @@ const socksProxySource = await readFile(
   "utf8",
 );
 assert(
-  socksProxySource.includes("if (draining)"),
+  socksProxySource.includes("if (draining || options.isProxyAuthActive?.() === false)"),
   "SOCKS proxy teardown does not persistently drain late sockets",
 );
 

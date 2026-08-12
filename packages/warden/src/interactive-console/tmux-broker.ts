@@ -130,6 +130,14 @@ interface TmuxHandleState {
   readonly paneId: string;
   readonly panePid: number;
   readonly processIdentity: JsonObjectT;
+  processSettled: boolean;
+  cleanup(): void | Promise<void>;
+}
+
+interface PendingTmuxSettlement {
+  readonly sessionName: string;
+  cleanupSettled: boolean;
+  processSettled: boolean;
   cleanup(): void | Promise<void>;
 }
 
@@ -546,7 +554,10 @@ export function createSystemTmuxConsoleBroker(
   writeTmuxConfig(configPath);
   const env = brokerEnv(options.env);
   const handles = new Map<string, TmuxHandleState>();
+  const pendingSettlements = new Map<string, PendingTmuxSettlement>();
   const releasedSessions = new Set<string>();
+  let disposed = false;
+  let privateServerSettled = false;
   const configuredTmuxStatus =
     options.tmuxStatus ??
     ({
@@ -640,6 +651,7 @@ export function createSystemTmuxConsoleBroker(
       return prepareSystemTmuxConsoleSandboxPlan(plan, privateRoot);
     },
     async open(request: ConsoleBrokerOpenRequest): Promise<ConsoleBrokerOpenResult> {
+      if (disposed) throw new Error("interactive console broker is disposed");
       if (!sandboxPlanDeniesBrokerRoot(request.sandbox, privateRoot)) {
         throw new Error("interactive console sandbox plan does not deny broker private root");
       }
@@ -649,12 +661,15 @@ export function createSystemTmuxConsoleBroker(
           `interactive console broker unavailable: ${status.reason ?? "status unavailable"}`,
         );
       }
+      const sessionName = safeSessionName(request.handle);
+      if (pendingSettlements.has(sessionName)) {
+        throw new Error("previous tmux session cleanup settlement was not confirmed");
+      }
       const launch = await options.launchPreparer.prepareLaunch(
         request.sandbox.invocation,
         request.sandbox.profile,
         request.signal === undefined ? undefined : { signal: request.signal },
       );
-      const sessionName = safeSessionName(request.handle);
       let attemptedStart = false;
       try {
         validateDirectExecDescriptor(launch.descriptor);
@@ -701,6 +716,7 @@ export function createSystemTmuxConsoleBroker(
           paneId: identity.paneId,
           panePid: identity.panePid,
           processIdentity,
+          processSettled: false,
           cleanup: () => {
             return launch.cleanup();
           },
@@ -708,6 +724,7 @@ export function createSystemTmuxConsoleBroker(
         return { processIdentity };
       } catch (error) {
         let cleanupError: unknown;
+        let settlementError: unknown;
         try {
           await launch.cleanup();
         } catch (failure) {
@@ -715,17 +732,31 @@ export function createSystemTmuxConsoleBroker(
         }
         if (attemptedStart) {
           try {
-            await runTmuxStatus(["kill-session", "-t", `=${sessionName}`], request.signal);
-          } catch {
-            // Best-effort cleanup after an open failure. The open failure remains authoritative.
+            const result = await runTmuxStatus(
+              ["kill-session", "-t", `=${sessionName}`],
+              request.signal,
+            );
+            if (result.exitCode !== 0) {
+              settlementError = commandError(["kill-session", sessionName], result);
+            }
+          } catch (failure) {
+            settlementError = failure;
           }
         }
-        if (cleanupError !== undefined) {
-          const openError = throwableError(error);
-          const drainError = throwableError(cleanupError);
+        if (cleanupError !== undefined || settlementError !== undefined) {
+          pendingSettlements.set(sessionName, {
+            sessionName,
+            cleanupSettled: cleanupError === undefined,
+            processSettled: settlementError === undefined,
+            cleanup: () => launch.cleanup(),
+          });
+          const failures = [error, cleanupError, settlementError]
+            .filter((failure): failure is NonNullable<typeof failure> => failure !== undefined)
+            .map(throwableError);
+          const details = failures.map((failure) => failure.message).join("; ");
           throw new AggregateError(
-            [openError, drainError],
-            `tmux open failed: ${openError.message}; launch authority cleanup failed: ${drainError.message}`,
+            failures,
+            `tmux open failed: ${details}; cleanup settlement was not confirmed`,
           );
         }
         throw error;
@@ -849,46 +880,118 @@ export function createSystemTmuxConsoleBroker(
       } catch (error) {
         cleanupError = error;
       }
-      const result = await runTmuxStatus(
-        ["kill-session", "-t", `=${state.sessionName}`],
-        request.signal,
-      );
-      if (result.exitCode !== 0) throw commandError(["kill-session", state.sessionName], result);
+      if (!state.processSettled) {
+        const result = await runTmuxStatus(
+          ["kill-session", "-t", `=${state.sessionName}`],
+          request.signal,
+        );
+        if (result.exitCode !== 0) throw commandError(["kill-session", state.sessionName], result);
+        state.processSettled = true;
+      }
       if (cleanupError !== undefined) throw throwableError(cleanupError);
       handles.delete(request.handle.handle);
       return { closed: true };
     },
     async dispose(): Promise<void> {
+      if (disposed) return;
+      let authoritySettlementUnconfirmed = false;
       let processSettlementUnconfirmed = false;
       for (const [handle, state] of handles) {
+        let cleanupSettled = true;
         try {
           await state.cleanup();
         } catch {
-          // Cleanup failure quarantines the launch preparer. Disposal must
-          // still kill the controlled process rather than transferring it.
+          cleanupSettled = false;
+          authoritySettlementUnconfirmed = true;
         }
-        try {
-          const result = await runTmuxStatus(["kill-session", "-t", `=${state.sessionName}`]);
-          if (result.exitCode !== 0) {
+        if (!state.processSettled) {
+          try {
+            const result = await runTmuxStatus(["kill-session", "-t", `=${state.sessionName}`]);
+            if (result.exitCode !== 0) {
+              processSettlementUnconfirmed = true;
+              continue;
+            }
+            state.processSettled = true;
+          } catch {
             processSettlementUnconfirmed = true;
             continue;
           }
-        } catch {
-          // Disposal is best effort; broker close paths own authoritative audit.
-          processSettlementUnconfirmed = true;
-          continue;
         }
-        handles.delete(handle);
+        if (cleanupSettled) handles.delete(handle);
       }
-      if (releasedSessions.size > 0 || processSettlementUnconfirmed) {
+      for (const [sessionName, pending] of pendingSettlements) {
+        if (!pending.cleanupSettled) {
+          try {
+            await pending.cleanup();
+            pending.cleanupSettled = true;
+          } catch {
+            authoritySettlementUnconfirmed = true;
+          }
+        }
+        if (!pending.processSettled) {
+          try {
+            const result = await runTmuxStatus(["kill-session", "-t", `=${sessionName}`]);
+            if (result.exitCode !== 0) {
+              processSettlementUnconfirmed = true;
+              continue;
+            }
+            pending.processSettled = true;
+          } catch {
+            processSettlementUnconfirmed = true;
+            continue;
+          }
+        }
+        if (pending.cleanupSettled) pendingSettlements.delete(sessionName);
+      }
+      if (processSettlementUnconfirmed && releasedSessions.size === 0) {
+        let serverResult: TmuxCommandResult;
+        try {
+          serverResult = await runTmuxStatus(["kill-server"]);
+        } catch (error) {
+          throw new Error("tmux process settlement was not confirmed", { cause: error });
+        }
+        if (serverResult.exitCode !== 0) {
+          throw new Error("tmux process settlement was not confirmed", {
+            cause: commandError(["kill-server"], serverResult),
+          });
+        }
+        privateServerSettled = true;
+        for (const state of handles.values()) state.processSettled = true;
+        for (const pending of pendingSettlements.values()) pending.processSettled = true;
+        if (authoritySettlementUnconfirmed) {
+          throw new Error("tmux authority cleanup settlement was not confirmed");
+        }
+        handles.clear();
+        pendingSettlements.clear();
+        rmSync(privateRoot, { recursive: true, force: true });
+        disposed = true;
         return;
       }
-      try {
-        await runTmuxStatus(["kill-server"]);
-      } catch {
-        // Disposal is best effort; broker close paths own authoritative audit.
+      if (processSettlementUnconfirmed) {
+        throw new Error("tmux process settlement was not confirmed");
+      }
+      if (authoritySettlementUnconfirmed) {
+        throw new Error("tmux authority cleanup settlement was not confirmed");
+      }
+      if (releasedSessions.size > 0) {
+        return;
+      }
+      if (!privateServerSettled) {
+        let serverResult: TmuxCommandResult;
+        try {
+          serverResult = await runTmuxStatus(["kill-server"]);
+        } catch (error) {
+          throw new Error("tmux process settlement was not confirmed", { cause: error });
+        }
+        if (serverResult.exitCode !== 0) {
+          throw new Error("tmux process settlement was not confirmed", {
+            cause: commandError(["kill-server"], serverResult),
+          });
+        }
+        privateServerSettled = true;
       }
       rmSync(privateRoot, { recursive: true, force: true });
+      disposed = true;
     },
   };
 }

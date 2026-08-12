@@ -75,6 +75,7 @@ export interface VendoredSrtManager {
   initialize(config: VendoredSrtRuntimeConfig): Promise<void>;
   updateConfig(config: VendoredSrtRuntimeConfig): void;
   supportsLaunchAuthority?: () => boolean;
+  launchAuthorityCapacityAvailable?: () => boolean;
   initializeLaunchAuthority?: (endpointRegistryPath: string) => void;
   prepareLaunchAuthority?: (
     config: VendoredSrtRuntimeConfig,
@@ -531,6 +532,14 @@ export async function createVendoredSrtSandboxComponents(
                 },
               );
             } catch (error) {
+              if (
+                typeof error === "object" &&
+                error !== null &&
+                "code" in error &&
+                error.code === "SRT_LAUNCH_AUTHORITY_CAPACITY"
+              ) {
+                throw error;
+              }
               return quarantineRuntime(error);
             }
           },
@@ -555,7 +564,32 @@ export async function createVendoredSrtSandboxComponents(
   const stoppedStatus: UnavailableVendoredSrtStatus = Object.freeze(
     unavailableStatus("sandbox runtime is stopped", "restart keel"),
   );
-  const status = (): SandboxStatus => (stopped ? stoppedStatus : activeStatus);
+  const capacityStatus: SandboxStatus = Object.freeze({
+    available: true,
+    backend: VENDORED_SRT_BACKEND,
+    enforcementTier: "sandbox:srt",
+    ...(!credentialTlsTermination && resolveDestination === undefined
+      ? {}
+      : {
+          features: Object.freeze([
+            ...(credentialTlsTermination ? [CREDENTIAL_TLS_TERMINATION_CAPABILITY] : []),
+            ...(resolveDestination === undefined ? [] : [EGRESS_ADDRESS_GUARD_CAPABILITY]),
+          ]),
+        }),
+  });
+  const status = (): SandboxStatus => {
+    if (stopped) return stoppedStatus;
+    if (launchAuthorityAvailable) {
+      try {
+        if (manager.launchAuthorityCapacityAvailable?.() === false) {
+          return capacityStatus;
+        }
+      } catch {
+        return unavailableStatus("launch authority capacity check failed", "restart keel");
+      }
+    }
+    return activeStatus;
+  };
   const portOptions = {
     runtime,
     status: activeStatus,

@@ -173,6 +173,15 @@ export function terminateAndForward(
   let cleanedUp = false
   let loop: ReturnType<typeof connect> | undefined
   let cleanupPromise: Promise<void> | undefined
+  let settleListen!: () => void
+  let listenSettled = false
+  const listenCompletion = new Promise<void>(resolve => {
+    settleListen = () => {
+      if (listenSettled) return
+      listenSettled = true
+      resolve()
+    }
+  })
   let resolveClosed!: () => void
   let rejectClosed!: (error: unknown) => void
   const closed = new Promise<void>((resolve, reject) => {
@@ -185,37 +194,41 @@ export function terminateAndForward(
     loop?.destroy()
     socket.unpipe()
     inner.closeAllConnections?.()
-    cleanupPromise = new Promise<void>((resolve, reject) => {
-      const finish = (error?: Error) => {
-        unlink(sockPath, unlinkError => {
-          if (error !== undefined) reject(error)
-          else if (
-            unlinkError !== null &&
-            (unlinkError as NodeJS.ErrnoException).code !== 'ENOENT'
-          ) {
-            reject(unlinkError)
-          } else resolve()
-        })
-      }
-      try {
-        inner.close(error => {
-          if (
-            error !== undefined &&
-            (error as NodeJS.ErrnoException).code !== 'ERR_SERVER_NOT_RUNNING'
-          ) {
-            finish(error)
-          } else finish()
-        })
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code === 'ERR_SERVER_NOT_RUNNING') {
-          finish()
-        } else finish(error as Error)
-      }
-    })
+    cleanupPromise = listenCompletion.then(
+      () =>
+        new Promise<void>((resolve, reject) => {
+          const finish = (error?: Error) => {
+            unlink(sockPath, unlinkError => {
+              if (error !== undefined) reject(error)
+              else if (
+                unlinkError !== null &&
+                (unlinkError as NodeJS.ErrnoException).code !== 'ENOENT'
+              ) {
+                reject(unlinkError)
+              } else resolve()
+            })
+          }
+          try {
+            inner.close(error => {
+              if (
+                error !== undefined &&
+                (error as NodeJS.ErrnoException).code !== 'ERR_SERVER_NOT_RUNNING'
+              ) {
+                finish(error)
+              } else finish()
+            })
+          } catch (error) {
+            if ((error as NodeJS.ErrnoException).code === 'ERR_SERVER_NOT_RUNNING') {
+              finish()
+            } else finish(error as Error)
+          }
+        }),
+    )
     void cleanupPromise.then(resolveClosed, rejectClosed)
     return cleanupPromise
   }
   inner.on('error', err => {
+    settleListen()
     logForDebugging(
       `[tls-terminate] inner server listen failed: ${err.message}`,
       { level: 'error' },
@@ -227,6 +240,7 @@ export function terminateAndForward(
   socket.once('finish', () => void cleanup())
   socket.once('close', () => void cleanup())
   inner.listen(sockPath, () => {
+    settleListen()
     if (cleanedUp) return
     loop = connect({ path: sockPath })
     loop.on('error', err => {

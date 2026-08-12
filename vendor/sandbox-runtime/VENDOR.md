@@ -57,8 +57,10 @@ not source needed for Keel's reviewed adapter path:
 - `test/sandbox/destination-dial.test.ts`
 - `test/sandbox/destination-guard-proxy.test.ts`
 - `test/sandbox/http-server-lifecycle.test.ts`
+- `test/sandbox/linux-bridge-process-group.test.ts`
 - `test/sandbox/tls-loopback-lifecycle.test.ts`
 - `test/sandbox/endpoint-lease-registry.test.ts`
+- `test/sandbox/endpoint-lease-registry-aba.test.ts`
 - `test/sandbox/endpoint-lease-child.ts`
 - `test/sandbox/launch-authority-lifecycle.test.ts`
 - `test/sandbox/launch-authority.test.ts`
@@ -186,18 +188,24 @@ not source needed for Keel's reviewed adapter path:
   one surviving governed profile retain or borrow authority prepared for a later launch. ADR-0091
   requires a unique token and immutable policy/credential snapshot per launch, with authority absent
   whenever that lifecycle cannot be structurally established.
-- Security impact: each launch gets exclusive authenticated HTTP/SOCKS endpoints, a pinned resolver,
-  launch-local credential/TLS state, and a durable endpoint lease outside governed profiles. Cleanup
+- Security impact: each network-bearing launch gets exclusive authenticated HTTP/SOCKS endpoints, a
+  pinned resolver, launch-local credential/TLS state, and a durable endpoint lease outside governed
+  profiles. An exact deny-all launch instead gets an endpointless network-denied OS profile and no
+  token, listener, bridge, TLS authority, credential projection, or lease. Cleanup
   revokes authentication first, aborts pending resolution, persistently drains late client accepts,
   closes tracked TLS children and Linux bridges, and fails closed after a fixed two-second bound.
   Separate owner-only generation markers distinguish live peer Wardens from crash residue; the public
-  registry contains no token, credential, request, or process detail. Preparation and reset share one
-  lifecycle queue, and weaker/external/parent-proxy routes cannot establish this capability.
+  registry contains no token, credential, request, or process detail. Compact registry V2 uses a
+  fixed retired-port bitmap and exact active port pairs, conservatively migrates V1 exclusions, and
+  stays below four MiB even at the theoretical 12,768-pair port limit. Preparation and reset share one
+  lifecycle queue; Linux bridge cleanup targets the complete detached process group; and
+  weaker/external/parent-proxy routes cannot establish this capability.
 - Compatibility: consumers that do not request Keel's launch lifecycle keep the upstream process-level
   path. Keel advertises `srt-launch-authority/v1` only with this exact API, durable registry, pinned
   destination resolver, async cleanup, and successful initialization. Windows does not advertise it.
-- Evidence: deterministic registry, deadline, HTTP/SOCKS late-accept, TLS-child, loader-quarantine, and
-  lifecycle-race tests plus real macOS Seatbelt and Linux bubblewrap product suites. The real launch
+- Evidence: deterministic registry, capacity/migration, deadline, HTTP/SOCKS pre-activation and
+  late-accept, TLS-child/listener, process-group, loader-quarantine, and lifecycle-race tests plus real
+  macOS Seatbelt and Linux bubblewrap product suites. The real launch
   probe includes positive own-authority controls and adversarial exact peer-token HTTP/SOCKS attempts.
 - Upstreamable status: Keel-specific lifecycle extension over the pinned permissive upstream. Recorded
   2026-08-11; not yet submitted upstream.

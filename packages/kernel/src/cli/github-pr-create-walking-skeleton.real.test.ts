@@ -8,6 +8,7 @@
  */
 import { Buffer } from "node:buffer";
 import { spawnSync } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import { createServer as createHttpsServer } from "node:https";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { createRequire } from "node:module";
@@ -429,28 +430,27 @@ function spawnedGithubPrWarden(options: {
   const tempRoot = tempDir("keel-github-pr-product-warden-temp-");
   const authorityRoot = tempDir("keel-github-pr-product-warden-authority-");
   const helperHome = tempDir("keel-github-pr-product-helper-home-");
-  const helperPath = join(helperHome, "credential-helper.mjs");
+  const helperPath = join(helperHome, "credential-helper");
   const helperConfigPath = join(helperHome, ".gitconfig");
+  const helperCredentialPath = join(helperHome, "credential-store");
   const gitExecutable = executable("git");
   const curlExecutable = executable("curl");
   writeFileSync(
-    helperPath,
-    `#!/usr/bin/env node
-      import { randomBytes } from "node:crypto";
-      process.stdin.resume();
-      process.stdin.on("end", () => {
-        const username = "u-" + randomBytes(12).toString("hex");
-        const password = "p-" + randomBytes(32).toString("base64url");
-        process.stdout.write("username=" + username + "\\npassword=" + password + "\\n");
-      });
-    `,
-    { mode: 0o700 },
-  );
-  writeFileSync(
-    helperConfigPath,
-    `[credential]\n\thelper =\n\thelper = !${process.execPath} ${helperPath}\n`,
+    helperCredentialPath,
+    `username=u-${randomBytes(12).toString("hex")}\npassword=p-${randomBytes(32).toString("base64url")}\n`,
     { mode: 0o600 },
   );
+  writeFileSync(
+    helperPath,
+    `#!/bin/sh
+while IFS= read -r line; do [ -z "$line" ] && break; done
+/bin/cat "$HOME/credential-store"
+`,
+    { mode: 0o700 },
+  );
+  writeFileSync(helperConfigPath, `[credential]\n\thelper =\n\thelper = !${helperPath}\n`, {
+    mode: 0o600,
+  });
   writeFileSync(
     entryPath,
     `
@@ -471,6 +471,8 @@ function spawnedGithubPrWarden(options: {
       const credentialBroker = createGitCredentialBroker({
         gitExecutable: ${JSON.stringify(gitExecutable)},
         tempRoot: ${JSON.stringify(tempRoot)},
+        workspaceRoot: ${JSON.stringify(options.workspaceRoot)},
+        denyRoots: [${JSON.stringify(authorityRoot)}],
         env: {
           HOME: ${JSON.stringify(helperHome)},
           PATH: ${JSON.stringify(process.env["PATH"] ?? "/usr/bin:/bin")},

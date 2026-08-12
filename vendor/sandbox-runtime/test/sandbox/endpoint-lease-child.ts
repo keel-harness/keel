@@ -9,7 +9,10 @@ try {
   const registry = new EndpointLeaseRegistry(registryPath, { generationId })
   registry.claimGeneration()
   registry.recoverPriorGenerations()
-  const lease = registry.reserve([endpoint])
+  const match = /^(tcp:127\.0\.0\.1:)(\d+)$/u.exec(endpoint)
+  if (match === null) throw new Error('endpoint lease child requires one TCP endpoint')
+  const peerEndpoint = `${match[1]}${String(Number(match[2]) + 1)}`
+  const lease = registry.reserve([endpoint, peerEndpoint])
   process.send?.({ kind: 'ready', lease })
   process.on('message', message => {
     if (message !== 'release') return

@@ -1,7 +1,7 @@
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { gatherDoctorGitProbe } from "./doctor-git-probe.js";
 
 const roots: string[] = [];
@@ -19,10 +19,131 @@ function executable(path: string, body: string): void {
 }
 
 afterEach(() => {
+  vi.restoreAllMocks();
+  vi.unstubAllEnvs();
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
 describe("doctor Git probe authority", () => {
+  it("uses the process-separated Warden helper-authority verdict when available", () => {
+    const workspace = tempDir("keel-doctor-git-workspace-");
+    const operatorBin = tempDir("keel-doctor-git-operator-");
+    const warden = join(operatorBin, "warden");
+    executable(
+      join(operatorBin, "git"),
+      [
+        'if [ "$1" = "--version" ]; then printf "git version 2.39.5\\n"; exit 0; fi',
+        'if [ "$1" = "config" ] && [ "$2" = "--local" ]; then printf "https://github.com/keel-harness/keel.git\\n"; exit 0; fi',
+        "exit 1",
+      ].join("\n"),
+    );
+    executable(warden, `printf '%s\\n' '{"status":"ok","detail":"eligible"}'`);
+
+    expect(
+      gatherDoctorGitProbe({
+        workspaceRoot: workspace,
+        platform: "darwin",
+        env: { PATH: operatorBin },
+        wardenStart: { command: warden, args: [] },
+      }),
+    ).toEqual({
+      gitVersionRaw: "git version 2.39.5",
+      gitRemoteUrlRaw: "https://github.com/keel-harness/keel.git",
+      gitCredentialHelperConfigured: true,
+    });
+  });
+
+  it("retains only a bounded Warden denial and remediation", () => {
+    const workspace = tempDir("keel-doctor-git-workspace-");
+    const operatorBin = tempDir("keel-doctor-git-operator-");
+    const warden = join(operatorBin, "warden");
+    executable(
+      join(operatorBin, "git"),
+      [
+        'if [ "$1" = "--version" ]; then printf "git version 2.39.5\\n"; exit 0; fi',
+        'if [ "$1" = "config" ] && [ "$2" = "--local" ]; then printf "https://github.com/keel-harness/keel.git\\n"; exit 0; fi',
+        "exit 1",
+      ].join("\n"),
+    );
+    executable(
+      warden,
+      `printf '%s\\n' '{"status":"error","detail":"helper unsafe","fix":"gh auth setup-git && keel doctor"}'`,
+    );
+
+    expect(
+      gatherDoctorGitProbe({
+        workspaceRoot: workspace,
+        platform: "darwin",
+        env: { PATH: operatorBin },
+        wardenStart: { command: warden, args: [] },
+      }).gitCredentialHelperAuthorityIssue,
+    ).toEqual({ detail: "helper unsafe", fix: "gh auth setup-git && keel doctor" });
+  });
+
+  it("fails closed for malformed, noisy, failed, and unavailable Warden probe responses", () => {
+    const workspace = tempDir("keel-doctor-git-workspace-");
+    const operatorBin = tempDir("keel-doctor-git-operator-");
+    executable(
+      join(operatorBin, "git"),
+      [
+        'if [ "$1" = "--version" ]; then printf "git version 2.39.5\\n"; exit 0; fi',
+        'if [ "$1" = "config" ] && [ "$2" = "--local" ]; then printf "https://github.com/keel-harness/keel.git\\n"; exit 0; fi',
+        "exit 1",
+      ].join("\n"),
+    );
+    const cases = [
+      { body: "exit 2" },
+      { body: "printf 'diagnostic\\n' >&2; exit 0" },
+      { body: "exit 0" },
+      { body: "printf 'one\\ntwo\\n'" },
+      { body: `printf '%s\\n' 'null'` },
+      { body: `printf '%s\\n' '[]'` },
+      { body: `printf '%s\\n' '"text"'` },
+      { body: `printf '%s\\n' '{"status":"ok","detail":""}'` },
+      { body: `printf '%s\\n' '{"status":"error","detail":"unsafe"}'` },
+      { body: `printf '%s\\n' '{"status":"unknown","detail":"x","fix":"y"}'` },
+      { body: `printf '%s\\n' '{"status":"ok","status":"error","detail":"x"}'` },
+    ];
+    for (const [index, testCase] of cases.entries()) {
+      const warden = join(operatorBin, `warden-${String(index)}`);
+      executable(warden, testCase.body);
+      const result = gatherDoctorGitProbe({
+        workspaceRoot: workspace,
+        platform: "linux",
+        env: { PATH: operatorBin },
+        wardenStart: { command: warden, args: [], env: { LANG: "C" } },
+      });
+      expect(result.gitCredentialHelperConfigured).toBe(false);
+      expect(result.gitCredentialHelperAuthorityIssue).toEqual({
+        detail: "Warden credential-helper authority probe unavailable",
+        fix: "reinstall keel and run: keel doctor",
+      });
+    }
+
+    const missing = gatherDoctorGitProbe({
+      workspaceRoot: workspace,
+      platform: "linux",
+      env: { PATH: operatorBin },
+      wardenStart: { command: join(operatorBin, "missing-warden"), args: [] },
+    });
+    expect(missing.gitCredentialHelperAuthorityIssue?.detail).toMatch(/probe unavailable/u);
+  });
+
+  it("uses process platform and environment defaults without widening executable selection", () => {
+    const workspace = tempDir("keel-doctor-git-workspace-");
+    const operatorBin = tempDir("keel-doctor-git-operator-");
+    executable(
+      join(operatorBin, "git"),
+      'if [ "$1" = "--version" ]; then printf "git version 2.39.5\\n"; exit 0; fi\nexit 1',
+    );
+    vi.stubEnv("PATH", operatorBin);
+
+    const result = gatherDoctorGitProbe({ workspaceRoot: workspace });
+
+    expect(result.gitVersionRaw).toBe("git version 2.39.5");
+    expect(result.gitRemoteUrlRaw).toBeNull();
+  });
+
   it("never executes a workspace PATH canary and probes one exact supported operator Git", () => {
     const workspace = tempDir("keel-doctor-git-workspace-");
     const projectBin = join(workspace, "node_modules", ".bin");
@@ -48,7 +169,11 @@ describe("doctor Git probe authority", () => {
     ).toEqual({
       gitVersionRaw: "git version 2.39.5",
       gitRemoteUrlRaw: "https://github.com/keel-harness/keel.git",
-      gitCredentialHelperConfigured: true,
+      gitCredentialHelperConfigured: false,
+      gitCredentialHelperAuthorityIssue: {
+        detail: "Warden credential-helper authority probe unavailable",
+        fix: "reinstall keel and run: keel doctor",
+      },
     });
     expect(existsSync(canary)).toBe(false);
   });
@@ -71,7 +196,7 @@ describe("doctor Git probe authority", () => {
     });
   });
 
-  it("does not treat an empty credential.helper reset as an available operator helper", () => {
+  it("does not infer helper authority from an ambient global helper probe", () => {
     const workspace = tempDir("keel-doctor-git-workspace-");
     const operatorBin = tempDir("keel-doctor-git-operator-");
     executable(
@@ -92,7 +217,7 @@ describe("doctor Git probe authority", () => {
     ).toBe(false);
   });
 
-  it("applies an empty helper reset after an earlier configured helper", () => {
+  it("does not infer helper authority from ambient reset ordering", () => {
     const workspace = tempDir("keel-doctor-git-workspace-");
     const operatorBin = tempDir("keel-doctor-git-operator-");
     executable(
@@ -178,6 +303,10 @@ describe("doctor Git probe authority", () => {
       gitVersionRaw: "git version 2.39.5",
       gitRemoteUrlRaw: "https://github.com/keel-harness/keel.git",
       gitCredentialHelperConfigured: false,
+      gitCredentialHelperAuthorityIssue: {
+        detail: "Warden credential-helper authority probe unavailable",
+        fix: "reinstall keel and run: keel doctor",
+      },
     });
   });
 });

@@ -38,6 +38,8 @@ const { terminateAndForward } = await import("../../src/sandbox/tls-terminate-pr
 
 class FakeInnerServer extends EventEmitter {
   closeCalls = 0;
+  deferListening = false;
+  private listeningCallback: (() => void) | undefined;
 
   close(callback?: (error?: Error) => void): this {
     this.closeCalls += 1;
@@ -48,8 +50,15 @@ class FakeInnerServer extends EventEmitter {
   closeAllConnections(): void {}
 
   listen(_path: string, callback: () => void): this {
-    callback();
+    if (this.deferListening) this.listeningCallback = callback;
+    else callback();
     return this;
+  }
+
+  completeListening(): void {
+    const callback = this.listeningCallback;
+    this.listeningCallback = undefined;
+    callback?.();
   }
 
   unref(): this {
@@ -103,6 +112,36 @@ function startProxy(client: Duplex, loopback: PassThrough): {
 }
 
 describe("TLS loopback lifecycle", () => {
+  it("waits for a pending inner listener before cleanup can settle", async () => {
+    const client = new PassThrough();
+    const loopback = new PassThrough();
+    const inner = new FakeInnerServer();
+    inner.deferListening = true;
+    transport.inner = inner;
+    transport.loopback = loopback;
+    const connection = terminateAndForward(
+      {} as Parameters<typeof terminateAndForward>[0],
+      undefined,
+      undefined,
+      client,
+      Buffer.alloc(0),
+      {
+        hostname: "denied.example",
+        port: 443,
+        signal: new AbortController().signal,
+      },
+    );
+
+    const closing = connection.close();
+    expect(inner.closeCalls).toBe(0);
+
+    inner.completeListening();
+    await expect(closing).resolves.toBeUndefined();
+    await expect(connection.closed).resolves.toBeUndefined();
+    expect(inner.closeCalls).toBe(1);
+    expect(transport.loopback).toBe(loopback);
+  });
+
   it("lets a complete response flush after the loopback closes normally", async () => {
     const client = new HeldWriteDuplex();
     const loopback = new PassThrough();

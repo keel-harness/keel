@@ -2,6 +2,7 @@ import {
   closeSync,
   constants,
   fsyncSync,
+  linkSync,
   lstatSync,
   mkdirSync,
   openSync,
@@ -11,28 +12,33 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { randomBytes } from 'node:crypto'
+import { performance } from 'node:perf_hooks'
 import { basename, dirname, isAbsolute, join } from 'node:path'
 
-const REGISTRY_VERSION = 1 as const
-const MAX_REGISTRY_BYTES = 1024 * 1024
+const REGISTRY_VERSION = 2 as const
+const MAX_REGISTRY_BYTES = 4 * 1024 * 1024
 const MAX_ENDPOINT_LENGTH = 1024
-const MAX_ENDPOINTS_PER_LEASE = 8
-const MAX_ENTRIES = 65_536
+const MAX_LEGACY_ENDPOINTS = 65_536
 const GENERATION_PATTERN = /^[A-Za-z0-9._-]{1,128}$/
-const MAX_LOCK_ATTEMPTS = 64
-const LOCK_RETRY_MS = 2
+const LOCK_WAIT_TIMEOUT_MS = 5_000
+const LOCK_RETRY_MS = 5
+const PORT_MIN = 40_000
+const PORT_MAX = 65_535
+const PORT_COUNT = PORT_MAX - PORT_MIN + 1
+const PORT_BITMAP_BYTES = PORT_COUNT / 8
+const MAX_ACTIVE_LEASES = PORT_COUNT / 2
+const TCP_ENDPOINT_PATTERN = /^tcp:127\.0\.0\.1:(\d{5})$/u
 
-type LeaseState = 'active' | 'tombstone'
-
-interface DurableLeaseEntry {
+interface DurableActiveLease {
   readonly generationId: string
-  readonly state: LeaseState
-  readonly endpoints: string[]
+  readonly ports: readonly [number, number]
 }
 
 interface DurableRegistry {
   readonly version: typeof REGISTRY_VERSION
-  readonly entries: Record<string, DurableLeaseEntry>
+  retiredPortBitmap: string
+  readonly active: Record<string, DurableActiveLease>
+  readonly legacyExcludedEndpoints: string[]
 }
 
 interface FileOwner {
@@ -44,12 +50,22 @@ interface FileOwner {
 export interface EndpointLease {
   readonly leaseId: string
   readonly generationId: string
+  readonly ports: readonly [number, number]
 }
 
 export interface EndpointLeaseRegistryOptions {
   readonly generationId: string
   readonly createLeaseId?: () => string
   readonly pid?: number
+}
+
+export class EndpointLeaseCapacityError extends Error {
+  readonly code = 'SRT_LAUNCH_AUTHORITY_CAPACITY' as const
+
+  constructor() {
+    super('endpoint lease registry capacity exhausted')
+    this.name = 'EndpointLeaseCapacityError'
+  }
 }
 
 function invalidRegistry(): never {
@@ -97,31 +113,55 @@ function validateEndpoint(value: unknown): value is string {
   )
 }
 
-function parseRegistry(raw: string): DurableRegistry {
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(raw)
-  } catch {
+function portFromEndpoint(endpoint: string): number | undefined {
+  const match = TCP_ENDPOINT_PATTERN.exec(endpoint)
+  if (match === null) return undefined
+  const port = Number(match[1])
+  return port >= PORT_MIN && port <= PORT_MAX ? port : undefined
+}
+
+function endpointFromPort(port: number): string {
+  return `tcp:127.0.0.1:${String(port)}`
+}
+
+function decodeBitmap(value: unknown): Buffer {
+  if (typeof value !== 'string' || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==)?$/u.test(value)) {
     return invalidRegistry()
   }
-  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+  const decoded = Buffer.from(value, 'base64')
+  if (decoded.length !== PORT_BITMAP_BYTES || decoded.toString('base64') !== value) {
     return invalidRegistry()
   }
-  const record = parsed as Record<string, unknown>
+  return decoded
+}
+
+function emptyBitmap(): Buffer {
+  return Buffer.alloc(PORT_BITMAP_BYTES)
+}
+
+function bitmapHas(bitmap: Buffer, port: number): boolean {
+  const index = port - PORT_MIN
+  return (bitmap[Math.floor(index / 8)]! & (1 << (index % 8))) !== 0
+}
+
+function bitmapSet(bitmap: Buffer, port: number): void {
+  const index = port - PORT_MIN
+  bitmap[Math.floor(index / 8)]! |= 1 << (index % 8)
+}
+
+function parseV1Registry(record: Record<string, unknown>): DurableRegistry {
   if (
-    record.version !== REGISTRY_VERSION ||
     typeof record.entries !== 'object' ||
     record.entries === null ||
     Array.isArray(record.entries)
   ) {
     return invalidRegistry()
   }
-  const rawEntries = record.entries as Record<string, unknown>
-  const keys = Object.keys(rawEntries)
-  if (keys.length > MAX_ENTRIES) return invalidRegistry()
-  const entries: Record<string, DurableLeaseEntry> = {}
-  for (const leaseId of keys) {
-    const rawEntry = rawEntries[leaseId]
+  const entries = record.entries as Record<string, unknown>
+  if (Object.keys(entries).length > 65_536) return invalidRegistry()
+  const bitmap = emptyBitmap()
+  const legacy = new Set<string>()
+  for (const [leaseId, rawEntry] of Object.entries(entries)) {
     if (
       !GENERATION_PATTERN.test(leaseId) ||
       typeof rawEntry !== 'object' ||
@@ -137,19 +177,99 @@ function parseRegistry(raw: string): DurableRegistry {
       (entry.state !== 'active' && entry.state !== 'tombstone') ||
       !Array.isArray(entry.endpoints) ||
       entry.endpoints.length === 0 ||
-      entry.endpoints.length > MAX_ENDPOINTS_PER_LEASE ||
-      entry.endpoints.some(endpoint => !validateEndpoint(endpoint)) ||
-      new Set(entry.endpoints).size !== entry.endpoints.length
+      entry.endpoints.length > 8 ||
+      entry.endpoints.some(endpoint => !validateEndpoint(endpoint))
     ) {
       return invalidRegistry()
     }
-    entries[leaseId] = {
-      generationId: entry.generationId,
-      state: entry.state,
-      endpoints: [...entry.endpoints] as string[],
+    for (const endpoint of entry.endpoints as string[]) {
+      const port = portFromEndpoint(endpoint)
+      if (port === undefined) legacy.add(endpoint)
+      else bitmapSet(bitmap, port)
     }
   }
-  return { version: REGISTRY_VERSION, entries }
+  if (legacy.size > MAX_LEGACY_ENDPOINTS) return invalidRegistry()
+  return {
+    version: REGISTRY_VERSION,
+    retiredPortBitmap: bitmap.toString('base64'),
+    active: {},
+    legacyExcludedEndpoints: [...legacy].sort(),
+  }
+}
+
+function parseRegistry(raw: string): DurableRegistry {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw)
+  } catch {
+    return invalidRegistry()
+  }
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    return invalidRegistry()
+  }
+  const record = parsed as Record<string, unknown>
+  if (record.version === 1) return parseV1Registry(record)
+  if (
+    record.version !== REGISTRY_VERSION ||
+    typeof record.active !== 'object' ||
+    record.active === null ||
+    Array.isArray(record.active) ||
+    !Array.isArray(record.legacyExcludedEndpoints)
+  ) {
+    return invalidRegistry()
+  }
+  const bitmap = decodeBitmap(record.retiredPortBitmap)
+  const rawActive = record.active as Record<string, unknown>
+  const activeKeys = Object.keys(rawActive)
+  if (activeKeys.length > MAX_ACTIVE_LEASES) return invalidRegistry()
+  const active: Record<string, DurableActiveLease> = {}
+  const activePorts = new Set<number>()
+  for (const leaseId of activeKeys) {
+    const rawEntry = rawActive[leaseId]
+    if (
+      !GENERATION_PATTERN.test(leaseId) ||
+      typeof rawEntry !== 'object' ||
+      rawEntry === null ||
+      Array.isArray(rawEntry)
+    ) {
+      return invalidRegistry()
+    }
+    const entry = rawEntry as Record<string, unknown>
+    if (
+      typeof entry.generationId !== 'string' ||
+      !GENERATION_PATTERN.test(entry.generationId) ||
+      !Array.isArray(entry.ports) ||
+      entry.ports.length !== 2 ||
+      entry.ports.some(
+        port => !Number.isInteger(port) || (port as number) < PORT_MIN || (port as number) > PORT_MAX,
+      ) ||
+      entry.ports[0] === entry.ports[1]
+    ) {
+      return invalidRegistry()
+    }
+    const ports = entry.ports as [number, number]
+    if (
+      ports.some(port => activePorts.has(port) || bitmapHas(bitmap, port))
+    ) {
+      return invalidRegistry()
+    }
+    for (const port of ports) activePorts.add(port)
+    active[leaseId] = { generationId: entry.generationId, ports: [...ports] }
+  }
+  const legacy = record.legacyExcludedEndpoints
+  if (
+    legacy.length > MAX_LEGACY_ENDPOINTS ||
+    legacy.some(endpoint => !validateEndpoint(endpoint) || portFromEndpoint(endpoint) !== undefined) ||
+    new Set(legacy).size !== legacy.length
+  ) {
+    return invalidRegistry()
+  }
+  return {
+    version: REGISTRY_VERSION,
+    retiredPortBitmap: bitmap.toString('base64'),
+    active,
+    legacyExcludedEndpoints: [...legacy] as string[],
+  }
 }
 
 function processIsAlive(pid: number): boolean {
@@ -256,9 +376,8 @@ export class EndpointLeaseRegistry {
     const owner = this.#generationOwner
     if (owner === undefined) return false
     const hasActiveLease = this.#withLock(() =>
-      Object.values(this.#read().entries).some(
-        entry =>
-          entry.state === 'active' && entry.generationId === this.#generationId,
+      Object.values(this.#read().active).some(
+        entry => entry.generationId === this.#generationId,
       ),
     )
     if (hasActiveLease) return false
@@ -281,43 +400,44 @@ export class EndpointLeaseRegistry {
   recoverPriorGenerations(): void {
     this.#assertGenerationClaimed()
     this.#mutate(registry => {
-      for (const [leaseId, entry] of Object.entries(registry.entries)) {
+      const bitmap = decodeBitmap(registry.retiredPortBitmap)
+      for (const [leaseId, entry] of Object.entries(registry.active)) {
         if (
-          entry.state === 'active' &&
           entry.generationId !== this.#generationId &&
           !this.#generationIsAlive(entry.generationId)
         ) {
-          registry.entries[leaseId] = { ...entry, state: 'tombstone' }
+          for (const port of entry.ports) bitmapSet(bitmap, port)
+          delete registry.active[leaseId]
         }
       }
+      registry.retiredPortBitmap = bitmap.toString('base64')
       return undefined
     })
   }
 
   reserve(endpoints: readonly string[]): EndpointLease {
     this.#assertGenerationClaimed()
-    const normalized = this.#validateEndpoints(endpoints)
+    const ports = this.#validateEndpointPair(endpoints)
     return this.#mutate(registry => {
-      this.#assertAvailable(registry, normalized)
+      this.#assertAvailable(registry, ports)
       const leaseId = this.#createLeaseId()
-      if (!GENERATION_PATTERN.test(leaseId) || registry.entries[leaseId] !== undefined) {
+      if (!GENERATION_PATTERN.test(leaseId) || registry.active[leaseId] !== undefined) {
         throw new Error('invalid endpoint lease identity')
       }
-      registry.entries[leaseId] = {
+      registry.active[leaseId] = {
         generationId: this.#generationId,
-        state: 'active',
-        endpoints: normalized,
+        ports,
       }
-      return { leaseId, generationId: this.#generationId }
+      return { leaseId, generationId: this.#generationId, ports }
     })
   }
 
   releaseClean(lease: EndpointLease): boolean {
     this.#assertGenerationClaimed()
     return this.#mutate(registry => {
-      const entry = registry.entries[lease.leaseId]
+      const entry = registry.active[lease.leaseId]
       if (!this.#matchesActiveLease(entry, lease)) return false
-      delete registry.entries[lease.leaseId]
+      delete registry.active[lease.leaseId]
       return true
     })
   }
@@ -325,16 +445,18 @@ export class EndpointLeaseRegistry {
   retire(lease: EndpointLease): boolean {
     this.#assertGenerationClaimed()
     return this.#mutate(registry => {
-      const entry = registry.entries[lease.leaseId]
-      if (
-        entry?.state === 'tombstone' &&
-        entry.generationId === this.#generationId &&
-        lease.generationId === this.#generationId
-      ) {
-        return true
+      const entry = registry.active[lease.leaseId]
+      const bitmap = decodeBitmap(registry.retiredPortBitmap)
+      if (entry === undefined) {
+        return (
+          lease.generationId === this.#generationId &&
+          lease.ports.every(port => bitmapHas(bitmap, port))
+        )
       }
       if (!this.#matchesActiveLease(entry, lease)) return false
-      registry.entries[lease.leaseId] = { ...entry, state: 'tombstone' }
+      for (const port of entry.ports) bitmapSet(bitmap, port)
+      registry.retiredPortBitmap = bitmap.toString('base64')
+      delete registry.active[lease.leaseId]
       return true
     })
   }
@@ -343,21 +465,59 @@ export class EndpointLeaseRegistry {
     this.#assertGenerationClaimed()
     return this.#withLock(() => {
       const registry = this.#read()
-      return new Set(Object.values(registry.entries).flatMap(entry => entry.endpoints))
+      const bitmap = decodeBitmap(registry.retiredPortBitmap)
+      const endpoints = new Set(registry.legacyExcludedEndpoints)
+      for (let port = PORT_MIN; port <= PORT_MAX; port++) {
+        if (bitmapHas(bitmap, port)) endpoints.add(endpointFromPort(port))
+      }
+      for (const entry of Object.values(registry.active)) {
+        for (const port of entry.ports) endpoints.add(endpointFromPort(port))
+      }
+      return endpoints
     })
   }
 
-  #validateEndpoints(endpoints: readonly string[]): string[] {
-    if (
-      !Array.isArray(endpoints) ||
-      endpoints.length === 0 ||
-      endpoints.length > MAX_ENDPOINTS_PER_LEASE ||
-      endpoints.some(endpoint => !validateEndpoint(endpoint)) ||
-      new Set(endpoints).size !== endpoints.length
-    ) {
+  isTcpPortExcluded(port: number): boolean {
+    if (!Number.isInteger(port) || port < PORT_MIN || port > PORT_MAX) return false
+    this.#assertGenerationClaimed()
+    return this.#withLock(() => {
+      const registry = this.#read()
+      if (bitmapHas(decodeBitmap(registry.retiredPortBitmap), port)) return true
+      return Object.values(registry.active).some(entry => entry.ports.includes(port))
+    })
+  }
+
+  capacityAvailable(): boolean {
+    this.#assertGenerationClaimed()
+    return this.#withLock(() => {
+      const registry = this.#read()
+      const bitmap = decodeBitmap(registry.retiredPortBitmap)
+      const activePorts = new Set(
+        Object.values(registry.active).flatMap(entry => [...entry.ports]),
+      )
+      let available = 0
+      for (let port = PORT_MIN; port <= PORT_MAX && available < 2; port++) {
+        if (!bitmapHas(bitmap, port) && !activePorts.has(port)) available += 1
+      }
+      return available >= 2
+    })
+  }
+
+  assertCapacityAvailable(): void {
+    if (!this.capacityAvailable()) throw new EndpointLeaseCapacityError()
+  }
+
+  #validateEndpointPair(endpoints: readonly string[]): readonly [number, number] {
+    if (!Array.isArray(endpoints) || endpoints.length !== 2) {
       throw new Error('invalid endpoint lease endpoints')
     }
-    return [...endpoints]
+    const ports = endpoints.map(endpoint =>
+      typeof endpoint === 'string' ? portFromEndpoint(endpoint) : undefined,
+    )
+    if (ports[0] === undefined || ports[1] === undefined || ports[0] === ports[1]) {
+      throw new Error('invalid endpoint lease endpoints')
+    }
+    return [ports[0], ports[1]]
   }
 
   #assertGenerationClaimed(): void {
@@ -381,7 +541,8 @@ export class EndpointLeaseRegistry {
   }
 
   #claimOwner(owner: FileOwner): void {
-    for (let attempt = 0; attempt < MAX_LOCK_ATTEMPTS; attempt++) {
+    const deadline = performance.now() + LOCK_WAIT_TIMEOUT_MS
+    while (performance.now() < deadline) {
       try {
         const fd = openSync(
           this.#ownerPath,
@@ -398,7 +559,6 @@ export class EndpointLeaseRegistry {
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
       }
-
       let existing: FileOwner
       try {
         existing = parseFileOwner(this.#ownerPath)
@@ -408,60 +568,37 @@ export class EndpointLeaseRegistry {
       if (processIsAlive(existing.pid)) {
         throw new Error('endpoint lease registry generation owner is unavailable')
       }
-      const claimedPath = `${this.#ownerPath}.dead.${randomBytes(12).toString('hex')}`
-      try {
-        renameSync(this.#ownerPath, claimedPath)
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code === 'ENOENT') continue
-        throw new Error('endpoint lease registry generation owner is unavailable')
-      }
-      const claimed = parseFileOwner(claimedPath)
-      if (processIsAlive(claimed.pid)) {
-        try {
-          renameSync(claimedPath, this.#ownerPath)
-        } catch {
-          // A concurrent live owner already won the canonical path. The
-          // private claimed inode remains harmless and is never consulted.
-        }
-        throw new Error('endpoint lease registry generation owner is unavailable')
-      }
-      try {
-        unlinkSync(claimedPath)
-      } catch {
-        // A private dead-owner inode cannot grant authority. Retry the
-        // canonical exclusive create and fail closed if contention persists.
-      }
+      if (!this.#unlinkExactDeadOwner(this.#ownerPath)) boundedLockWait()
     }
     throw new Error('endpoint lease registry generation owner is unavailable')
   }
 
   #matchesActiveLease(
-    entry: DurableLeaseEntry | undefined,
+    entry: DurableActiveLease | undefined,
     lease: EndpointLease,
-  ): entry is DurableLeaseEntry {
+  ): entry is DurableActiveLease {
     return (
-      entry?.state === 'active' &&
-      entry.generationId === this.#generationId &&
-      lease.generationId === this.#generationId
+      entry?.generationId === this.#generationId &&
+      lease.generationId === this.#generationId &&
+      entry.ports[0] === lease.ports[0] &&
+      entry.ports[1] === lease.ports[1]
     )
   }
 
-  #assertAvailable(
-    registry: DurableRegistry,
-    endpoints: readonly string[],
-    exceptLeaseId?: string,
-  ): void {
-    const excluded = new Set(
-      Object.entries(registry.entries)
-        .filter(([leaseId]) => leaseId !== exceptLeaseId)
-        .flatMap(([, entry]) => entry.endpoints),
-    )
-    if (endpoints.some(endpoint => excluded.has(endpoint))) {
+  #assertAvailable(registry: DurableRegistry, ports: readonly [number, number]): void {
+    const bitmap = decodeBitmap(registry.retiredPortBitmap)
+    if (
+      ports.some(
+        port =>
+          bitmapHas(bitmap, port) ||
+          Object.values(registry.active).some(entry => entry.ports.includes(port)),
+      )
+    ) {
       throw new Error('endpoint is already reserved')
     }
   }
 
-  #mutate<T>(callback: (registry: { version: 1; entries: Record<string, DurableLeaseEntry> }) => T): T {
+  #mutate<T>(callback: (registry: DurableRegistry) => T): T {
     return this.#withLock(() => {
       const registry = this.#read()
       const result = callback(registry)
@@ -470,12 +607,17 @@ export class EndpointLeaseRegistry {
     })
   }
 
-  #read(): { version: 1; entries: Record<string, DurableLeaseEntry> } {
+  #read(): DurableRegistry {
     try {
       assertOwnerOnlyRegularFile(this.#path)
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-        return { version: REGISTRY_VERSION, entries: {} }
+        return {
+          version: REGISTRY_VERSION,
+          retiredPortBitmap: emptyBitmap().toString('base64'),
+          active: {},
+          legacyExcludedEndpoints: [],
+        }
       }
       throw error
     }
@@ -494,7 +636,11 @@ export class EndpointLeaseRegistry {
     }
     let fd: number | undefined
     try {
-      fd = openSync(tempPath, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY, 0o600)
+      fd = openSync(
+        tempPath,
+        constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY,
+        0o600,
+      )
       writeFileSync(fd, serialized, 'utf8')
       fsyncSync(fd)
       closeSync(fd)
@@ -537,7 +683,8 @@ export class EndpointLeaseRegistry {
       generationId: this.#generationId,
       nonce: randomBytes(24).toString('hex'),
     }
-    for (let attempt = 0; attempt < MAX_LOCK_ATTEMPTS; attempt++) {
+    const deadline = performance.now() + LOCK_WAIT_TIMEOUT_MS
+    while (performance.now() < deadline) {
       try {
         const fd = openSync(
           this.#lockPath,
@@ -560,7 +707,6 @@ export class EndpointLeaseRegistry {
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
       }
-
       let existing: FileOwner
       try {
         existing = parseFileOwner(this.#lockPath)
@@ -571,28 +717,51 @@ export class EndpointLeaseRegistry {
         boundedLockWait()
         continue
       }
-      const claimedPath = `${this.#lockPath}.dead.${randomBytes(12).toString('hex')}`
-      try {
-        renameSync(this.#lockPath, claimedPath)
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code === 'ENOENT') continue
-        throw new Error('endpoint lease registry lock is unavailable')
-      }
-      const claimed = parseFileOwner(claimedPath)
-      if (processIsAlive(claimed.pid)) {
-        try {
-          renameSync(claimedPath, this.#lockPath)
-        } catch {
-          // A canonical contender already exists; never replace it.
-        }
-        throw new Error('endpoint lease registry lock is unavailable')
-      }
-      try {
-        unlinkSync(claimedPath)
-      } catch {
-        // The claimed dead inode is outside the authority path.
-      }
+      if (!this.#unlinkExactDeadOwner(this.#lockPath)) boundedLockWait()
     }
     throw new Error('endpoint lease registry lock is unavailable')
+  }
+
+  /**
+   * Remove a dead owner without a rename-to-canonical rollback. The private
+   * hard link pins the exact inode we inspected; the canonical name can be
+   * unlinked only while it still names that inode and no competing reclaimer
+   * has linked it. A replacement live owner is therefore never overwritten.
+   */
+  #unlinkExactDeadOwner(path: string): boolean {
+    const claimedPath = `${path}.dead.${randomBytes(12).toString('hex')}`
+    try {
+      try {
+        linkSync(path, claimedPath)
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false
+        throw error
+      }
+      const claimed = parseFileOwner(claimedPath)
+      if (processIsAlive(claimed.pid)) return false
+      let canonicalStat
+      try {
+        canonicalStat = lstatSync(path)
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false
+        throw error
+      }
+      const claimedStat = lstatSync(claimedPath)
+      if (
+        canonicalStat.dev !== claimedStat.dev ||
+        canonicalStat.ino !== claimedStat.ino ||
+        claimedStat.nlink !== 2
+      ) {
+        return false
+      }
+      unlinkSync(path)
+      return true
+    } finally {
+      try {
+        unlinkSync(claimedPath)
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+      }
+    }
   }
 }

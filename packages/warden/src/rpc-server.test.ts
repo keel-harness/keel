@@ -6639,7 +6639,10 @@ describe("keel-warden stdio JSON-RPC server", () => {
       );
       expect(mismatchedCleanup.verdict).toBe("deny");
       expect(mismatchedCleanup.result).toEqual({ kind: "interactive_console_lifecycle_denied" });
-      expect(consoleState.handles.has(mismatchedCleanupHandle)).toBe(false);
+      // A live-but-mismatched process cannot be safely killed as the stored
+      // target. Retain the handle so shutdown/disposal can retry through the
+      // broker's private session authority instead of declaring false reap.
+      expect(consoleState.handles.has(mismatchedCleanupHandle)).toBe(true);
       expect(
         mismatchedCleanupEvents.map((event) => (event as { readonly kind: string }).kind),
       ).toEqual(["check_process_identity"]);
@@ -20491,9 +20494,9 @@ printf '%s\\n' '${match}'
     expect(disposed).toEqual(["disposed"]);
   });
 
-  it("keeps shutdown non-throwing when interactive console broker disposal fails", async () => {
-    const raw = JsonRpcSuccessResponse.parse(
-      await handleRpcLine(JSON.stringify(request("console-dispose-fails", "warden.shutdown")), {
+  it("reports shutdown failure when interactive console broker disposal fails", async () => {
+    await expect(
+      handleRpcLine(JSON.stringify(request("console-dispose-fails", "warden.shutdown")), {
         workspaceTrusted: true,
         sandbox: sandbox({
           available: true,
@@ -20509,11 +20512,7 @@ printf '%s\\n' '${match}'
           },
         },
       }),
-    );
-
-    expect(WARDEN_METHODS["warden.shutdown"].result.parse(raw.result)).toEqual({
-      finalCheckpoint: "none",
-    });
+    ).rejects.toThrow("dispose failed");
   });
 
   it("keeps stdio close non-throwing when interactive console broker disposal rejects", async () => {
@@ -20566,28 +20565,22 @@ printf '%s\\n' '${match}'
       writer.close();
       const brokerEvents: unknown[] = [];
 
-      const shutdownRaw = JsonRpcSuccessResponse.parse(
-        await handleRpcLine(
-          JSON.stringify(request("console-cleanup-audit-fail", "warden.shutdown")),
-          {
-            workspaceTrusted: true,
-            sandbox: sandbox({
-              available: true,
-              backend: "fake-sandbox",
-              enforcementTier: "sandbox:fake",
-            }),
-            policy: ALLOW_POLICY,
-            auditWriter: writer,
-            interactiveConsoleState: consoleState,
-            interactiveConsoleBroker: fakeConsoleBroker(brokerEvents),
-            interactiveConsoleTargets: { "qemu-alpine": QEMU_CONSOLE_TARGET },
-          },
-        ),
-      );
-      expect(WARDEN_METHODS["warden.shutdown"].result.parse(shutdownRaw.result)).toEqual({
-        finalCheckpoint: "none",
-      });
-      expect(consoleState.handles.size).toBe(0);
+      await expect(
+        handleRpcLine(JSON.stringify(request("console-cleanup-audit-fail", "warden.shutdown")), {
+          workspaceTrusted: true,
+          sandbox: sandbox({
+            available: true,
+            backend: "fake-sandbox",
+            enforcementTier: "sandbox:fake",
+          }),
+          policy: ALLOW_POLICY,
+          auditWriter: writer,
+          interactiveConsoleState: consoleState,
+          interactiveConsoleBroker: fakeConsoleBroker(brokerEvents),
+          interactiveConsoleTargets: { "qemu-alpine": QEMU_CONSOLE_TARGET },
+        }),
+      ).rejects.toThrow(/cleanup settlement was not confirmed/u);
+      expect(consoleState.handles.size).toBe(1);
       expect(brokerEvents).toEqual([]);
     } finally {
       rmSync(dir, { recursive: true, force: true });
@@ -20642,28 +20635,23 @@ printf '%s\\n' '${match}'
         },
       };
 
-      const shutdownRaw = JsonRpcSuccessResponse.parse(
-        await handleRpcLine(
-          JSON.stringify(request("console-cleanup-stale-audit", "warden.shutdown")),
-          {
-            workspaceTrusted: true,
-            sandbox: sandbox({
-              available: true,
-              backend: "fake-sandbox",
-              enforcementTier: "sandbox:fake",
-            }),
-            policy: ALLOW_POLICY,
-            auditWriter: writer,
-            interactiveConsoleState: consoleState,
-            interactiveConsoleBroker: broker,
-            interactiveConsoleTargets: { "qemu-alpine": QEMU_CONSOLE_TARGET },
-          },
-        ),
-      );
-      expect(WARDEN_METHODS["warden.shutdown"].result.parse(shutdownRaw.result)).toEqual({
-        finalCheckpoint: "none",
-      });
-      expect(consoleState.handles.size).toBe(0);
+      await expect(
+        handleRpcLine(JSON.stringify(request("console-cleanup-stale-audit", "warden.shutdown")), {
+          workspaceTrusted: true,
+          sandbox: sandbox({
+            available: true,
+            backend: "fake-sandbox",
+            enforcementTier: "sandbox:fake",
+          }),
+          policy: ALLOW_POLICY,
+          auditWriter: writer,
+          interactiveConsoleState: consoleState,
+          interactiveConsoleBroker: broker,
+          interactiveConsoleTargets: { "qemu-alpine": QEMU_CONSOLE_TARGET },
+        }),
+      ).rejects.toThrow(/cleanup settlement was not confirmed/u);
+      expect(consoleState.handles.size).toBe(1);
+      expect(consoleState.handles.has(failedCheckHandle)).toBe(true);
       expect(brokerEvents.map((event) => (event as { readonly kind: string }).kind)).toEqual([
         "check_process_identity",
         "check_process_identity",

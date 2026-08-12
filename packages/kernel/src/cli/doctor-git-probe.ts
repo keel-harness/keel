@@ -1,18 +1,99 @@
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { accessSync, constants, lstatSync, realpathSync } from "node:fs";
 import { delimiter, dirname, isAbsolute, join, relative } from "node:path";
-import { supportedGitPushVersion } from "@keel/shared";
+import { parseJsonRejectingDuplicateKeys, supportedGitPushVersion } from "@keel/shared";
+
+const INTERNAL_GIT_CREDENTIAL_DOCTOR_ENV = "KEEL_INTERNAL_GIT_CREDENTIAL_DOCTOR_V1";
+const GIT_CREDENTIAL_DOCTOR_REQUEST_ENV = "KEEL_GIT_CREDENTIAL_DOCTOR_REQUEST_B64";
 
 export interface GatherDoctorGitProbeOptions {
   readonly workspaceRoot: string;
   readonly env?: NodeJS.ProcessEnv;
   readonly platform?: NodeJS.Platform;
+  readonly wardenStart?: {
+    readonly command: string;
+    readonly args: readonly string[];
+    readonly env?: NodeJS.ProcessEnv;
+  };
 }
 
 export interface DoctorGitProbe {
   readonly gitVersionRaw: string | null;
   readonly gitRemoteUrlRaw: string | null;
   readonly gitCredentialHelperConfigured: boolean;
+  readonly gitCredentialHelperAuthorityIssue?: {
+    readonly detail: string;
+    readonly fix: string;
+  };
+}
+
+function oneLine(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    value !== "" &&
+    Buffer.byteLength(value, "utf8") <= 1_024 &&
+    !/[\r\n\u2028\u2029]/u.test(value)
+  );
+}
+
+function credentialAuthorityProbe(
+  start: NonNullable<GatherDoctorGitProbeOptions["wardenStart"]>,
+  workspaceRoot: string,
+  remoteUrl: string,
+  env: NodeJS.ProcessEnv,
+): { readonly configured: boolean; readonly detail?: string; readonly fix?: string } {
+  try {
+    const encoded = Buffer.from(JSON.stringify({ workspaceRoot, remoteUrl }), "utf8").toString(
+      "base64",
+    );
+    const child = spawnSync(start.command, [...start.args], {
+      cwd: workspaceRoot,
+      env: {
+        ...env,
+        ...start.env,
+        [INTERNAL_GIT_CREDENTIAL_DOCTOR_ENV]: "1",
+        [GIT_CREDENTIAL_DOCTOR_REQUEST_ENV]: encoded,
+      },
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+      timeout: 10_000,
+      maxBuffer: 8 * 1_024,
+    });
+    if (
+      child.error !== undefined ||
+      child.signal !== null ||
+      child.status !== 0 ||
+      child.stderr !== ""
+    ) {
+      throw new Error("Warden credential doctor process failed");
+    }
+    const lines = child.stdout.trimEnd().split(/\r?\n/u);
+    if (lines.length !== 1 || lines[0] === "") throw new Error("invalid response framing");
+    const parsed = parseJsonRejectingDuplicateKeys(lines[0]!);
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+      throw new Error("invalid response");
+    }
+    const record = parsed as Record<string, unknown>;
+    const keys = Object.keys(record).sort().join("\u0000");
+    if (record["status"] === "ok" && keys === "detail\u0000status" && oneLine(record["detail"])) {
+      return { configured: true };
+    }
+    if (
+      record["status"] === "error" &&
+      keys === "detail\u0000fix\u0000status" &&
+      oneLine(record["detail"]) &&
+      oneLine(record["fix"])
+    ) {
+      return { configured: false, detail: record["detail"], fix: record["fix"] };
+    }
+    throw new Error("invalid response shape");
+  } catch {
+    return {
+      configured: false,
+      detail: "Warden credential-helper authority probe unavailable",
+      fix: "reinstall keel and run: keel doctor",
+    };
+  }
 }
 
 function insideWorkspace(workspaceRoot: string, candidate: string): boolean {
@@ -91,20 +172,6 @@ function exactLineProbe(
   }
 }
 
-function hasEffectiveCredentialHelper(rawScopes: readonly (string | null)[]): boolean {
-  let configured = false;
-  for (const raw of rawScopes) {
-    if (raw === null) continue;
-    for (const line of raw.split("\n")) {
-      if (line === "") continue;
-      const value = /^credential(?:\..*)?\.helper[\t ]+(.*)$/iu.exec(line)?.[1];
-      if (value === undefined) return false;
-      configured = value.trim() === "" ? false : true;
-    }
-  }
-  return configured;
-}
-
 /** Gather only non-secret Git readiness facts through one exact executable outside the workspace. */
 export function gatherDoctorGitProbe(options: GatherDoctorGitProbeOptions): DoctorGitProbe {
   const resolved = resolveDoctorGitExecutable(options);
@@ -123,26 +190,32 @@ export function gatherDoctorGitProbe(options: GatherDoctorGitProbeOptions): Doct
     workspaceRoot,
     env,
   );
-  const helperArgs = ["--no-includes", "--get-regexp", "^credential(\\..*)?\\.helper$"];
-  const systemHelpers = exactLineProbe(
-    resolved.path,
-    ["config", "--system", ...helperArgs],
-    workspaceRoot,
-    env,
-  );
-  const globalHelpers = exactLineProbe(
-    resolved.path,
-    ["config", "--global", ...helperArgs],
-    workspaceRoot,
-    env,
-  );
-  const gitCredentialHelperConfigured = hasEffectiveCredentialHelper([
-    systemHelpers,
-    globalHelpers,
-  ]);
+  if (gitRemoteUrlRaw !== null && gitRemoteUrlRaw !== "") {
+    const authority =
+      options.wardenStart === undefined
+        ? {
+            configured: false,
+            detail: "Warden credential-helper authority probe unavailable",
+            fix: "reinstall keel and run: keel doctor",
+          }
+        : credentialAuthorityProbe(options.wardenStart, workspaceRoot, gitRemoteUrlRaw, env);
+    return {
+      gitVersionRaw: resolved.versionRaw,
+      gitRemoteUrlRaw,
+      gitCredentialHelperConfigured: authority.configured,
+      ...(authority.detail === undefined || authority.fix === undefined
+        ? {}
+        : {
+            gitCredentialHelperAuthorityIssue: {
+              detail: authority.detail,
+              fix: authority.fix,
+            },
+          }),
+    };
+  }
   return {
     gitVersionRaw: resolved.versionRaw,
     gitRemoteUrlRaw,
-    gitCredentialHelperConfigured,
+    gitCredentialHelperConfigured: false,
   };
 }

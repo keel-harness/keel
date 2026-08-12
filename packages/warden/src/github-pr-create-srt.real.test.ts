@@ -356,17 +356,18 @@ suite("governed github.pr.create real SRT acceptance (opt-in)", () => {
     const source = createWorkspace(resolvedGit.path);
     const fixture = await startApiFixture(source.head, source.base);
     const operatorHome = privateRoot("keel-github-pr-operator-home-");
-    const helperPath = join(operatorHome, "helper.mjs");
+    const helperPath = join(operatorHome, "credential-helper");
     writeFileSync(
       helperPath,
-      `process.stdin.resume();process.stdin.on("end",()=>process.stdout.write(${JSON.stringify(
-        `username=x-access-token\npassword=${token}\n`,
-      )}));\n`,
+      `#!/bin/sh
+while IFS= read -r line; do [ -z "$line" ] && break; done
+printf '%s\\n' 'username=x-access-token' 'password=${token}'
+`,
       { mode: 0o700 },
     );
     writeFileSync(
       join(operatorHome, ".gitconfig"),
-      `[credential]\n\thelper =\n\thelper = !${process.execPath} ${helperPath}\n`,
+      `[credential]\n\thelper =\n\thelper = !${helperPath}\n`,
       { mode: 0o600 },
     );
     const tempRoot = privateRoot("keel-github-pr-real-attempts-");
@@ -374,6 +375,8 @@ suite("governed github.pr.create real SRT acceptance (opt-in)", () => {
     const broker = createGitCredentialBroker({
       gitExecutable: resolvedGit.path,
       tempRoot,
+      workspaceRoot: source.path,
+      denyRoots: [authorityRoot],
       env: { HOME: operatorHome, PATH: process.env["PATH"] ?? "/usr/bin:/bin", LANG: "C" },
     });
     components = await createVendoredSrtSandboxComponents({

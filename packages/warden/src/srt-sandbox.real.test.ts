@@ -153,7 +153,7 @@ suite("real SRT sandbox enforcement (opt-in: KEEL_REQUIRE_REAL_SANDBOX=1)", () =
 
   it("DENIES the governed child access to the durable launch-authority registry", async () => {
     const registryPath = join(authorityRoot, "endpoint-leases.json");
-    expect(readFileSync(registryPath, "utf8")).toContain('"version":1');
+    expect(readFileSync(registryPath, "utf8")).toContain('"version":2');
 
     const result = await sandbox.execute(
       {
@@ -168,7 +168,7 @@ suite("real SRT sandbox enforcement (opt-in: KEEL_REQUIRE_REAL_SANDBOX=1)", () =
       { filesystem: { denyRead: [], allowRead: [], allowWrite: [], denyWrite: [] } },
     );
 
-    expect(result.stdout).not.toContain('"version":1');
+    expect(result.stdout).not.toContain('"version":2');
   });
 
   it("discovers a local-stdio MCP server through the real vendored sandbox", async () => {

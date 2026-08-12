@@ -1,15 +1,20 @@
 import { Buffer } from "node:buffer";
 import { spawn } from "node:child_process";
-import { createHash } from "node:crypto";
-import { chmodSync, existsSync, mkdirSync, realpathSync, statSync } from "node:fs";
+import { chmodSync, mkdirSync, realpathSync, statSync } from "node:fs";
 import { isIP } from "node:net";
 import { join } from "node:path";
+import {
+  GitCredentialAuthorityError,
+  inspectGitCredentialHelperAuthority,
+  prepareGitCredentialAuthority,
+  resolveGitCredentialExecPath,
+  type GitCredentialHelperAuthoritySnapshot,
+} from "./git-credential-authority.js";
 
 const BROKER_VERSION = "git-credential-broker/v1" as const;
 const DEFAULT_TIMEOUT_MS = 5_000;
 const DEFAULT_MAX_OUTPUT_BYTES = 8 * 1024;
 const MAX_CONFIGURATION_BYTES = 64 * 1024;
-const MAX_HELPERS = 8;
 const UNSAFE_VALUE = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u;
 
 export interface GitCredentialContext {
@@ -56,6 +61,8 @@ export interface GitCredentialProcessRequest {
 export interface GitCredentialProcessResult {
   readonly exitCode: number | null;
   readonly stdout: string;
+  /** Exact retained stdout bytes for security-sensitive NUL framing. */
+  readonly stdoutBytes?: Buffer;
   readonly stderr: string;
   readonly timedOut: boolean;
   readonly outputExceeded: boolean;
@@ -83,6 +90,8 @@ export interface GitCredentialBroker {
 export interface GitCredentialBrokerOptions {
   readonly gitExecutable: string;
   readonly tempRoot: string;
+  readonly workspaceRoot: string;
+  readonly denyRoots: readonly string[];
   readonly env?: NodeJS.ProcessEnv;
   readonly runProcess?: GitCredentialProcessRunner;
   readonly timeoutMs?: number;
@@ -94,34 +103,6 @@ export class GitCredentialBrokerError extends Error {
     super(message);
     this.name = "GitCredentialBrokerError";
   }
-}
-
-function sha256(value: string | Buffer): string {
-  return `sha256:${createHash("sha256").update(value).digest("hex")}`;
-}
-
-function exactFileDigest(path: string): string {
-  const canonical = realpathSync(path);
-  const stat = statSync(canonical, { bigint: true });
-  if (!stat.isFile()) throw new GitCredentialBrokerError("Git executable is not an ordinary file");
-  return sha256(
-    [canonical, stat.dev, stat.ino, stat.size, stat.mtimeNs]
-      .map((part) => String(part))
-      .join("\u0000"),
-  );
-}
-
-function exactDirectoryDigest(path: string): string {
-  const canonical = realpathSync(path);
-  const stat = statSync(canonical, { bigint: true });
-  if (!stat.isDirectory()) {
-    throw new GitCredentialBrokerError("Git credential helper exec path is not a directory");
-  }
-  return sha256(
-    [canonical, stat.dev, stat.ino, stat.mode, stat.mtimeNs]
-      .map((part) => String(part))
-      .join("\u0000"),
-  );
 }
 
 function validateContext(context: GitCredentialContext): void {
@@ -195,122 +176,6 @@ export function parseGitCredentialOutput(
   return { username, password };
 }
 
-function parseHelperRecords(
-  output: string,
-): readonly { readonly key: string; readonly value: string }[] {
-  if (output === "" || !output.endsWith("\u0000")) {
-    throw new GitCredentialBrokerError("no operator Git credential helper is configured");
-  }
-  const records = output
-    .slice(0, -1)
-    .split("\u0000")
-    .map((record) => {
-      const newline = record.indexOf("\n");
-      if (newline <= 0 || record.indexOf("\n", newline + 1) !== -1) {
-        throw new GitCredentialBrokerError(
-          "operator Git credential helper configuration is malformed",
-        );
-      }
-      const key = record.slice(0, newline);
-      const value = record.slice(newline + 1);
-      if (
-        !/^credential(?:\..+)?\.helper$/iu.test(key) ||
-        Buffer.byteLength(key, "utf8") > 512 ||
-        Buffer.byteLength(value, "utf8") > 2_048 ||
-        (value !== "" && !/^[\x20-\x7e]+$/u.test(value))
-      ) {
-        throw new GitCredentialBrokerError(
-          "operator Git credential helper configuration is malformed",
-        );
-      }
-      return { key, value };
-    });
-  const helperCount = records.filter((record) => record.value !== "").length;
-  if (helperCount < 1 || helperCount > MAX_HELPERS) {
-    throw new GitCredentialBrokerError("operator Git credential helper count is outside the bound");
-  }
-  return records;
-}
-
-function parseGitExecPath(output: string): string {
-  if (!output.endsWith("\n") || output.includes("\r") || output.includes("\u0000")) {
-    throw new GitCredentialBrokerError("Git credential helper exec path is malformed");
-  }
-  const path = output.slice(0, -1);
-  if (!path.startsWith("/") || path.includes("\n") || Buffer.byteLength(path, "utf8") > 1_024) {
-    throw new GitCredentialBrokerError("Git credential helper exec path is malformed");
-  }
-  return realpathSync(path);
-}
-
-function executableOnPath(name: string, searchPath: string): string | undefined {
-  if (name.startsWith("/")) return existsSync(name) ? realpathSync(name) : undefined;
-  for (const directory of searchPath.split(":")) {
-    if (!directory.startsWith("/")) continue;
-    const candidate = join(directory, name);
-    if (existsSync(candidate)) return realpathSync(candidate);
-  }
-  return undefined;
-}
-
-function helperExecutableDigests(
-  helpers: readonly { readonly key: string; readonly value: string }[],
-  gitExecPath: string,
-  searchPath: string,
-): readonly string[] {
-  const identities = new Set<string>();
-  if (existsSync("/bin/sh")) identities.add(exactFileDigest("/bin/sh"));
-  identities.add(exactDirectoryDigest(gitExecPath));
-  for (const helper of helpers) {
-    if (helper.value === "") continue;
-    const shellSnippet = helper.value.startsWith("!");
-    const command = shellSnippet ? helper.value.slice(1).trimStart() : helper.value;
-    const firstToken = /^([^\s"'\\]+)(?:\s|$)/u.exec(command)?.[1];
-    if (firstToken === undefined) continue;
-    const executable = shellSnippet
-      ? executableOnPath(firstToken, searchPath)
-      : firstToken.startsWith("/")
-        ? executableOnPath(firstToken, searchPath)
-        : executableOnPath(`git-credential-${firstToken}`, `${gitExecPath}:${searchPath}`);
-    if (executable !== undefined) identities.add(exactFileDigest(executable));
-  }
-  return [...identities].sort();
-}
-
-function safeOperatorEnv(input: NodeJS.ProcessEnv, brokerRoot: string): Record<string, string> {
-  const env: Record<string, string> = {};
-  const allowed = new Set([
-    "HOME",
-    "LANG",
-    "LC_ALL",
-    "LC_CTYPE",
-    "LOGNAME",
-    "PATH",
-    "SHELL",
-    "TERM",
-    "USER",
-    "XDG_CONFIG_HOME",
-  ]);
-  for (const [key, value] of Object.entries(input)) {
-    if (value !== undefined && (allowed.has(key) || key.startsWith("LC_"))) env[key] = value;
-  }
-  env["PATH"] = env["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin";
-  env["LANG"] = env["LANG"] ?? "C";
-  env["LC_ALL"] = "C";
-  env["TMPDIR"] = brokerRoot;
-  env["GIT_TERMINAL_PROMPT"] = "0";
-  env["GIT_ASKPASS"] = "/usr/bin/false";
-  env["SSH_ASKPASS"] = "/usr/bin/false";
-  env["GCM_INTERACTIVE"] = "never";
-  env["GIT_CEILING_DIRECTORIES"] = brokerRoot;
-  env["GIT_DISCOVERY_ACROSS_FILESYSTEM"] = "0";
-  env["GIT_TRACE"] = "0";
-  env["GIT_TRACE_PACKET"] = "0";
-  env["GIT_TRACE_CURL"] = "0";
-  env["GIT_CURL_VERBOSE"] = "0";
-  return env;
-}
-
 function terminateProcess(pid: number | undefined): void {
   if (pid === undefined) return;
   try {
@@ -339,9 +204,11 @@ async function defaultRunProcess(
       settled = true;
       clearTimeout(timer);
       request.signal?.removeEventListener("abort", onAbort);
+      const exactStdout = Buffer.concat(stdout);
       resolve({
         exitCode,
-        stdout: Buffer.concat(stdout).toString("utf8"),
+        stdout: exactStdout.toString("utf8"),
+        stdoutBytes: exactStdout,
         stderr: Buffer.concat(stderr).toString("utf8"),
         timedOut,
         outputExceeded,
@@ -432,13 +299,20 @@ function checkedResult(
   return result.stdout;
 }
 
+function checkedBytes(
+  result: GitCredentialProcessResult,
+  phase: "configuration" | "executable",
+): Buffer {
+  checkedResult(result, phase);
+  return result.stdoutBytes ?? Buffer.from(result.stdout, "utf8");
+}
+
 /** Construct the parent-side, system/global-only ADR-0091 credential authority. */
 export function createGitCredentialBroker(
   options: GitCredentialBrokerOptions,
 ): GitCredentialBroker & {
   resolveBearer: NonNullable<GitCredentialBroker["resolveBearer"]>;
 } {
-  const gitExecutable = realpathSync(options.gitExecutable);
   const tempRoot = realpathSync(options.tempRoot);
   const rootStat = statSync(tempRoot);
   if (!rootStat.isDirectory() || (rootStat.mode & 0o077) !== 0) {
@@ -447,7 +321,7 @@ export function createGitCredentialBroker(
   const brokerRoot = join(tempRoot, "git-credential-broker");
   mkdirSync(brokerRoot, { recursive: true, mode: 0o700 });
   chmodSync(brokerRoot, 0o700);
-  const env = safeOperatorEnv(options.env ?? process.env, brokerRoot);
+  const envSource = options.env ?? process.env;
   const runProcess = options.runProcess ?? defaultRunProcess;
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const maxOutputBytes = options.maxOutputBytes ?? DEFAULT_MAX_OUTPUT_BYTES;
@@ -464,13 +338,15 @@ export function createGitCredentialBroker(
   let resolving = false;
 
   const invoke = async (
+    command: string,
     argv: readonly string[],
+    env: Readonly<Record<string, string>>,
     stdin: string,
     limit: number,
     signal?: AbortSignal,
   ): Promise<GitCredentialProcessResult> =>
     await runProcess({
-      command: gitExecutable,
+      command,
       argv,
       cwd: brokerRoot,
       env,
@@ -480,40 +356,76 @@ export function createGitCredentialBroker(
       ...(signal === undefined ? {} : { signal }),
     });
 
-  const inspect = async (context: GitCredentialContext): Promise<GitCredentialBrokerIdentity> => {
+  const buildInspection = async (
+    context: GitCredentialContext,
+  ): Promise<{
+    readonly identity: GitCredentialBrokerIdentity;
+    readonly snapshot: GitCredentialHelperAuthoritySnapshot;
+    readonly gitExecutable: string;
+  }> => {
     validateContext(context);
-    const configuration = checkedResult(
-      await invoke(
-        ["config", "--null", "--show-origin", "--show-scope", "--list"],
-        "",
-        MAX_CONFIGURATION_BYTES,
-      ),
-      "configuration",
-    );
-    const helperOutput = checkedResult(
-      await invoke(
-        ["config", "--null", "--get-regexp", "^credential(\\..*)?\\.helper$"],
-        "",
-        maxOutputBytes,
-      ),
-      "helpers",
-      true,
-    );
-    const helpers = parseHelperRecords(helperOutput);
-    const gitExecPath = parseGitExecPath(
-      checkedResult(await invoke(["--exec-path"], "", maxOutputBytes), "executable"),
-    );
-    const executableDigests = helperExecutableDigests(helpers, gitExecPath, env["PATH"]!);
-    return {
-      version: BROKER_VERSION,
-      gitExecutableDigest: exactFileDigest(gitExecutable),
-      configurationDigest: sha256(configuration),
-      helperDigest: sha256(
-        `${helperOutput}\u0000${gitExecPath}\u0000${executableDigests.join("\u0000")}`,
-      ),
-      helperCount: helpers.filter((helper) => helper.value !== "").length,
-    };
+    try {
+      const base = prepareGitCredentialAuthority({
+        gitExecutable: options.gitExecutable,
+        inspectionCwd: brokerRoot,
+        temporaryRoot: brokerRoot,
+        workspaceRoot: options.workspaceRoot,
+        denyRoots: options.denyRoots,
+        env: envSource,
+      });
+      const gitExecPath = resolveGitCredentialExecPath(
+        base,
+        checkedBytes(
+          await invoke(
+            base.gitExecutable.canonicalPath,
+            ["--exec-path"],
+            base.inspectionEnv,
+            "",
+            maxOutputBytes,
+          ),
+          "executable",
+        ),
+      );
+      const configuration = checkedBytes(
+        await invoke(
+          base.gitExecutable.canonicalPath,
+          ["config", "--null", "--includes", "--show-origin", "--show-scope", "--list"],
+          base.inspectionEnv,
+          "",
+          MAX_CONFIGURATION_BYTES,
+        ),
+        "configuration",
+      );
+      const snapshot = inspectGitCredentialHelperAuthority({
+        base,
+        gitExecPath,
+        configurationOutput: configuration,
+        context,
+      });
+      return {
+        identity: {
+          version: BROKER_VERSION,
+          gitExecutableDigest: snapshot.gitExecutableDigest,
+          configurationDigest: snapshot.configurationDigest,
+          helperDigest: snapshot.helperDigest,
+          helperCount: snapshot.helperCount,
+        },
+        snapshot,
+        gitExecutable: base.gitExecutable.canonicalPath,
+      };
+    } catch (error) {
+      if (error instanceof GitCredentialBrokerError) throw error;
+      if (error instanceof GitCredentialAuthorityError) {
+        throw new GitCredentialBrokerError(
+          `Git credential helper authority is unavailable (${error.code})`,
+        );
+      }
+      throw new GitCredentialBrokerError("Git credential helper authority inspection failed");
+    }
   };
+
+  const inspect = async (context: GitCredentialContext): Promise<GitCredentialBrokerIdentity> =>
+    (await buildInspection(context)).identity;
 
   const resolveCredential = async (
     context: GitCredentialContext,
@@ -525,14 +437,25 @@ export function createGitCredentialBroker(
     }
     resolving = true;
     try {
-      const currentIdentity = await inspect(context);
-      if (!identityEqual(currentIdentity, expectedIdentity)) {
+      const current = await buildInspection(context);
+      if (!identityEqual(current.identity, expectedIdentity)) {
         throw new GitCredentialBrokerError("Git credential helper identity changed after review");
       }
       const stdin = `protocol=https\nhost=${context.host}\npath=${context.path}\n\n`;
       const output = checkedResult(
         await invoke(
-          ["-c", "credential.useHttpPath=true", "credential", "fill"],
+          current.gitExecutable,
+          [
+            "-c",
+            "credential.helper=",
+            "-c",
+            `credential.helper=${current.snapshot.helper.normalizedExecutionValue}`,
+            "-c",
+            "credential.useHttpPath=true",
+            "credential",
+            "fill",
+          ],
+          current.snapshot.fillEnv,
           stdin,
           maxOutputBytes,
           signal,

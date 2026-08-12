@@ -14,8 +14,10 @@ The reviewed postimage is carried in these vendored paths:
 - src/sandbox/socks-proxy.ts
 - src/sandbox/tls-terminate-proxy.ts
 - test/sandbox/endpoint-lease-registry.test.ts
+- test/sandbox/endpoint-lease-registry-aba.test.ts
 - test/sandbox/launch-authority-lifecycle.test.ts
 - test/sandbox/launch-authority.test.ts
+- test/sandbox/linux-bridge-process-group.test.ts
 - test/sandbox/socks-server-lifecycle.test.ts
 - test/sandbox/tls-loopback-lifecycle.test.ts
 
@@ -27,6 +29,9 @@ Contract anchors required by Keel's vendor verifier:
 - per-launch proxy authority requires a destination resolver
 - state.draining = true
 - launchLifecycleTail
+- structurallyDeniesAllNetwork
+- SRT_LAUNCH_AUTHORITY_CAPACITY
+- stopLinuxBridgeProcess
 
 This record is an inventory/contract patch because the Keel extension adds new files
 and composes several earlier local patches. The exact reviewable diff is the Git commit

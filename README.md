@@ -111,6 +111,8 @@ feature branch to one approved full commit OID over canonical HTTPS, through `sr
 TLS and connect-time address guarding. The Warden offers both publication tools only when
 `srt-launch-authority/v1` establishes unique authenticated proxy endpoints and an immutable
 credential/configuration snapshot for that launch; cleanup revokes and drains that authority.
+Exact deny-all launches receive no proxy endpoint or credential authority at all; the immutable OS
+sandbox profile is endpointless and network-denied.
 After that head exists on GitHub.com, a separate typed
 `github.pr.create` request can create one same-repository pull request with an exact title, body,
 base, head OID, draft flag, and maintainer-modification flag. Each occurrence has its own complete,
@@ -121,8 +123,10 @@ records intent before either mutation, and independently verifies the resulting 
 Force, deletion, tags, default-branch push, SSH, redirects, project credential helpers, reusable
 grants, cross-repository PRs, arbitrary forge APIs, merge/auto-merge, labels, reviews, releases,
 deployments, and automatic retry remain blocked. Raw `process.run git push` remains terminal.
-V1 permanently excludes retired launch endpoints until the registry is deliberately migrated, so
-exhausting its finite proxy-port space makes publication fail closed rather than reusing authority.
+The compact V2 registry makes the 25,536-port range—not serialized JSON size—the first bound and
+permanently excludes retired network-bearing endpoints until a deliberate future migration. Exhausting
+that finite space withholds publication rather than reusing authority; endpointless offline execution
+remains available.
 
 The published `keel-harness@0.1.1` carrier predates both `git.push` and `github.pr.create`; these are
 current-source capabilities until a separately authorized release proves the exact published bytes.

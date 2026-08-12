@@ -3,14 +3,25 @@
 - **Amended (2026-08-11, per-launch SRT authority):** Aggregate Slice 6 adversarial review found
   that a process-scoped proxy token combined with live global runtime-config replacement could let
   an earlier surviving sandbox launch authenticate against a later launch's network or credential
-  configuration. The maintainer authorized the narrow structural repair: every launch receives
-  OS-confined exclusive proxy endpoints plus a unique defense-in-depth token, both bound to an
+  configuration. The maintainer authorized the narrow structural repair: every network-bearing launch
+  receives OS-confined exclusive proxy endpoints plus a unique defense-in-depth token, both bound to an
   immutable authority snapshot; cleanup revokes the authority, drops credential state, and drains
   associated connections; publication capabilities are withheld when that scoped authority is
   unavailable. This amendment also supersedes ADR-0066 Decision §7's original
   latest-config behavior. It amends the SRT enforcement design, but changes no frozen RPC, policy,
   audit, or tool-schema shape, no grant, TLS-verification, or credential-custody requirement, and no
   current public claim status. The amended design remains unproven until its executable gates pass.
+- **Amended (2026-08-11, deny-all and durable-capacity qualification):** A launch whose immutable
+  network snapshot is exactly `allowedDomains:[]`, `deniedDomains` containing `"*"`, and
+  `strictAllowlist:true` receives no proxy endpoint, token, bridge, TLS authority, or credential
+  projection. Its OS profile instead enforces an endpointless network denial. Network-bearing
+  launches use compact durable registry V2 state: one retired-port bitmap plus exact active port
+  pairs, with conservative V1 migration. Port space is the first capacity bound; exhaustion
+  withholds publication capability without quarantining endpointless offline execution. Current
+  source permanently retires every allocated network-bearing pair because complete descendant-tree
+  death is not yet structurally proven on every cleanup path. Linux bridge cleanup targets and
+  confirms the complete detached process group. This amendment changes no public schema, policy,
+  audit format, TLS-verification rule, credential-custody rule, or security-claim scope.
 - **Status:** **Accepted.** The keel maintainer accepted the five authority decisions in public issue
   [#191](https://github.com/keel-harness/keel/issues/191) on 2026-08-10 and authorized this contract
   slice, followed by the red-first walking skeleton only after this ADR merges and exact post-merge
@@ -152,8 +163,11 @@ version, compatibility analysis, and separate ADR.
 
 ### 1A. Vendored-SRT authority is immutable and revocable per launch
 
-Before the Warden prepares any governed child, SRT registers one launch authority with fresh,
-launch-exclusive HTTP/SOCKS endpoint reachability and a freshly generated 256-bit random token.
+Before the Warden prepares any network-bearing governed child, SRT registers one launch authority
+with fresh, launch-exclusive HTTP/SOCKS endpoint reachability and a freshly generated 256-bit random
+token. An exact immutable deny-all network snapshot instead receives an endpointless OS profile: no
+listener, bridge, token, proxy environment, TLS authority, credential projection, or durable endpoint
+lease is created.
 Collision, endpoint-allocation failure, partial registration, or unavailable cleanup makes
 preparation fail closed. An equivalent later configuration still receives different endpoints and a
 different token. Neither is a session, process, repository, host, branch, grant, or reusable
@@ -177,16 +191,16 @@ the launch it was prepared for:
 
 A launch that knows another launch's token must still be unable to reach that launch's endpoint
 directly. OS confinement is not sufficient by itself: launch A could otherwise ask A's admitted proxy
-to CONNECT to B's host-loopback listener. The runtime therefore keeps one non-secret, process-wide
-deny set containing every active and retired internal HTTP/SOCKS listener address/port and Linux
-bridge destination allocated during that runtime generation. Every child- or remote-derived direct,
+to CONNECT to B's host-loopback listener. The runtime therefore keeps one non-secret, durable deny
+set containing every active and retired internal HTTP/SOCKS listener port, plus every non-TCP endpoint
+conservatively retained while migrating legacy V1 state. Every child- or remote-derived direct,
 parent, CONNECT, absolute-form HTTP, SOCKS, resolver-result, redirect, and destination-dial path
 rejects an internal endpoint before forwarding, parent routing, TLS termination, or credential
 handling. No hostname alias, alternate address family, IPv4-mapped IPv6 form, redirect, or resolver
 answer may reach an internal endpoint. A required launch-local TLS/bridge transition uses an opaque
 host-owned reference after authority selection; request bytes cannot name or retarget it. Allocation
-and reuse follow the durable lease transitions below: an active or permanently tombstoned endpoint is
-never reallocated, while an ordinary clean lease becomes eligible only after complete reap and drain.
+and reuse follow the durable lease transitions below: an active or permanently retired endpoint is
+never reallocated in the current implementation.
 
 The defense-in-depth token then authenticates the exact `srt` user at the already launch-exclusive
 endpoint. A direct A-to-B attempt is stopped by OS confinement; a nested
@@ -223,8 +237,8 @@ and terminated-TLS traffic stay bound to that selected snapshot for the entire c
 including keepalive and streaming. A connection cannot switch tokens, endpoints, or borrow another
 launch's host, filter, resolver, placeholder, or credential state.
 
-The prepared launch owns an idempotent asynchronous cleanup handle. Cleanup first removes the token
-and credential-bearing registry entry so no new request can authenticate. It then aborts pending
+The prepared launch owns an idempotent asynchronous cleanup handle. Cleanup first deactivates the
+token and clears credential-bearing in-memory authority so no new request can authenticate. It then aborts pending
 filter/resolution/dial work, closes the launch-exclusive listeners/bridges, destroys every tracked
 client, upstream, opaque-tunnel, TLS-loopback, and keepalive connection for that launch, waits within
 a fixed two-second graceful-drain bound, and releases launch-local placeholder and mount state. Wrap
@@ -244,31 +258,35 @@ or process settlement permanently retires the endpoint, quarantines the runtime,
 publication capabilities until a fresh Warden/SRT initialization succeeds, and never reports a
 successful release or cleanup transfer.
 
-Every allocation has a cross-generation obligation because an immutable Seatbelt profile is
+Every network-bearing allocation has a cross-generation obligation because an immutable Seatbelt profile is
 inherited by descendants and can still admit its old exact proxy port after the original Warden or
 pane exits. While holding the owner-only registry lock and its selected sockets, and before wrapping
 or launching any profile-bearing child, the Warden atomically and durably writes an active endpoint
-lease for the allocated TCP ports and bridge paths to a host-user SRT endpoint registry outside every
+lease for the allocated TCP port pair to a host-user SRT endpoint registry outside every
 governed filesystem profile. Only after that write is fsynced may authentication become active or the
 sandbox profile be installed; a held listener before that transition rejects every request without
 consulting or exposing its snapshot. The registry contains no token, credential, request, process
 detail, or audit data and is not a public/session/audit schema.
 
-On startup, every active lease left by an unclean prior generation is atomically converted to a
-permanent tombstone before new allocation. Released and indeterminate endpoints are never pruned or
-reused in V1. Parent exit, PID reuse, process-group settlement, and Warden restart are insufficient
+The registry's V2 representation stores a fixed 25,536-port retired bitmap and only the exact two-port
+pairs for active leases; even the theoretical maximum of 12,768 active pairs remains below its fixed
+four-MiB parse/write bound. Migration from V1 preserves every TCP exclusion in the bitmap and every
+legacy non-TCP endpoint in a bounded compatibility set before writing V2. On startup, every active
+lease left by an unclean prior generation is atomically converted to a permanent retirement before
+new allocation. Retired endpoints are never pruned or reused in the current capability revision.
+Parent exit, PID reuse, process-group settlement, and Warden restart are insufficient
 because a detached or reparented descendant may retain the profile. There is no model- or
 project-accessible reset. Port-space exhaustion or a corrupt, missing-authority, un-lockable, or
-un-fsyncable registry fails closed and withholds `srt-launch-authority/v1`; it never guesses that an
-endpoint is reusable.
+un-fsyncable registry fails closed for network-bearing preparation and withholds
+`srt-launch-authority/v1`; it never guesses that an endpoint is reusable. This clean capacity state
+does not quarantine the runtime or prevent exact endpointless deny-all launches.
 
-Only an ordinary, non-release cleanup may atomically delete its active lease and make the endpoint
-eligible for later allocation, and only after the Warden structurally proves the complete
-profile-bearing process tree is reaped and every associated connection and tunnel is gone. A release,
-crash residue, failed drain/reap, or any indeterminate descendant state instead transitions the lease
-to a permanent tombstone under the same lock. A partial preparation that provably created no
-profile-bearing child and published no listener may roll back its lease under that lock; otherwise it
-is retired. This keeps an old profile denied even if it later learns a new launch's token.
+The registry format retains a clean-release transition for a future implementation that structurally
+proves the complete profile-bearing descendant tree is reaped and every associated connection and
+tunnel is gone. Current source does not claim that proof: normal cleanup, release, crash residue,
+failed drain/reap, and partial preparation after lease publication all transition the pair to
+permanent retirement under the same lock. This keeps an old profile denied even if it later learns a
+new launch's token.
 
 The proxy token necessarily exists in the governed child's proxy configuration and may therefore be
 model-visible if child code prints or transforms it. Keel does not intentionally copy the token into
@@ -283,8 +301,9 @@ Process-scoped shared proxy listeners, external HTTP/SOCKS proxy ports, an unown
 vendored runtime lacking this lifecycle API cannot establish `srt-launch-authority/v1`. In those
 states `git-push/v1` and
 `github-pr-create/v1` are mechanically absent rather than falling back to session-global authority.
-Existing non-publication SRT launches use the same per-launch lifecycle so that a stale ordinary or
-interactive-console child cannot inherit later publication authority.
+Existing network-bearing non-publication SRT launches use the same per-launch lifecycle so that a
+stale ordinary or interactive-console child cannot inherit later publication authority. Exact
+deny-all launches use the endpointless structural-denial path described above.
 
 ### 2. V1 request is minimal and exact
 
@@ -497,7 +516,12 @@ workspace/deny roots, binds its identity and parent authority, and constructs th
 environment's PATH only from the canonical Git directory, Git exec path, fixed system directories,
 and the selected helper directory. Directories and files must be root- or operator-owned; same-user
 or privileged host mutation remains the existing explicit threat-model residual. This supports
-ordinary macOS Homebrew ownership without inheriting arbitrary project PATH entries. `keel doctor`
+ordinary macOS Homebrew ownership without inheriting arbitrary project PATH entries. Concretely,
+Darwin alone may accept group-write on a directory when that directory is owned by the effective
+operator, its group is the fixed system `admin` GID 80, and it is not other-writable. That exception
+models mutation by an already privileged host administrator; it never applies to a file, HOME,
+XDG_CONFIG_HOME, another group, another owner, another OS, or any other-writable directory.
+`keel doctor`
 reports the rejected entry or unresolved helper and one exact remediation without printing config or
 credential data.
 
@@ -508,7 +532,8 @@ the credential unavailable; multiple effective helpers are refused before `crede
 than approximating Git's sequential partial-field protocol or constructing a PATH that could resolve
 same-named helpers differently. Every consumed record
 must have `system` or `global` scope and an ordinary `file:` origin whose canonical file and parent
-authority are outside the workspace/deny roots and not group/other writable. Local, worktree,
+authority are outside the workspace/deny roots and satisfy the ownership rule above, including only
+the narrow Darwin-admin directory residual. Local, worktree,
 command, blob, standard-input, relative, malformed, missing, or unsafe origins are refused. Active
 includes remain supported only when every contributing origin and include target passes the same
 checks. The binding covers ordered helper and empty-reset records, canonical origin paths and file

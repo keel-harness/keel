@@ -775,6 +775,9 @@ describe("CI packaging workflow", () => {
 
     // The script arms the require flag itself, so `pnpm test:sandbox:real` fails closed everywhere.
     expect(rootPkg.scripts?.["test:sandbox:real"]).toContain("KEEL_REQUIRE_REAL_SANDBOX=1");
+    expect(rootPkg.scripts?.["test:sandbox:real"]).toContain(
+      "NODE_EXTRA_CA_CERTS=$PWD/vendor/sandbox-runtime/test/fixtures/tls-terminate/ca.crt",
+    );
     expect(rootPkg.scripts?.["test:sandbox:real"]).toContain("vitest run");
     expect(rootPkg.scripts?.["test:sandbox:real"]).toContain("srt-sandbox.real.test.ts");
 

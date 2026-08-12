@@ -1,4 +1,11 @@
-import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  chmodSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  unlinkSync,
+  writeFileSync,
+} from 'node:fs'
 import { spawn, type ChildProcess } from 'node:child_process'
 import { once } from 'node:events'
 import { tmpdir } from 'node:os'
@@ -62,15 +69,14 @@ describe('per-launch endpoint lease registry', () => {
     })
     first.claimGeneration()
     first.recoverPriorGenerations()
-    const lease = first.reserve(['tcp:127.0.0.1:61001', 'unix:/private/bridge-a.sock'])
+    const lease = first.reserve(['tcp:127.0.0.1:61001', 'tcp:127.0.0.1:61002'])
 
     expect(JSON.parse(readFileSync(path, 'utf8'))).toMatchObject({
-      version: 1,
-      entries: {
+      version: 2,
+      active: {
         [lease.leaseId]: {
           generationId: 'generation-a',
-          state: 'active',
-          endpoints: ['tcp:127.0.0.1:61001', 'unix:/private/bridge-a.sock'],
+          ports: [61001, 61002],
         },
       },
     })
@@ -79,11 +85,9 @@ describe('per-launch endpoint lease registry', () => {
     second.claimGeneration()
     second.recoverPriorGenerations()
     expect(second.excludedEndpoints()).toEqual(
-      new Set(['tcp:127.0.0.1:61001', 'unix:/private/bridge-a.sock']),
+      new Set(['tcp:127.0.0.1:61001', 'tcp:127.0.0.1:61002']),
     )
-    expect(JSON.parse(readFileSync(path, 'utf8')).entries[lease.leaseId].state).toBe(
-      'tombstone',
-    )
+    expect(JSON.parse(readFileSync(path, 'utf8')).active).toEqual({})
     expect(second.releaseGeneration()).toBe(true)
   })
 
@@ -92,16 +96,18 @@ describe('per-launch endpoint lease registry', () => {
     const first = new EndpointLeaseRegistry(path, { generationId: 'generation-live-a' })
     first.claimGeneration()
     first.recoverPriorGenerations()
-    const lease = first.reserve(['tcp:127.0.0.1:61004'])
+    const lease = first.reserve(['tcp:127.0.0.1:61004', 'tcp:127.0.0.1:61005'])
 
     const second = new EndpointLeaseRegistry(path, { generationId: 'generation-live-b' })
     second.claimGeneration()
     second.recoverPriorGenerations()
-    expect(JSON.parse(readFileSync(path, 'utf8')).entries[lease.leaseId]).toMatchObject({
+    expect(JSON.parse(readFileSync(path, 'utf8')).active[lease.leaseId]).toMatchObject({
       generationId: 'generation-live-a',
-      state: 'active',
+      ports: [61004, 61005],
     })
-    expect(second.excludedEndpoints()).toEqual(new Set(['tcp:127.0.0.1:61004']))
+    expect(second.excludedEndpoints()).toEqual(
+      new Set(['tcp:127.0.0.1:61004', 'tcp:127.0.0.1:61005']),
+    )
     expect(first.releaseClean(lease)).toBe(true)
     expect(first.releaseGeneration()).toBe(true)
     expect(second.releaseGeneration()).toBe(true)
@@ -127,6 +133,38 @@ describe('per-launch endpoint lease registry', () => {
     })
   })
 
+  it('waits through a bounded live critical section longer than the former retry window', async () => {
+    const path = join(privateRoot(), 'leases.json')
+    writeFileSync(
+      `${path}.lock`,
+      `${JSON.stringify({
+        pid: process.pid,
+        generationId: 'lock-holder',
+        nonce: 'a'.repeat(48),
+      })}\n`,
+      { mode: 0o600 },
+    )
+    const child = leaseChild(
+      path,
+      'process-generation-waiter',
+      'tcp:127.0.0.1:61010',
+    )
+    const started = performance.now()
+    const release = setTimeout(() => unlinkSync(`${path}.lock`), 250)
+    try {
+      await expect(childMessage(child)).resolves.toMatchObject({ kind: 'ready' })
+      expect(performance.now() - started).toBeGreaterThanOrEqual(200)
+      child.send('release')
+      await expect(childMessage(child)).resolves.toMatchObject({
+        kind: 'released',
+        released: true,
+        ownerReleased: true,
+      })
+    } finally {
+      clearTimeout(release)
+    }
+  })
+
   it('keeps a live process active, then tombstones its residue only after SIGKILL', async () => {
     const path = join(privateRoot(), 'leases.json')
     const endpoint = 'tcp:127.0.0.1:61006'
@@ -138,9 +176,7 @@ describe('per-launch endpoint lease registry', () => {
     })
     live.claimGeneration()
     live.recoverPriorGenerations()
-    expect(Object.values(JSON.parse(readFileSync(path, 'utf8')).entries)).toEqual([
-      expect.objectContaining({ state: 'active' }),
-    ])
+    expect(Object.values(JSON.parse(readFileSync(path, 'utf8')).active)).toHaveLength(1)
     expect(live.releaseGeneration()).toBe(true)
 
     child.kill('SIGKILL')
@@ -151,9 +187,7 @@ describe('per-launch endpoint lease registry', () => {
     restart.claimGeneration()
     restart.recoverPriorGenerations()
     expect(restart.excludedEndpoints()).toContain(endpoint)
-    expect(Object.values(JSON.parse(readFileSync(path, 'utf8')).entries)).toEqual([
-      expect.objectContaining({ state: 'tombstone' }),
-    ])
+    expect(Object.values(JSON.parse(readFileSync(path, 'utf8')).active)).toEqual([])
     expect(restart.releaseGeneration()).toBe(true)
   })
 
@@ -162,7 +196,7 @@ describe('per-launch endpoint lease registry', () => {
     const registry = new EndpointLeaseRegistry(path, { generationId: 'generation-clean' })
     registry.claimGeneration()
     registry.recoverPriorGenerations()
-    const lease = registry.reserve(['tcp:127.0.0.1:61002'])
+    const lease = registry.reserve(['tcp:127.0.0.1:61002', 'tcp:127.0.0.1:61003'])
 
     expect(registry.releaseClean(lease)).toBe(true)
     expect(registry.excludedEndpoints()).toEqual(new Set())
@@ -175,13 +209,17 @@ describe('per-launch endpoint lease registry', () => {
     const registry = new EndpointLeaseRegistry(path, { generationId: 'generation-race' })
     registry.claimGeneration()
     registry.recoverPriorGenerations()
-    const lease = registry.reserve(['tcp:127.0.0.1:61003'])
+    const lease = registry.reserve(['tcp:127.0.0.1:61003', 'tcp:127.0.0.1:61004'])
 
     expect(registry.retire(lease)).toBe(true)
     expect(registry.retire(lease)).toBe(true)
     expect(registry.releaseClean(lease)).toBe(false)
-    expect(() => registry.reserve(['tcp:127.0.0.1:61003'])).toThrow(/already reserved/u)
-    expect(registry.excludedEndpoints()).toEqual(new Set(['tcp:127.0.0.1:61003']))
+    expect(() =>
+      registry.reserve(['tcp:127.0.0.1:61003', 'tcp:127.0.0.1:61005']),
+    ).toThrow(/already reserved/u)
+    expect(registry.excludedEndpoints()).toEqual(
+      new Set(['tcp:127.0.0.1:61003', 'tcp:127.0.0.1:61004']),
+    )
     expect(registry.releaseGeneration()).toBe(true)
   })
 
@@ -194,14 +232,81 @@ describe('per-launch endpoint lease registry', () => {
     registry.recoverPriorGenerations()
 
     expect(() =>
-      registry.reserve(
-        Array.from({ length: 9 }, (_value, index) =>
-          `tcp:127.0.0.1:${String(62000 + index)}`,
-        ),
-      ),
+      registry.reserve(['tcp:127.0.0.1:62000']),
     ).toThrow(/invalid endpoint lease endpoints/u)
     expect(registry.excludedEndpoints()).toEqual(new Set())
     expect(registry.releaseGeneration()).toBe(true)
+  })
+
+  it('migrates every V1 exclusion without making a retired endpoint reusable', () => {
+    const path = join(privateRoot(), 'leases.json')
+    writeFileSync(
+      path,
+      `${JSON.stringify({
+        version: 1,
+        entries: {
+          legacy: {
+            generationId: 'dead-generation',
+            state: 'tombstone',
+            endpoints: [
+              'tcp:127.0.0.1:62001',
+              'tcp:127.0.0.1:62002',
+              'unix:/private/legacy-bridge.sock',
+            ],
+          },
+        },
+      })}\n`,
+      { mode: 0o600 },
+    )
+    const registry = new EndpointLeaseRegistry(path, { generationId: 'migration-generation' })
+    registry.claimGeneration()
+    registry.recoverPriorGenerations()
+
+    expect(registry.excludedEndpoints()).toEqual(
+      new Set([
+        'tcp:127.0.0.1:62001',
+        'tcp:127.0.0.1:62002',
+        'unix:/private/legacy-bridge.sock',
+      ]),
+    )
+    expect(JSON.parse(readFileSync(path, 'utf8'))).toMatchObject({
+      version: 2,
+      active: {},
+      legacyExcludedEndpoints: ['unix:/private/legacy-bridge.sock'],
+    })
+    expect(() =>
+      registry.reserve(['tcp:127.0.0.1:62001', 'tcp:127.0.0.1:62003']),
+    ).toThrow(/already reserved/u)
+  })
+
+  it('keeps the maximum active port-pair state below its fixed byte cap', () => {
+    const path = join(privateRoot(), 'leases.json')
+    const generationId = 'g'.repeat(128)
+    const active = Object.fromEntries(
+      Array.from({ length: 12_768 }, (_value, index) => [
+        `${'a'.repeat(43)}${String(index).padStart(5, '0')}`,
+        {
+          generationId,
+          ports: [40_000 + index * 2, 40_001 + index * 2],
+        },
+      ]),
+    )
+    const serialized = `${JSON.stringify({
+      version: 2,
+      retiredPortBitmap: Buffer.alloc(3_192).toString('base64'),
+      active,
+      legacyExcludedEndpoints: [],
+    })}\n`
+    expect(Buffer.byteLength(serialized, 'utf8')).toBeLessThan(4 * 1024 * 1024)
+    writeFileSync(path, serialized, { mode: 0o600 })
+    const registry = new EndpointLeaseRegistry(path, { generationId })
+    registry.claimGeneration()
+    registry.recoverPriorGenerations()
+
+    expect(registry.excludedEndpoints().size).toBe(25_536)
+    expect(() =>
+      registry.reserve(['tcp:127.0.0.1:40000', 'tcp:127.0.0.1:40001']),
+    ).toThrow(/already reserved/u)
   })
 
   it('fails closed for unsafe authority roots and malformed durable state', () => {
@@ -223,7 +328,7 @@ describe('per-launch endpoint lease registry', () => {
 
     const corruptRoot = privateRoot()
     const corruptPath = join(corruptRoot, 'leases.json')
-    writeFileSync(corruptPath, '{"version":1,"entries":[]}', { mode: 0o600 })
+    writeFileSync(corruptPath, '{"version":2,"active":[]}', { mode: 0o600 })
     const corrupt = new EndpointLeaseRegistry(corruptPath, {
       generationId: 'generation-corrupt',
     })

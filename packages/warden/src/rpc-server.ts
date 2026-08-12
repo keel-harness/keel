@@ -2535,7 +2535,7 @@ async function cleanupConsoleHandle(
   context: RpcContext,
   record: ConsoleHandleRecord,
   reason: ConsoleCleanupReason,
-): Promise<void> {
+): Promise<boolean> {
   const broker = context.interactiveConsoleBroker;
   if (broker !== undefined) {
     const operation = consoleHandleCleanupOperation(record, reason);
@@ -2565,7 +2565,7 @@ async function cleanupConsoleHandle(
                 : "process_identity_mismatch",
             observedProcessIdentity,
           );
-          return;
+          return !processIdentityCheck.live;
         }
       } catch {
         auditConsoleCleanupSkipped(
@@ -2576,20 +2576,22 @@ async function cleanupConsoleHandle(
           "process_identity_check_failed",
           undefined,
         );
-        return;
+        return false;
       }
     }
-    if (!auditConsoleCleanupClose(context, record, operation, reason)) return;
+    if (!auditConsoleCleanupClose(context, record, operation, reason)) return false;
     try {
-      await broker.close({
+      const result = await broker.close({
         handle: record,
         operation,
         profile: record.profile,
       });
+      return result.closed;
     } catch {
-      // Cleanup is best-effort once the deny/shutdown path is already authoritative.
+      return false;
     }
   }
+  return true;
 }
 
 async function cleanupInteractiveConsoleHandles(options: {
@@ -2598,17 +2600,47 @@ async function cleanupInteractiveConsoleHandles(options: {
   readonly reason: ConsoleCleanupReason;
 }): Promise<void> {
   const handles = [...options.state.handles.values()];
+  let settlementUnconfirmed = false;
   for (const handle of handles) {
-    await cleanupConsoleHandle(options.context, handle, options.reason);
-    options.state.handles.delete(handle.handle);
+    if (await cleanupConsoleHandle(options.context, handle, options.reason)) {
+      options.state.handles.delete(handle.handle);
+    } else {
+      settlementUnconfirmed = true;
+    }
+  }
+  if (settlementUnconfirmed) {
+    throw new Error("interactive console cleanup settlement was not confirmed");
   }
 }
 
 async function disposeInteractiveConsoleBroker(context: RpcContext): Promise<void> {
+  await context.interactiveConsoleBroker?.dispose?.();
+}
+
+async function cleanupInteractiveConsoleAuthority(options: {
+  readonly context: RpcContext;
+  readonly state: ConsoleRuntimeState;
+  readonly reason: ConsoleCleanupReason;
+}): Promise<void> {
+  const failures: unknown[] = [];
   try {
-    await context.interactiveConsoleBroker?.dispose?.();
-  } catch {
-    // Broker disposal is teardown-only. Handle cleanup/audit above remains the authoritative record.
+    await cleanupInteractiveConsoleHandles(options);
+  } catch (error) {
+    failures.push(error);
+  }
+  try {
+    await disposeInteractiveConsoleBroker(options.context);
+  } catch (error) {
+    failures.push(error);
+  }
+  if (failures.length > 0) {
+    const details = failures
+      .map((failure) => (failure instanceof Error ? failure.message : String(failure)))
+      .join("; ");
+    throw new AggregateError(
+      failures,
+      `interactive console cleanup settlement was not confirmed: ${details}`,
+    );
   }
 }
 
@@ -2726,8 +2758,9 @@ async function auditConsoleLifecycleDenyAndReap(
       ? {}
       : consoleHandleContinuationGrantPayload(grant, { applied: false })),
   });
-  await cleanupConsoleHandle(context, handle, "budget");
-  context.interactiveConsoleState.handles.delete(handle.handle);
+  if (await cleanupConsoleHandle(context, handle, "budget")) {
+    context.interactiveConsoleState.handles.delete(handle.handle);
+  }
   return result;
 }
 
@@ -6582,12 +6615,11 @@ async function methodResult(
           ) ?? { status: "unavailable", reason: "not-found-or-consumed" }
         );
       case "warden.shutdown":
-        await cleanupInteractiveConsoleHandles({
+        await cleanupInteractiveConsoleAuthority({
           context,
           state: context.interactiveConsoleState,
           reason: "shutdown",
         });
-        await disposeInteractiveConsoleBroker(context);
         return { finalCheckpoint: "none" };
       case "warden.execute": {
         const p = WARDEN_METHODS["warden.execute"].params.parse(params);
@@ -8725,12 +8757,11 @@ export function runStdioWardenServer(options: StdioWardenServerOptions = {}): St
     consoleCleanup ??= (async () => {
       try {
         const context = await buildRpcContext(handlerOptions);
-        await cleanupInteractiveConsoleHandles({
+        await cleanupInteractiveConsoleAuthority({
           context,
           state: interactiveConsoleState,
           reason: "shutdown",
         });
-        await disposeInteractiveConsoleBroker(context);
       } catch {
         // close() must remain non-throwing teardown; cleanup is fail-closed by skipping effects.
       }

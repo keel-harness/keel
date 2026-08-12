@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, rmSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
@@ -88,9 +88,12 @@ function launchPreparer(options: {
   };
 }
 
-function openRequest(sandbox: ConsoleSandboxPlan): ConsoleBrokerOpenRequest {
+function openRequest(
+  sandbox: ConsoleSandboxPlan,
+  handle = "con_tmux_test",
+): ConsoleBrokerOpenRequest {
   return {
-    handle: "con_tmux_test",
+    handle,
     operation: parseConsoleToolCall({
       name: "interactive_console.open",
       args: { targetId: TARGET.targetId, rows: 24, cols: 80 },
@@ -924,11 +927,15 @@ describe("system tmux console broker", () => {
       expect(runner.commands.some((command) => command.argv.includes("kill-session"))).toBe(true);
 
       mode = "rollback-kill-fail";
-      await expect(broker.open(openRequest(sandbox))).rejects.toThrow(/valid session\/pane/u);
+      await expect(
+        broker.open(openRequest(sandbox, "con_tmux_rollback_kill_fail")),
+      ).rejects.toThrow(/valid session\/pane/u);
       expect(cleanupCount).toBe(2);
 
       mode = "rollback-kill-throw";
-      await expect(broker.open(openRequest(sandbox))).rejects.toThrow(/valid session\/pane/u);
+      await expect(
+        broker.open(openRequest(sandbox, "con_tmux_rollback_kill_throw")),
+      ).rejects.toThrow(/valid session\/pane/u);
       expect(cleanupCount).toBe(3);
 
       mode = "open-dead";
@@ -1112,7 +1119,7 @@ describe("system tmux console broker", () => {
       expect(cleanupCount).toBe(7);
       mode = "open-ok";
       await expect(broker.dispose()).resolves.toBeUndefined();
-      expect(cleanupCount).toBe(8);
+      expect(cleanupCount).toBe(7);
 
       const brokerForThrowingDispose = createSystemTmuxConsoleBroker({
         tmuxPath: "/usr/local/bin/tmux",
@@ -1137,8 +1144,11 @@ describe("system tmux console broker", () => {
         ),
       ).resolves.toMatchObject({ processIdentity: { paneId: "%9" } });
       mode = "dispose-throw";
-      await expect(brokerForThrowingDispose.dispose()).resolves.toBeUndefined();
-      expect(cleanupCount).toBe(9);
+      await expect(brokerForThrowingDispose.dispose()).rejects.toThrow(
+        /process settlement was not confirmed/u,
+      );
+      expect(cleanupCount).toBe(8);
+      expect(existsSync(join(root, "dispose-throw"))).toBe(true);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -1313,7 +1323,7 @@ describe("system tmux console broker", () => {
     }
   });
 
-  it("kills on close drain failure and keeps disposal best-effort after repeated cleanup failure", async () => {
+  it("kills on close drain failure and reports unconfirmed disposal settlement", async () => {
     const root = join(tmpdir(), "keel-tmux-broker-close-cleanup-failure-test");
     const privateRoot = join(root, "broker");
     rmSync(root, { recursive: true, force: true });
@@ -1327,6 +1337,7 @@ describe("system tmux console broker", () => {
         events.push(`kill-${String(killCalls)}`);
         if (killCalls === 2) throw new Error("already unavailable");
       }
+      if (request.argv.includes("kill-server")) throw new Error("server kill unavailable");
       return successful();
     });
     try {
@@ -1363,8 +1374,192 @@ describe("system tmux console broker", () => {
       ).rejects.toThrow("drain not confirmed");
       expect(events).toEqual(["cleanup", "kill-1"]);
 
+      await expect(broker.dispose()).rejects.toThrow(/settlement was not confirmed/u);
+      expect(events).toEqual(["cleanup", "kill-1", "cleanup"]);
+      expect(existsSync(privateRoot)).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("falls back to its private tmux server when an unreleased session kill fails", async () => {
+    const root = join(tmpdir(), "keel-tmux-broker-server-fallback-test");
+    const privateRoot = join(root, "broker");
+    rmSync(root, { recursive: true, force: true });
+    mkdirSync(root, { recursive: true });
+    const events: string[] = [];
+    const runner = fakeRunner((request) => {
+      if (request.argv.includes("new-session")) return successful("$7|%9|1234|0\n");
+      if (request.argv.includes("kill-session")) {
+        events.push("kill-session");
+        return { ...successful(), exitCode: 1, stderr: "session remained" };
+      }
+      if (request.argv.includes("kill-server")) events.push("kill-server");
+      return successful();
+    });
+    try {
+      const broker = createSystemTmuxConsoleBroker({
+        tmuxPath: "/usr/local/bin/tmux",
+        tmuxVersion: "tmux 3.5a",
+        privateRoot,
+        runner,
+        launchPreparer: launchPreparer({
+          prepared: [],
+          cleanup: () => {},
+          descriptor: { argv: ["/srt-wrap", "--"], env: { PATH: "/bin" } },
+        }),
+      });
+      const sandbox = broker.prepareSandboxPlan({
+        invocation: { command: TARGET.command, cwd: TARGET.cwd },
+        profile: { filesystem: { allowRead: ["/workspace"], allowWrite: ["/workspace"] } },
+      });
+      await broker.open(openRequest(sandbox));
+
       await expect(broker.dispose()).resolves.toBeUndefined();
-      expect(events).toEqual(["cleanup", "kill-1", "cleanup", "kill-2"]);
+      expect(events).toEqual(["kill-session", "kill-server"]);
+      expect(existsSync(privateRoot)).toBe(false);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("finishes a retried authority drain after private-server process settlement", async () => {
+    const root = join(tmpdir(), "keel-tmux-broker-server-retry-test");
+    const privateRoot = join(root, "broker");
+    rmSync(root, { recursive: true, force: true });
+    mkdirSync(root, { recursive: true });
+    let cleanupCalls = 0;
+    let killServerCalls = 0;
+    const runner = fakeRunner((request) => {
+      if (request.argv.includes("new-session")) return successful("$7|%9|1234|0\n");
+      if (request.argv.includes("kill-session")) return failing("session remained");
+      if (request.argv.includes("kill-server")) {
+        killServerCalls += 1;
+        return killServerCalls === 1 ? successful() : failing("server already settled");
+      }
+      return successful();
+    });
+    try {
+      const broker = createSystemTmuxConsoleBroker({
+        tmuxPath: "/usr/local/bin/tmux",
+        tmuxVersion: "tmux 3.5a",
+        privateRoot,
+        runner,
+        launchPreparer: launchPreparer({
+          prepared: [],
+          cleanup: () => {
+            cleanupCalls += 1;
+            if (cleanupCalls === 1) throw new Error("drain retry required");
+          },
+          descriptor: { argv: ["/srt-wrap", "--"], env: { PATH: "/bin" } },
+        }),
+      });
+      const sandbox = broker.prepareSandboxPlan({
+        invocation: { command: TARGET.command, cwd: TARGET.cwd },
+        profile: { filesystem: { allowRead: ["/workspace"], allowWrite: ["/workspace"] } },
+      });
+      await broker.open(openRequest(sandbox));
+
+      await expect(broker.dispose()).rejects.toThrow(/authority cleanup/u);
+      expect(existsSync(privateRoot)).toBe(true);
+      await expect(broker.dispose()).resolves.toBeUndefined();
+      expect(cleanupCalls).toBe(2);
+      expect(killServerCalls).toBe(1);
+      expect(existsSync(privateRoot)).toBe(false);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("denies reuse after failed open settlement and drains the pending session on disposal", async () => {
+    const root = join(tmpdir(), "keel-tmux-broker-pending-settlement-test");
+    const privateRoot = join(root, "broker");
+    rmSync(root, { recursive: true, force: true });
+    mkdirSync(root, { recursive: true });
+    let cleanupCalls = 0;
+    let killSessionCalls = 0;
+    const runner = fakeRunner((request) => {
+      if (request.argv.includes("new-session")) return successful("invalid identity\n");
+      if (request.argv.includes("kill-session")) {
+        killSessionCalls += 1;
+        if (killSessionCalls === 1) return failing("session remained");
+        throw new Error("session status unavailable");
+      }
+      return successful();
+    });
+    try {
+      const broker = createSystemTmuxConsoleBroker({
+        tmuxPath: "/usr/local/bin/tmux",
+        tmuxVersion: "tmux 3.5a",
+        privateRoot,
+        runner,
+        launchPreparer: launchPreparer({
+          prepared: [],
+          cleanup: () => {
+            cleanupCalls += 1;
+            if (cleanupCalls === 1) throw new Error("initial drain failed");
+          },
+          descriptor: { argv: ["/srt-wrap", "--"], env: { PATH: "/bin" } },
+        }),
+      });
+      const sandbox = broker.prepareSandboxPlan({
+        invocation: { command: TARGET.command, cwd: TARGET.cwd },
+        profile: { filesystem: { allowRead: ["/workspace"], allowWrite: ["/workspace"] } },
+      });
+
+      await expect(broker.open(openRequest(sandbox))).rejects.toThrow(
+        /settlement was not confirmed/u,
+      );
+      await expect(broker.open(openRequest(sandbox))).rejects.toThrow(
+        /previous tmux session cleanup settlement was not confirmed/u,
+      );
+      expect(cleanupCalls).toBe(1);
+      expect(killSessionCalls).toBe(1);
+
+      await expect(broker.dispose()).resolves.toBeUndefined();
+      expect(cleanupCalls).toBe(2);
+      expect(killSessionCalls).toBe(2);
+      expect(runner.commands.some((command) => command.argv.includes("kill-server"))).toBe(true);
+      expect(existsSync(privateRoot)).toBe(false);
+      await expect(broker.open(openRequest(sandbox, "con_tmux_after_dispose"))).rejects.toThrow(
+        /broker is disposed/u,
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("retains broker state when private-server settlement fails and permits a safe retry", async () => {
+    const root = join(tmpdir(), "keel-tmux-broker-server-settlement-failure-test");
+    const privateRoot = join(root, "broker");
+    rmSync(root, { recursive: true, force: true });
+    mkdirSync(root, { recursive: true });
+    let killServerCalls = 0;
+    const runner = fakeRunner((request) => {
+      if (request.argv.includes("kill-server")) {
+        killServerCalls += 1;
+        return killServerCalls === 1 ? failing("server remained") : successful();
+      }
+      return successful();
+    });
+    try {
+      const broker = createSystemTmuxConsoleBroker({
+        tmuxPath: "/usr/local/bin/tmux",
+        tmuxVersion: "tmux 3.5a",
+        privateRoot,
+        runner,
+        launchPreparer: launchPreparer({
+          prepared: [],
+          cleanup: () => {},
+          descriptor: { argv: ["/srt-wrap", "--"], env: { PATH: "/bin" } },
+        }),
+      });
+
+      await expect(broker.dispose()).rejects.toThrow(/process settlement was not confirmed/u);
+      expect(existsSync(privateRoot)).toBe(true);
+      await expect(broker.dispose()).resolves.toBeUndefined();
+      expect(killServerCalls).toBe(2);
+      expect(existsSync(privateRoot)).toBe(false);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

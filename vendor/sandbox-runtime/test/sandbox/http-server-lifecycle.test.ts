@@ -26,6 +26,22 @@ function selectBunRuntime(): void {
 }
 
 describe('HTTP proxy server lifecycle', () => {
+  it('permanently rejects a connection accepted before launch authority activates', () => {
+    let active = false
+    const server = createHttpProxyServer({
+      filter: () => true,
+      proxyAuthToken: 'a'.repeat(64),
+      isProxyAuthActive: () => active,
+    })
+    const acceptedBeforeActivation = new Socket()
+
+    server.emit('connection', acceptedBeforeActivation)
+    active = true
+
+    expect(acceptedBeforeActivation.destroyed).toBe(true)
+    server.removeAllListeners()
+  })
+
   it('drains a Node CONNECT-upgraded client before server close settles', async () => {
     const server = createHttpProxyServer({ filter: () => true })
     server.removeAllListeners('connect')

@@ -12,7 +12,7 @@ import type { SandboxPort } from "./sandbox.js";
 import type { ConsoleSandboxLaunchPreparer } from "./interactive-console/tmux-broker.js";
 import { createWardenSandboxTempRoot } from "./sandbox-temp-root.js";
 import { interactiveConsoleProductOptionsFromEnv } from "./interactive-console/product-config.js";
-import { resolveWardenKeelHome } from "./capability-manifest.js";
+import { homeCredentialSecretRoots, resolveWardenKeelHome } from "./capability-manifest.js";
 import { loadOrCreateAuditCheckpointKey } from "./audit/checkpoint-key.js";
 import { SessionAuditLog } from "./audit/session-log.js";
 import {
@@ -417,6 +417,13 @@ export async function runWardenFromEnv(
         const credentialBroker = createGitCredentialBroker({
           gitExecutable,
           tempRoot,
+          workspaceRoot,
+          denyRoots: [
+            keelHome,
+            ...(process.env["HOME"] === undefined
+              ? []
+              : homeCredentialSecretRoots(process.env["HOME"])),
+          ],
           env: process.env,
         });
         if (gitPushAuthority === undefined) {
