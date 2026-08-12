@@ -776,15 +776,20 @@ suite("ADR-0091 git.push walking skeleton (real sandbox)", () => {
     try {
       await waitForGovernedProductSession(ui);
       ui.queue.push({ kind: "line", text: "publish the exact commit" });
-      await waitFor(ui, "lossless git.push approval", (view) => {
-        const frame = renderFrame(view);
-        return (
-          frame.includes("approval required") &&
-          frame.includes(fixture.canonicalUrl) &&
-          frame.includes(branch) &&
-          frame.includes(head)
-        );
-      });
+      await waitFor(
+        ui,
+        "lossless git.push approval",
+        (view) => {
+          const frame = renderFrame(view);
+          return (
+            frame.includes("approval required") &&
+            frame.includes(fixture.canonicalUrl) &&
+            frame.includes(branch) &&
+            frame.includes(head)
+          );
+        },
+        PRODUCT_SETTLEMENT_TIMEOUT_MS,
+      );
       const approvalFrame = renderFrame(ui.latest!);
       expect(approvalFrame).toContain("create this branch or fast-forward it to this commit");
       expect(approvalFrame).toContain("this occurrence once");
@@ -993,15 +998,20 @@ suite("ADR-0091 git.push walking skeleton (real sandbox)", () => {
     try {
       await waitForGovernedProductSession(ui);
       ui.queue.push({ kind: "line", text: "publish the fast-forward commit" });
-      await waitFor(ui, "fast-forward git.push approval", (view) => {
-        const frame = renderFrame(view);
-        return (
-          frame.includes("approval required") &&
-          frame.includes(fixture.canonicalUrl) &&
-          frame.includes(branch) &&
-          frame.includes(head)
-        );
-      });
+      await waitFor(
+        ui,
+        "fast-forward git.push approval",
+        (view) => {
+          const frame = renderFrame(view);
+          return (
+            frame.includes("approval required") &&
+            frame.includes(fixture.canonicalUrl) &&
+            frame.includes(branch) &&
+            frame.includes(head)
+          );
+        },
+        PRODUCT_SETTLEMENT_TIMEOUT_MS,
+      );
       expect(fixture.requests).toEqual([]);
       ui.queue.push({ kind: "command", name: "/approve", args: "once" });
       await waitFor(
@@ -1119,10 +1129,15 @@ suite("ADR-0091 git.push walking skeleton (real sandbox)", () => {
     try {
       await waitForGovernedProductSession(ui);
       ui.queue.push({ kind: "line", text: "attempt the exact non-fast-forward commit" });
-      await waitFor(ui, "non-fast-forward git.push approval", (view) => {
-        const frame = renderFrame(view);
-        return frame.includes("approval required") && frame.includes(localHead);
-      });
+      await waitFor(
+        ui,
+        "non-fast-forward git.push approval",
+        (view) => {
+          const frame = renderFrame(view);
+          return frame.includes("approval required") && frame.includes(localHead);
+        },
+        PRODUCT_SETTLEMENT_TIMEOUT_MS,
+      );
       expect(fixture.requests).toEqual([]);
       ui.queue.push({ kind: "command", name: "/approve", args: "once" });
       await waitFor(
@@ -1212,10 +1227,15 @@ exit 0
     try {
       await waitForGovernedProductSession(ui);
       ui.queue.push({ kind: "line", text: "attempt the protected branch" });
-      await waitFor(ui, "protected-branch git.push approval", (view) => {
-        const frame = renderFrame(view);
-        return frame.includes("approval required") && frame.includes(head);
-      });
+      await waitFor(
+        ui,
+        "protected-branch git.push approval",
+        (view) => {
+          const frame = renderFrame(view);
+          return frame.includes("approval required") && frame.includes(head);
+        },
+        PRODUCT_SETTLEMENT_TIMEOUT_MS,
+      );
       expect(fixture.requests).toEqual([]);
       ui.queue.push({ kind: "command", name: "/approve", args: "once" });
       await waitFor(
