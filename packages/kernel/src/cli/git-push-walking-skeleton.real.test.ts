@@ -67,6 +67,10 @@ const PRINCIPAL = {
   authProvider: "local",
   assurance: "local-os-user",
 } as const;
+// The spawned Warden and per-launch SRT may take longer than the former 8-second observation
+// window on a loaded supported runtime. Keep this bounded below the 50-second RPC deadline and
+// reuse it for the subsequent product-settlement observation.
+const PRODUCT_SETTLEMENT_TIMEOUT_MS = 35_000;
 
 const tempDirs: string[] = [];
 
@@ -790,19 +794,21 @@ suite("ADR-0091 git.push walking skeleton (real sandbox)", () => {
       const liveCredentialWindow = fixture.pauseNextAuthenticatedRequest();
       ui.queue.push({ kind: "command", name: "/approve", args: "once" });
       let liveProcessListing: string;
+      let credentialProcessTimeout: NodeJS.Timeout | undefined;
       try {
         await Promise.race([
           liveCredentialWindow.entered,
           new Promise<never>((_, reject) => {
-            const timeout = setTimeout(
+            credentialProcessTimeout = setTimeout(
               () => reject(new Error("timed out waiting for credential-bearing Git process")),
-              8_000,
+              PRODUCT_SETTLEMENT_TIMEOUT_MS,
             );
-            timeout.unref();
+            credentialProcessTimeout.unref();
           }),
         ]);
         liveProcessListing = processListing();
       } finally {
+        if (credentialProcessTimeout !== undefined) clearTimeout(credentialProcessTimeout);
         liveCredentialWindow.release();
       }
       expect(liveProcessListing).toContain(warden.entryPath);
@@ -813,7 +819,7 @@ suite("ADR-0091 git.push walking skeleton (real sandbox)", () => {
             ui,
             "verified git.push completion",
             (view) => view.awaitingInput === true && renderFrame(view).includes("published"),
-            35_000,
+            PRODUCT_SETTLEMENT_TIMEOUT_MS,
           ),
           ui
             .awaitRender(
