@@ -370,6 +370,7 @@ suite("governed github.pr.create real SRT acceptance (opt-in)", () => {
       { mode: 0o600 },
     );
     const tempRoot = privateRoot("keel-github-pr-real-attempts-");
+    const authorityRoot = privateRoot("keel-github-pr-real-authority-");
     const broker = createGitCredentialBroker({
       gitExecutable: resolvedGit.path,
       tempRoot,
@@ -377,6 +378,7 @@ suite("governed github.pr.create real SRT acceptance (opt-in)", () => {
     });
     components = await createVendoredSrtSandboxComponents({
       credentialTlsTermination: true,
+      launchAuthorityRegistryPath: join(authorityRoot, "endpoint-leases.json"),
       resolveDestination: async (hostname, port) => {
         if (hostname !== "localhost" || port !== fixture.port) {
           throw new Error("fixture destination escaped its exact authority");

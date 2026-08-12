@@ -68,6 +68,10 @@ const TARGET_ENV_ALLOWLIST = new Set([
   "USER",
 ]);
 
+function throwableError(value: unknown): Error {
+  return value instanceof Error ? value : new Error(String(value), { cause: value });
+}
+
 export interface TmuxCommandRequest {
   readonly argv: readonly string[];
   readonly env: NodeJS.ProcessEnv;
@@ -100,7 +104,7 @@ export interface ConsoleSandboxLaunchPreparer {
     executeOptions?: Pick<SandboxExecuteOptions, "signal">,
   ): Promise<{
     readonly descriptor: SandboxSpawnDescriptor;
-    cleanup(): void;
+    cleanup(): void | Promise<void>;
   }>;
 }
 
@@ -126,7 +130,7 @@ interface TmuxHandleState {
   readonly paneId: string;
   readonly panePid: number;
   readonly processIdentity: JsonObjectT;
-  cleanup(): void;
+  cleanup(): void | Promise<void>;
 }
 
 function sha256(value: string): string {
@@ -698,12 +702,17 @@ export function createSystemTmuxConsoleBroker(
           panePid: identity.panePid,
           processIdentity,
           cleanup: () => {
-            launch.cleanup();
+            return launch.cleanup();
           },
         });
         return { processIdentity };
       } catch (error) {
-        launch.cleanup();
+        let cleanupError: unknown;
+        try {
+          await launch.cleanup();
+        } catch (failure) {
+          cleanupError = failure;
+        }
         if (attemptedStart) {
           try {
             await runTmuxStatus(["kill-session", "-t", `=${sessionName}`], request.signal);
@@ -711,6 +720,7 @@ export function createSystemTmuxConsoleBroker(
             // Best-effort cleanup after an open failure. The open failure remains authoritative.
           }
         }
+        if (cleanupError !== undefined) throw throwableError(cleanupError);
         throw error;
       }
     },
@@ -816,6 +826,7 @@ export function createSystemTmuxConsoleBroker(
     ): Promise<ConsoleBrokerReleaseResult> {
       const state = stateForHandle(request);
       if (state === undefined) return { released: false };
+      await state.cleanup();
       handles.delete(request.handle.handle);
       releasedSessions.add(state.sessionName);
       return { released: true };
@@ -825,25 +836,35 @@ export function createSystemTmuxConsoleBroker(
     ): Promise<ConsoleBrokerCloseResult> {
       const state = stateForHandle(request);
       if (state === undefined) return { closed: false };
+      let cleanupError: unknown;
+      try {
+        await state.cleanup();
+      } catch (error) {
+        cleanupError = error;
+      }
       const result = await runTmuxStatus(
         ["kill-session", "-t", `=${state.sessionName}`],
         request.signal,
       );
       if (result.exitCode !== 0) throw commandError(["kill-session", state.sessionName], result);
+      if (cleanupError !== undefined) throw throwableError(cleanupError);
       handles.delete(request.handle.handle);
-      state.cleanup();
       return { closed: true };
     },
     async dispose(): Promise<void> {
       for (const [handle, state] of handles) {
-        handles.delete(handle);
+        try {
+          await state.cleanup();
+        } catch {
+          // Cleanup failure quarantines the launch preparer. Disposal must
+          // still kill the controlled process rather than transferring it.
+        }
         try {
           await runTmuxStatus(["kill-session", "-t", `=${state.sessionName}`]);
         } catch {
           // Disposal is best effort; broker close paths own authoritative audit.
-        } finally {
-          state.cleanup();
         }
+        handles.delete(handle);
       }
       if (releasedSessions.size > 0) {
         return;

@@ -103,6 +103,15 @@ export interface HttpProxyServerOptions {
    * and reach the filter callback.
    */
   proxyAuthToken?: string
+
+  /** Mutable host-owned token reference used by revocable launch authority. */
+  getProxyAuthToken?: () => string | undefined
+
+  /** Host-owned revocation/readiness predicate for launch-scoped authority. */
+  isProxyAuthActive?: () => boolean
+
+  /** Mutable host-owned TLS authority reference cleared during revocation. */
+  getMitmCA?: () => MitmCA | undefined
 }
 
 type AcceptedSocketState = {
@@ -144,12 +153,23 @@ export function createHttpProxyServer(options: HttpProxyServerOptions): Server {
   })
 
   const checkAuth = (got: string | undefined): boolean => {
-    if (!options.proxyAuthToken) return true
+    if (options.isProxyAuthActive?.() === false) return false
+    const token =
+      options.getProxyAuthToken === undefined
+        ? options.proxyAuthToken
+        : options.getProxyAuthToken()
+    if (token === undefined) {
+      return options.getProxyAuthToken === undefined && options.proxyAuthToken === undefined
+    }
     const m = /^basic\s+([a-z0-9+/=]+)\s*$/i.exec(got ?? '')
     if (!m) return false
     const decoded = Buffer.from(m[1]!, 'base64').toString('utf8')
     const sep = decoded.indexOf(':')
-    return sep > 0 && decoded.slice(sep + 1) === options.proxyAuthToken
+    return (
+      sep === 3 &&
+      decoded.slice(0, sep) === 'srt' &&
+      decoded.slice(sep + 1) === token
+    )
   }
 
   // Handle CONNECT requests for HTTPS traffic
@@ -208,7 +228,9 @@ export function createHttpProxyServer(options: HttpProxyServerOptions): Server {
       // (tlsTerminate and mitmProxy are mutually exclusive at the config
       // layer, so the first two never both apply.)
       let wrote200 = false
-      if (options.mitmCA) {
+      const activeMitmCA =
+        options.getMitmCA === undefined ? options.mitmCA : options.getMitmCA()
+      if (activeMitmCA) {
         if (clientGone) return
         // We can only terminate TLS. CONNECT also carries non-TLS streams —
         // notably SSH on Linux, where the sandbox's own GIT_SSH_COMMAND
@@ -223,7 +245,7 @@ export function createHttpProxyServer(options: HttpProxyServerOptions): Server {
         if (clientGone) return
         if (peeked.isTLS) {
           terminateAndForward(
-            options.mitmCA,
+            activeMitmCA,
             options.filterRequest,
             options.mutateHeaders,
             socket,

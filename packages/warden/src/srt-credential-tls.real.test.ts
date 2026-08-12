@@ -9,11 +9,12 @@
 import { createServer as createHttpServer } from "node:http";
 import { createServer as createHttpsServer } from "node:https";
 import type { Server } from "node:net";
-import { readFileSync, realpathSync } from "node:fs";
+import { chmodSync, mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { createSecureContext } from "node:tls";
 import { fileURLToPath } from "node:url";
-import { beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { createVendoredSrtSandboxComponents } from "./srt-runtime-loader.js";
 import { isRealSandboxRequired, resolveRealSandboxGate } from "./real-sandbox-gate.js";
@@ -130,6 +131,8 @@ function expectSecretAbsent(value: unknown, ...secrets: readonly string[]): void
 suite("real SRT verified-HTTPS credential injection (opt-in)", () => {
   let sandbox: SandboxPort;
   let launchPreparer: SrtSandboxLaunchPreparer;
+  let authorityRoot: string;
+  let shutdownSandbox: (() => Promise<void>) | undefined;
 
   beforeAll(async () => {
     const configuredCa = process.env["NODE_EXTRA_CA_CERTS"];
@@ -138,9 +141,13 @@ suite("real SRT verified-HTTPS credential injection (opt-in)", () => {
         `real credential-TLS tests require NODE_EXTRA_CA_CERTS=${fixtureCaCert} before Node starts`,
       );
     }
+    authorityRoot = realpathSync(mkdtempSync(join(tmpdir(), "keel-real-tls-authority-")));
+    chmodSync(authorityRoot, 0o700);
     const components = await createVendoredSrtSandboxComponents({
       credentialTlsTermination: true,
+      launchAuthorityRegistryPath: join(authorityRoot, "endpoint-leases.json"),
     });
+    shutdownSandbox = components.shutdown;
     const status = components.sandbox.status();
     const gate = resolveRealSandboxGate({
       required,
@@ -154,6 +161,11 @@ suite("real SRT verified-HTTPS credential injection (opt-in)", () => {
     sandbox = components.sandbox;
     launchPreparer = components.launchPreparer;
   }, 30_000);
+
+  afterAll(async () => {
+    await shutdownSandbox?.();
+    if (authorityRoot !== undefined) rmSync(authorityRoot, { recursive: true, force: true });
+  });
 
   it("keeps real credential bytes out of the prepared child argv and environment", async () => {
     const swapSecret = "keel-real-swap-secret-adr0066";
@@ -180,7 +192,7 @@ suite("real SRT verified-HTTPS credential injection (opt-in)", () => {
       expectSecretAbsent(launch.descriptor, swapSecret, placeholderSecret);
       expect(JSON.stringify(launch.descriptor)).toContain(placeholder);
     } finally {
-      launch.cleanup();
+      await launch.cleanup();
     }
   });
 

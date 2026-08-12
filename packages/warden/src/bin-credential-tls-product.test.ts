@@ -133,6 +133,7 @@ describe("warden credential TLS product wiring", () => {
     const sandboxOptions = mocked.createVendoredSrtSandboxComponents.mock.calls[0]?.[0];
     expect(sandboxOptions).toMatchObject({
       credentialTlsTermination: true,
+      launchAuthorityRegistryPath: "/tmp/keel-home/srt-endpoint-leases.json",
     });
     expect(typeof sandboxOptions?.resolveDestination).toBe("function");
     expect(mocked.runStdioWardenServer).toHaveBeenCalledWith(
@@ -163,6 +164,7 @@ describe("warden credential TLS product wiring", () => {
     expect(mocked.order).toEqual(["credentials", "sandbox"]);
     expect(mocked.createVendoredSrtSandboxComponents).toHaveBeenCalledWith({
       credentialTlsTermination: true,
+      launchAuthorityRegistryPath: "/tmp/keel-home/srt-endpoint-leases.json",
     });
     expect(mocked.discoverMcpServerWithSandbox).toHaveBeenCalledWith(
       expect.objectContaining({ credentialProxyRules: [secureRule] }),

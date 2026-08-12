@@ -43,6 +43,7 @@ import type { AuditAppendInput } from "./audit/writer.js";
 import {
   CREDENTIAL_TLS_TERMINATION_CAPABILITY,
   EGRESS_ADDRESS_GUARD_CAPABILITY,
+  SRT_LAUNCH_AUTHORITY_CAPABILITY,
   type SandboxCredentialProxyConfig,
   type SandboxExecutionResult,
   type SandboxProfile,
@@ -404,7 +405,8 @@ export function gitPushCapabilityAvailable(
     sandbox.backend === "srt:vendored" &&
     sandbox.enforcementTier === "sandbox:srt" &&
     sandbox.features?.includes(EGRESS_ADDRESS_GUARD_CAPABILITY) === true &&
-    sandbox.features?.includes(CREDENTIAL_TLS_TERMINATION_CAPABILITY) === true
+    sandbox.features?.includes(CREDENTIAL_TLS_TERMINATION_CAPABILITY) === true &&
+    sandbox.features?.includes(SRT_LAUNCH_AUTHORITY_CAPABILITY) === true
   );
 }
 

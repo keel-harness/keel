@@ -109,6 +109,7 @@ async function sandboxComponentsFromEnv(
   resolveDestination?: BoundedEgressAddressResolver["resolveDestination"],
   gitPushAuthority?: GitPushAuthority,
   githubPrCreateAuthority?: GithubPrCreateAuthority,
+  launchAuthorityRegistryPath?: string,
 ): Promise<SandboxComponentsFromEnv> {
   if (process.env["KEEL_WARDEN_SANDBOX"] !== "srt") return {};
   const credentialTlsTermination =
@@ -118,6 +119,7 @@ async function sandboxComponentsFromEnv(
   const options = {
     ...(credentialTlsTermination ? { credentialTlsTermination: true } : {}),
     ...(resolveDestination === undefined ? {} : { resolveDestination }),
+    ...(launchAuthorityRegistryPath === undefined ? {} : { launchAuthorityRegistryPath }),
   };
   const components =
     Object.keys(options).length === 0
@@ -135,7 +137,15 @@ async function sandboxComponentsFromEnv(
 async function sandboxFromEnv(
   credentialProxyRules?: readonly CredentialProxyRule[],
 ): Promise<SandboxPort | undefined> {
-  return (await sandboxComponentsFromEnv(credentialProxyRules)).sandbox;
+  return (
+    await sandboxComponentsFromEnv(
+      credentialProxyRules,
+      undefined,
+      undefined,
+      undefined,
+      join(resolveWardenKeelHome(process.env), "srt-endpoint-leases.json"),
+    )
+  ).sandbox;
 }
 
 function auditDirFromEnv(home = resolveWardenKeelHome(process.env)): string {
@@ -447,6 +457,7 @@ export async function runWardenFromEnv(
             activeEgressResolver.resolveDestination(hostname, port, signal),
       gitPushAuthority,
       githubPrCreateAuthority,
+      join(keelHome, "srt-endpoint-leases.json"),
     );
     if (quarantineRequested) await sandboxComponents.shutdown?.();
 

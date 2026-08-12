@@ -34,6 +34,12 @@ export interface SocksProxyServerOptions {
    * user "srt" with this token as the password.
    */
   proxyAuthToken?: string
+
+  /** Mutable host-owned token reference used by revocable launch authority. */
+  getProxyAuthToken?: () => string | undefined
+
+  /** Host-owned revocation/readiness predicate for launch-scoped authority. */
+  isProxyAuthActive?: () => boolean
 }
 
 export interface SocksProxyWrapper {
@@ -50,9 +56,18 @@ export function createSocksProxyServer(
   const socksServer = createServer()
   const canonicalHostByConnection = new WeakMap<object, string>()
 
-  if (options.proxyAuthToken) {
+  if (options.proxyAuthToken !== undefined || options.getProxyAuthToken !== undefined) {
     socksServer.setAuthHandler((conn, accept, deny) => {
-      if (conn.username === 'srt' && conn.password === options.proxyAuthToken) {
+      const token =
+        options.getProxyAuthToken === undefined
+          ? options.proxyAuthToken
+          : options.getProxyAuthToken()
+      if (
+        options.isProxyAuthActive?.() !== false &&
+        token !== undefined &&
+        conn.username === 'srt' &&
+        conn.password === token
+      ) {
         accept()
       } else {
         logForDebugging('SOCKS auth rejected', { level: 'error' })

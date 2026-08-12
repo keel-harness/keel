@@ -11,6 +11,8 @@ export interface SandboxStatus {
 export const EGRESS_ADDRESS_GUARD_CAPABILITY = "egress-address-guard/v1";
 /** Process-local proof that the vendored SRT was initialized with verified HTTPS termination. */
 export const CREDENTIAL_TLS_TERMINATION_CAPABILITY = "credential-tls-termination/v1";
+/** Process-local proof that each governed launch owns immutable, revocable proxy authority. */
+export const SRT_LAUNCH_AUTHORITY_CAPABILITY = "srt-launch-authority/v1";
 
 export interface SandboxProfile {
   readonly filesystem?: {

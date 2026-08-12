@@ -12,6 +12,7 @@ import { getPlatform, getWslVersion } from '../utils/platform.js'
 import * as fs from 'fs'
 import { randomBytes } from 'node:crypto'
 import type { IncomingHttpHeaders } from 'node:http'
+import { dirname, join } from 'node:path'
 import type {
   CredentialsConfig,
   NetworkConfig,
@@ -58,6 +59,7 @@ import type {
   RequestDecision,
 } from './request-filter.js'
 import {
+  canonicalizeHost,
   isValidHost,
   redactUrl,
   resolveParentProxy,
@@ -70,11 +72,42 @@ import {
   resetDestinationGuardConnections,
   type ResolveDestination,
 } from './destination-dial.js'
+import {
+  EndpointLeaseRegistry,
+  type EndpointLease,
+} from './endpoint-lease-registry.js'
 
 interface HostNetworkManagerContext {
   httpProxyPort: number
   socksProxyPort: number
   linuxBridge: LinuxNetworkBridgeContext | undefined
+}
+
+export interface LaunchAuthorityOptions {
+  readonly command: string
+  readonly binShell?: string
+  readonly abortSignal?: AbortSignal
+  readonly endpointRegistryPath: string
+}
+
+export interface PreparedLaunchAuthority {
+  readonly argv: string[]
+  readonly env: NodeJS.ProcessEnv
+  cleanup(): Promise<void>
+}
+
+interface LaunchAuthorityState {
+  readonly generationId: string
+  readonly managerContext: HostNetworkManagerContext
+  readonly httpProxyServer: ReturnType<typeof createHttpProxyServer>
+  readonly socksProxyServer: SocksProxyWrapper
+  readonly mitmCA: MitmCA | undefined
+  readonly sentinelRegistry: SentinelRegistry
+  readonly leaseRegistry: EndpointLeaseRegistry
+  readonly lease: EndpointLease
+  readonly abortController: AbortController
+  readonly readiness: { active: boolean }
+  cleanupPromise?: Promise<void>
 }
 
 // ============================================================================
@@ -101,6 +134,10 @@ const sandboxViolationStore = new SandboxViolationStore()
 // Per-session sentinel↔real-value map for masked credentials. Lives only in
 // process memory; never written to disk or logged. Cleared on reset().
 const sentinelRegistry = new SentinelRegistry()
+const activeLaunchAuthorities = new Set<LaunchAuthorityState>()
+const launchAuthorityGenerationId = `${process.pid}-${randomBytes(16).toString('hex')}`
+let launchPreparationTail: Promise<void> = Promise.resolve()
+const LAUNCH_PROXY_PORT_RANGE = [40000, 65535] as const
 
 // ============================================================================
 // Private Helper Functions (not exported)
@@ -145,6 +182,21 @@ async function filterNetworkRequest(
     logForDebugging('No config available, denying network request')
     return false
   }
+  return filterNetworkRequestForConfig(
+    config,
+    port,
+    host,
+    sandboxAskCallback,
+  )
+}
+
+async function filterNetworkRequestForConfig(
+  runtimeConfig: Pick<SandboxRuntimeConfig, 'network'>,
+  port: number,
+  host: string,
+  sandboxAskCallback?: SandboxAskCallback,
+  denyInternalEndpoint?: (host: string, port: number) => boolean,
+): Promise<boolean> {
 
   // Reject hosts containing control characters before pattern matching.
   // `matchesDomainPattern` uses string suffix matching which is trivially
@@ -159,8 +211,15 @@ async function filterNetworkRequest(
     return false
   }
 
+  if (denyInternalEndpoint?.(host, port) === true) {
+    logForDebugging(`Denying internal proxy endpoint: ${host}:${port}`, {
+      level: 'error',
+    })
+    return false
+  }
+
   // Check denied domains first
-  for (const deniedDomain of config.network.deniedDomains) {
+  for (const deniedDomain of runtimeConfig.network.deniedDomains) {
     if (matchesDomainPattern(host, deniedDomain)) {
       logForDebugging(`Denied by config rule: ${host}:${port}`)
       return false
@@ -168,7 +227,7 @@ async function filterNetworkRequest(
   }
 
   // Check allowed domains
-  for (const allowedDomain of config.network.allowedDomains) {
+  for (const allowedDomain of runtimeConfig.network.allowedDomains) {
     if (matchesDomainPattern(host, allowedDomain)) {
       logForDebugging(`Allowed by config rule: ${host}:${port}`)
       return true
@@ -177,7 +236,7 @@ async function filterNetworkRequest(
 
   // No matching rules - ask user or deny. strictAllowlist makes the
   // allowlist deterministic enforcement: never fall through to the callback.
-  if (!sandboxAskCallback || config.network.strictAllowlist) {
+  if (!sandboxAskCallback || runtimeConfig.network.strictAllowlist) {
     logForDebugging(`No matching config rule, denying: ${host}:${port}`)
     return false
   }
@@ -219,13 +278,21 @@ async function filterNetworkRequest(
 function buildCredentialInjector(options: {
   requirePlaintextOptIn?: boolean
 } = {}): MutateForwardedHeaders {
+  return buildCredentialInjectorForConfig(config, sentinelRegistry, options)
+}
+
+function buildCredentialInjectorForConfig(
+  runtimeConfig: SandboxRuntimeConfig | undefined,
+  launchSentinelRegistry: SentinelRegistry,
+  options: { requirePlaintextOptIn?: boolean } = {},
+): MutateForwardedHeaders {
   return (headers, destHost) => {
-    const credentials = config?.credentials
+    const credentials = runtimeConfig?.credentials
     if (!credentials) return
     if (options.requirePlaintextOptIn && !credentials.allowPlaintextInject) {
       return
     }
-    sentinelRegistry.substituteInHeaders(
+    launchSentinelRegistry.substituteInHeaders(
       headers,
       destHost,
       matchesDomainPattern,
@@ -342,23 +409,36 @@ function injectAuthorizationHeaderCredentials(
 }
 
 function buildRequestFilter(): FilterRequestCallback {
+  return buildRequestFilterForConfig(config)
+}
+
+function buildRequestFilterForConfig(
+  runtimeConfig: SandboxRuntimeConfig | undefined,
+): FilterRequestCallback {
   return async request => {
     const decision = credentialPlaceholderDecision(
       request.headers.get('authorization') ?? undefined,
       new URL(request.url).hostname,
-      config?.credentials,
+      runtimeConfig?.credentials,
     )
     if (decision) return decision
-    return config?.network.filterRequest?.(request) ?? { action: 'allow' }
+    return runtimeConfig?.network.filterRequest?.(request) ?? { action: 'allow' }
   }
 }
 
 function getMitmSocketPath(host: string): string | undefined {
-  if (!config?.network.mitmProxy) {
+  return getMitmSocketPathForConfig(config, host)
+}
+
+function getMitmSocketPathForConfig(
+  runtimeConfig: SandboxRuntimeConfig | undefined,
+  host: string,
+): string | undefined {
+  if (!runtimeConfig?.network.mitmProxy) {
     return undefined
   }
 
-  const { socketPath, domains } = config.network.mitmProxy
+  const { socketPath, domains } = runtimeConfig.network.mitmProxy
 
   for (const pattern of domains) {
     if (matchesDomainPattern(host, pattern)) {
@@ -510,6 +590,515 @@ async function startSocksProxyServer(
       (lastErr as Error)?.message ?? 'all in use'
     }`,
   )
+}
+
+function cloneRuntimeConfigForLaunch(
+  runtimeConfig: SandboxRuntimeConfig,
+): SandboxRuntimeConfig {
+  const { filterRequest, resolveDestination, ...networkRest } =
+    runtimeConfig.network
+  const cloned = structuredClone({
+    ...runtimeConfig,
+    network: networkRest,
+  }) as SandboxRuntimeConfig
+  cloned.network.filterRequest = filterRequest
+  cloned.network.resolveDestination = resolveDestination
+  return cloned
+}
+
+function endpointKey(port: number): string {
+  return `tcp:127.0.0.1:${port}`
+}
+
+function isLoopbackEndpointHost(host: string): boolean {
+  const normalized = canonicalizeHost(host)?.toLowerCase()
+  return (
+    normalized === 'localhost' ||
+    normalized === '127.0.0.1' ||
+    normalized === '::1' ||
+    normalized === '::ffff:7f00:1'
+  )
+}
+
+function launchEndpointIsInternal(
+  excludedEndpoints: ReadonlySet<string>,
+  host: string,
+  port: number,
+): boolean {
+  return isLoopbackEndpointHost(host) && excludedEndpoints.has(endpointKey(port))
+}
+
+function excludedTcpPorts(endpoints: ReadonlySet<string>): Set<number> {
+  const ports = new Set<number>()
+  for (const endpoint of endpoints) {
+    const match = /^tcp:127\.0\.0\.1:(\d+)$/u.exec(endpoint)
+    if (match !== null) ports.add(Number(match[1]))
+  }
+  return ports
+}
+
+function launchResolveDestination(
+  runtimeConfig: SandboxRuntimeConfig,
+  leaseRegistry: EndpointLeaseRegistry,
+  launchSignal: AbortSignal,
+): ResolveDestination | undefined {
+  const resolver = runtimeConfig.network.resolveDestination
+  if (resolver === undefined) return undefined
+  return async (hostname, port, requestSignal) => {
+    const controller = new AbortController()
+    const abort = () => controller.abort()
+    requestSignal.addEventListener('abort', abort, { once: true })
+    launchSignal.addEventListener('abort', abort, { once: true })
+    try {
+      if (requestSignal.aborted || launchSignal.aborted) {
+        throw new Error('launch proxy authority is revoked')
+      }
+      const answers = await resolver(hostname, port, controller.signal)
+      if (controller.signal.aborted) {
+        throw new Error('launch proxy authority is revoked')
+      }
+      const excluded = leaseRegistry.excludedEndpoints()
+      if (
+        answers.some(answer =>
+          launchEndpointIsInternal(excluded, answer.address, port),
+        )
+      ) {
+        throw new Error('internal launch proxy endpoint denied')
+      }
+      return answers
+    } finally {
+      requestSignal.removeEventListener('abort', abort)
+      launchSignal.removeEventListener('abort', abort)
+    }
+  }
+}
+
+async function closeLaunchAuthority(
+  state: LaunchAuthorityState,
+): Promise<void> {
+  if (state.cleanupPromise !== undefined) return state.cleanupPromise
+  state.readiness.active = false
+  state.abortController.abort()
+  state.sentinelRegistry.clear()
+  state.cleanupPromise = (async () => {
+    const closeResults = await Promise.allSettled([
+      forceCloseHttpServer(state.httpProxyServer),
+      state.socksProxyServer.close(),
+      ...(state.managerContext.linuxBridge === undefined
+        ? []
+        : [
+            killBridgeProcess(
+              state.managerContext.linuxBridge.httpBridgeProcess,
+              'launch HTTP',
+            ),
+            killBridgeProcess(
+              state.managerContext.linuxBridge.socksBridgeProcess,
+              'launch SOCKS',
+            ),
+          ]),
+      ...(state.mitmCA === undefined ? [] : [disposeMitmCA(state.mitmCA)]),
+    ])
+    let clean = closeResults.every(result => result.status === 'fulfilled')
+    if (clean) {
+      // The listener and all tracked connections are confirmed closed. Drop
+      // request callbacks so their immutable credential snapshot is released.
+      state.httpProxyServer.removeAllListeners()
+    }
+    if (state.managerContext.linuxBridge !== undefined) {
+      for (const socketPath of [
+        state.managerContext.linuxBridge.httpSocketPath,
+        state.managerContext.linuxBridge.socksSocketPath,
+      ]) {
+        try {
+          fs.rmSync(socketPath, { force: true })
+        } catch {
+          clean = false
+        }
+      }
+    }
+    cleanupBwrapMountPoints()
+    activeLaunchAuthorities.delete(state)
+    // V1 conservatively tombstones every authority. A direct child exit does
+    // not prove that no detached descendant still inherits its exact profile.
+    const transitioned = state.leaseRegistry.retire(state.lease)
+    if (!transitioned || !clean) {
+      throw new Error('launch proxy authority cleanup failed')
+    }
+  })()
+  return state.cleanupPromise
+}
+
+async function prepareLaunchAuthorityUnserialized(
+  runtimeConfig: SandboxRuntimeConfig,
+  options: LaunchAuthorityOptions,
+): Promise<PreparedLaunchAuthority> {
+  const platform = getPlatform()
+  if (platform === 'windows') {
+    throw new Error('per-launch proxy authority is unavailable on Windows')
+  }
+  if (
+    runtimeConfig.network.httpProxyPort !== undefined ||
+    runtimeConfig.network.socksProxyPort !== undefined ||
+    runtimeConfig.network.allowLocalBinding === true ||
+    runtimeConfig.network.parentProxy !== undefined ||
+    runtimeConfig.network.mitmProxy !== undefined ||
+    runtimeConfig.network.inheritProxyEnv !== false ||
+    runtimeConfig.enableWeakerNetworkIsolation === true ||
+    runtimeConfig.enableWeakerNestedSandbox === true
+  ) {
+    throw new Error('per-launch proxy authority requires exclusive enforcing endpoints')
+  }
+  if (
+    runtimeConfig.network.tlsTerminate !== undefined &&
+    runtimeConfig.network.mitmProxy !== undefined
+  ) {
+    throw new Error(
+      'network.tlsTerminate and network.mitmProxy are mutually exclusive',
+    )
+  }
+
+  const snapshot = cloneRuntimeConfigForLaunch(runtimeConfig)
+  const networkSnapshot = { network: snapshot.network }
+  const launchMitmCA = snapshot.network.tlsTerminate
+    ? createMitmCA(snapshot.network.tlsTerminate)
+    : undefined
+  const launchSentinelRegistry = new SentinelRegistry()
+  const token = randomBytes(32).toString('hex')
+  const generationId = launchAuthorityGenerationId
+  const leaseRegistry = new EndpointLeaseRegistry(
+    options.endpointRegistryPath,
+    { generationId },
+  )
+  leaseRegistry.recoverPriorGenerations()
+  const readiness = { active: false }
+  const abortController = new AbortController()
+  const guardedResolver = launchResolveDestination(
+    snapshot,
+    leaseRegistry,
+    abortController.signal,
+  )
+
+  const httpServer = createHttpProxyServer({
+    filter: (port, host) =>
+      filterNetworkRequestForConfig(
+        networkSnapshot,
+        port,
+        host,
+        undefined,
+        (candidateHost, candidatePort) =>
+          launchEndpointIsInternal(
+            leaseRegistry.excludedEndpoints(),
+            candidateHost,
+            candidatePort,
+          ),
+      ),
+    getMitmSocketPath: host => getMitmSocketPathForConfig(snapshot, host),
+    mitmCA: launchMitmCA,
+    filterRequest: buildRequestFilterForConfig(snapshot),
+    mutateHeaders: buildCredentialInjectorForConfig(
+      snapshot,
+      launchSentinelRegistry,
+    ),
+    mutateHeadersPlaintext: buildCredentialInjectorForConfig(
+      snapshot,
+      launchSentinelRegistry,
+      { requirePlaintextOptIn: true },
+    ),
+    parentProxy: undefined,
+    resolveDestination: guardedResolver,
+    proxyAuthToken: token,
+    isProxyAuthActive: () => readiness.active,
+  })
+  const socksServer = createSocksProxyServer({
+    filter: (port, host) =>
+      filterNetworkRequestForConfig(
+        networkSnapshot,
+        port,
+        host,
+        undefined,
+        (candidateHost, candidatePort) =>
+          launchEndpointIsInternal(
+            leaseRegistry.excludedEndpoints(),
+            candidateHost,
+            candidatePort,
+          ),
+      ),
+    parentProxy: undefined,
+    resolveDestination: guardedResolver,
+    proxyAuthToken: token,
+    isProxyAuthActive: () => readiness.active,
+  })
+
+  let lease: EndpointLease | undefined
+  let state: LaunchAuthorityState | undefined
+  let linuxBridge: LinuxNetworkBridgeContext | undefined
+  try {
+    const excludedEndpoints = leaseRegistry.excludedEndpoints()
+    const excludedPorts = excludedTcpPorts(excludedEndpoints)
+    await listenInRange(
+      httpServer,
+      port => httpServer.listen(port, '127.0.0.1'),
+      LAUNCH_PROXY_PORT_RANGE,
+      excludedPorts,
+    )
+    const httpAddress = httpServer.address()
+    if (!httpAddress || typeof httpAddress === 'string') {
+      throw new Error('failed to allocate launch HTTP proxy')
+    }
+    const httpPort = httpAddress.port
+    excludedPorts.add(httpPort)
+    let socksPort: number | undefined
+    let lastSocksError: unknown
+    for (let port = LAUNCH_PROXY_PORT_RANGE[0]; port <= LAUNCH_PROXY_PORT_RANGE[1]; port++) {
+      if (excludedPorts.has(port)) continue
+      try {
+        socksPort = await socksServer.listen(port, '127.0.0.1')
+        break
+      } catch (error) {
+        lastSocksError = error
+        if ((error as NodeJS.ErrnoException).code !== 'EADDRINUSE') throw error
+      }
+    }
+    if (socksPort === undefined) {
+      throw new Error(
+        `no launch SOCKS proxy endpoint is available: ${String(lastSocksError)}`,
+      )
+    }
+    const socketId = platform === 'linux' ? randomBytes(16).toString('hex') : undefined
+    const linuxEndpointKeys =
+      socketId === undefined
+        ? []
+        : [
+            `unix:${join(dirname(options.endpointRegistryPath), `keel-http-${socketId}.sock`)}`,
+            `unix:${join(dirname(options.endpointRegistryPath), `keel-socks-${socketId}.sock`)}`,
+          ]
+    lease = leaseRegistry.reserve([
+      endpointKey(httpPort),
+      endpointKey(socksPort),
+      ...linuxEndpointKeys,
+    ])
+    readiness.active = true
+    httpServer.unref()
+    socksServer.unref()
+
+    if (platform === 'linux') {
+      linuxBridge = await initializeLinuxNetworkBridge(
+        httpPort,
+        socksPort,
+        snapshot.socatPath,
+        dirname(options.endpointRegistryPath),
+        socketId,
+      )
+    }
+
+    const context: HostNetworkManagerContext = {
+      httpProxyPort: httpPort,
+      socksProxyPort: socksPort,
+      linuxBridge,
+    }
+    const credentialRestrictions = getCredentialRestrictionsForConfig(
+      snapshot.credentials,
+      snapshot.network.allowedDomains,
+      launchSentinelRegistry,
+    )
+    const wrapped = await wrapLaunchCommand(
+      options,
+      snapshot,
+      context,
+      token,
+      launchMitmCA,
+      credentialRestrictions,
+    )
+    state = {
+      generationId,
+      managerContext: context,
+      httpProxyServer: httpServer,
+      socksProxyServer: socksServer,
+      mitmCA: launchMitmCA,
+      sentinelRegistry: launchSentinelRegistry,
+      leaseRegistry,
+      lease,
+      abortController,
+      readiness,
+    }
+    activeLaunchAuthorities.add(state)
+    return {
+      argv: wrapped.argv,
+      env: wrapped.env,
+      cleanup: () => closeLaunchAuthority(state!),
+    }
+  } catch (error) {
+    readiness.active = false
+    abortController.abort()
+    if (state !== undefined) activeLaunchAuthorities.delete(state)
+    try {
+      await Promise.allSettled([
+        forceCloseHttpServer(httpServer),
+        socksServer.close(),
+        ...(linuxBridge === undefined
+          ? []
+          : [
+              killBridgeProcess(linuxBridge.httpBridgeProcess, 'launch HTTP'),
+              killBridgeProcess(linuxBridge.socksBridgeProcess, 'launch SOCKS'),
+            ]),
+      ])
+      if (linuxBridge !== undefined) {
+        fs.rmSync(linuxBridge.httpSocketPath, { force: true })
+        fs.rmSync(linuxBridge.socksSocketPath, { force: true })
+      }
+      if (lease !== undefined) leaseRegistry.retire(lease)
+      launchSentinelRegistry.clear()
+      if (launchMitmCA !== undefined) await disposeMitmCA(launchMitmCA)
+    } catch {
+      // The original preparation error remains primary; the durable lease is
+      // already active/tombstoned and therefore fails closed across restart.
+    }
+    throw error
+  }
+}
+
+function launchFilesystemConfig(runtimeConfig: SandboxRuntimeConfig): {
+  readConfig: FsReadRestrictionConfig | undefined
+  writeConfig: FsWriteRestrictionConfig | undefined
+} {
+  if (runtimeConfig.filesystem.disabled) {
+    return { readConfig: undefined, writeConfig: undefined }
+  }
+  const stripWriteGlobs = (paths: string[]): string[] =>
+    paths
+      .map(path => removeTrailingGlobSuffix(path))
+      .filter(path => getPlatform() !== 'linux' || !containsGlobChars(path))
+  const writeConfig: FsWriteRestrictionConfig = {
+    allowOnly: [
+      ...getDefaultWritePaths(),
+      ...stripWriteGlobs(runtimeConfig.filesystem.allowWrite),
+    ],
+    denyWithinAllow: stripWriteGlobs(runtimeConfig.filesystem.denyWrite),
+  }
+  const expand = (paths: readonly string[]): string[] => {
+    const expanded: string[] = []
+    for (const path of paths) {
+      const stripped = removeTrailingGlobSuffix(path)
+      if (getPlatform() === 'linux' && containsGlobChars(stripped)) {
+        expanded.push(...expandGlobPattern(path))
+      } else {
+        expanded.push(stripped)
+      }
+    }
+    return expanded
+  }
+  const credentialDenyReadPaths = (runtimeConfig.credentials?.files ?? [])
+    .filter(file => file.mode === 'deny')
+    .map(file => file.path)
+  const readConfig: FsReadRestrictionConfig = {
+    denyOnly: expand([
+      ...new Set([
+        ...runtimeConfig.filesystem.denyRead,
+        ...credentialDenyReadPaths,
+      ]),
+    ]),
+    allowWithinDeny: expand(runtimeConfig.filesystem.allowRead ?? []),
+  }
+  return { readConfig, writeConfig }
+}
+
+async function wrapLaunchCommand(
+  options: LaunchAuthorityOptions,
+  runtimeConfig: SandboxRuntimeConfig,
+  context: HostNetworkManagerContext,
+  token: string,
+  launchMitmCA: MitmCA | undefined,
+  credentialRestrictions: CredentialRestrictionConfig,
+): Promise<{ argv: string[]; env: NodeJS.ProcessEnv }> {
+  const { readConfig, writeConfig } = launchFilesystemConfig(runtimeConfig)
+  if (launchMitmCA !== undefined && readConfig !== undefined) {
+    ;(readConfig.allowWithinDeny ??= []).push(launchMitmCA.certPath)
+  }
+  let wrapped: string
+  if (getPlatform() === 'macos') {
+    wrapped = wrapCommandWithSandboxMacOS({
+      command: options.command,
+      needsNetworkRestriction: true,
+      httpProxyPort: context.httpProxyPort,
+      socksProxyPort: context.socksProxyPort,
+      proxyAuthToken: token,
+      caCertPath: launchMitmCA?.certPath,
+      readConfig,
+      writeConfig,
+      unsetEnvVars: credentialRestrictions.unsetEnvVars,
+      setEnvVars: credentialRestrictions.setEnvVars,
+      allowUnixSockets: runtimeConfig.network.allowUnixSockets,
+      allowAllUnixSockets: runtimeConfig.network.allowAllUnixSockets,
+      allowLocalBinding: false,
+      allowMachLookup: runtimeConfig.network.allowMachLookup,
+      ignoreViolations: runtimeConfig.ignoreViolations,
+      allowPty: runtimeConfig.allowPty,
+      allowGitConfig: runtimeConfig.filesystem.allowGitConfig ?? false,
+      enableWeakerNetworkIsolation: false,
+      allowAppleEvents: runtimeConfig.allowAppleEvents ?? false,
+      binShell: options.binShell,
+    })
+  } else if (getPlatform() === 'linux') {
+    const bridge = context.linuxBridge
+    if (bridge === undefined) throw new Error('launch Linux bridge is unavailable')
+    wrapped = await wrapCommandWithSandboxLinux({
+      command: options.command,
+      needsNetworkRestriction: true,
+      httpSocketPath: bridge.httpSocketPath,
+      socksSocketPath: bridge.socksSocketPath,
+      httpProxyPort: context.httpProxyPort,
+      socksProxyPort: context.socksProxyPort,
+      proxyAuthToken: token,
+      caCertPath: launchMitmCA?.certPath,
+      readConfig,
+      writeConfig,
+      unsetEnvVars: credentialRestrictions.unsetEnvVars,
+      setEnvVars: credentialRestrictions.setEnvVars,
+      enableWeakerNestedSandbox: false,
+      allowAllUnixSockets: runtimeConfig.network.allowAllUnixSockets,
+      binShell: options.binShell,
+      ripgrepConfig: runtimeConfig.ripgrep ?? { command: 'rg' },
+      mandatoryDenySearchDepth:
+        runtimeConfig.mandatoryDenySearchDepth ?? 3,
+      allowGitConfig: runtimeConfig.filesystem.allowGitConfig ?? false,
+      seccompConfig: runtimeConfig.seccomp,
+      bwrapPath: runtimeConfig.bwrapPath,
+      socatPath: runtimeConfig.socatPath,
+      abortSignal: options.abortSignal,
+    })
+  } else {
+    throw new Error('per-launch proxy authority is unavailable')
+  }
+  return {
+    argv: [options.binShell ?? '/bin/bash', '-c', wrapped],
+    env: process.env,
+  }
+}
+
+function supportsLaunchAuthority(): boolean {
+  const platform = getPlatform()
+  return platform === 'macos' || platform === 'linux'
+}
+
+function initializeLaunchAuthority(endpointRegistryPath: string): void {
+  const registry = new EndpointLeaseRegistry(endpointRegistryPath, {
+    generationId: launchAuthorityGenerationId,
+  })
+  registry.recoverPriorGenerations()
+}
+
+function prepareLaunchAuthority(
+  runtimeConfig: SandboxRuntimeConfig,
+  options: LaunchAuthorityOptions,
+): Promise<PreparedLaunchAuthority> {
+  const operation = launchPreparationTail.then(() =>
+    prepareLaunchAuthorityUnserialized(runtimeConfig, options),
+  )
+  launchPreparationTail = operation.then(
+    () => undefined,
+    () => undefined,
+  )
+  return operation
 }
 
 // ============================================================================
@@ -753,6 +1342,18 @@ function getCredentialRestrictions(
   credentials: CredentialsConfig | undefined,
   allowedDomains: readonly string[] | undefined,
 ): CredentialRestrictionConfig {
+  return getCredentialRestrictionsForConfig(
+    credentials,
+    allowedDomains,
+    sentinelRegistry,
+  )
+}
+
+function getCredentialRestrictionsForConfig(
+  credentials: CredentialsConfig | undefined,
+  allowedDomains: readonly string[] | undefined,
+  launchSentinelRegistry: SentinelRegistry,
+): CredentialRestrictionConfig {
   if (!credentials) {
     return { denyReadPaths: [], unsetEnvVars: [], setEnvVars: {} }
   }
@@ -775,7 +1376,11 @@ function getCredentialRestrictions(
       // the sandbox can reach — narrow it explicitly when the credential
       // should only go to a subset.
       const injectHosts = v.injectHosts ?? allowedDomains ?? []
-      setEnvVars[v.name] = sentinelRegistry.register(v.name, real, injectHosts)
+      setEnvVars[v.name] = launchSentinelRegistry.register(
+        v.name,
+        real,
+        injectHosts,
+      )
     }
   }
 
@@ -1465,6 +2070,16 @@ export function forceCloseHttpServer(server: ForceCloseHttpServer): Promise<void
 }
 
 async function reset(): Promise<void> {
+  const launchCloseResults = await Promise.allSettled(
+    [...activeLaunchAuthorities].map(authority => closeLaunchAuthority(authority)),
+  )
+  const launchCleanupFailed = launchCloseResults.some(result => {
+    if (result.status === 'fulfilled') return false
+    logForDebugging(`Error closing launch authority: ${String(result.reason)}`, {
+      level: 'error',
+    })
+    return true
+  })
   // Abort guarded resolution/dial work before closing proxy listeners. Lease
   // release is idempotent, so later socket close events cannot revive state.
   resetDestinationGuardConnections()
@@ -1551,6 +2166,9 @@ async function reset(): Promise<void> {
   config = undefined
   destinationResolver = undefined
   sentinelRegistry.clear()
+  if (launchCleanupFailed) {
+    throw new Error('one or more launch authorities failed to close')
+  }
 }
 
 function getSandboxViolationStore() {
@@ -1668,6 +2286,12 @@ export interface ISandboxManager {
   getMitmCA(): MitmCA | undefined
   getSentinelRegistry(): SentinelRegistry
   updateConfig(newConfig: SandboxRuntimeConfig): void
+  supportsLaunchAuthority(): boolean
+  initializeLaunchAuthority(endpointRegistryPath: string): void
+  prepareLaunchAuthority(
+    runtimeConfig: SandboxRuntimeConfig,
+    options: LaunchAuthorityOptions,
+  ): Promise<PreparedLaunchAuthority>
   cleanupAfterCommand(): void
   reset(): Promise<void>
 }
@@ -1710,4 +2334,7 @@ export const SandboxManager: ISandboxManager = {
   getLinuxGlobPatternWarnings,
   getConfig,
   updateConfig,
+  supportsLaunchAuthority,
+  initializeLaunchAuthority,
+  prepareLaunchAuthority,
 } as const

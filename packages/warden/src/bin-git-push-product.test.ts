@@ -27,7 +27,11 @@ describe("warden git.push product wiring", () => {
         available: true,
         backend: "srt:vendored",
         enforcementTier: "sandbox:srt",
-        features: ["credential-tls-termination/v1", "egress-address-guard/v1"],
+        features: [
+          "credential-tls-termination/v1",
+          "egress-address-guard/v1",
+          "srt-launch-authority/v1",
+        ],
       }),
       execute: async () => ({ exitCode: 0, signal: null, stdout: "", stderr: "" }),
     };
@@ -179,7 +183,10 @@ describe("warden git.push product wiring", () => {
       tempRoot: "/private/tmp/keel-git-push-product-root",
     });
     expect(mocked.createVendoredSrtSandboxComponents).toHaveBeenCalledWith(
-      expect.objectContaining({ credentialTlsTermination: true }),
+      expect.objectContaining({
+        credentialTlsTermination: true,
+        launchAuthorityRegistryPath: "/tmp/keel-home/srt-endpoint-leases.json",
+      }),
     );
     expect(mocked.runStdioWardenServer).toHaveBeenCalledWith(
       expect.objectContaining({

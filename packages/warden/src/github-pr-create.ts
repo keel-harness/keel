@@ -42,6 +42,7 @@ import {
 import {
   CREDENTIAL_TLS_TERMINATION_CAPABILITY,
   EGRESS_ADDRESS_GUARD_CAPABILITY,
+  SRT_LAUNCH_AUTHORITY_CAPABILITY,
   type SandboxCredentialProxyConfig,
   type SandboxExecutionResult,
   type SandboxProfile,
@@ -270,7 +271,8 @@ export function githubPrCreateCapabilityAvailable(input: {
     input.sandbox.backend === "srt:vendored" &&
     input.sandbox.enforcementTier === "sandbox:srt" &&
     input.sandbox.features?.includes(EGRESS_ADDRESS_GUARD_CAPABILITY) === true &&
-    input.sandbox.features?.includes(CREDENTIAL_TLS_TERMINATION_CAPABILITY) === true
+    input.sandbox.features?.includes(CREDENTIAL_TLS_TERMINATION_CAPABILITY) === true &&
+    input.sandbox.features?.includes(SRT_LAUNCH_AUTHORITY_CAPABILITY) === true
   );
 }
 

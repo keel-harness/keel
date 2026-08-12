@@ -503,11 +503,12 @@ export async function initializeLinuxNetworkBridge(
   httpProxyPort: number,
   socksProxyPort: number,
   socatPath?: string,
+  socketRoot: string = tmpdir(),
+  socketId: string = randomBytes(8).toString('hex'),
 ): Promise<LinuxNetworkBridgeContext> {
   const socat = socatPath ?? 'socat'
-  const socketId = randomBytes(8).toString('hex')
-  const httpSocketPath = join(tmpdir(), `claude-http-${socketId}.sock`)
-  const socksSocketPath = join(tmpdir(), `claude-socks-${socketId}.sock`)
+  const httpSocketPath = join(socketRoot, `keel-http-${socketId}.sock`)
+  const socksSocketPath = join(socketRoot, `keel-socks-${socketId}.sock`)
 
   // Start HTTP bridge
   const httpSocatArgs = [

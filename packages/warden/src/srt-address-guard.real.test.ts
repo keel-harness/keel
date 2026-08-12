@@ -120,7 +120,10 @@ suite("real SRT connect-time destination address guard (opt-in)", () => {
     );
 
     try {
-      const components = await createVendoredSrtSandboxComponents({ resolveDestination });
+      const components = await createVendoredSrtSandboxComponents({
+        resolveDestination,
+        launchAuthorityRegistryPath: join(workRoot, "endpoint-leases.json"),
+      });
       const status = components.sandbox.status();
       const gate = resolveRealSandboxGate({
         required,

@@ -21572,7 +21572,25 @@ printf '%s\\n' '${match}'
       }
 
       warden.send(executeFrame("srt-allow", "printf sandbox-ok"));
-      const allowRaw = JsonRpcSuccessResponse.parse(await warden.readJson());
+      const allowResponse = await warden.readJson();
+      const allowSuccess = JsonRpcSuccessResponse.safeParse(allowResponse);
+      if (!allowSuccess.success) {
+        // Static dependency discovery cannot prove that the current host will permit the
+        // per-launch loopback listeners. A launch-time denial must quarantine the runtime and
+        // keep every later command non-executing; the opt-in real-sandbox suite covers the
+        // successful listener path outside restricted test hosts.
+        const launchFailure = JsonRpcErrorResponse.parse(allowResponse);
+        expect(launchFailure.error.data?.code).toBe("SANDBOX_EXECUTION_FAILED");
+
+        warden.send(
+          executeFrame("srt-quarantined-exec", `printf denied > ${shQuote(outsidePath)}`),
+        );
+        const quarantined = JsonRpcErrorResponse.parse(await warden.readJson());
+        expect(quarantined.error.data?.code).toBe("TIER_UNAVAILABLE");
+        expect(existsSync(outsidePath)).toBe(false);
+        return;
+      }
+      const allowRaw = allowSuccess.data;
       const allow = WARDEN_METHODS["warden.execute"].result.parse(allowRaw.result);
       expect(allow.verdict).toBe("allow");
       expect(allow.result).toMatchObject({

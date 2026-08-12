@@ -62,7 +62,7 @@ function failing(stderr = "tmux missing"): TmuxCommandResult {
 
 function launchPreparer(options: {
   readonly descriptor: SandboxSpawnDescriptor;
-  readonly cleanup: () => void;
+  readonly cleanup: () => void | Promise<void>;
   readonly prepared: Array<{
     readonly invocation: SandboxInvocation;
     readonly profile: SandboxProfile;
@@ -1080,7 +1080,7 @@ describe("system tmux console broker", () => {
           profile: TARGET,
         }),
       ).rejects.toThrow(/kill failed/u);
-      expect(cleanupCount).toBe(4);
+      expect(cleanupCount).toBe(5);
 
       mode = "open-ok";
       await expect(
@@ -1103,13 +1103,13 @@ describe("system tmux console broker", () => {
           profile: TARGET,
         }),
       ).resolves.toEqual({ closed: true });
-      expect(cleanupCount).toBe(5);
+      expect(cleanupCount).toBe(6);
 
       const openedForDispose = await broker.open(openRequest(sandbox));
       expect(openedForDispose.processIdentity).toMatchObject({ paneId: "%9" });
       mode = "dispose-fail";
       await expect(broker.dispose()).resolves.toBeUndefined();
-      expect(cleanupCount).toBe(6);
+      expect(cleanupCount).toBe(7);
 
       const brokerForThrowingDispose = createSystemTmuxConsoleBroker({
         tmuxPath: "/usr/local/bin/tmux",
@@ -1135,13 +1135,13 @@ describe("system tmux console broker", () => {
       ).resolves.toMatchObject({ processIdentity: { paneId: "%9" } });
       mode = "dispose-throw";
       await expect(brokerForThrowingDispose.dispose()).resolves.toBeUndefined();
-      expect(cleanupCount).toBe(7);
+      expect(cleanupCount).toBe(8);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
   });
 
-  it("releases approved sessions without killing the tmux server on broker disposal", async () => {
+  it("revokes and drains launch authority before releasing an external session", async () => {
     const root = join(tmpdir(), "keel-tmux-broker-release-test");
     const privateRoot = join(root, "broker");
     rmSync(root, { recursive: true, force: true });
@@ -1190,7 +1190,7 @@ describe("system tmux console broker", () => {
         }),
       ).resolves.toEqual({ released: true });
 
-      expect(cleanupCount).toBe(0);
+      expect(cleanupCount).toBe(1);
       await expect(
         broker.close({
           handle,
@@ -1203,9 +1203,203 @@ describe("system tmux console broker", () => {
       ).resolves.toEqual({ closed: false });
 
       await broker.dispose();
-      expect(cleanupCount).toBe(0);
+      expect(cleanupCount).toBe(1);
       expect(runner.commands.some((command) => command.argv.includes("kill-server"))).toBe(false);
       expect(runner.commands.some((command) => command.argv.includes("kill-session"))).toBe(false);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("denies release and retains control when authority drain cannot be confirmed", async () => {
+    const root = join(tmpdir(), "keel-tmux-broker-release-failure-test");
+    const privateRoot = join(root, "broker");
+    rmSync(root, { recursive: true, force: true });
+    mkdirSync(root, { recursive: true });
+    let cleanupCalls = 0;
+    const events: string[] = [];
+    const runner = fakeRunner((request) => {
+      if (request.argv.includes("new-session")) return successful("$7|%9|1234|0\n");
+      if (request.argv.includes("kill-session")) events.push("kill-session");
+      return successful();
+    });
+    try {
+      const broker = createSystemTmuxConsoleBroker({
+        tmuxPath: "/usr/local/bin/tmux",
+        tmuxVersion: "tmux 3.5a",
+        privateRoot,
+        runner,
+        launchPreparer: launchPreparer({
+          prepared: [],
+          cleanup: async () => {
+            cleanupCalls += 1;
+            events.push(`cleanup-${String(cleanupCalls)}`);
+            if (cleanupCalls === 1) throw new Error("drain not confirmed");
+          },
+          descriptor: { argv: ["/srt-wrap", "--"], env: { PATH: "/bin" } },
+        }),
+      });
+      const sandbox = broker.prepareSandboxPlan({
+        invocation: { command: TARGET.command, cwd: TARGET.cwd },
+        profile: { filesystem: { allowRead: ["/workspace"], allowWrite: ["/workspace"] } },
+      });
+      const opened = await broker.open(openRequest(sandbox));
+      const handle = handleRecord(opened.processIdentity);
+
+      await expect(
+        broker.release({
+          handle,
+          operation: parseConsoleToolCall({
+            name: "interactive_console.release",
+            args: { handle: handle.handle, reason: "external-grader" },
+          }) as Extract<ReturnType<typeof parseConsoleToolCall>, { readonly kind: "release" }>,
+          profile: TARGET,
+        }),
+      ).rejects.toThrow("drain not confirmed");
+
+      await expect(
+        broker.close({
+          handle,
+          operation: parseConsoleToolCall({
+            name: "interactive_console.close",
+            args: { handle: handle.handle },
+          }) as Extract<ReturnType<typeof parseConsoleToolCall>, { readonly kind: "close" }>,
+          profile: TARGET,
+        }),
+      ).resolves.toEqual({ closed: true });
+      expect(cleanupCalls).toBe(2);
+      expect(events).toEqual(["cleanup-1", "cleanup-2", "kill-session"]);
+      expect(runner.commands.some((command) => command.argv.includes("kill-session"))).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("still kills an uncertain tmux session when open rollback authority cleanup fails", async () => {
+    const root = join(tmpdir(), "keel-tmux-broker-open-cleanup-failure-test");
+    const privateRoot = join(root, "broker");
+    rmSync(root, { recursive: true, force: true });
+    mkdirSync(root, { recursive: true });
+    const runner = fakeRunner((request) => {
+      if (request.argv.includes("new-session")) return successful("invalid identity\n");
+      return successful();
+    });
+    try {
+      const broker = createSystemTmuxConsoleBroker({
+        tmuxPath: "/usr/local/bin/tmux",
+        tmuxVersion: "tmux 3.5a",
+        privateRoot,
+        runner,
+        launchPreparer: launchPreparer({
+          prepared: [],
+          cleanup: async () => {
+            throw new Error("rollback drain failed");
+          },
+          descriptor: { argv: ["/srt-wrap", "--"], env: { PATH: "/bin" } },
+        }),
+      });
+      const sandbox = broker.prepareSandboxPlan({
+        invocation: { command: TARGET.command, cwd: TARGET.cwd },
+        profile: { filesystem: { allowRead: ["/workspace"], allowWrite: ["/workspace"] } },
+      });
+
+      await expect(broker.open(openRequest(sandbox))).rejects.toThrow("rollback drain failed");
+      expect(runner.commands.some((command) => command.argv.includes("kill-session"))).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("kills on close drain failure and keeps disposal best-effort after repeated cleanup failure", async () => {
+    const root = join(tmpdir(), "keel-tmux-broker-close-cleanup-failure-test");
+    const privateRoot = join(root, "broker");
+    rmSync(root, { recursive: true, force: true });
+    mkdirSync(root, { recursive: true });
+    const events: string[] = [];
+    let killCalls = 0;
+    const runner = fakeRunner((request) => {
+      if (request.argv.includes("new-session")) return successful("$7|%9|1234|0\n");
+      if (request.argv.includes("kill-session")) {
+        killCalls += 1;
+        events.push(`kill-${String(killCalls)}`);
+        if (killCalls === 2) throw new Error("already unavailable");
+      }
+      return successful();
+    });
+    try {
+      const broker = createSystemTmuxConsoleBroker({
+        tmuxPath: "/usr/local/bin/tmux",
+        tmuxVersion: "tmux 3.5a",
+        privateRoot,
+        runner,
+        launchPreparer: launchPreparer({
+          prepared: [],
+          cleanup: async () => {
+            events.push("cleanup");
+            throw new Error("drain not confirmed");
+          },
+          descriptor: { argv: ["/srt-wrap", "--"], env: { PATH: "/bin" } },
+        }),
+      });
+      const sandbox = broker.prepareSandboxPlan({
+        invocation: { command: TARGET.command, cwd: TARGET.cwd },
+        profile: { filesystem: { allowRead: ["/workspace"], allowWrite: ["/workspace"] } },
+      });
+      const opened = await broker.open(openRequest(sandbox));
+      const handle = handleRecord(opened.processIdentity);
+
+      await expect(
+        broker.close({
+          handle,
+          operation: parseConsoleToolCall({
+            name: "interactive_console.close",
+            args: { handle: handle.handle },
+          }) as Extract<ReturnType<typeof parseConsoleToolCall>, { readonly kind: "close" }>,
+          profile: TARGET,
+        }),
+      ).rejects.toThrow("drain not confirmed");
+      expect(events).toEqual(["cleanup", "kill-1"]);
+
+      await expect(broker.dispose()).resolves.toBeUndefined();
+      expect(events).toEqual(["cleanup", "kill-1", "cleanup", "kill-2"]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("revokes and drains every controlled launch before broker disposal kills tmux", async () => {
+    const root = join(tmpdir(), "keel-tmux-broker-dispose-order-test");
+    const privateRoot = join(root, "broker");
+    rmSync(root, { recursive: true, force: true });
+    mkdirSync(root, { recursive: true });
+    const events: string[] = [];
+    const runner = fakeRunner((request) => {
+      if (request.argv.includes("new-session")) return successful("$7|%9|1234|0\n");
+      if (request.argv.includes("kill-session")) events.push("kill-session");
+      return successful();
+    });
+    try {
+      const broker = createSystemTmuxConsoleBroker({
+        tmuxPath: "/usr/local/bin/tmux",
+        tmuxVersion: "tmux 3.5a",
+        privateRoot,
+        runner,
+        launchPreparer: launchPreparer({
+          prepared: [],
+          cleanup: () => {
+            events.push("cleanup");
+          },
+          descriptor: { argv: ["/srt-wrap", "--"], env: { PATH: "/bin" } },
+        }),
+      });
+      const sandbox = broker.prepareSandboxPlan({
+        invocation: { command: TARGET.command, cwd: TARGET.cwd },
+        profile: { filesystem: { allowRead: ["/workspace"], allowWrite: ["/workspace"] } },
+      });
+      await broker.open(openRequest(sandbox));
+
+      await broker.dispose();
+      expect(events).toEqual(["cleanup", "kill-session"]);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

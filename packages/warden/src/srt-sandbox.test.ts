@@ -109,8 +109,39 @@ describe("SrtSandboxPort", () => {
       env: { PATH: "/usr/bin", TERM: "xterm-256color" },
     });
     expect(cleanupCalls).toBe(0);
-    prepared.cleanup();
-    prepared.cleanup();
+    await prepared.cleanup();
+    await prepared.cleanup();
+    expect(cleanupCalls).toBe(1);
+  });
+
+  it("makes asynchronous launch cleanup exactly-once while preserving its failure", async () => {
+    let cleanupCalls = 0;
+    const preparer = createSrtSandboxLaunchPreparer({
+      runtime: {
+        prepareLaunch: async () => ({
+          argv: ["/usr/bin/env", "true"],
+          env: { PATH: "/usr/bin" },
+          cleanup: async () => {
+            cleanupCalls += 1;
+            throw new Error("drain not confirmed");
+          },
+        }),
+        wrapWithSandboxArgv: async () => {
+          throw new Error("legacy wrapping must not run");
+        },
+      },
+      status: {
+        available: true,
+        backend: "srt:fake",
+        enforcementTier: "sandbox:srt",
+      },
+    });
+    const prepared = await preparer.prepareLaunch({ command: "true" }, {});
+
+    const first = prepared.cleanup();
+    const second = prepared.cleanup();
+    await expect(first).rejects.toThrow("drain not confirmed");
+    await expect(second).rejects.toThrow("drain not confirmed");
     expect(cleanupCalls).toBe(1);
   });
 

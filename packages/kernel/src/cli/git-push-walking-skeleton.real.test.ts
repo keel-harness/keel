@@ -566,6 +566,7 @@ function spawnedGitPushWarden(options: {
   const entryDir = tempDir("keel-git-push-warden-entry-");
   const entryPath = join(entryDir, "warden.mjs");
   const tempRoot = tempDir("keel-git-push-warden-temp-");
+  const authorityRoot = tempDir("keel-git-push-warden-authority-");
   const helperHome = tempDir("keel-git-push-helper-home-");
   const helperPath = join(helperHome, "credential-helper.mjs");
   const helperConfigPath = join(helperHome, ".gitconfig");
@@ -628,6 +629,7 @@ function spawnedGitPushWarden(options: {
       const components = await createVendoredSrtSandboxComponents({
         credentialTlsTermination:
           gitPushAuthority.transportRequirements.credentialTlsTermination,
+        launchAuthorityRegistryPath: ${JSON.stringify(join(authorityRoot, "endpoint-leases.json"))},
         resolveDestination: async (hostname, port) => {
           if (hostname !== fixture.host || port !== fixture.port) {
             throw new Error("fixture resolver refused unbound destination");

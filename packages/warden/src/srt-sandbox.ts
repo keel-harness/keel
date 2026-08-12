@@ -55,6 +55,16 @@ export interface SrtRuntimeAdapter {
   initialize?: () => Promise<void>;
   updateConfig?: (customConfig: SrtRuntimeConfig) => void;
   cleanupAfterCommand?: () => void;
+  prepareLaunch?: (
+    command: string,
+    binShell: string | undefined,
+    customConfig: SrtRuntimeConfig,
+    abortSignal: AbortSignal | undefined,
+  ) => Promise<{
+    argv: string[];
+    env: NodeJS.ProcessEnv;
+    cleanup(): void | Promise<void>;
+  }>;
   wrapWithSandboxArgv(
     command: string,
     binShell: string | undefined,
@@ -92,7 +102,7 @@ export interface SrtSandboxLaunchPreparerOptions {
 
 export interface SrtSandboxPreparedLaunch {
   readonly descriptor: SandboxSpawnDescriptor;
-  cleanup(): void;
+  cleanup(): void | Promise<void>;
 }
 
 export interface SrtSandboxLaunchPreparer {
@@ -371,7 +381,7 @@ export function createSrtSandboxLaunchPreparer(
       if (!currentStatus.available) {
         throw new Error(currentStatus.reason ?? "sandbox backend unavailable");
       }
-      if (!initialized) {
+      if (options.runtime.prepareLaunch === undefined && !initialized) {
         await options.runtime.initialize?.();
         initialized = true;
       }
@@ -379,26 +389,41 @@ export function createSrtSandboxLaunchPreparer(
         ...profileToSrtConfig(profile),
         ...credentialProxyToSrtConfig(executeOptions?.credentialProxy),
       };
-      options.runtime.updateConfig?.(customConfig);
       let wrapped: { argv: string[]; env: NodeJS.ProcessEnv };
+      let cleanup: () => void | Promise<void>;
       try {
-        wrapped = await options.runtime.wrapWithSandboxArgv(
-          sandboxCommandForInvocation(invocation),
-          options.binShell,
-          customConfig,
-          executeOptions?.signal,
-        );
+        if (options.runtime.prepareLaunch !== undefined) {
+          const launch = await options.runtime.prepareLaunch(
+            sandboxCommandForInvocation(invocation),
+            options.binShell,
+            customConfig,
+            executeOptions?.signal,
+          );
+          wrapped = launch;
+          cleanup = () => launch.cleanup();
+        } else {
+          options.runtime.updateConfig?.(customConfig);
+          wrapped = await options.runtime.wrapWithSandboxArgv(
+            sandboxCommandForInvocation(invocation),
+            options.binShell,
+            customConfig,
+            executeOptions?.signal,
+          );
+          cleanup = () => options.runtime.cleanupAfterCommand?.();
+        }
       } catch (error) {
         options.runtime.cleanupAfterCommand?.();
         throw error;
       }
-      let cleaned = false;
+      let cleanupResult: void | Promise<void> | undefined;
+      let cleanupStarted = false;
       return {
         descriptor: sandboxSpawnDescriptor(invocation, wrapped, executeOptions?.credentialProxy),
-        cleanup(): void {
-          if (cleaned) return;
-          cleaned = true;
-          options.runtime.cleanupAfterCommand?.();
+        cleanup(): void | Promise<void> {
+          if (cleanupStarted) return cleanupResult;
+          cleanupStarted = true;
+          cleanupResult = cleanup();
+          return cleanupResult;
         },
       };
     },
@@ -420,7 +445,7 @@ export function createSrtSandboxPort(options: SrtSandboxPortOptions): SandboxPor
       try {
         return await runner.run(launch.descriptor, processRunnerOptions(executeOptions));
       } finally {
-        launch.cleanup();
+        await launch.cleanup();
       }
     },
   };

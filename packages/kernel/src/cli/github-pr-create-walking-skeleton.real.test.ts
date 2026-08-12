@@ -427,6 +427,7 @@ function spawnedGithubPrWarden(options: {
   const entryDir = tempDir("keel-github-pr-product-warden-entry-");
   const entryPath = join(entryDir, "warden.mjs");
   const tempRoot = tempDir("keel-github-pr-product-warden-temp-");
+  const authorityRoot = tempDir("keel-github-pr-product-warden-authority-");
   const helperHome = tempDir("keel-github-pr-product-helper-home-");
   const helperPath = join(helperHome, "credential-helper.mjs");
   const helperConfigPath = join(helperHome, ".gitconfig");
@@ -488,6 +489,7 @@ function spawnedGithubPrWarden(options: {
       });
       const components = await createVendoredSrtSandboxComponents({
         credentialTlsTermination: true,
+        launchAuthorityRegistryPath: ${JSON.stringify(join(authorityRoot, "endpoint-leases.json"))},
         resolveDestination: async (hostname, port) => {
           if (hostname !== fixtureApi.host || port !== fixtureApi.port) {
             throw new Error("fixture resolver refused unbound destination");

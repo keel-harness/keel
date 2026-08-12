@@ -51,6 +51,7 @@ describe("warden address-guard product wiring", () => {
     const createVendoredSrtSandboxComponents = vi.fn(
       async (_options?: {
         readonly resolveDestination?: BoundedEgressAddressResolver["resolveDestination"];
+        readonly launchAuthorityRegistryPath?: string;
       }) => {
         order.push("sandbox");
         return { sandbox, shutdown: shutdownSandbox };
@@ -176,6 +177,7 @@ describe("warden address-guard product wiring", () => {
       process.env,
     );
     const srtOptions = mocked.createVendoredSrtSandboxComponents.mock.calls[0]?.[0];
+    expect(srtOptions?.launchAuthorityRegistryPath).toBe("/tmp/keel-home/srt-endpoint-leases.json");
     const signal = new AbortController().signal;
     await srtOptions?.resolveDestination?.("api.example.com", 443, signal);
     expect(mocked.resolver.resolveDestination).toHaveBeenCalledWith("api.example.com", 443, signal);
