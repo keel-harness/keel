@@ -52,6 +52,18 @@ describe("doctor executable probe authority", () => {
     expect(node).toEqual(["/opt/rg", "/opt/keel/keel-warden.mjs"]);
   });
 
+  it("omits unavailable and non-absolute executable candidates", () => {
+    expect(doctorHarnessExecutablePaths(undefined, undefined)).toEqual([]);
+    expect(doctorHarnessExecutablePaths("/opt/rg", undefined)).toEqual(["/opt/rg"]);
+    expect(
+      doctorHarnessExecutablePaths(undefined, {
+        command: "keel",
+        args: ["--warden", "file:///opt/keel/keel-warden.mjs", "/opt/keel/warden-entry.mjs"],
+        env: { KEEL_INTERNAL_WARDEN_STDIO: "1" },
+      }),
+    ).toEqual(["/opt/keel/warden-entry.mjs"]);
+  });
+
   it("probes an exact preselected bundled executable even when the install is inside the workspace", () => {
     const workspace = tempDir("keel-doctor-executable-workspace-");
     const bundled = join(workspace, "node_modules", "@vscode", "ripgrep", "bin", "rg");
