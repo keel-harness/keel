@@ -884,6 +884,7 @@ suite("ADR-0091 github.pr.create complete product path (real sandbox)", () => {
       ]);
 
       expect(await interruptActiveTurnAndWait(ui, done)).toBe(true);
+      await expect(done).resolves.toMatchObject({ lastStop: "aborted" });
       expect(fixture.requests).toEqual([]);
     } finally {
       credentialWindow.release();
