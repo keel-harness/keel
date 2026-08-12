@@ -400,6 +400,22 @@ async function waitFor(
   ]);
 }
 
+/** Keep Warden startup outside the mutation-stage watchdogs. The interactive shell deliberately
+ * paints an input-capable `starting-protections` frame before the spawned Warden is ready; queued
+ * startup input is covered separately in session-entry.test.ts. These product assertions measure
+ * review and credential latency only after the controller reports the governed route ready. */
+async function waitForGovernedProductSession(ui: TestUI): Promise<void> {
+  await waitFor(
+    ui,
+    "governed product session readiness",
+    (view) =>
+      view.awaitingInput === true &&
+      view.status.startup === undefined &&
+      view.status.protectionRoute === "governed",
+    12_000,
+  );
+}
+
 function spawnedGithubPrWarden(options: {
   readonly auditDir: string;
   readonly fixture: GithubApiFixture;
@@ -703,6 +719,7 @@ suite("ADR-0091 github.pr.create complete product path (real sandbox)", () => {
     });
 
     try {
+      await waitForGovernedProductSession(ui);
       ui.queue.push({ kind: "line", text: "create the exact pull request" });
       await waitFor(ui, "lossless github.pr.create approval", (view) => {
         const frame = renderFrame(view);
@@ -867,6 +884,7 @@ suite("ADR-0091 github.pr.create complete product path (real sandbox)", () => {
     const credentialWindow = fixture.pauseNextAuthenticatedRequest();
 
     try {
+      await waitForGovernedProductSession(ui);
       ui.queue.push({ kind: "line", text: "create the exact pull request" });
       await waitFor(ui, "interrupt regression approval", (view) =>
         renderFrame(view).includes("GitHub pull request creation requires approval"),

@@ -519,6 +519,21 @@ async function waitFor(
   ]);
 }
 
+/** Keep Warden startup outside mutation-stage watchdogs. The session is ready for governed
+ * publication work only after protection startup has settled and the controller is accepting
+ * input on the governed route. */
+async function waitForGovernedProductSession(ui: TestUI): Promise<void> {
+  await waitFor(
+    ui,
+    "governed product session readiness",
+    (view) =>
+      view.awaitingInput === true &&
+      view.status.startup === undefined &&
+      view.status.protectionRoute === "governed",
+    12_000,
+  );
+}
+
 function createWorkspace(remoteUrl: string): { readonly cwd: string; readonly head: string } {
   const cwd = tempDir("keel-git-push-workspace-");
   git(["init", "--initial-branch=main"], cwd);
@@ -751,6 +766,7 @@ suite("ADR-0091 git.push walking skeleton (real sandbox)", () => {
     });
 
     try {
+      await waitForGovernedProductSession(ui);
       ui.queue.push({ kind: "line", text: "publish the exact commit" });
       await waitFor(ui, "lossless git.push approval", (view) => {
         const frame = renderFrame(view);
@@ -965,6 +981,7 @@ suite("ADR-0091 git.push walking skeleton (real sandbox)", () => {
     });
 
     try {
+      await waitForGovernedProductSession(ui);
       ui.queue.push({ kind: "line", text: "publish the fast-forward commit" });
       await waitFor(ui, "fast-forward git.push approval", (view) => {
         const frame = renderFrame(view);
@@ -1090,6 +1107,7 @@ suite("ADR-0091 git.push walking skeleton (real sandbox)", () => {
     });
 
     try {
+      await waitForGovernedProductSession(ui);
       ui.queue.push({ kind: "line", text: "attempt the exact non-fast-forward commit" });
       await waitFor(ui, "non-fast-forward git.push approval", (view) => {
         const frame = renderFrame(view);
@@ -1182,6 +1200,7 @@ exit 0
     });
 
     try {
+      await waitForGovernedProductSession(ui);
       ui.queue.push({ kind: "line", text: "attempt the protected branch" });
       await waitFor(ui, "protected-branch git.push approval", (view) => {
         const frame = renderFrame(view);
