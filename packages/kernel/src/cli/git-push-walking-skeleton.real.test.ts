@@ -472,6 +472,30 @@ class TestUI {
   }
 }
 
+/** Test cleanup must stop an active governed turn and close its input stream. `/exit` alone is
+ * deliberately only a notice while a turn is running, so awaiting the session after an earlier
+ * assertion/fixture timeout would otherwise mask that useful error until Vitest's outer timeout.
+ * The bounded join returns false instead of replacing the test's original, more useful failure. */
+async function interruptActiveTurnAndWait(ui: TestUI, done: Promise<unknown>): Promise<boolean> {
+  ui.queue.push({ kind: "interrupt" });
+  ui.queue.close();
+  let timeout: NodeJS.Timeout | undefined;
+  try {
+    return await Promise.race([
+      done.then(
+        () => true,
+        () => true,
+      ),
+      new Promise<false>((resolveTimeout) => {
+        timeout = setTimeout(() => resolveTimeout(false), 5_000);
+        timeout.unref();
+      }),
+    ]);
+  } finally {
+    if (timeout !== undefined) clearTimeout(timeout);
+  }
+}
+
 async function waitFor(
   ui: TestUI,
   label: string,
@@ -688,14 +712,7 @@ function spawnedAuditExportWarden(options: {
 
 suite("ADR-0091 git.push walking skeleton (real sandbox)", () => {
   it("pushes one exact new branch through model projection, review, SRT TLS, verification, audit, and TUI", async () => {
-    const markStage = (stage: string): void => {
-      if (process.env["CI"] === "true" && process.versions.node.startsWith("22.")) {
-        process.stderr.write(`[real-product-stage] git.push ${stage}\n`);
-      }
-    };
-    markStage("fixture-setup-start");
     const fixture = await startSmartGitFixture();
-    markStage("fixture-ready");
     const { cwd, head } = createWorkspace(fixture.canonicalUrl);
     const hostilePrePushHook = join(cwd, ".git", "hooks", "pre-push");
     writeFileSync(hostilePrePushHook, "#!/bin/sh\nexit 73\n", { mode: 0o700 });
@@ -732,7 +749,6 @@ suite("ADR-0091 git.push walking skeleton (real sandbox)", () => {
       trustFlag: true,
       warden,
     });
-    markStage("session-started");
 
     try {
       ui.queue.push({ kind: "line", text: "publish the exact commit" });
@@ -745,7 +761,6 @@ suite("ADR-0091 git.push walking skeleton (real sandbox)", () => {
           frame.includes(head)
         );
       });
-      markStage("approval-ready");
       const approvalFrame = renderFrame(ui.latest!);
       expect(approvalFrame).toContain("create this branch or fast-forward it to this commit");
       expect(approvalFrame).toContain("this occurrence once");
@@ -766,11 +781,9 @@ suite("ADR-0091 git.push walking skeleton (real sandbox)", () => {
             timeout.unref();
           }),
         ]);
-        markStage("credential-request-entered");
         liveProcessListing = processListing();
       } finally {
         liveCredentialWindow.release();
-        markStage("credential-request-released");
       }
       expect(liveProcessListing).toContain(warden.entryPath);
       expectCredentialAbsent(liveProcessListing, observedCredential(fixture));
@@ -821,11 +834,8 @@ suite("ADR-0091 git.push walking skeleton (real sandbox)", () => {
           `${error instanceof Error ? error.message : String(error)}; HTTPS request count: ${String(fixture.requests.length)}; bounded preflight diagnostic: ${JSON.stringify(diagnostic)}`,
         );
       }
-      markStage("tool-completion-rendered");
       ui.queue.push({ kind: "command", name: "/exit" });
-      markStage("exit-queued");
       await done;
-      markStage("session-settled");
 
       expect(git(["--git-dir", fixture.remoteGitDir, "rev-parse", destinationRef])).toBe(head);
       expect(unrelatedRemoteRefs(fixture.remoteGitDir, destinationRef)).toBe(unrelatedRefsBefore);
@@ -876,7 +886,6 @@ suite("ADR-0091 git.push walking skeleton (real sandbox)", () => {
       // second process audit-only proves the retained bundle without adding an unrelated SRT
       // listener lifecycle to the credential-custody assertion.
       const exportWarden = spawnedAuditExportWarden({ auditDir, workspaceRoot: cwd });
-      markStage("audit-export-start");
       const exportMessage = await runAuditExportCommand({
         sessionId,
         cwd,
@@ -884,7 +893,6 @@ suite("ADR-0091 git.push walking skeleton (real sandbox)", () => {
         env,
         warden: exportWarden,
       });
-      markStage("audit-export-settled");
       expect(exportMessage).toContain("exported audit bundle:");
       const bundlePath = join(exportDir, `bundle_${sessionId}`);
       expect(runAuditVerifyCommand({ bundlePath })).toContain("verified audit bundle:");
@@ -898,14 +906,9 @@ suite("ADR-0091 git.push walking skeleton (real sandbox)", () => {
               "pushed",
         ),
       ).toBe(true);
-      markStage("assertions-complete");
     } finally {
-      markStage("cleanup-start");
-      ui.queue.push({ kind: "command", name: "/exit" });
-      await done.catch(() => undefined);
-      markStage("cleanup-session-settled");
+      await interruptActiveTurnAndWait(ui, done);
       await fixture.close();
-      markStage("cleanup-fixture-settled");
     }
   }, 60_000);
 
@@ -1006,8 +1009,7 @@ suite("ADR-0091 git.push walking skeleton (real sandbox)", () => {
         credential,
       );
     } finally {
-      ui.queue.push({ kind: "command", name: "/exit" });
-      await done.catch(() => undefined);
+      await interruptActiveTurnAndWait(ui, done);
       await fixture.close();
     }
   }, 60_000);
@@ -1124,8 +1126,7 @@ suite("ADR-0091 git.push walking skeleton (real sandbox)", () => {
         fixture.requests.every((request) => request.authorization === credential.authorization),
       ).toBe(true);
     } finally {
-      ui.queue.push({ kind: "command", name: "/exit" });
-      await done.catch(() => undefined);
+      await interruptActiveTurnAndWait(ui, done);
       await fixture.close();
     }
   }, 60_000);
@@ -1242,8 +1243,7 @@ exit 0
         .map((line) => AnyAuditRecord.parse(JSON.parse(line)));
       expect(verifyChain(toChainRecords(records)).ok).toBe(true);
     } finally {
-      ui.queue.push({ kind: "command", name: "/exit" });
-      await done.catch(() => undefined);
+      await interruptActiveTurnAndWait(ui, done);
       await fixture.close();
     }
   }, 60_000);

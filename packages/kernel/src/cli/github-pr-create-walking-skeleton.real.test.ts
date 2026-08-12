@@ -355,6 +355,30 @@ class TestUI {
   }
 }
 
+/** Test cleanup must stop an active governed turn and close its input stream. `/exit` alone is
+ * deliberately only a notice while a turn is running, so awaiting the session after an earlier
+ * assertion/fixture timeout would otherwise mask that useful error until Vitest's outer timeout.
+ * The bounded join returns false instead of replacing the test's original, more useful failure. */
+async function interruptActiveTurnAndWait(ui: TestUI, done: Promise<unknown>): Promise<boolean> {
+  ui.queue.push({ kind: "interrupt" });
+  ui.queue.close();
+  let timeout: NodeJS.Timeout | undefined;
+  try {
+    return await Promise.race([
+      done.then(
+        () => true,
+        () => true,
+      ),
+      new Promise<false>((resolveTimeout) => {
+        timeout = setTimeout(() => resolveTimeout(false), 5_000);
+        timeout.unref();
+      }),
+    ]);
+  } finally {
+    if (timeout !== undefined) clearTimeout(timeout);
+  }
+}
+
 async function waitFor(
   ui: TestUI,
   label: string,
@@ -636,15 +660,8 @@ function expectSecretAbsentFromTree(root: string, secret: string): void {
 
 suite("ADR-0091 github.pr.create complete product path (real sandbox)", () => {
   it("creates one exact PR through model projection, TUI review, spawned Warden, and verified HTTPS", async () => {
-    const markStage = (stage: string): void => {
-      if (process.env["CI"] === "true" && process.versions.node.startsWith("22.")) {
-        process.stderr.write(`[real-product-stage] github.pr.create ${stage}\n`);
-      }
-    };
-    markStage("workspace-setup-start");
     const source = createWorkspace();
     const fixture = await startGithubApiFixture(source.head, source.base);
-    markStage("fixture-ready");
     const home = tempDir("keel-github-pr-product-home-");
     const auditDir = tempDir("keel-github-pr-product-audit-");
     const env: NodeJS.ProcessEnv = {
@@ -684,7 +701,6 @@ suite("ADR-0091 github.pr.create complete product path (real sandbox)", () => {
       trustFlag: true,
       warden,
     });
-    markStage("session-started");
 
     try {
       ui.queue.push({ kind: "line", text: "create the exact pull request" });
@@ -698,7 +714,6 @@ suite("ADR-0091 github.pr.create complete product path (real sandbox)", () => {
           frame.includes('Body JSON: "Exact body\\n\\n- verified"')
         );
       });
-      markStage("approval-ready");
       const approvalFrame = renderFrame(ui.latest!);
       expect(approvalFrame).toContain("trigger repository notifications");
       expect(approvalFrame).toContain("this occurrence once");
@@ -717,13 +732,11 @@ suite("ADR-0091 github.pr.create complete product path (real sandbox)", () => {
             timeout.unref();
           }),
         ]);
-        markStage("credential-request-entered");
         const authorization = fixture.acceptedAuthorization();
         if (authorization === undefined) throw new Error("fixture observed no Bearer credential");
         expectSecretAbsent(processListing(), authorization.slice("Bearer ".length));
       } finally {
         credentialWindow.release();
-        markStage("credential-request-released");
       }
 
       await waitFor(
@@ -732,11 +745,8 @@ suite("ADR-0091 github.pr.create complete product path (real sandbox)", () => {
         (view) => view.awaitingInput === true && renderFrame(view).includes("created PR"),
         35_000,
       );
-      markStage("tool-completion-rendered");
       ui.queue.push({ kind: "command", name: "/exit" });
-      markStage("exit-queued");
       await done;
-      markStage("session-settled");
 
       const authorization = fixture.acceptedAuthorization();
       if (authorization === undefined) throw new Error("fixture retained no Bearer credential");
@@ -797,7 +807,6 @@ suite("ADR-0091 github.pr.create complete product path (real sandbox)", () => {
       expectSecretAbsentFromTree(source.cwd, secret);
 
       const exportDir = tempDir("keel-github-pr-product-export-");
-      markStage("audit-export-start");
       const exportMessage = await runAuditExportCommand({
         sessionId,
         cwd: source.cwd,
@@ -805,19 +814,81 @@ suite("ADR-0091 github.pr.create complete product path (real sandbox)", () => {
         env,
         warden: spawnedAuditExportWarden({ auditDir, workspaceRoot: source.cwd }),
       });
-      markStage("audit-export-settled");
       expect(exportMessage).toContain("exported audit bundle:");
       const bundlePath = join(exportDir, `bundle_${sessionId}`);
       expect(runAuditVerifyCommand({ bundlePath })).toContain("verified audit bundle:");
       expectSecretAbsentFromTree(bundlePath, secret);
-      markStage("assertions-complete");
     } finally {
-      markStage("cleanup-start");
-      ui.queue.push({ kind: "command", name: "/exit" });
-      await done.catch(() => undefined);
-      markStage("cleanup-session-settled");
+      await interruptActiveTurnAndWait(ui, done);
       await fixture.close();
-      markStage("cleanup-fixture-settled");
     }
   }, 60_000);
+
+  it("interrupts an approved in-flight request before test cleanup waits for the session", async () => {
+    const source = createWorkspace();
+    const fixture = await startGithubApiFixture(source.head, source.base);
+    const home = tempDir("keel-github-pr-interrupt-home-");
+    const auditDir = tempDir("keel-github-pr-interrupt-audit-");
+    const env: NodeJS.ProcessEnv = {
+      KEEL_HOME: home,
+      KEEL_NO_SNAPSHOT: "1",
+      USER: principal.osUser,
+    };
+    const ui = new TestUI();
+    const done = runKeelCommand(undefined, {
+      model: new ScriptedModel({
+        turns: [
+          {
+            toolCalls: [
+              {
+                name: "github.pr.create",
+                args: {
+                  remote: "origin",
+                  repository,
+                  head: "feature/pr-product",
+                  expectedHead: source.head,
+                  base: "main",
+                  title: "Ship product path",
+                  body: "Exact body\n\n- verified",
+                  draft: false,
+                  maintainerCanModify: true,
+                },
+              },
+            ],
+          },
+        ],
+      }),
+      ui,
+      cwd: source.cwd,
+      env,
+      trustFlag: true,
+      warden: spawnedGithubPrWarden({ auditDir, fixture, workspaceRoot: source.cwd }),
+    });
+    const credentialWindow = fixture.pauseNextAuthenticatedRequest();
+
+    try {
+      ui.queue.push({ kind: "line", text: "create the exact pull request" });
+      await waitFor(ui, "interrupt regression approval", (view) =>
+        renderFrame(view).includes("GitHub pull request creation requires approval"),
+      );
+      ui.queue.push({ kind: "command", name: "/approve", args: "once" });
+      await Promise.race([
+        credentialWindow.entered,
+        new Promise<never>((_, reject) => {
+          const timeout = setTimeout(
+            () => reject(new Error("timed out entering interrupt regression credential window")),
+            8_000,
+          );
+          timeout.unref();
+        }),
+      ]);
+
+      expect(await interruptActiveTurnAndWait(ui, done)).toBe(true);
+      expect(fixture.requests).toEqual([]);
+    } finally {
+      credentialWindow.release();
+      await interruptActiveTurnAndWait(ui, done);
+      await fixture.close();
+    }
+  }, 20_000);
 });
