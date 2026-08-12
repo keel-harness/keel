@@ -1263,7 +1263,7 @@ interface ExactPullRequest {
 function matchingPullRequest(
   value: unknown,
   request: GithubPrCreateRequest,
-  allowProviderNullMaintainer: boolean,
+  allowProviderUnknownMaintainer: boolean,
 ): ExactPullRequest | undefined {
   if (!isRecord(value) || !isRecord(value["head"]) || !isRecord(value["base"])) return undefined;
   const head = value["head"];
@@ -1285,7 +1285,10 @@ function matchingPullRequest(
     (value["body"] ?? "") !== request.body ||
     value["draft"] !== request.draft ||
     (value["maintainer_can_modify"] !== request.maintainerCanModify &&
-      !(allowProviderNullMaintainer && value["maintainer_can_modify"] === null)) ||
+      !(
+        allowProviderUnknownMaintainer &&
+        (value["maintainer_can_modify"] === null || value["maintainer_can_modify"] === undefined)
+      )) ||
     head["ref"] !== request.head ||
     head["sha"] !== request.expectedHead ||
     base["ref"] !== request.base ||
