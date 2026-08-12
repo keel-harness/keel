@@ -222,6 +222,12 @@ function prListBody(head: string): Record<string, unknown> {
   return { ...prBody(head), maintainer_can_modify: null };
 }
 
+function prListBodyWithoutMaintainer(head: string): Record<string, unknown> {
+  const body = prBody(head);
+  delete body["maintainer_can_modify"];
+  return body;
+}
+
 function prBodyWithNumber(head: string, number: number): Record<string, unknown> {
   return {
     ...prBody(head),
@@ -511,6 +517,31 @@ describe("ADR-0091 governed github.pr.create authority", () => {
       { status: 200, body: refBody("refs/heads/feature/pr", h.source.head) },
       { status: 200, body: refBody("refs/heads/main", "b".repeat(40)) },
       { status: 200, body: [prListBody(h.source.head)] },
+      { status: 200, body: detail },
+    );
+
+    await expect(approveOnce(h, execute)).resolves.toMatchObject({
+      verdict: "allow",
+      result: {
+        status: "already-exists",
+        number: 42,
+        actionMayHaveExecuted: false,
+      },
+    });
+    expect(h.queue).toHaveLength(0);
+    expect(h.executions.some((entry) => entry.invocation.argv?.includes("POST") === true)).toBe(
+      false,
+    );
+  });
+
+  it("recovers an existing provider-omitted list candidate only after exact detail verification", async () => {
+    const h = harness();
+    const detail = { ...prBody(h.source.head), maintainer_can_modify: false };
+    const execute = requestWithMaintainer(h.source.head, false);
+    h.queue.push(
+      { status: 200, body: refBody("refs/heads/feature/pr", h.source.head) },
+      { status: 200, body: refBody("refs/heads/main", "b".repeat(40)) },
+      { status: 200, body: [prListBodyWithoutMaintainer(h.source.head)] },
       { status: 200, body: detail },
     );
 

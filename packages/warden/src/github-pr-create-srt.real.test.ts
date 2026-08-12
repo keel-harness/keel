@@ -200,7 +200,9 @@ function prBody(head: string): Record<string, unknown> {
 }
 
 function prListBody(head: string): Record<string, unknown> {
-  return { ...prBody(head), maintainer_can_modify: null };
+  const body = prBody(head);
+  delete body["maintainer_can_modify"];
+  return body;
 }
 
 async function startApiFixture(head: string, base: string): Promise<ApiFixture> {
