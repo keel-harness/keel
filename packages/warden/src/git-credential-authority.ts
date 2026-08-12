@@ -210,20 +210,18 @@ function safeOwner(uid: number, owner: number): boolean {
   return owner === 0 || owner === uid;
 }
 
-function safeDirectoryMode(
+export function gitCredentialDirectoryModeIsSafe(
   mode: number,
   owner: number,
   gid: number,
   uid: number,
   requireOperatorOwner: boolean,
+  platform: NodeJS.Platform = process.platform,
 ): boolean {
   if ((mode & 0o002) !== 0) return false;
   if ((mode & 0o020) === 0) return true;
   return (
-    !requireOperatorOwner &&
-    process.platform === "darwin" &&
-    owner === uid &&
-    gid === DARWIN_ADMIN_GID
+    !requireOperatorOwner && platform === "darwin" && owner === uid && gid === DARWIN_ADMIN_GID
   );
 }
 
@@ -279,7 +277,7 @@ function directoryIdentity(
   if (requireOperatorOwner ? !operatorOwned : !safeOwner(uid, owner)) {
     return reject("ownership", operatorOwned);
   }
-  if (!safeDirectoryMode(mode, owner, gid, uid, requireOperatorOwner)) {
+  if (!gitCredentialDirectoryModeIsSafe(mode, owner, gid, uid, requireOperatorOwner)) {
     return reject("permissions", operatorOwned);
   }
   const material = {

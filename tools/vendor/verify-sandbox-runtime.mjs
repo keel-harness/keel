@@ -19,6 +19,7 @@ const expected = {
     "patches/flush-tls-loopback-response.patch",
     "patches/runtime-aware-http-proxy-close.patch",
     "patches/read-hidden-write-deny.patch",
+    "patches/preserve-linux-hidden-authority.patch",
     "patches/wait-for-linux-proxy-readiness.patch",
     "patches/reemit-macos-glob-read-denies.patch",
     "package.json",
@@ -206,6 +207,23 @@ assert(
   sandboxManagerSource.includes("destroyTrackedHttpProxyConnections("),
   "HTTP proxy teardown does not invoke upgraded-socket draining",
 );
+const hiddenAuthorityPatchPath = "patches/preserve-linux-hidden-authority.patch";
+const hiddenAuthorityPatch = await readFile(new URL(hiddenAuthorityPatchPath, vendorDir), "utf8");
+for (const token of [
+  "index 2ef2475..c34975f 100644",
+  "index 3fb14f7..b3fbfc6 100644",
+  "writePath.startsWith(denySep)",
+  "readMaskOutsideExactWriteAllow",
+  "firstReadOnlyRemount",
+  "does not re-expose a read-hidden directory when exact allowWrite and denyWrite overlap it",
+]) {
+  assert(hiddenAuthorityPatch.includes(token), `hidden-authority patch omits ${token}`);
+}
+assert(
+  (await sha256(hiddenAuthorityPatchPath)) ===
+    "c5b9da2829d8df9b4a59f303739ce323aaedc5b637bab493f1de81558fa121f0",
+  "hidden-authority patch record digest mismatch",
+);
 const launchAuthorityPatch = await readFile(
   new URL("patches/per-launch-srt-authority.patch", vendorDir),
   "utf8",
@@ -222,6 +240,8 @@ for (const token of [
   "release(): Promise<void>",
   "releaseLaunchFilesystemState",
   "generated nested-deny bind sources follow invocation ownership and settlement",
+  "authenticated Linux bridge binds follow filesystem masks and precede read-only remount",
+  "Linux launch tests distinguish inner bridge ports from host authority ports",
 ]) {
   assert(
     launchAuthorityPatch.includes(token),
@@ -246,7 +266,7 @@ const launchAuthorityPostimage = {
   "src/sandbox/http-proxy.ts":
     "40b7ab556a176e923ec9581ee42f85820dad609f83973006abe192b79a4c9d7d",
   "src/sandbox/linux-sandbox-utils.ts":
-    "a6f4bc22b124e6760a4961d7d8ed746625b4148f6ffe90d12058345a0a3c165d",
+    "e360faeb2795fb0a3dba0e4f31a5c9023d2723f081d7f57ff72655bd58d3f74e",
   "src/sandbox/sandbox-manager.ts":
     "1035d4ffc297d6f176207fdf619bcfbe12956c42279014dd9b4f0b6ca4ecb483",
   "src/sandbox/socks-proxy.ts":
@@ -262,9 +282,9 @@ const launchAuthorityPostimage = {
   "test/sandbox/http-server-lifecycle.test.ts":
     "2734ddae95ad7dde284d081252b45f5a1a315a8438c915499883a12be549a196",
   "test/sandbox/launch-authority-lifecycle.test.ts":
-    "b8c6e2d8ee0e06a4e4ef0449373690360b5b36de505f2882040cc61599409996",
+    "b0de62fbc78838b1c9fe71412c8e6b86e2b479f36a1a0ee0117e68e94e10f71a",
   "test/sandbox/launch-authority.test.ts":
-    "a72bd0698e14cbf65e82a371f2e243e3e74ccad2777ee28df7ff12210e1a31e8",
+    "90f22d680fc12810a67fd992c16fa2f7e68926fad304626474d39b9179b59c4c",
   "test/sandbox/linux-bridge-process-group.test.ts":
     "d83c523bac7beff3d2815eed527c55de7ed052c9936f4bb47da79cfd20dbb7f8",
   "test/sandbox/mandatory-deny-paths.test.ts":

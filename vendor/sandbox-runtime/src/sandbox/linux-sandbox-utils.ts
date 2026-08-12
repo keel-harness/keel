@@ -916,9 +916,11 @@ function pushReadDenyDirMounts(
   const denySep = normalizedPath === '/' ? '/' : normalizedPath + '/'
   args.push('--tmpfs', normalizedPath)
 
-  // tmpfs wiped any earlier write binds under this path — restore them.
+  // tmpfs wiped any earlier write binds strictly under this path — restore them.
+  // Never re-bind an exact-path allowWrite: doing so would expose the entire
+  // host directory that this tmpfs exists to hide.
   for (const writePath of allowedWritePaths) {
-    if (writePath.startsWith(denySep) || writePath === normalizedPath) {
+    if (writePath.startsWith(denySep)) {
       args.push('--bind', writePath, writePath)
       logForDebugging(
         `[Sandbox Linux] Re-bound write path wiped by denyRead tmpfs: ${writePath}`,
@@ -944,7 +946,7 @@ function pushReadDenyDirMounts(
       if (
         allowedWritePaths.some(
           w =>
-            (w.startsWith(denySep) || w === normalizedPath) &&
+            w.startsWith(denySep) &&
             (allowPath === w || allowPath.startsWith(w + '/')),
         )
       ) {
@@ -1273,7 +1275,7 @@ async function generateFilesystemArgs(
       if (!underTmpfs) return false
       const reExposedByWriteBind = allowedWritePaths.some(
         writePath =>
-          (writePath === tmpfsDir || writePath.startsWith(tmpfsDir + '/')) &&
+          writePath.startsWith(tmpfsDir + '/') &&
           (dest === writePath || dest.startsWith(writePath + '/')),
       )
       return !reExposedByWriteBind
@@ -1320,20 +1322,28 @@ async function generateFilesystemArgs(
   }
 
   // A read-denied directory is represented by a writable tmpfs so its host contents stay hidden.
-  // When denyWrite overlaps that hidden region, leaving the tmpfs writable makes the governed
-  // command observe a false success even though only ephemeral bytes changed. Remount every
-  // overlapping tmpfs read-only after the stacking repairs above, then make any explicitly
-  // re-bound write child covered by the deny root read-only as well. This preserves read hiding,
-  // keeps unrelated allowWrite carve-outs writable, and makes authority writes fail structurally.
+  // Under an allow-only write policy that tmpfs must not silently become a new writable region:
+  // leaving it writable makes the governed command observe a false success even though only
+  // ephemeral bytes changed. Remount it read-only unless that exact directory is an allowWrite
+  // mount. Child allowWrite bind mounts retain their own writable mount flags. An overlapping
+  // denyWrite independently requires the same remount and makes any explicitly re-bound write
+  // child covered by the deny root read-only as well.
   const remountedTmpfs = new Set<string>()
   for (const tmpfsDir of tmpfsDirs) {
+    const readMaskOutsideExactWriteAllow =
+      writeConfig !== undefined && !allowedWritePaths.includes(tmpfsDir)
     const overlapsHiddenWriteDeny = hiddenDenyWriteDests.some(
       dest =>
         dest === tmpfsDir ||
         dest.startsWith(tmpfsDir + '/') ||
         tmpfsDir.startsWith(dest + '/'),
     )
-    if (!overlapsHiddenWriteDeny || remountedTmpfs.has(tmpfsDir)) continue
+    if (
+      (!readMaskOutsideExactWriteAllow && !overlapsHiddenWriteDeny) ||
+      remountedTmpfs.has(tmpfsDir)
+    ) {
+      continue
+    }
     remountedTmpfs.add(tmpfsDir)
     args.push('--remount-ro', tmpfsDir)
     logForDebugging(
@@ -1344,7 +1354,10 @@ async function generateFilesystemArgs(
   const reboundReadOnly = new Set<string>()
   for (const writePath of allowedWritePaths) {
     const coveredByHiddenWriteDeny = hiddenDenyWriteDests.some(
-      dest => writePath === dest || writePath.startsWith(dest + '/'),
+      // The exact write bind was masked by the denyRead tmpfs and must stay
+      // masked. Only strict child binds were restored and need a read-only
+      // layer when the hidden denyWrite root covers them.
+      dest => writePath.startsWith(dest + '/'),
     )
     if (!coveredByHiddenWriteDeny || reboundReadOnly.has(writePath)) continue
     reboundReadOnly.add(writePath)
@@ -1532,10 +1545,6 @@ export async function wrapCommandWithSandboxLinux(
           )
         }
 
-        // Bind both sockets into the sandbox
-        bwrapArgs.push('--bind', httpSocketPath, httpSocketPath)
-        bwrapArgs.push('--bind', socksSocketPath, socksSocketPath)
-
         // Add proxy environment variables
         // HTTP_PROXY points to the socat listener inside the sandbox (port 3128)
         // which forwards to the Unix socket that bridges to the host's proxy server
@@ -1586,7 +1595,33 @@ export async function wrapCommandWithSandboxLinux(
       invocationMountPoints,
       invocationBindSources,
     )
-    bwrapArgs.push(...fsArgs)
+    if (needsNetworkRestriction && httpSocketPath && socksSocketPath) {
+      // Filesystem denyRead may mask the owner-only authority root containing these sockets.
+      // Layer back only the two authenticated bridge endpoints after every filesystem mask but
+      // before the masked tmpfs is remounted read-only. Binding them earlier lets a later parent
+      // tmpfs hide them (ENOENT); binding them after remount cannot create the destination (EROFS).
+      // No other byte or directory entry from that root is exposed.
+      const bridgeBindArgs = [
+        '--bind',
+        httpSocketPath,
+        httpSocketPath,
+        '--bind',
+        socksSocketPath,
+        socksSocketPath,
+      ]
+      const firstReadOnlyRemount = fsArgs.indexOf('--remount-ro')
+      if (firstReadOnlyRemount === -1) {
+        bwrapArgs.push(...fsArgs, ...bridgeBindArgs)
+      } else {
+        bwrapArgs.push(
+          ...fsArgs.slice(0, firstReadOnlyRemount),
+          ...bridgeBindArgs,
+          ...fsArgs.slice(firstReadOnlyRemount),
+        )
+      }
+    } else {
+      bwrapArgs.push(...fsArgs)
+    }
 
     // Always bind /dev
     bwrapArgs.push('--dev', '/dev')

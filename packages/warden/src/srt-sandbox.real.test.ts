@@ -151,7 +151,7 @@ suite("real SRT sandbox enforcement (opt-in: KEEL_REQUIRE_REAL_SANDBOX=1)", () =
     expect(status.features).toContain("srt-launch-authority/v1");
   });
 
-  it("DENIES the governed child access to the durable launch-authority registry", async () => {
+  it("DENIES governed child reads and writes across the durable launch-authority root", async () => {
     const registryPath = join(authorityRoot, "endpoint-leases.json");
     expect(readFileSync(registryPath, "utf8")).toContain('"version":2');
 
@@ -169,6 +169,38 @@ suite("real SRT sandbox enforcement (opt-in: KEEL_REQUIRE_REAL_SANDBOX=1)", () =
     );
 
     expect(result.stdout).not.toContain('"version":2');
+
+    const attemptedWrite = join(authorityRoot, "governed-write");
+    const writeResult = await sandbox.execute(
+      {
+        command: "/usr/bin/touch",
+        argv: ["/usr/bin/touch", attemptedWrite],
+      },
+      { filesystem: { denyRead: [], allowRead: [], allowWrite: [], denyWrite: [] } },
+    );
+
+    expect(writeResult.exitCode).not.toBe(0);
+    expect(existsSync(attemptedWrite)).toBe(false);
+  });
+
+  it("keeps the durable authority root hidden under an exact write allow", async () => {
+    const profile = {
+      filesystem: { denyRead: [], allowRead: [], allowWrite: [authorityRoot], denyWrite: [] },
+    };
+    const registryPath = join(authorityRoot, "endpoint-leases.json");
+    const readResult = await sandbox.execute(
+      { command: "/bin/cat", argv: ["/bin/cat", registryPath] },
+      profile,
+    );
+    expect(readResult.stdout).not.toContain('"version":2');
+
+    const target = join(authorityRoot, "exact-allow-governed-write");
+    const writeResult = await sandbox.execute(
+      { command: "/usr/bin/touch", argv: ["/usr/bin/touch", target] },
+      profile,
+    );
+    expect(writeResult.exitCode).not.toBe(0);
+    expect(existsSync(target)).toBe(false);
   });
 
   it("discovers a local-stdio MCP server through the real vendored sandbox", async () => {

@@ -32,22 +32,32 @@ afterEach(async () => {
 })
 
 function endpointFromArgv(argv: readonly string[]): { token: string; port: number } {
-  const match = /srt:([0-9a-f]{64})@localhost:(\d+)/u.exec(
-    argv.join(' ').replaceAll('\\', ''),
-  )
+  const rendered = argv.join(' ').replaceAll('\\', '')
+  const match = /srt:([0-9a-f]{64})@localhost:(\d+)/u.exec(rendered)
   if (!match) throw new Error('prepared launch did not contain an authenticated HTTP proxy')
-  return { token: match[1]!, port: Number(match[2]!) }
+  const linuxHostPort = /CLAUDE_CODE_HOST_HTTP_PROXY_PORT(?:=|\s+)(\d+)/u.exec(
+    rendered,
+  )
+  return {
+    token: match[1]!,
+    port: Number(linuxHostPort?.[1] ?? match[2]!),
+  }
 }
 
 function socksEndpointFromArgv(argv: readonly string[]): {
   token: string
   port: number
 } {
-  const match = /socks5h:\/\/srt:([0-9a-f]{64})@localhost:(\d+)/u.exec(
-    argv.join(' ').replaceAll('\\', ''),
-  )
+  const rendered = argv.join(' ').replaceAll('\\', '')
+  const match = /socks5h:\/\/srt:([0-9a-f]{64})@localhost:(\d+)/u.exec(rendered)
   if (!match) throw new Error('prepared launch did not contain an authenticated SOCKS proxy')
-  return { token: match[1]!, port: Number(match[2]!) }
+  const linuxHostPort = /CLAUDE_CODE_HOST_SOCKS_PROXY_PORT(?:=|\s+)(\d+)/u.exec(
+    rendered,
+  )
+  return {
+    token: match[1]!,
+    port: Number(linuxHostPort?.[1] ?? match[2]!),
+  }
 }
 
 function connectThroughProxy(
@@ -220,7 +230,9 @@ suite('immutable per-launch SRT authority', () => {
       try {
         const rendered = launch.argv.join(' ')
         expect(rendered).not.toMatch(/srt:[0-9a-f]{64}@localhost/u)
-        expect(rendered).not.toMatch(/CLAUDE_CODE_HOST_HTTP_PROXY_PORT(?:=|\\=)\d+/u)
+        expect(rendered).not.toMatch(
+          /CLAUDE_CODE_HOST_HTTP_PROXY_PORT(?:=|\\=|\s+)\d+/u,
+        )
         const execution = await runPreparedLaunch(launch)
         expect(execution.exitCode).toBe(0)
         expect(execution.stdout).not.toMatch(/^(?:HTTP|HTTPS|ALL|FTP|RSYNC|GRPC)_PROXY=/mu)

@@ -47,6 +47,7 @@ not source needed for Keel's reviewed adapter path:
 
 - `VENDOR.md`
 - `patches/read-hidden-write-deny.patch`
+- `patches/preserve-linux-hidden-authority.patch`
 - `patches/wait-for-linux-proxy-readiness.patch`
 - `patches/connect-time-destination-resolver.patch`
 - `patches/reemit-macos-glob-read-denies.patch`
@@ -73,14 +74,37 @@ not source needed for Keel's reviewed adapter path:
 
 - Patch: `patches/read-hidden-write-deny.patch`
 - Applied file: `src/sandbox/linux-sandbox-utils.ts`
-- Reason: Linux represents a read-denied directory with a writable tmpfs. When the same authority
-  was also write-denied, the hidden mount protected the host bytes but let the governed command
-  observe a false-successful write into ephemeral storage.
-- Security impact: overlapping hidden tmpfs mounts are remounted read-only after read/write mount
-  stacking is complete. Explicitly re-bound write children covered by the same deny root are also
-  re-bound read-only. Read-denied host bytes stay hidden and authority writes now fail structurally.
+- Reason: Linux represents a read-denied directory with a writable tmpfs. That hidden mount protected
+  host bytes but let a governed command observe a false-successful ephemeral write when the same
+  authority was explicitly write-denied.
+- Security impact: hidden tmpfs mounts overlapping an explicit denyWrite are remounted read-only after
+  mount stacking completes. Strict descendant write binds covered by the deny root are also re-bound
+  read-only. Read-denied host bytes stay hidden and explicitly denied authority writes fail.
 - Upstreamable status: minimal and intended for upstream submission after Keel's Linux conformance
   gate validates the end-to-end denial. It has not yet been submitted upstream.
+
+### Preserve exact hidden Linux authority and bridge mount order
+
+- Patch: `patches/preserve-linux-hidden-authority.patch`
+- Applied files: `src/sandbox/linux-sandbox-utils.ts` and
+  `test/sandbox/wrap-with-sandbox.test.ts`.
+- Composition: incremental after `read-hidden-write-deny.patch` and the per-launch authority
+  inventory. The patch records exact reviewed preimages and postimages for both files.
+- Reason: restoring an exact allowWrite after a denyRead tmpfs exposed the complete host directory;
+  the following exact denyWrite then exposed it read-only. Remounting only explicit denyWrite
+  overlaps also left other read-hidden tmpfs decoys spuriously writable, while installing the two
+  Linux bridge binds before the authority-root mask made approved egress fail with `ENOENT`.
+- Security impact: exact-path write allows are never rebound across their own read-hiding tmpfs;
+  only strict child carve-outs are restored. Hidden tmpfs mounts outside an exact allowWrite are
+  read-only under allow-only write policy, explicit write denies remain authoritative, and the two
+  authenticated per-launch socket files are inserted only after all masks and before the first
+  read-only remount. No sibling authority-root entry is projected. Keel additionally rejects a
+  workspace canonically equal to its authority root before producing a governed profile.
+- Evidence: emitted-argv regressions cover exact equality and mask/socket/remount order; real macOS
+  and privileged Linux product suites prove read and write denial under an exact authority-root
+  write allow. The compiled-carrier smoke is the final packaged projection gate.
+- Upstreamable status: minimal and intended for upstream submission with the preceding Linux mount
+  patches after Keel's conformance gates remain green. Recorded 2026-08-12; not yet submitted.
 
 ### Re-emit macOS glob read denies after allowWithinDeny
 
@@ -209,7 +233,11 @@ not source needed for Keel's reviewed adapter path:
   stays below four MiB even at the theoretical 12,768-pair port limit. Preparation and reset share one
   lifecycle queue; Linux bridge cleanup targets the complete detached process group; and
   generated nested-deny bind sources follow per-invocation ownership and are removed after
-  confirmed process settlement or failed preparation without disturbing concurrent launches;
+  confirmed process settlement or failed preparation without disturbing concurrent launches.
+  On Linux, filesystem masks are installed before the two exact authenticated bridge-socket binds,
+  and an allow-only write policy remounts the containing hidden tmpfs read-only after those bind
+  destinations exist. This preserves the owner-root read/write denial without hiding the only two
+  endpoints needed by the sandbox-side bridge or exposing any other authority-root entry;
   weaker/external/parent-proxy routes cannot establish this capability.
 - Compatibility: consumers that do not request Keel's launch lifecycle keep the upstream process-level
   path. Keel advertises `srt-launch-authority/v1` only with this exact API, durable registry, pinned
@@ -219,9 +247,12 @@ not source needed for Keel's reviewed adapter path:
   late-accept, TLS-child/listener, process-group, loader-quarantine, revoke-process-cleanup ordering,
   startup/RPC shutdown-debt, process-exit mount retention, competing-hook absence, failed-wrap count
   balancing, invocation-owned stale-path deletion under concurrent wrapping, generated nested-deny source
-  cleanup after successful settlement and failed preparation, and lifecycle-race tests plus
-  real macOS Seatbelt and Linux bubblewrap product suites. The real launch
-  probe includes positive own-authority controls and adversarial exact peer-token HTTP/SOCKS attempts.
+  cleanup after successful settlement and failed preparation, authenticated bridge-bind ordering
+  across a masked/read-only authority root, and lifecycle-race tests plus real macOS Seatbelt and
+  Linux bubblewrap product suites. The Linux launch oracle distinguishes its inner 3128/1080
+  listeners from the host authority ports. The real launch probe includes positive own-authority
+  controls and adversarial exact peer-token HTTP/SOCKS attempts; the compiled-carrier smoke also
+  proves positive approved egress through a profile that denies the complete authority root.
 - Upstreamable status: Keel-specific lifecycle extension over the pinned permissive upstream. Recorded
   2026-08-11; not yet submitted upstream.
 

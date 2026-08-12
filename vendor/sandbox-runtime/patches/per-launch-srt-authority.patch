@@ -42,6 +42,8 @@ Contract anchors required by Keel's vendor verifier:
 - process exit retains mount sources while any sandbox count remains active
 - failed wraps surrender only their invocation-owned mount paths
 - generated nested-deny bind sources follow invocation ownership and settlement
+- authenticated Linux bridge binds follow filesystem masks and precede read-only remount
+- Linux launch tests distinguish inner bridge ports from host authority ports
 - controller-owned reset replaces vendored process exit and signal hooks
 
 This record is an inventory/contract patch because the Keel extension adds new files

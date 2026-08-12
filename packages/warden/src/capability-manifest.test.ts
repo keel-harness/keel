@@ -47,6 +47,27 @@ describe("warden capability manifest projection", () => {
     }
   });
 
+  it("rejects a workspace that aliases the Keel authority root", () => {
+    const root = mkdtempSync(join(tmpdir(), "keel-capability-authority-alias-"));
+    try {
+      const authorityRoot = join(root, "keel-home");
+      const workspaceAlias = join(root, "workspace-link");
+      mkdirSync(authorityRoot);
+      symlinkSync(authorityRoot, workspaceAlias);
+
+      expect(() =>
+        buildSandboxProfileFromCapabilityManifest(DEFAULT_CAPABILITY_MANIFEST, {
+          ...baseOptions,
+          workspaceRoot: workspaceAlias,
+          env: { ...baseOptions.env, KEEL_HOME: authorityRoot },
+          realpath: realpathSync,
+        }),
+      ).toThrow(/workspace root must not be the Keel authority root/u);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("denies both HOME spellings when workspace or declared-temp writes overlap an aliased home", () => {
     const root = mkdtempSync(join(tmpdir(), "keel-capability-home-overlap-"));
     try {

@@ -184,7 +184,7 @@ function curlCommand(host, port, path) {
   ].join(" ");
 }
 
-async function executeWithOneShotReview(warden, id, host, port, path) {
+async function executeWithOneShotReview(warden, id, host, port, path, observedOriginHits) {
   const requested = await warden.result("warden.execute", `${id}-request`, {
     sessionId: "ses_01ARZ3NDEKTSV4RRFFQ69G5FAV",
     toolCall: {
@@ -214,7 +214,11 @@ async function executeWithOneShotReview(warden, id, host, port, path) {
     principal: PRINCIPAL,
   });
   assert.equal(approved.verdict, "allow", `${id} policy approval did not reach the sandbox`);
-  assert.equal(approved.result?.exitCode, 0, `${id} curl failed: ${JSON.stringify(approved)}`);
+  assert.equal(
+    approved.result?.exitCode,
+    0,
+    `${id} curl failed: ${JSON.stringify(approved)}; originHits=${String(observedOriginHits())}`,
+  );
   return approved.result;
 }
 
@@ -314,6 +318,7 @@ try {
     PUBLIC_HOST,
     publicAllowed.port,
     "allowed",
+    publicAllowed.hits,
   );
   assert.ok(publicResult.stdout.includes("HTTP/1.1 200"));
   assert.ok(publicResult.stdout.includes("public-carrier-ok"));
@@ -326,6 +331,7 @@ try {
     EXCEPTION_HOST,
     exceptionAllowed.port,
     "allowed",
+    exceptionAllowed.hits,
   );
   assert.ok(exceptionResult.stdout.includes("HTTP/1.1 200"));
   assert.ok(exceptionResult.stdout.includes("exception-carrier-ok"));
@@ -340,6 +346,7 @@ try {
     EXCEPTION_HOST,
     exceptionWrongPort.port,
     "denied",
+    exceptionWrongPort.hits,
   );
   assert.ok(wrongPortResult.stdout.includes("HTTP/1.1 403"));
   assert.ok(wrongPortResult.stdout.includes("Connection blocked by destination address policy"));
@@ -351,6 +358,7 @@ try {
     HARD_DENY_HOST,
     hardDenied.port,
     "denied",
+    hardDenied.hits,
   );
   assert.ok(hardDenyResult.stdout.includes("HTTP/1.1 403"));
   assert.ok(hardDenyResult.stdout.includes("Connection blocked by destination address policy"));

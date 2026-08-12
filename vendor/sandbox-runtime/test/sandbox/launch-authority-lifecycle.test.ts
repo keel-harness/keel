@@ -34,6 +34,43 @@ afterEach(async () => {
 })
 
 describe('launch authority cleanup deadline', () => {
+  it('binds authenticated Linux bridge sockets after a denied authority root is masked', async () => {
+    const root = realpathSync(
+      mkdtempSync(join(tmpdir(), 'keel-linux-denied-bridge-')),
+    )
+    chmodSync(root, 0o700)
+    roots.push(root)
+    const httpSocket = join(root, 'keel-http.sock')
+    const socksSocket = join(root, 'keel-socks.sock')
+    writeFileSync(httpSocket, '')
+    writeFileSync(socksSocket, '')
+
+    const result = await wrapCommandWithSandboxLinux({
+      command: 'true',
+      needsNetworkRestriction: true,
+      httpSocketPath: httpSocket,
+      socksSocketPath: socksSocket,
+      httpProxyPort: 40_000,
+      socksProxyPort: 40_001,
+      readConfig: { denyOnly: [root] },
+      writeConfig: { allowOnly: [], denyWithinAllow: [root] },
+      allowAllUnixSockets: true,
+      binShell: '/bin/sh',
+      bwrapPath: '/usr/bin/true',
+    })
+
+    const authorityMask = result.lastIndexOf(`--tmpfs ${root}`)
+    const authorityReadOnly = result.lastIndexOf(`--remount-ro ${root}`)
+    const httpBind = result.lastIndexOf(`--bind ${httpSocket} ${httpSocket}`)
+    const socksBind = result.lastIndexOf(`--bind ${socksSocket} ${socksSocket}`)
+
+    expect(authorityMask).toBeGreaterThan(-1)
+    expect(httpBind).toBeGreaterThan(authorityMask)
+    expect(socksBind).toBeGreaterThan(authorityMask)
+    expect(authorityReadOnly).toBeGreaterThan(httpBind)
+    expect(authorityReadOnly).toBeGreaterThan(socksBind)
+  })
+
   it('does not register competing process-owned teardown handlers during initialization', async () => {
     vi.spyOn(platform, 'getPlatform').mockReturnValue('linux')
     const root = realpathSync(

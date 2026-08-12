@@ -14,6 +14,7 @@ import fc from "fast-check";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   GitCredentialAuthorityError,
+  gitCredentialDirectoryModeIsSafe,
   inspectGitCredentialHelperAuthority,
   prepareGitCredentialAuthority,
   resolveGitCredentialExecPath,
@@ -102,7 +103,7 @@ describe("ADR-0091 Git credential helper authority", () => {
     expect(snapshot.helper.normalizedExecutionValue).toMatch(
       /^!'[^']*git-credential-osxkeychain'$/u,
     );
-    expect(snapshot.fillEnv["SHELL"]).toBe("/bin/sh");
+    expect(snapshot.fillEnv["SHELL"]).toBe(realpathSync("/bin/sh"));
     expect(snapshot.fillEnv["GIT_CONFIG_NOSYSTEM"]).toBe("1");
     expect(snapshot.fillEnv["GIT_CONFIG_GLOBAL"]).toBe("/dev/null");
     expect(snapshot.fillEnv["PATH"]).not.toContain(f.workspaceRoot);
@@ -249,95 +250,108 @@ describe("ADR-0091 Git credential helper authority", () => {
     ).toThrow(GitCredentialAuthorityError);
   });
 
-  it("accepts only operator-owned Darwin admin-group writable non-HOME directories", () => {
-    const f = fixture();
-    const uid = process.getuid?.();
-    if (uid === undefined) throw new Error("test requires one POSIX operator identity");
-    const homebrewEtc = privateDirectory(f.root, "homebrew-etc");
-    chownSync(homebrewEtc, uid, 80);
-    chmodSync(homebrewEtc, 0o775);
-    const systemConfig = join(homebrewEtc, "gitconfig");
-    writeFileSync(systemConfig, "[credential]\nhelper = osxkeychain\n", { mode: 0o600 });
-    const platform = vi.spyOn(process, "platform", "get").mockReturnValue("darwin");
-
-    expect(
-      inspectGitCredentialHelperAuthority({
-        base: f.base,
-        gitExecPath: f.resolvedExecPath,
-        configurationOutput: Buffer.concat([
-          record("system", systemConfig, "credential.helper", "osxkeychain"),
-          record("global", f.configPath, "credential.helper", ""),
-          record("global", f.configPath, "credential.helper", "osxkeychain"),
-        ]),
-        context,
-      }).helperCount,
-    ).toBe(1);
-
-    chownSync(systemConfig, uid, 80);
-    chmodSync(systemConfig, 0o620);
-    expect(() =>
-      inspectGitCredentialHelperAuthority({
-        base: f.base,
-        gitExecPath: f.resolvedExecPath,
-        configurationOutput: Buffer.concat([
-          record("system", systemConfig, "credential.helper", "osxkeychain"),
-          record("global", f.configPath, "credential.helper", ""),
-          record("global", f.configPath, "credential.helper", "osxkeychain"),
-        ]),
-        context,
-      }),
-    ).toThrow(GitCredentialAuthorityError);
-
-    chmodSync(systemConfig, 0o600);
-    chmodSync(homebrewEtc, 0o777);
-    expect(() =>
-      inspectGitCredentialHelperAuthority({
-        base: f.base,
-        gitExecPath: f.resolvedExecPath,
-        configurationOutput: record("system", systemConfig, "credential.helper", "osxkeychain"),
-        context,
-      }),
-    ).toThrow(GitCredentialAuthorityError);
-
-    chmodSync(homebrewEtc, 0o775);
-    platform.mockReturnValue("linux");
-    expect(() =>
-      inspectGitCredentialHelperAuthority({
-        base: f.base,
-        gitExecPath: f.resolvedExecPath,
-        configurationOutput: record("system", systemConfig, "credential.helper", "osxkeychain"),
-        context,
-      }),
-    ).toThrow(GitCredentialAuthorityError);
-
-    platform.mockReturnValue("darwin");
-    const xdg = privateDirectory(f.root, "xdg-admin-group");
-    chownSync(xdg, uid, 80);
-    chmodSync(xdg, 0o775);
-    expect(() =>
-      prepareGitCredentialAuthority({
-        gitExecutable: f.gitExecutable,
-        inspectionCwd: f.root,
-        temporaryRoot: f.root,
-        workspaceRoot: f.workspaceRoot,
-        denyRoots: [f.denyRoot],
-        env: { ...f.env, XDG_CONFIG_HOME: xdg },
-      }),
-    ).toThrow(GitCredentialAuthorityError);
-
-    chownSync(f.home, uid, 80);
-    chmodSync(f.home, 0o775);
-    expect(() =>
-      prepareGitCredentialAuthority({
-        gitExecutable: f.gitExecutable,
-        inspectionCwd: f.root,
-        temporaryRoot: f.root,
-        workspaceRoot: f.workspaceRoot,
-        denyRoots: [f.denyRoot],
-        env: f.env,
-      }),
-    ).toThrow(GitCredentialAuthorityError);
+  it("accepts Darwin admin-group write only for an operator-owned non-environment directory", () => {
+    const uid = 501;
+    expect(gitCredentialDirectoryModeIsSafe(0o775, uid, 80, uid, false, "darwin")).toBe(true);
+    expect(gitCredentialDirectoryModeIsSafe(0o775, uid, 80, uid, true, "darwin")).toBe(false);
+    expect(gitCredentialDirectoryModeIsSafe(0o775, 0, 80, uid, false, "darwin")).toBe(false);
+    expect(gitCredentialDirectoryModeIsSafe(0o775, uid, 20, uid, false, "darwin")).toBe(false);
+    expect(gitCredentialDirectoryModeIsSafe(0o775, uid, 80, uid, false, "linux")).toBe(false);
+    expect(gitCredentialDirectoryModeIsSafe(0o777, uid, 80, uid, false, "darwin")).toBe(false);
   });
+
+  it.runIf(process.platform === "darwin")(
+    "accepts only operator-owned Darwin admin-group writable non-HOME directories end to end",
+    () => {
+      const f = fixture();
+      const uid = process.getuid?.();
+      if (uid === undefined) throw new Error("test requires one POSIX operator identity");
+      const homebrewEtc = privateDirectory(f.root, "homebrew-etc");
+      chownSync(homebrewEtc, uid, 80);
+      chmodSync(homebrewEtc, 0o775);
+      const systemConfig = join(homebrewEtc, "gitconfig");
+      writeFileSync(systemConfig, "[credential]\nhelper = osxkeychain\n", { mode: 0o600 });
+      const platform = vi.spyOn(process, "platform", "get").mockReturnValue("darwin");
+
+      expect(
+        inspectGitCredentialHelperAuthority({
+          base: f.base,
+          gitExecPath: f.resolvedExecPath,
+          configurationOutput: Buffer.concat([
+            record("system", systemConfig, "credential.helper", "osxkeychain"),
+            record("global", f.configPath, "credential.helper", ""),
+            record("global", f.configPath, "credential.helper", "osxkeychain"),
+          ]),
+          context,
+        }).helperCount,
+      ).toBe(1);
+
+      chownSync(systemConfig, uid, 80);
+      chmodSync(systemConfig, 0o620);
+      expect(() =>
+        inspectGitCredentialHelperAuthority({
+          base: f.base,
+          gitExecPath: f.resolvedExecPath,
+          configurationOutput: Buffer.concat([
+            record("system", systemConfig, "credential.helper", "osxkeychain"),
+            record("global", f.configPath, "credential.helper", ""),
+            record("global", f.configPath, "credential.helper", "osxkeychain"),
+          ]),
+          context,
+        }),
+      ).toThrow(GitCredentialAuthorityError);
+
+      chmodSync(systemConfig, 0o600);
+      chmodSync(homebrewEtc, 0o777);
+      expect(() =>
+        inspectGitCredentialHelperAuthority({
+          base: f.base,
+          gitExecPath: f.resolvedExecPath,
+          configurationOutput: record("system", systemConfig, "credential.helper", "osxkeychain"),
+          context,
+        }),
+      ).toThrow(GitCredentialAuthorityError);
+
+      chmodSync(homebrewEtc, 0o775);
+      platform.mockReturnValue("linux");
+      expect(() =>
+        inspectGitCredentialHelperAuthority({
+          base: f.base,
+          gitExecPath: f.resolvedExecPath,
+          configurationOutput: record("system", systemConfig, "credential.helper", "osxkeychain"),
+          context,
+        }),
+      ).toThrow(GitCredentialAuthorityError);
+
+      platform.mockReturnValue("darwin");
+      const xdg = privateDirectory(f.root, "xdg-admin-group");
+      chownSync(xdg, uid, 80);
+      chmodSync(xdg, 0o775);
+      expect(() =>
+        prepareGitCredentialAuthority({
+          gitExecutable: f.gitExecutable,
+          inspectionCwd: f.root,
+          temporaryRoot: f.root,
+          workspaceRoot: f.workspaceRoot,
+          denyRoots: [f.denyRoot],
+          env: { ...f.env, XDG_CONFIG_HOME: xdg },
+        }),
+      ).toThrow(GitCredentialAuthorityError);
+
+      chownSync(f.home, uid, 80);
+      chmodSync(f.home, 0o775);
+      expect(() =>
+        prepareGitCredentialAuthority({
+          gitExecutable: f.gitExecutable,
+          inspectionCwd: f.root,
+          temporaryRoot: f.root,
+          workspaceRoot: f.workspaceRoot,
+          denyRoots: [f.denyRoot],
+          env: f.env,
+        }),
+      ).toThrow(GitCredentialAuthorityError);
+    },
+  );
 
   it.each([
     ["unterminated double quote", '!"unterminated'],

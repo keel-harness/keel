@@ -497,13 +497,14 @@ once-only `allowCommand` checks, never by parsing summary prose. Every controlle
 boundary proves exact bytes. Any mismatch, normalization, redaction, abbreviation, omission, or
 truncation makes the card non-actionable and settles denial.
 
-### 5. Credential custody stays parent-side and operator-owned
+### 5. Credential custody stays parent-side and operator-authorized
 
 After approval is consumed and immediately before network access, the Warden runs Git's credential
 plumbing parent-side for the exact canonical HTTPS context. The broker:
 
-- runs outside the workspace with no repository-local config and accepts only operator-owned
-  system/global credential-helper configuration;
+- runs outside the workspace with no repository-local config and accepts only operator-authorized
+  system/global credential-helper configuration whose files and parent authority are root- or
+  operator-owned under §5A;
 - disables terminal and askpass prompting, bounds stdin/stdout/stderr, time, helpers, and concurrent
   resolution, and fails closed on interactive, missing, partial, duplicate, malformed, oversized,
   expired, or context-mismatched output;
