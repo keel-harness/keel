@@ -192,7 +192,8 @@ export function applyGitCredentialStdinErrorPolicy(stdin: string, failClosed: ()
   failClosed();
 }
 
-async function defaultRunProcess(
+/** @internal Execute one bounded credential-helper subprocess. */
+export async function runGitCredentialProcess(
   request: GitCredentialProcessRequest,
 ): Promise<GitCredentialProcessResult> {
   return await new Promise((resolve) => {
@@ -330,7 +331,7 @@ export function createGitCredentialBroker(
   mkdirSync(brokerRoot, { recursive: true, mode: 0o700 });
   chmodSync(brokerRoot, 0o700);
   const envSource = options.env ?? process.env;
-  const runProcess = options.runProcess ?? defaultRunProcess;
+  const runProcess = options.runProcess ?? runGitCredentialProcess;
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const maxOutputBytes = options.maxOutputBytes ?? DEFAULT_MAX_OUTPUT_BYTES;
   if (!Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > DEFAULT_TIMEOUT_MS) {

@@ -7,6 +7,7 @@ import {
   createNodeSandboxProcessRunner,
   createSrtSandboxLaunchPreparer,
   createSrtSandboxPort,
+  isProcessGroupAlive,
   type SrtRuntimeAdapter,
 } from "./srt-sandbox.js";
 import type {
@@ -32,6 +33,16 @@ function profile(writeRoot: string): SandboxProfile {
 }
 
 describe("SrtSandboxPort", () => {
+  it("keeps an EPERM process-group probe live until ESRCH confirms absence", () => {
+    const failure = (code: "EPERM" | "ESRCH" | "EACCES") => (): never => {
+      throw Object.assign(new Error(`process-group probe ${code}`), { code });
+    };
+
+    expect(isProcessGroupAlive(42, failure("EPERM"))).toBe(true);
+    expect(isProcessGroupAlive(42, failure("ESRCH"))).toBe(false);
+    expect(() => isProcessGroupAlive(42, failure("EACCES"))).toThrow("probe EACCES");
+  });
+
   it("reports an honest configured status without claiming policy or audit enforcement", () => {
     const port = createSrtSandboxPort({
       runtime: {
@@ -1042,13 +1053,17 @@ describe("createNodeSandboxProcessRunner", () => {
     "withholds filesystem cleanup when process-group absence cannot be confirmed",
     async () => {
       const events: string[] = [];
+      let now = 0;
       const runner = createNodeSandboxProcessRunner({
         processGroupController: {
-          isAlive: () => {
-            throw Object.assign(new Error("group probe denied"), { code: "EPERM" });
+          isAlive: () =>
+            isProcessGroupAlive(42, () => {
+              throw Object.assign(new Error("group probe denied"), { code: "EPERM" });
+            }),
+          wait: async (milliseconds) => {
+            now += milliseconds;
           },
-          wait: async () => {},
-          nowMs: () => 0,
+          nowMs: () => now,
         },
       });
       const port = createSrtSandboxPort({

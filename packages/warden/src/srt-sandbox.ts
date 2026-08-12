@@ -268,6 +268,24 @@ function canSignalProcessGroup(platform: NodeJS.Platform): boolean {
   return platform !== "win32";
 }
 
+/** @internal Probe a POSIX process group without treating permission denial as absence. */
+export function isProcessGroupAlive(
+  processGroupId: number,
+  probe: (pid: number, signal: 0) => boolean | void = (pid, signal) => process.kill(pid, signal),
+): boolean {
+  try {
+    probe(-processGroupId, 0);
+    return true;
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "ESRCH") return false;
+    // POSIX reserves ESRCH for absence. EPERM means the group may exist but the caller cannot
+    // signal any member, so settlement must keep polling and eventually fail closed if it persists.
+    if (code === "EPERM") return true;
+    throw error;
+  }
+}
+
 export function createNodeSandboxProcessRunner(
   options: NodeSandboxProcessRunnerOptions = {},
 ): SandboxProcessRunner {
@@ -283,15 +301,7 @@ export function createNodeSandboxProcessRunner(
   const processGroups =
     options.processGroupController ??
     ({
-      isAlive(processGroupId: number): boolean {
-        try {
-          process.kill(-processGroupId, 0);
-          return true;
-        } catch (error) {
-          if ((error as NodeJS.ErrnoException).code === "ESRCH") return false;
-          throw error;
-        }
-      },
+      isAlive: isProcessGroupAlive,
       wait: async (milliseconds: number): Promise<void> => {
         await new Promise<void>((resolve) => {
           setTimeout(resolve, milliseconds);
