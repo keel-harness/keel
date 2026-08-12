@@ -105,26 +105,42 @@ export interface HttpProxyServerOptions {
   proxyAuthToken?: string
 }
 
-const acceptedSocketsByServer = new WeakMap<Server, Set<Socket>>()
+type AcceptedSocketState = {
+  readonly sockets: Set<Socket>
+  draining: boolean
+}
+
+const acceptedSocketsByServer = new WeakMap<Server, AcceptedSocketState>()
 
 /**
  * Destroy every TCP client accepted by this proxy, including CONNECT sockets
  * that Node removes from `server.closeAllConnections()` after upgrade.
  */
 export function destroyTrackedHttpProxyConnections(server: Server): void {
-  const sockets = acceptedSocketsByServer.get(server)
-  if (sockets === undefined) return
-  for (const socket of sockets) socket.destroy()
-  sockets.clear()
+  const state = acceptedSocketsByServer.get(server)
+  if (state === undefined) return
+  // Node may have accepted a connection in libuv before close() stopped the
+  // listener while delivering its JavaScript event on a later turn. Keep the
+  // registry in draining mode so that socket cannot escape this snapshot.
+  state.draining = true
+  for (const socket of state.sockets) socket.destroy()
+  state.sockets.clear()
 }
 
 export function createHttpProxyServer(options: HttpProxyServerOptions): Server {
   const server = createServer()
-  const acceptedSockets = new Set<Socket>()
-  acceptedSocketsByServer.set(server, acceptedSockets)
+  const acceptedSocketState: AcceptedSocketState = {
+    sockets: new Set<Socket>(),
+    draining: false,
+  }
+  acceptedSocketsByServer.set(server, acceptedSocketState)
   server.on('connection', socket => {
-    acceptedSockets.add(socket)
-    socket.once('close', () => acceptedSockets.delete(socket))
+    if (acceptedSocketState.draining) {
+      socket.destroy()
+      return
+    }
+    acceptedSocketState.sockets.add(socket)
+    socket.once('close', () => acceptedSocketState.sockets.delete(socket))
   })
 
   const checkAuth = (got: string | undefined): boolean => {

@@ -151,19 +151,23 @@ not source needed for Keel's reviewed adapter path:
 
 - Patch: `patches/runtime-aware-http-proxy-close.patch`
 - Applied files: `src/sandbox/http-proxy.ts`, `src/sandbox/sandbox-manager.ts`
-- Reason: Node can accept a new connection between `closeAllConnections()` and `close()`, leaving the
-  close callback blocked indefinitely, and Node does not include HTTP `CONNECT`-upgraded sockets in
-  `closeAllConnections()`. Bun detaches the server handle in `close()` and therefore requires the
-  inverse order. The upstream unconditional Bun ordering and untracked upgraded sockets intermittently
-  wedged Warden shutdown after otherwise successful real Git push and GitHub PR product tests.
+- Reason: Node can accept a new connection between `closeAllConnections()` and `close()`, and can
+  deliver a connection already accepted by libuv after the initial JavaScript socket snapshot,
+  leaving the close callback blocked indefinitely. Node also does not include HTTP
+  `CONNECT`-upgraded sockets in `closeAllConnections()`. Bun detaches the server handle in `close()`
+  and therefore requires the inverse order. The upstream unconditional Bun ordering and incomplete
+  socket lifecycle intermittently wedged Warden shutdown after otherwise successful real Git push
+  and GitHub PR product tests.
 - Security impact: no policy, TLS-verification, credential, audit, or sandbox decision changes. Runtime
   detection now selects the safe listener/connection teardown order, so cleanup drains proxy authority
   instead of waiting for the kernel-side timeout and forced process reap.
 - Compatibility: Bun retains its existing `closeAllConnections()`-before-`close()` behavior. Node stops
   acceptance first and then force-closes the fixed established-connection set, matching Node's API
   guidance. Both runtimes also destroy the proxy's explicit accepted-socket registry so upgraded
-  tunnels drain; Bun repeats that drain after stopping acceptance to close the pre-close race.
-  Deterministic tests preserve both orderings, the Bun interleaving, and a real Node `CONNECT` upgrade.
+  tunnels drain. Entering teardown permanently marks that registry as draining, so a Node connection
+  event delivered after the initial snapshot is destroyed on arrival; Bun repeats the snapshot after
+  stopping acceptance. Deterministic tests preserve both orderings, the Node and Bun interleavings,
+  and a real Node `CONNECT` upgrade.
 - Upstreamable status: minimal and upstreamable. Recorded 2026-08-11; not yet submitted upstream.
 
 ## License And Notice

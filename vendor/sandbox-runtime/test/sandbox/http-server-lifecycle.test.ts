@@ -91,6 +91,40 @@ describe('HTTP proxy server lifecycle', () => {
     expect(calls).toEqual(['close', 'closeAllConnections'])
   })
 
+  it('drains a Node connection delivered after the initial shutdown snapshot', async () => {
+    const server = createHttpProxyServer({ filter: () => true })
+    const lateSocket = new Socket()
+    server.closeAllConnections = () => undefined
+    server.close = callback => {
+      lateSocket.once('close', () => callback?.())
+      // A connection may already be accepted by libuv when close() stops the
+      // listener, while its JavaScript event is delivered on the next turn.
+      queueMicrotask(() => server.emit('connection', lateSocket))
+      return server
+    }
+
+    const closing = forceCloseHttpServer(server)
+    let timeout: NodeJS.Timeout | undefined
+    try {
+      await expect(
+        Promise.race([
+          closing,
+          new Promise<never>((_resolve, reject) => {
+            timeout = setTimeout(
+              () => reject(new Error('HTTP proxy close left a late Node socket alive')),
+              100,
+            )
+          }),
+        ]),
+      ).resolves.toBeUndefined()
+      expect(lateSocket.destroyed).toBe(true)
+    } finally {
+      if (timeout !== undefined) clearTimeout(timeout)
+      lateSocket.destroy()
+      await closing
+    }
+  })
+
   it('rejects a force-close failure after a synchronous Node close callback', async () => {
     const forceCloseError = new Error('force-close failed')
     const server: ForceCloseHttpServer = {

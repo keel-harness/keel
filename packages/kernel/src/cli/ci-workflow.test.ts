@@ -776,11 +776,6 @@ describe("CI packaging workflow", () => {
     // The script arms the require flag itself, so `pnpm test:sandbox:real` fails closed everywhere.
     expect(rootPkg.scripts?.["test:sandbox:real"]).toContain("KEEL_REQUIRE_REAL_SANDBOX=1");
     expect(rootPkg.scripts?.["test:sandbox:real"]).toContain("vitest run");
-    // These files each drive a complete privileged product lifecycle with real child processes,
-    // loopback fixtures, and OS containment. Running multiple lifecycles in parallel caused both
-    // positive paths to exceed their fail-closed 60s watchdog on Node 22 while every isolated path
-    // remained fast. Preserve the watchdog and every test; serialize only the files.
-    expect(rootPkg.scripts?.["test:sandbox:real"]).toContain("--no-file-parallelism");
     expect(rootPkg.scripts?.["test:sandbox:real"]).toContain("srt-sandbox.real.test.ts");
 
     // A dedicated job runs it, arms the flag at job scope (belt-and-suspenders), and installs the

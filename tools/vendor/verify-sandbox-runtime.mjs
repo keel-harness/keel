@@ -175,6 +175,10 @@ assert(
   httpProxySource.includes("destroyTrackedHttpProxyConnections"),
   "HTTP proxy teardown does not track CONNECT-upgraded sockets",
 );
+assert(
+  httpProxySource.includes("state.draining = true"),
+  "HTTP proxy teardown does not persistently drain late socket events",
+);
 const sandboxManagerSource = await readFile(
   new URL("src/sandbox/sandbox-manager.ts", vendorDir),
   "utf8",

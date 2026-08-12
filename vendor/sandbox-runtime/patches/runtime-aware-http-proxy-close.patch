@@ -2,26 +2,42 @@ diff --git a/src/sandbox/http-proxy.ts b/src/sandbox/http-proxy.ts
 index 6fa3dae..cc47eca 100644
 --- a/src/sandbox/http-proxy.ts
 +++ b/src/sandbox/http-proxy.ts
-@@ -107,0 +108,13 @@ export interface HttpProxyServerOptions {
-+const acceptedSocketsByServer = new WeakMap<Server, Set<Socket>>()
+@@ -107,0 +108,22 @@ export interface HttpProxyServerOptions {
++type AcceptedSocketState = {
++  readonly sockets: Set<Socket>
++  draining: boolean
++}
++
++const acceptedSocketsByServer = new WeakMap<Server, AcceptedSocketState>()
 +
 +/**
 + * Destroy every TCP client accepted by this proxy, including CONNECT sockets
 + * that Node removes from `server.closeAllConnections()` after upgrade.
 + */
 +export function destroyTrackedHttpProxyConnections(server: Server): void {
-+  const sockets = acceptedSocketsByServer.get(server)
-+  if (sockets === undefined) return
-+  for (const socket of sockets) socket.destroy()
-+  sockets.clear()
++  const state = acceptedSocketsByServer.get(server)
++  if (state === undefined) return
++  // Node may have accepted a connection in libuv before close() stopped the
++  // listener while delivering its JavaScript event on a later turn. Keep the
++  // registry in draining mode so that socket cannot escape this snapshot.
++  state.draining = true
++  for (const socket of state.sockets) socket.destroy()
++  state.sockets.clear()
 +}
 +
-@@ -109,0 +123,6 @@ export function createHttpProxyServer(options: HttpProxyServerOptions): Server {
-+  const acceptedSockets = new Set<Socket>()
-+  acceptedSocketsByServer.set(server, acceptedSockets)
+@@ -109,0 +132,13 @@ export function createHttpProxyServer(options: HttpProxyServerOptions): Server {
++  const acceptedSocketState: AcceptedSocketState = {
++    sockets: new Set<Socket>(),
++    draining: false,
++  }
++  acceptedSocketsByServer.set(server, acceptedSocketState)
 +  server.on('connection', socket => {
-+    acceptedSockets.add(socket)
-+    socket.once('close', () => acceptedSockets.delete(socket))
++    if (acceptedSocketState.draining) {
++      socket.destroy()
++      return
++    }
++    acceptedSocketState.sockets.add(socket)
++    socket.once('close', () => acceptedSocketState.sockets.delete(socket))
 +  })
 diff --git a/src/sandbox/sandbox-manager.ts b/src/sandbox/sandbox-manager.ts
 index b673d0c..f6cbbe1 100644
