@@ -1,11 +1,44 @@
+diff --git a/src/sandbox/http-proxy.ts b/src/sandbox/http-proxy.ts
+index 6fa3dae..cc47eca 100644
+--- a/src/sandbox/http-proxy.ts
++++ b/src/sandbox/http-proxy.ts
+@@ -107,0 +108,13 @@ export interface HttpProxyServerOptions {
++const acceptedSocketsByServer = new WeakMap<Server, Set<Socket>>()
++
++/**
++ * Destroy every TCP client accepted by this proxy, including CONNECT sockets
++ * that Node removes from `server.closeAllConnections()` after upgrade.
++ */
++export function destroyTrackedHttpProxyConnections(server: Server): void {
++  const sockets = acceptedSocketsByServer.get(server)
++  if (sockets === undefined) return
++  for (const socket of sockets) socket.destroy()
++  sockets.clear()
++}
++
+@@ -109,0 +123,6 @@ export function createHttpProxyServer(options: HttpProxyServerOptions): Server {
++  const acceptedSockets = new Set<Socket>()
++  acceptedSocketsByServer.set(server, acceptedSockets)
++  server.on('connection', socket => {
++    acceptedSockets.add(socket)
++    socket.once('close', () => acceptedSockets.delete(socket))
++  })
 diff --git a/src/sandbox/sandbox-manager.ts b/src/sandbox/sandbox-manager.ts
-index b673d0c..0a64186 100644
+index b673d0c..ef5185b 100644
 --- a/src/sandbox/sandbox-manager.ts
 +++ b/src/sandbox/sandbox-manager.ts
-@@ -1408,27 +1408,46 @@ function killBridgeProcess(proc: ChildProcess, label: string): Promise<void> {
-  * also implemented in Bun) tears down those sockets so `close()` resolves
-  * immediately.
-  */
+@@ -1 +1,4 @@
+-import { createHttpProxyServer } from './http-proxy.js'
++import {
++  createHttpProxyServer,
++  destroyTrackedHttpProxyConnections,
++} from './http-proxy.js'
+@@ -1408,2 +1411,2 @@ function killBridgeProcess(proc: ChildProcess, label: string): Promise<void> {
+- * also implemented in Bun) tears down those sockets so `close()` resolves
+- * immediately.
++ * also implemented in Bun) tears down ordinary HTTP sockets, while the
++ * explicit accepted-socket registry also covers CONNECT-upgraded tunnels.
+@@ -1411,13 +1414,11 @@ function killBridgeProcess(proc: ChildProcess, label: string): Promise<void> {
 -function forceCloseHttpServer(
 -  server: ReturnType<typeof createHttpProxyServer>,
 -): Promise<void> {
@@ -30,7 +63,7 @@ index b673d0c..0a64186 100644
 +    let orderingComplete = false
 +    const settle = () => {
 +      if (closeCallbackReturned && orderingComplete) resolve()
-     }
+@@ -1425,5 +1426,29 @@ function forceCloseHttpServer(
 -    server.close(error => {
 -      if (error && error.message !== 'Server is not running.') {
 -        logForDebugging(`Error closing HTTP proxy server: ${error.message}`, {
@@ -47,19 +80,25 @@ index b673d0c..0a64186 100644
 +        settle()
 +      })
 +    const closeAllConnections = () => server.closeAllConnections?.()
++    const destroyTrackedConnections = () =>
++      destroyTrackedHttpProxyConnections(
++        server as ReturnType<typeof createHttpProxyServer>,
++      )
 +
 +    try {
 +      if (typeof (globalThis as { Bun?: unknown }).Bun === 'object') {
 +        // Bun detaches the underlying handle in close(), so force-close its
 +        // established connections first or close() can wait indefinitely.
 +        closeAllConnections()
++        destroyTrackedConnections()
 +        close()
 +      } else {
 +        // Node can accept a new connection between closeAllConnections() and
 +        // close(). Stop acceptance first, then force-close the fixed set.
 +        close()
 +        closeAllConnections()
-       }
++        destroyTrackedConnections()
+@@ -1431,2 +1456,5 @@ function forceCloseHttpServer(
 -      resolve()
 -    })
 +      orderingComplete = true
@@ -67,5 +106,3 @@ index b673d0c..0a64186 100644
 +    } catch (error) {
 +      reject(error)
 +    }
-   })
- }

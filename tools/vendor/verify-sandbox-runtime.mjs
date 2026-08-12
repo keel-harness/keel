@@ -163,6 +163,18 @@ assert(
   httpClosePatch.includes("src/sandbox/sandbox-manager.ts"),
   "runtime-aware HTTP close patch omits sandbox-manager.ts",
 );
+assert(
+  httpClosePatch.includes("src/sandbox/http-proxy.ts"),
+  "runtime-aware HTTP close patch omits upgraded-socket tracking",
+);
+const httpProxySource = await readFile(
+  new URL("src/sandbox/http-proxy.ts", vendorDir),
+  "utf8",
+);
+assert(
+  httpProxySource.includes("destroyTrackedHttpProxyConnections"),
+  "HTTP proxy teardown does not track CONNECT-upgraded sockets",
+);
 const sandboxManagerSource = await readFile(
   new URL("src/sandbox/sandbox-manager.ts", vendorDir),
   "utf8",
@@ -174,6 +186,10 @@ assert(
 assert(
   sandboxManagerSource.includes("close()\n        closeAllConnections()"),
   "Node HTTP proxy teardown does not stop acceptance before force-close",
+);
+assert(
+  sandboxManagerSource.includes("destroyTrackedHttpProxyConnections("),
+  "HTTP proxy teardown does not invoke upgraded-socket draining",
 );
 
 console.log(

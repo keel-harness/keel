@@ -1,4 +1,7 @@
-import { createHttpProxyServer } from './http-proxy.js'
+import {
+  createHttpProxyServer,
+  destroyTrackedHttpProxyConnections,
+} from './http-proxy.js'
 import { createSocksProxyServer } from './socks-proxy.js'
 import type { SocksProxyWrapper } from './socks-proxy.js'
 import { SentinelRegistry } from './credential-sentinel.js'
@@ -1405,8 +1408,8 @@ function killBridgeProcess(proc: ChildProcess, label: string): Promise<void> {
  * 30s before giving up. Combined with a socat fork that hasn't yet seen
  * its unix-socket EOF, that leaves a fully-open inbound connection and
  * `server.close()` never calls back. `closeAllConnections()` (Node 18.2+,
- * also implemented in Bun) tears down those sockets so `close()` resolves
- * immediately.
+ * also implemented in Bun) tears down ordinary HTTP sockets, while the
+ * explicit accepted-socket registry also covers CONNECT-upgraded tunnels.
  */
 export interface ForceCloseHttpServer {
   close(callback: (error?: Error) => void): unknown
@@ -1431,18 +1434,24 @@ export function forceCloseHttpServer(server: ForceCloseHttpServer): Promise<void
         settle()
       })
     const closeAllConnections = () => server.closeAllConnections?.()
+    const destroyTrackedConnections = () =>
+      destroyTrackedHttpProxyConnections(
+        server as ReturnType<typeof createHttpProxyServer>,
+      )
 
     try {
       if (typeof (globalThis as { Bun?: unknown }).Bun === 'object') {
         // Bun detaches the underlying handle in close(), so force-close its
         // established connections first or close() can wait indefinitely.
         closeAllConnections()
+        destroyTrackedConnections()
         close()
       } else {
         // Node can accept a new connection between closeAllConnections() and
         // close(). Stop acceptance first, then force-close the fixed set.
         close()
         closeAllConnections()
+        destroyTrackedConnections()
       }
       orderingComplete = true
       settle()

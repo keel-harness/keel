@@ -105,8 +105,27 @@ export interface HttpProxyServerOptions {
   proxyAuthToken?: string
 }
 
+const acceptedSocketsByServer = new WeakMap<Server, Set<Socket>>()
+
+/**
+ * Destroy every TCP client accepted by this proxy, including CONNECT sockets
+ * that Node removes from `server.closeAllConnections()` after upgrade.
+ */
+export function destroyTrackedHttpProxyConnections(server: Server): void {
+  const sockets = acceptedSocketsByServer.get(server)
+  if (sockets === undefined) return
+  for (const socket of sockets) socket.destroy()
+  sockets.clear()
+}
+
 export function createHttpProxyServer(options: HttpProxyServerOptions): Server {
   const server = createServer()
+  const acceptedSockets = new Set<Socket>()
+  acceptedSocketsByServer.set(server, acceptedSockets)
+  server.on('connection', socket => {
+    acceptedSockets.add(socket)
+    socket.once('close', () => acceptedSockets.delete(socket))
+  })
 
   const checkAuth = (got: string | undefined): boolean => {
     if (!options.proxyAuthToken) return true

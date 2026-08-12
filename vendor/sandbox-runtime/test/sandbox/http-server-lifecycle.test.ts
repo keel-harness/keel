@@ -1,4 +1,7 @@
+import { once } from 'node:events'
+import { connect, type Socket } from 'node:net'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { createHttpProxyServer } from '../../src/sandbox/http-proxy.js'
 import {
   forceCloseHttpServer,
   type ForceCloseHttpServer,
@@ -23,6 +26,52 @@ function selectBunRuntime(): void {
 }
 
 describe('HTTP proxy server lifecycle', () => {
+  it('drains a Node CONNECT-upgraded client before server close settles', async () => {
+    const server = createHttpProxyServer({ filter: () => true })
+    server.removeAllListeners('connect')
+    const accepted = new Promise<Socket>(resolve => {
+      server.once('connect', (_request, socket) => {
+        socket.write('HTTP/1.1 200 Connection Established\r\n\r\n')
+        resolve(socket)
+      })
+    })
+    server.listen(0, '127.0.0.1')
+    await once(server, 'listening')
+    const address = server.address()
+    if (address === null || typeof address === 'string') {
+      throw new Error('HTTP proxy test listener did not expose a TCP port')
+    }
+    const client = connect(address.port, '127.0.0.1')
+    await once(client, 'connect')
+    client.write('CONNECT example.com:443 HTTP/1.1\r\nHost: example.com:443\r\n\r\n')
+    const upgraded = await accepted
+    await once(client, 'data')
+
+    const clientClosed = once(client, 'close')
+    const closing = forceCloseHttpServer(server)
+    let timeout: NodeJS.Timeout | undefined
+    try {
+      await expect(
+        Promise.race([
+          closing,
+          new Promise<never>((_resolve, reject) => {
+            timeout = setTimeout(
+              () => reject(new Error('HTTP proxy close left a CONNECT tunnel alive')),
+              100,
+            )
+          }),
+        ]),
+      ).resolves.toBeUndefined()
+      await clientClosed
+      expect(client.destroyed).toBe(true)
+    } finally {
+      if (timeout !== undefined) clearTimeout(timeout)
+      client.destroy()
+      upgraded.destroy()
+      await closing
+    }
+  })
+
   it('stops a Node listener before force-closing its established connections', async () => {
     const calls: string[] = []
     let accepting = true
