@@ -16,6 +16,7 @@ import {
   applyGitCredentialStdinErrorPolicy,
   createGitCredentialBroker,
   parseGitCredentialOutput,
+  runGitCredentialProcess,
   type GitCredentialProcessRequest,
   type GitCredentialProcessResult,
 } from "./git-credential-broker.js";
@@ -479,16 +480,29 @@ describe("ADR-0091 Warden Git credential broker", () => {
     );
   });
 
-  it("enforces the real helper-process timeout without returning helper diagnostics", async () => {
-    const broker = realHelperBroker(
-      `while IFS= read -r line; do [ -z "$line" ] && break; done\nsleep 60`,
-      { timeoutMs: 1_000 },
+  it("enforces the real helper-process timeout independently of Git inspection load", async () => {
+    const root = privateRoot();
+    const helperPath = join(root, "slow-credential-helper");
+    writeFileSync(
+      helperPath,
+      '#!/bin/sh\nwhile IFS= read -r line; do [ -z "$line" ] && break; done\nsleep 60\n',
+      { mode: 0o700 },
     );
-    const identity = await broker.inspect(context);
 
-    const startedAt = performance.now();
-    await expect(broker.resolve(context, identity)).rejects.toThrow(/resolution timed out/u);
-    expect(performance.now() - startedAt).toBeLessThan(3_000);
+    await expect(
+      runGitCredentialProcess({
+        command: helperPath,
+        argv: [],
+        cwd: root,
+        env: { PATH: process.env["PATH"] ?? "/usr/bin:/bin", LANG: "C" },
+        stdin: "protocol=https\nhost=github.com\npath=keel-harness/keel.git\n\n",
+        timeoutMs: 250,
+        maxOutputBytes: 8 * 1024,
+      }),
+    ).resolves.toMatchObject({
+      timedOut: true,
+      outputExceeded: false,
+    });
   });
 
   it("aborts a real in-flight helper process and fails closed", async () => {
