@@ -1260,9 +1260,10 @@ interface ExactPullRequest {
   readonly url: string;
 }
 
-function exactPullRequest(
+function matchingPullRequest(
   value: unknown,
   request: GithubPrCreateRequest,
+  allowProviderNullMaintainer: boolean,
 ): ExactPullRequest | undefined {
   if (!isRecord(value) || !isRecord(value["head"]) || !isRecord(value["base"])) return undefined;
   const head = value["head"];
@@ -1283,7 +1284,8 @@ function exactPullRequest(
     value["title"] !== request.title ||
     (value["body"] ?? "") !== request.body ||
     value["draft"] !== request.draft ||
-    value["maintainer_can_modify"] !== request.maintainerCanModify ||
+    (value["maintainer_can_modify"] !== request.maintainerCanModify &&
+      !(allowProviderNullMaintainer && value["maintainer_can_modify"] === null)) ||
     head["ref"] !== request.head ||
     head["sha"] !== request.expectedHead ||
     base["ref"] !== request.base ||
@@ -1295,18 +1297,37 @@ function exactPullRequest(
   return { number: number as number, url };
 }
 
+function exactPullRequest(
+  value: unknown,
+  request: GithubPrCreateRequest,
+): ExactPullRequest | undefined {
+  return matchingPullRequest(value, request, false);
+}
+
+function pullListCandidate(
+  value: unknown,
+  request: GithubPrCreateRequest,
+): ExactPullRequest | undefined {
+  return matchingPullRequest(value, request, true);
+}
+
 function pullListObservation(
   value: unknown,
   request: GithubPrCreateRequest,
-): { readonly exact?: ExactPullRequest; readonly conflict: boolean } | undefined {
+):
+  | {
+      readonly candidate?: ExactPullRequest;
+      readonly conflict: boolean;
+    }
+  | undefined {
   if (!Array.isArray(value) || value.length > 100) return undefined;
-  const exact = value
-    .map((entry) => exactPullRequest(entry, request))
+  const candidates = value
+    .map((entry) => pullListCandidate(entry, request))
     .filter((entry) => entry !== undefined);
-  if (exact.length > 1) return undefined;
+  if (candidates.length > 1) return undefined;
   return {
-    ...(exact[0] === undefined ? {} : { exact: exact[0] }),
-    conflict: value.length > exact.length,
+    ...(candidates[0] === undefined ? {} : { candidate: candidates[0] }),
+    conflict: value.length > candidates.length,
   };
 }
 
@@ -1317,6 +1338,32 @@ function encodedRefUrl(review: PendingGithubPrCreateReview, branch: string): str
 function pullListUrl(review: PendingGithubPrCreateReview): string {
   const owner = review.request.repository.split("/")[0]!;
   return `${review.facts.apiPullsUrl}?state=open&head=${encodeURIComponent(`${owner}:${review.request.head}`)}&base=${encodeURIComponent(review.request.base)}&per_page=100`;
+}
+
+function pullDetailUrl(review: PendingGithubPrCreateReview, candidate: ExactPullRequest): string {
+  return `${review.facts.apiPullsUrl}/${String(candidate.number)}`;
+}
+
+async function readExactPullRequestDetail(
+  context: GithubPrCreateRuntimeContext,
+  review: PendingGithubPrCreateReview,
+  attemptRoot: string,
+  authorization: GitCredentialBearerAuthorization,
+  sequence: number,
+  candidate: ExactPullRequest,
+): Promise<ExactPullRequest | undefined> {
+  const detail = await runGithubApi(
+    context,
+    review,
+    attemptRoot,
+    authorization,
+    sequence,
+    "GET",
+    pullDetailUrl(review, candidate),
+  );
+  if (!detail.transportOk || detail.status !== 200) return undefined;
+  const exact = exactPullRequest(detail.body, review.request);
+  return exact?.number === candidate.number && exact.url === candidate.url ? exact : undefined;
 }
 
 function resultPayload(
@@ -1610,8 +1657,27 @@ async function resolveReview(
       const auditSeq = auditOutcome(context, review, { result, phase: "existing-pr-preflight" });
       return { verdict: "deny", result, auditSeq };
     }
-    if (existingObservation.exact !== undefined && !existingObservation.conflict) {
-      const result = resultPayload(review, "already-exists", existingObservation.exact, false);
+    let existingExact: ExactPullRequest | undefined;
+    if (existingObservation.candidate !== undefined && !existingObservation.conflict) {
+      existingExact = await readExactPullRequestDetail(
+        context,
+        review,
+        attemptRoot,
+        authorization,
+        sequence++,
+        existingObservation.candidate,
+      );
+      if (existingExact === undefined) {
+        const result = resultPayload(review, "failed", undefined, false);
+        const auditSeq = auditOutcome(context, review, {
+          result,
+          phase: "existing-pr-detail-preflight",
+        });
+        return { verdict: "deny", result, auditSeq };
+      }
+    }
+    if (existingExact !== undefined && !existingObservation.conflict) {
+      const result = resultPayload(review, "already-exists", existingExact, false);
       const auditSeq = auditOutcome(context, review, { result, phase: "existing-pr-preflight" });
       return { verdict: "allow", result, auditSeq };
     }
@@ -1653,7 +1719,17 @@ async function resolveReview(
       verification.transportOk && verification.status === 200
         ? pullListObservation(verification.body, review.request)
         : undefined;
-    const verifiedExact = verified?.conflict === false ? verified.exact : undefined;
+    let verifiedExact: ExactPullRequest | undefined;
+    if (verified?.conflict === false && verified.candidate !== undefined) {
+      verifiedExact = await readExactPullRequestDetail(
+        context,
+        review,
+        attemptRoot,
+        authorization,
+        sequence++,
+        verified.candidate,
+      );
+    }
     if (
       post.transportOk &&
       post.status === 201 &&
@@ -1666,13 +1742,15 @@ async function resolveReview(
       const auditSeq = auditOutcome(context, review, { result, phase: "verified" }, true);
       return { verdict: "allow", result, auditSeq };
     }
-    if (verifiedExact !== undefined) {
+    if (verifiedExact !== undefined && postExact === undefined) {
       const result = resultPayload(review, "created", verifiedExact, true);
       const auditSeq = auditOutcome(context, review, { result, phase: "reconciled" }, true);
       return { verdict: "allow", result, auditSeq };
     }
     const definitiveFailure = post.transportOk && (post.status === 403 || post.status === 422);
-    const status = definitiveFailure && verified !== undefined ? "failed" : "indeterminate";
+    const verifiedAbsent =
+      verified !== undefined && verified.conflict === false && verified.candidate === undefined;
+    const status = definitiveFailure && verifiedAbsent ? "failed" : "indeterminate";
     const actionMayHaveExecuted = status === "indeterminate";
     const result = resultPayload(review, status, undefined, actionMayHaveExecuted);
     const auditSeq = auditOutcome(

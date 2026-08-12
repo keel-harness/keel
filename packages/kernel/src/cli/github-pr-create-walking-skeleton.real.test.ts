@@ -222,6 +222,10 @@ function prBody(head: string): Record<string, unknown> {
   };
 }
 
+function prListBody(head: string): Record<string, unknown> {
+  return { ...prBody(head), maintainer_can_modify: null };
+}
+
 async function startGithubApiFixture(head: string, base: string): Promise<GithubApiFixture> {
   const cert = readFileSync(join(TLS_FIXTURE_DIR, "localhost.crt"), "utf8");
   const key = readFileSync(join(TLS_FIXTURE_DIR, "server.key"), "utf8");
@@ -281,7 +285,15 @@ async function startGithubApiFixture(head: string, base: string): Promise<Github
           return;
         }
         if (request.method === "GET" && url.pathname === `/repos/${repository}/pulls`) {
-          sendJson(response, 200, created ? [prBody(head)] : []);
+          sendJson(response, 200, created ? [prListBody(head)] : []);
+          return;
+        }
+        if (request.method === "GET" && url.pathname === `/repos/${repository}/pulls/42`) {
+          sendJson(
+            response,
+            created ? 200 : 404,
+            created ? prBody(head) : { message: "not found" },
+          );
           return;
         }
         if (request.method === "POST" && url.pathname === `/repos/${repository}/pulls`) {
@@ -772,18 +784,19 @@ suite("ADR-0091 github.pr.create complete product path (real sandbox)", () => {
       const authorization = fixture.acceptedAuthorization();
       if (authorization === undefined) throw new Error("fixture retained no Bearer credential");
       const secret = authorization.slice("Bearer ".length);
-      expect(fixture.requests).toHaveLength(5);
+      expect(fixture.requests).toHaveLength(6);
       expect(fixture.requests.map((request) => request.method)).toEqual([
         "GET",
         "GET",
         "GET",
         "POST",
         "GET",
+        "GET",
       ]);
       expect(fixture.requests.every((request) => request.authorization === authorization)).toBe(
         true,
       );
-      expect(fixture.serverNames).toEqual(Array(5).fill("localhost"));
+      expect(fixture.serverNames).toEqual(Array(6).fill("localhost"));
 
       const sessionId = listSessions(env)[0]?.id;
       if (sessionId === undefined) throw new Error("product session was not persisted");

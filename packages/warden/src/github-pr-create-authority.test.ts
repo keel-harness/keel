@@ -186,6 +186,20 @@ function request(head: string): GithubPrCreateExecuteParams {
   };
 }
 
+function requestWithMaintainer(
+  head: string,
+  maintainerCanModify: boolean,
+): GithubPrCreateExecuteParams {
+  const execute = request(head);
+  return {
+    ...execute,
+    toolCall: {
+      ...execute.toolCall,
+      args: { ...execute.toolCall.args, maintainerCanModify },
+    },
+  };
+}
+
 function refBody(ref: string, sha: string): Record<string, unknown> {
   return { ref, object: { type: "commit", sha } };
 }
@@ -201,6 +215,18 @@ function prBody(head: string): Record<string, unknown> {
     maintainer_can_modify: true,
     head: { ref: "feature/pr", sha: head, repo: { full_name: repository } },
     base: { ref: "main", repo: { full_name: repository } },
+  };
+}
+
+function prListBody(head: string): Record<string, unknown> {
+  return { ...prBody(head), maintainer_can_modify: null };
+}
+
+function prBodyWithNumber(head: string, number: number): Record<string, unknown> {
+  return {
+    ...prBody(head),
+    number,
+    html_url: `https://github.com/keel-harness/keel/pull/${String(number)}`,
   };
 }
 
@@ -389,6 +415,7 @@ describe("ADR-0091 governed github.pr.create authority", () => {
       { status: 200, body: [] },
       { status: 201, body: prBody(h.source.head) },
       { status: 200, body: [prBody(h.source.head)] },
+      { status: 200, body: prBody(h.source.head) },
     );
     const execute = request(h.source.head);
     const requested = await h.authority.request(h.context, execute);
@@ -421,7 +448,7 @@ describe("ADR-0091 governed github.pr.create authority", () => {
     const network = h.executions.filter(
       (entry) => (entry.profile.network?.allowedDomains?.length ?? 0) > 0,
     );
-    expect(network).toHaveLength(5);
+    expect(network).toHaveLength(6);
     expect(
       network.filter((entry) => entry.invocation.argv?.includes("POST") === true),
     ).toHaveLength(1);
@@ -444,12 +471,206 @@ describe("ADR-0091 governed github.pr.create authority", () => {
     expect(JSON.stringify(h.audits)).not.toContain(h.token);
   });
 
+  it("confirms a provider-null list candidate only through its exact PR detail resource", async () => {
+    const h = harness();
+    const detail = { ...prBody(h.source.head), maintainer_can_modify: false };
+    const execute = requestWithMaintainer(h.source.head, false);
+    h.queue.push(
+      { status: 200, body: refBody("refs/heads/feature/pr", h.source.head) },
+      { status: 200, body: refBody("refs/heads/main", "b".repeat(40)) },
+      { status: 200, body: [] },
+      { status: 201, body: { message: "lost success body" }, rawBody: "{" },
+      { status: 200, body: [prListBody(h.source.head)] },
+      { status: 200, body: detail },
+    );
+
+    await expect(approveOnce(h, execute)).resolves.toMatchObject({
+      verdict: "allow",
+      result: {
+        status: "created",
+        number: 42,
+        url: "https://github.com/keel-harness/keel/pull/42",
+        actionMayHaveExecuted: true,
+      },
+    });
+    expect(h.queue).toHaveLength(0);
+    const network = h.executions.filter(
+      (entry) => (entry.profile.network?.allowedDomains?.length ?? 0) > 0,
+    );
+    expect(network).toHaveLength(6);
+    expect(network.at(-1)?.invocation.argv?.at(-1)).toBe(
+      "https://localhost:54321/repos/keel-harness/keel/pulls/42",
+    );
+  });
+
+  it("recovers an existing provider-null list candidate only after exact detail verification", async () => {
+    const h = harness();
+    const detail = { ...prBody(h.source.head), maintainer_can_modify: false };
+    const execute = requestWithMaintainer(h.source.head, false);
+    h.queue.push(
+      { status: 200, body: refBody("refs/heads/feature/pr", h.source.head) },
+      { status: 200, body: refBody("refs/heads/main", "b".repeat(40)) },
+      { status: 200, body: [prListBody(h.source.head)] },
+      { status: 200, body: detail },
+    );
+
+    await expect(approveOnce(h, execute)).resolves.toMatchObject({
+      verdict: "allow",
+      result: {
+        status: "already-exists",
+        number: 42,
+        actionMayHaveExecuted: false,
+      },
+    });
+    expect(h.queue).toHaveLength(0);
+    expect(h.executions.some((entry) => entry.invocation.argv?.includes("POST") === true)).toBe(
+      false,
+    );
+  });
+
+  it("fails closed when a provider-null candidate detail does not prove the approved posture", async () => {
+    const existing = harness();
+    const existingExecute = requestWithMaintainer(existing.source.head, false);
+    existing.queue.push(
+      { status: 200, body: refBody("refs/heads/feature/pr", existing.source.head) },
+      { status: 200, body: refBody("refs/heads/main", "b".repeat(40)) },
+      { status: 200, body: [prListBody(existing.source.head)] },
+      { status: 200, body: prBody(existing.source.head) },
+    );
+    await expect(approveOnce(existing, existingExecute)).resolves.toMatchObject({
+      verdict: "deny",
+      result: { status: "failed", actionMayHaveExecuted: false },
+    });
+    expect(
+      existing.executions.some((entry) => entry.invocation.argv?.includes("POST") === true),
+    ).toBe(false);
+
+    const afterPost = harness();
+    const afterPostExecute = requestWithMaintainer(afterPost.source.head, false);
+    afterPost.queue.push(
+      { status: 200, body: refBody("refs/heads/feature/pr", afterPost.source.head) },
+      { status: 200, body: refBody("refs/heads/main", "b".repeat(40)) },
+      { status: 200, body: [] },
+      { status: 201, body: { message: "lost success body" }, rawBody: "{" },
+      { status: 200, body: [prListBody(afterPost.source.head)] },
+      { status: 200, body: prBody(afterPost.source.head) },
+    );
+    await expect(approveOnce(afterPost, afterPostExecute)).resolves.toMatchObject({
+      verdict: "deny",
+      result: { status: "indeterminate", actionMayHaveExecuted: true },
+    });
+    expect(
+      afterPost.executions.filter((entry) => entry.invocation.argv?.includes("POST") === true),
+    ).toHaveLength(1);
+  });
+
+  it("requires every candidate detail field and transport outcome before confirmed success", async () => {
+    const detailCases: Array<(head: string) => FakeApiResponse> = [
+      () => ({ status: 404, body: { message: "not found" } }),
+      () => ({ status: 200, body: null }),
+      () => ({ status: 200, body: {}, rawBody: "{" }),
+      () => ({ status: 200, body: {}, transport: "throw" }),
+      (head) => ({ status: 200, body: prBodyWithNumber(head, 43) }),
+      (head) => ({
+        status: 200,
+        body: { ...prBody(head), html_url: "https://github.com/attacker/repo/pull/42" },
+      }),
+      (head) => ({ status: 200, body: { ...prBody(head), title: "drifted" } }),
+      (head) => ({ status: 200, body: { ...prBody(head), body: "drifted" } }),
+      (head) => ({ status: 200, body: { ...prBody(head), draft: true } }),
+      (head) => ({
+        status: 200,
+        body: { ...prBody(head), head: { ...(prBody(head)["head"] as object), ref: "other" } },
+      }),
+      (head) => ({
+        status: 200,
+        body: {
+          ...prBody(head),
+          head: { ...(prBody(head)["head"] as object), sha: "f".repeat(40) },
+        },
+      }),
+      (head) => ({
+        status: 200,
+        body: {
+          ...prBody(head),
+          head: { ...(prBody(head)["head"] as object), repo: { full_name: "attacker/repo" } },
+        },
+      }),
+      (head) => ({
+        status: 200,
+        body: { ...prBody(head), base: { ...(prBody(head)["base"] as object), ref: "other" } },
+      }),
+    ];
+    for (const detailCase of detailCases) {
+      const h = harness();
+      h.queue.push(
+        { status: 200, body: refBody("refs/heads/feature/pr", h.source.head) },
+        { status: 200, body: refBody("refs/heads/main", "b".repeat(40)) },
+        { status: 200, body: [prBody(h.source.head)] },
+        detailCase(h.source.head),
+      );
+      await expect(approveOnce(h)).resolves.toMatchObject({
+        verdict: "deny",
+        result: { status: "failed", actionMayHaveExecuted: false },
+      });
+      expect(h.executions.some((entry) => entry.invocation.argv?.includes("POST") === true)).toBe(
+        false,
+      );
+    }
+  });
+
+  it("keeps a valid 201 with a different verified PR identity indeterminate", async () => {
+    const h = harness();
+    h.queue.push(
+      { status: 200, body: refBody("refs/heads/feature/pr", h.source.head) },
+      { status: 200, body: refBody("refs/heads/main", "b".repeat(40)) },
+      { status: 200, body: [] },
+      { status: 201, body: prBody(h.source.head) },
+      { status: 200, body: [prBodyWithNumber(h.source.head, 43)] },
+      { status: 200, body: prBodyWithNumber(h.source.head, 43) },
+    );
+
+    await expect(approveOnce(h)).resolves.toMatchObject({
+      verdict: "deny",
+      result: {
+        status: "indeterminate",
+        number: null,
+        url: null,
+        actionMayHaveExecuted: true,
+      },
+    });
+    expect(
+      h.executions.filter((entry) => entry.invocation.argv?.includes("POST") === true),
+    ).toHaveLength(1);
+  });
+
+  it("keeps a 422 with an unresolved list candidate indeterminate", async () => {
+    const h = harness();
+    h.queue.push(
+      { status: 200, body: refBody("refs/heads/feature/pr", h.source.head) },
+      { status: 200, body: refBody("refs/heads/main", "b".repeat(40)) },
+      { status: 200, body: [] },
+      { status: 422, body: { message: "validation failed" } },
+      { status: 200, body: [prListBody(h.source.head)] },
+      { status: 200, body: {}, rawBody: "{" },
+    );
+
+    await expect(approveOnce(h)).resolves.toMatchObject({
+      verdict: "deny",
+      result: { status: "indeterminate", actionMayHaveExecuted: true },
+    });
+    expect(
+      h.executions.filter((entry) => entry.invocation.argv?.includes("POST") === true),
+    ).toHaveLength(1);
+  });
+
   it("returns an exact existing PR without POSTing or claiming a new mutation", async () => {
     const h = harness();
     h.queue.push(
       { status: 200, body: refBody("refs/heads/feature/pr", h.source.head) },
       { status: 200, body: refBody("refs/heads/main", "b".repeat(40)) },
       { status: 200, body: [prBody(h.source.head)] },
+      { status: 200, body: prBody(h.source.head) },
     );
     const requested = await h.authority.request(h.context, request(h.source.head));
     const review = h.authority.consumeReview(requested.review!.reviewId)!;
@@ -473,7 +694,7 @@ describe("ADR-0091 governed github.pr.create authority", () => {
     const network = h.executions.filter(
       (entry) => (entry.profile.network?.allowedDomains?.length ?? 0) > 0,
     );
-    expect(network).toHaveLength(3);
+    expect(network).toHaveLength(4);
     expect(network.some((entry) => entry.invocation.argv?.includes("POST") === true)).toBe(false);
   });
 
@@ -934,7 +1155,12 @@ describe("ADR-0091 governed github.pr.create authority", () => {
       });
     }
 
-    for (const observation of ["object", "oversized", "duplicate"] as const) {
+    for (const observation of [
+      "object",
+      "oversized",
+      "duplicate",
+      "provider-null-duplicate",
+    ] as const) {
       const h = harness();
       const exact = prBody(h.source.head);
       const body =
@@ -942,7 +1168,9 @@ describe("ADR-0091 governed github.pr.create authority", () => {
           ? { message: "not an array" }
           : observation === "oversized"
             ? Array.from({ length: 101 }, () => ({}))
-            : [exact, exact];
+            : observation === "duplicate"
+              ? [exact, exact]
+              : [prListBody(h.source.head), prListBody(h.source.head)];
       h.queue.push(
         { status: 200, body: refBody("refs/heads/feature/pr", h.source.head) },
         { status: 200, body: refBody("refs/heads/main", "b".repeat(40)) },
@@ -988,6 +1216,7 @@ describe("ADR-0091 governed github.pr.create authority", () => {
       { status: 200, body: [] },
       { status: 201, body: { message: "malformed success" } },
       { status: 200, body: [prBody(reconciled.source.head)] },
+      { status: 200, body: prBody(reconciled.source.head) },
     );
     await expect(approveOnce(reconciled)).resolves.toMatchObject({
       verdict: "allow",
@@ -1065,6 +1294,7 @@ describe("ADR-0091 governed github.pr.create authority", () => {
       { status: 200, body: refBody("refs/heads/feature/pr", cleanup.source.head) },
       { status: 200, body: refBody("refs/heads/main", "b".repeat(40)) },
       { status: 200, body: [prBody(cleanup.source.head)] },
+      { status: 200, body: prBody(cleanup.source.head) },
     );
     await expect(approveOnce(cleanup)).resolves.toMatchObject({
       verdict: "allow",
@@ -1085,6 +1315,7 @@ describe("ADR-0091 governed github.pr.create authority", () => {
       { status: 200, body: refBody("refs/heads/feature/pr", h.source.head) },
       { status: 200, body: refBody("refs/heads/main", "b".repeat(40)) },
       { status: 200, body: [prBody(h.source.head)] },
+      { status: 200, body: prBody(h.source.head) },
     );
     const production = createGithubPrCreateProductionAuthority({
       credentialBroker: h.config.credentialBroker,
