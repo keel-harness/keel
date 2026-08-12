@@ -710,7 +710,8 @@ export class EndpointLeaseRegistry {
       let existing: FileOwner
       try {
         existing = parseFileOwner(this.#lockPath)
-      } catch {
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') continue
         throw new Error('endpoint lease registry lock is unavailable')
       }
       if (processIsAlive(existing.pid)) {
