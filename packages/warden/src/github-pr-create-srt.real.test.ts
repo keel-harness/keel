@@ -199,6 +199,10 @@ function prBody(head: string): Record<string, unknown> {
   };
 }
 
+function prListBody(head: string): Record<string, unknown> {
+  return { ...prBody(head), maintainer_can_modify: null };
+}
+
 async function startApiFixture(head: string, base: string): Promise<ApiFixture> {
   const cert = readFileSync(join(fixtureDir, "localhost.crt"), "utf8");
   const key = readFileSync(fixtureServerKey, "utf8");
@@ -237,7 +241,15 @@ async function startApiFixture(head: string, base: string): Promise<ApiFixture> 
           return;
         }
         if (url.pathname === `/repos/${repository}/pulls` && request.method === "GET") {
-          sendJson(response, 200, created ? [prBody(head)] : []);
+          sendJson(response, 200, created ? [prListBody(head)] : []);
+          return;
+        }
+        if (url.pathname === `/repos/${repository}/pulls/42` && request.method === "GET") {
+          sendJson(
+            response,
+            created ? 200 : 404,
+            created ? prBody(head) : { message: "not found" },
+          );
           return;
         }
         if (url.pathname === `/repos/${repository}/pulls` && request.method === "POST") {
@@ -472,7 +484,7 @@ printf '%s\\n' 'username=x-access-token' 'password=${token}'
       const apiExecutions = executions
         .filter(isSuccessfulExecution)
         .filter((entry) => entry.invocation.command === resolvedCurl.path);
-      expect(apiExecutions).toHaveLength(5);
+      expect(apiExecutions).toHaveLength(6);
       expect(
         apiExecutions.every(
           (entry) =>
@@ -481,7 +493,7 @@ printf '%s\\n' 'username=x-access-token' 'password=${token}'
             entry.outcome.stderr === "",
         ),
       ).toBe(true);
-      expect(fixture.requests).toHaveLength(5);
+      expect(fixture.requests).toHaveLength(6);
       expect(result).toMatchObject({
         verdict: "allow",
         result: {
@@ -500,12 +512,13 @@ printf '%s\\n' 'username=x-access-token' 'password=${token}'
         "GET",
         "POST",
         "GET",
+        "GET",
       ]);
       expect(fixture.requests.filter((request) => request.method === "POST")).toHaveLength(1);
       expect(fixture.requests.every((request) => request.authorization === `Bearer ${token}`)).toBe(
         true,
       );
-      expect(fixture.serverNames).toEqual(Array(5).fill("localhost"));
+      expect(fixture.serverNames).toEqual(Array(6).fill("localhost"));
       expect(JSON.stringify({ result, audits })).not.toContain(token);
       expect(readdirSync(tempRoot).filter((name) => name.startsWith("github-pr-attempt-"))).toEqual(
         [],
