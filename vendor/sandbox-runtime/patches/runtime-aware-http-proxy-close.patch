@@ -1,5 +1,5 @@
 diff --git a/src/sandbox/http-proxy.ts b/src/sandbox/http-proxy.ts
-index 6fa3dae..cc47eca 100644
+index 6fa3dae..b6749c3 100644
 --- a/src/sandbox/http-proxy.ts
 +++ b/src/sandbox/http-proxy.ts
 @@ -107,0 +108,22 @@ export interface HttpProxyServerOptions {

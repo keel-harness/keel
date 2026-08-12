@@ -167,6 +167,10 @@ assert(
   httpClosePatch.includes("src/sandbox/http-proxy.ts"),
   "runtime-aware HTTP close patch omits upgraded-socket tracking",
 );
+assert(
+  httpClosePatch.includes("index 6fa3dae..b6749c3 100644"),
+  "runtime-aware HTTP close patch does not record the exact http-proxy postimage",
+);
 const httpProxySource = await readFile(
   new URL("src/sandbox/http-proxy.ts", vendorDir),
   "utf8",
