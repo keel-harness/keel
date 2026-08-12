@@ -1446,6 +1446,9 @@ export function forceCloseHttpServer(server: ForceCloseHttpServer): Promise<void
         closeAllConnections()
         destroyTrackedConnections()
         close()
+        // A connection can arrive after the pre-close drain but before close()
+        // detaches the listener. Drain that final fixed set as well.
+        destroyTrackedConnections()
       } else {
         // Node can accept a new connection between closeAllConnections() and
         // close(). Stop acceptance first, then force-close the fixed set.

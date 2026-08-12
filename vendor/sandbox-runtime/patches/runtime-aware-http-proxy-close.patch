@@ -24,7 +24,7 @@ index 6fa3dae..cc47eca 100644
 +    socket.once('close', () => acceptedSockets.delete(socket))
 +  })
 diff --git a/src/sandbox/sandbox-manager.ts b/src/sandbox/sandbox-manager.ts
-index b673d0c..ef5185b 100644
+index b673d0c..f6cbbe1 100644
 --- a/src/sandbox/sandbox-manager.ts
 +++ b/src/sandbox/sandbox-manager.ts
 @@ -1 +1,4 @@
@@ -63,7 +63,7 @@ index b673d0c..ef5185b 100644
 +    let orderingComplete = false
 +    const settle = () => {
 +      if (closeCallbackReturned && orderingComplete) resolve()
-@@ -1425,5 +1426,29 @@ function forceCloseHttpServer(
+@@ -1425,5 +1426,32 @@ function forceCloseHttpServer(
 -    server.close(error => {
 -      if (error && error.message !== 'Server is not running.') {
 -        logForDebugging(`Error closing HTTP proxy server: ${error.message}`, {
@@ -92,13 +92,16 @@ index b673d0c..ef5185b 100644
 +        closeAllConnections()
 +        destroyTrackedConnections()
 +        close()
++        // A connection can arrive after the pre-close drain but before close()
++        // detaches the listener. Drain that final fixed set as well.
++        destroyTrackedConnections()
 +      } else {
 +        // Node can accept a new connection between closeAllConnections() and
 +        // close(). Stop acceptance first, then force-close the fixed set.
 +        close()
 +        closeAllConnections()
 +        destroyTrackedConnections()
-@@ -1431,2 +1456,5 @@ function forceCloseHttpServer(
+@@ -1431,2 +1459,5 @@ function forceCloseHttpServer(
 -      resolve()
 -    })
 +      orderingComplete = true

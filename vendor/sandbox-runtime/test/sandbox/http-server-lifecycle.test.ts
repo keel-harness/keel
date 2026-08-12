@@ -1,5 +1,5 @@
 import { once } from 'node:events'
-import { connect, type Socket } from 'node:net'
+import { connect, Socket, type Socket as SocketType } from 'node:net'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createHttpProxyServer } from '../../src/sandbox/http-proxy.js'
 import {
@@ -29,7 +29,7 @@ describe('HTTP proxy server lifecycle', () => {
   it('drains a Node CONNECT-upgraded client before server close settles', async () => {
     const server = createHttpProxyServer({ filter: () => true })
     server.removeAllListeners('connect')
-    const accepted = new Promise<Socket>(resolve => {
+    const accepted = new Promise<SocketType>(resolve => {
       server.once('connect', (_request, socket) => {
         socket.write('HTTP/1.1 200 Connection Established\r\n\r\n')
         resolve(socket)
@@ -139,5 +139,20 @@ describe('HTTP proxy server lifecycle', () => {
 
     await expect(forceCloseHttpServer(server)).resolves.toBeUndefined()
     expect(calls).toEqual(['closeAllConnections', 'close'])
+  })
+
+  it('drains a Bun connection accepted while close stops the listener', async () => {
+    selectBunRuntime()
+    const server = createHttpProxyServer({ filter: () => true })
+    const lateSocket = new Socket()
+    server.closeAllConnections = () => undefined
+    server.close = callback => {
+      server.emit('connection', lateSocket)
+      callback?.()
+      return server
+    }
+
+    await expect(forceCloseHttpServer(server)).resolves.toBeUndefined()
+    expect(lateSocket.destroyed).toBe(true)
   })
 })

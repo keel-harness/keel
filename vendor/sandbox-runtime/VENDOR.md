@@ -162,7 +162,8 @@ not source needed for Keel's reviewed adapter path:
 - Compatibility: Bun retains its existing `closeAllConnections()`-before-`close()` behavior. Node stops
   acceptance first and then force-closes the fixed established-connection set, matching Node's API
   guidance. Both runtimes also destroy the proxy's explicit accepted-socket registry so upgraded
-  tunnels drain. Deterministic tests preserve both orderings and a real Node `CONNECT` upgrade.
+  tunnels drain; Bun repeats that drain after stopping acceptance to close the pre-close race.
+  Deterministic tests preserve both orderings, the Bun interleaving, and a real Node `CONNECT` upgrade.
 - Upstreamable status: minimal and upstreamable. Recorded 2026-08-11; not yet submitted upstream.
 
 ## License And Notice
