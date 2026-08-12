@@ -576,6 +576,22 @@ describe("ADR-0091 governed github.pr.create authority", () => {
       existing.executions.some((entry) => entry.invocation.argv?.includes("POST") === true),
     ).toBe(false);
 
+    const omitted = harness();
+    const omittedExecute = requestWithMaintainer(omitted.source.head, false);
+    omitted.queue.push(
+      { status: 200, body: refBody("refs/heads/feature/pr", omitted.source.head) },
+      { status: 200, body: refBody("refs/heads/main", "b".repeat(40)) },
+      { status: 200, body: [prListBodyWithoutMaintainer(omitted.source.head)] },
+      { status: 200, body: prListBodyWithoutMaintainer(omitted.source.head) },
+    );
+    await expect(approveOnce(omitted, omittedExecute)).resolves.toMatchObject({
+      verdict: "deny",
+      result: { status: "failed", actionMayHaveExecuted: false },
+    });
+    expect(
+      omitted.executions.some((entry) => entry.invocation.argv?.includes("POST") === true),
+    ).toBe(false);
+
     const afterPost = harness();
     const afterPostExecute = requestWithMaintainer(afterPost.source.head, false);
     afterPost.queue.push(
