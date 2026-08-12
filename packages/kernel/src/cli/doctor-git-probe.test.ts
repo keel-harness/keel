@@ -103,6 +103,12 @@ describe("doctor Git probe authority", () => {
       { body: `printf '%s\\n' '{"status":"error","detail":"unsafe"}'` },
       { body: `printf '%s\\n' '{"status":"unknown","detail":"x","fix":"y"}'` },
       { body: `printf '%s\\n' '{"status":"ok","status":"error","detail":"x"}'` },
+      ...["\t", "\u0085", "\u202e", "\u2028", "\u2029"].map((control) => ({
+        body: `printf '%s\\n' '${JSON.stringify({ status: "error", detail: `unsafe${control}detail`, fix: "fix" })}'`,
+      })),
+      {
+        body: `printf '%s\\n' '${JSON.stringify({ status: "error", detail: "x".repeat(600), fix: "y".repeat(600) })}'`,
+      },
     ];
     for (const [index, testCase] of cases.entries()) {
       const warden = join(operatorBin, `warden-${String(index)}`);

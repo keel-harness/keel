@@ -90,7 +90,7 @@ Exact values, fractions, commands, and the staleness window live in the
 
 ## Status
 
-**keel is pre-alpha, in open-source preparation.** `keel-harness@0.1.1` is published on npm and
+**keel is pre-alpha and publicly available.** `keel-harness@0.1.1` is published on npm and
 tagged `latest`, but this is **not a stable or public-alpha release**.
 
 Keel is currently solo-maintained and has not received an independent security audit. Treat its

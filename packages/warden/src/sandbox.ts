@@ -62,6 +62,10 @@ export interface SandboxCredentialProxyConfig {
 
 export interface SandboxProcessRunnerOptions {
   readonly signal?: AbortSignal;
+  /** Revoke launch-local network authority before terminal process/group signaling begins. */
+  readonly beforeProcessGroupSettlement?: () => void | Promise<void>;
+  /** Called only after the runner has positively established process/group absence. */
+  readonly onProcessGroupSettled?: () => void | Promise<void>;
 }
 
 export interface SandboxExecuteOptions extends SandboxProcessRunnerOptions {

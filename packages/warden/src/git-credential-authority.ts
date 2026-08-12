@@ -50,13 +50,36 @@ export type GitCredentialAuthorityErrorCode =
   | "helper_syntax"
   | "include_authority";
 
+export interface GitCredentialAuthorityDiagnostic {
+  readonly kind: "filesystem-entry" | "unresolved-helper";
+  readonly subject: "environment" | "configuration" | "executable";
+  readonly entryType: "directory" | "file" | "helper";
+  readonly condition:
+    | "blocked"
+    | "changed"
+    | "malformed"
+    | "ownership"
+    | "permissions"
+    | "size"
+    | "type"
+    | "unavailable";
+  readonly entry: string;
+  readonly operatorOwned?: boolean;
+}
+
 export class GitCredentialAuthorityError extends Error {
   readonly code: GitCredentialAuthorityErrorCode;
+  readonly diagnostic: GitCredentialAuthorityDiagnostic | undefined;
 
-  constructor(code: GitCredentialAuthorityErrorCode, message: string) {
+  constructor(
+    code: GitCredentialAuthorityErrorCode,
+    message: string,
+    diagnostic?: GitCredentialAuthorityDiagnostic,
+  ) {
     super(message);
     this.name = "GitCredentialAuthorityError";
     this.code = code;
+    this.diagnostic = diagnostic;
   }
 }
 
@@ -211,39 +234,64 @@ function directoryIdentity(
   workspaceRoot: string,
   denyRoots: readonly string[],
   requireOperatorOwner = false,
+  diagnosticSubject: GitCredentialAuthorityDiagnostic["subject"] = "executable",
 ): ProvenanceDirectoryIdentity {
+  const reject = (
+    condition: GitCredentialAuthorityDiagnostic["condition"],
+    operatorOwned?: boolean,
+  ): never => {
+    throw new GitCredentialAuthorityError(
+      diagnosticSubject === "configuration"
+        ? "configuration_origin"
+        : diagnosticSubject === "executable"
+          ? "executable_authority"
+          : "environment_authority",
+      `Git credential ${label} directory authority is unsafe`,
+      {
+        kind: "filesystem-entry",
+        subject: diagnosticSubject,
+        entryType: "directory",
+        condition,
+        entry: path,
+        ...(operatorOwned === undefined ? {} : { operatorOwned }),
+      },
+    );
+  };
+  if (!isAbsolute(path)) return reject("malformed");
   let canonical: string;
   try {
-    if (!isAbsolute(path)) throw new Error("relative");
     canonical = realpathSync(path);
-    const stat = statSync(canonical, { bigint: true });
-    const owner = Number(stat.uid);
-    const gid = Number(stat.gid);
-    const mode = Number(stat.mode);
-    if (
-      !stat.isDirectory() ||
-      (requireOperatorOwner ? owner !== uid : !safeOwner(uid, owner)) ||
-      !safeDirectoryMode(mode, owner, gid, uid, requireOperatorOwner) ||
-      !outsideBlockedRoots(path, canonical, workspaceRoot, denyRoots)
-    ) {
-      throw new Error("unsafe");
-    }
-    const material = {
-      canonicalPath: canonical,
-      dev: String(stat.dev),
-      ino: String(stat.ino),
-      uid: owner,
-      gid,
-      mode,
-      mtimeNs: String(stat.mtimeNs),
-    };
-    return { ...material, digest: sha256(JSON.stringify(material)) };
   } catch {
-    throw new GitCredentialAuthorityError(
-      "environment_authority",
-      `Git credential ${label} directory authority is unsafe`,
-    );
+    return reject("unavailable");
   }
+  if (!outsideBlockedRoots(path, canonical, workspaceRoot, denyRoots)) return reject("blocked");
+  let stat: ReturnType<typeof statSync>;
+  try {
+    stat = statSync(canonical, { bigint: true });
+  } catch {
+    return reject("unavailable");
+  }
+  const owner = Number(stat.uid);
+  const gid = Number(stat.gid);
+  const mode = Number(stat.mode);
+  const operatorOwned = owner === uid;
+  if (!stat.isDirectory()) return reject("type", operatorOwned);
+  if (requireOperatorOwner ? !operatorOwned : !safeOwner(uid, owner)) {
+    return reject("ownership", operatorOwned);
+  }
+  if (!safeDirectoryMode(mode, owner, gid, uid, requireOperatorOwner)) {
+    return reject("permissions", operatorOwned);
+  }
+  const material = {
+    canonicalPath: canonical,
+    dev: String(stat.dev),
+    ino: String(stat.ino),
+    uid: owner,
+    gid,
+    mode,
+    mtimeNs: String(stat.mtimeNs),
+  };
+  return { ...material, digest: sha256(JSON.stringify(material)) };
 }
 
 function fileIdentity(
@@ -254,61 +302,90 @@ function fileIdentity(
   denyRoots: readonly string[],
   executable: boolean,
 ): ProvenanceFileIdentity {
-  try {
-    if (!isAbsolute(path)) throw new Error("relative");
-    const canonical = realpathSync(path);
-    if (!outsideBlockedRoots(path, canonical, workspaceRoot, denyRoots)) {
-      throw new Error("blocked");
-    }
-    const stat = statSync(canonical, { bigint: true });
-    const owner = Number(stat.uid);
-    const mode = Number(stat.mode);
-    if (
-      !stat.isFile() ||
-      !safeOwner(uid, owner) ||
-      (mode & 0o022) !== 0 ||
-      stat.size > BigInt(MAX_IDENTITY_FILE_BYTES)
-    ) {
-      throw new Error("unsafe");
-    }
-    if (executable) accessSync(canonical, constants.X_OK);
-    const parent = directoryIdentity(
-      dirname(canonical),
-      `${label} parent`,
-      uid,
-      workspaceRoot,
-      denyRoots,
-    );
-    const bytes = readFileSync(canonical);
-    const after = statSync(canonical, { bigint: true });
-    if (
-      after.dev !== stat.dev ||
-      after.ino !== stat.ino ||
-      after.size !== stat.size ||
-      after.mtimeNs !== stat.mtimeNs
-    ) {
-      throw new Error("changed");
-    }
-    const material = {
-      canonicalPath: canonical,
-      dev: String(stat.dev),
-      ino: String(stat.ino),
-      uid: owner,
-      gid: Number(stat.gid),
-      mode,
-      size: String(stat.size),
-      mtimeNs: String(stat.mtimeNs),
-      contentSha256: sha256(bytes),
-      parentDigest: parent.digest,
-    };
-    return { ...material, digest: sha256(JSON.stringify(material)) };
-  } catch (error) {
-    if (error instanceof GitCredentialAuthorityError) throw error;
+  const subject = executable ? "executable" : "configuration";
+  const reject = (
+    condition: GitCredentialAuthorityDiagnostic["condition"],
+    operatorOwned?: boolean,
+  ): never => {
     throw new GitCredentialAuthorityError(
       executable ? "executable_authority" : "configuration_origin",
       `Git credential ${label} file authority is unsafe`,
+      {
+        kind: "filesystem-entry",
+        subject,
+        entryType: "file",
+        condition,
+        entry: path,
+        ...(operatorOwned === undefined ? {} : { operatorOwned }),
+      },
     );
+  };
+  if (!isAbsolute(path)) return reject("malformed");
+  let canonical: string;
+  try {
+    canonical = realpathSync(path);
+  } catch {
+    return reject("unavailable");
   }
+  if (!outsideBlockedRoots(path, canonical, workspaceRoot, denyRoots)) return reject("blocked");
+  let stat: ReturnType<typeof statSync>;
+  try {
+    stat = statSync(canonical, { bigint: true });
+  } catch {
+    return reject("unavailable");
+  }
+  const owner = Number(stat.uid);
+  const mode = Number(stat.mode);
+  const operatorOwned = owner === uid;
+  if (!stat.isFile()) return reject("type", operatorOwned);
+  if (!safeOwner(uid, owner)) return reject("ownership", operatorOwned);
+  if ((mode & 0o022) !== 0) return reject("permissions", operatorOwned);
+  if (stat.size > BigInt(MAX_IDENTITY_FILE_BYTES)) return reject("size", operatorOwned);
+  if (executable) {
+    try {
+      accessSync(canonical, constants.X_OK);
+    } catch {
+      return reject("permissions", operatorOwned);
+    }
+  }
+  const parent = directoryIdentity(
+    dirname(canonical),
+    `${label} parent`,
+    uid,
+    workspaceRoot,
+    denyRoots,
+    false,
+    subject,
+  );
+  let bytes: Buffer;
+  let after: ReturnType<typeof statSync>;
+  try {
+    bytes = readFileSync(canonical);
+    after = statSync(canonical, { bigint: true });
+  } catch {
+    return reject("unavailable", operatorOwned);
+  }
+  if (
+    after.dev !== stat.dev ||
+    after.ino !== stat.ino ||
+    after.size !== stat.size ||
+    after.mtimeNs !== stat.mtimeNs
+  ) {
+    return reject("changed", operatorOwned);
+  }
+  const material = {
+    canonicalPath: canonical,
+    dev: String(stat.dev),
+    ino: String(stat.ino),
+    uid: owner,
+    gid: Number(stat.gid),
+    mode,
+    size: String(stat.size),
+    mtimeNs: String(stat.mtimeNs),
+    contentSha256: sha256(bytes),
+    parentDigest: parent.digest,
+  };
+  return { ...material, digest: sha256(JSON.stringify(material)) };
 }
 
 function uniqueDirectories(
@@ -351,12 +428,28 @@ export function prepareGitCredentialAuthority(
       "Git credential HOME authority is unavailable",
     );
   }
-  const home = directoryIdentity(homeRaw, "HOME", uid, workspaceRoot, denyRoots, true);
+  const home = directoryIdentity(
+    homeRaw,
+    "HOME",
+    uid,
+    workspaceRoot,
+    denyRoots,
+    true,
+    "environment",
+  );
   const xdgRaw = options.env["XDG_CONFIG_HOME"];
   const xdgConfigHome =
     xdgRaw === undefined || xdgRaw === ""
       ? undefined
-      : directoryIdentity(xdgRaw, "XDG_CONFIG_HOME", uid, workspaceRoot, denyRoots, true);
+      : directoryIdentity(
+          xdgRaw,
+          "XDG_CONFIG_HOME",
+          uid,
+          workspaceRoot,
+          denyRoots,
+          true,
+          "environment",
+        );
   const gitExecutable = fileIdentity(
     options.gitExecutable,
     "Git executable",
@@ -618,6 +711,13 @@ function validateIncludes(
         throw new GitCredentialAuthorityError(
           "include_authority",
           "Git credential include target is unavailable",
+          {
+            kind: "filesystem-entry",
+            subject: "configuration",
+            entryType: "file",
+            condition: "unavailable",
+            entry: target,
+          },
         );
       }
     }
@@ -947,13 +1047,21 @@ function resolveHelperExecutable(
       );
       if (basename(identity.canonicalPath) !== executableName) continue;
       return identity;
-    } catch {
+    } catch (error) {
+      if (existsSync(spelling) && error instanceof GitCredentialAuthorityError) throw error;
       // Continue only across bounded discovery candidates; no candidate is execution authority yet.
     }
   }
   throw new GitCredentialAuthorityError(
     "executable_authority",
     "Git credential helper executable is unavailable",
+    {
+      kind: "unresolved-helper",
+      subject: "executable",
+      entryType: "helper",
+      condition: "unavailable",
+      entry: executableName,
+    },
   );
 }
 

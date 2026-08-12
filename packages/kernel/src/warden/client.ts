@@ -16,11 +16,11 @@ type HelloResult = MethodResult<"warden.hello">;
 export const DEFAULT_WARDEN_RESPONSE_MAX_LINE_BYTES = 1_048_576;
 export const DEFAULT_WARDEN_STDERR_MAX_BYTES = 65_536;
 /** Grace after SIGTERM before the kernel force-kills a wedged warden (P1-19). Kept strictly GREATER
- *  than the warden's own teardown budget (`WARDEN_TEARDOWN_BUDGET_MS` = 2s, which caps its reap wait
+ *  than the warden's own teardown budget (`WARDEN_TEARDOWN_BUDGET_MS` = 24s, which caps its teardown
  *  on both the SIGTERM and EOF paths) so a warden legitimately using its full budget exits cleanly —
  *  flushing the final checkpoint and unlinking its audit lock — BEFORE this SIGKILL lands, instead of
  *  racing it. Still bounded, so a truly wedged warden that ignores SIGTERM can never hang teardown. */
-export const DEFAULT_WARDEN_TERMINATE_GRACE_MS = 4_000;
+export const DEFAULT_WARDEN_TERMINATE_GRACE_MS = 28_000;
 
 export interface WardenCallOptions {
   signal?: AbortSignal;

@@ -87,7 +87,7 @@ describe("warden git.push product wiring", () => {
     vi.doMock("./credential-proxy.js", () => ({ credentialProxyRulesFromEnvValues: vi.fn() }));
     vi.doMock("./rpc-server.js", () => ({
       DEFAULT_MAX_LINE_BYTES: 1024,
-      WARDEN_TEARDOWN_BUDGET_MS: 2_000,
+      WARDEN_TEARDOWN_BUDGET_MS: 24_000,
       runStdioWardenServer,
     }));
     vi.doMock("./audit/checkpoint-key.js", () => ({

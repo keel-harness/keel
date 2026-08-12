@@ -52,6 +52,7 @@ import {
 import {
   handleRpcLine,
   runStdioWardenServer,
+  WARDEN_TEARDOWN_BUDGET_MS,
   ZERO_HASH,
   type TypedMutationRunner,
   type WardenRpcHandlerOptions,
@@ -845,6 +846,9 @@ function replaceResultSchema(
 }
 
 describe("keel-warden stdio JSON-RPC server", () => {
+  it("reserves the bounded lifecycle budget for one in-flight launch and one system-tmux session", () => {
+    expect(WARDEN_TEARDOWN_BUDGET_MS).toBe(24_000);
+  });
   it("SEC-018 precursor: arbitrary bytes/JSON never crash the request handler", async () => {
     await fc.assert(
       fc.asyncProperty(fc.string(), async (line) => {
@@ -7958,7 +7962,7 @@ describe("keel-warden stdio JSON-RPC server", () => {
 
       expect(raw.error.data?.code).toBe("AUDIT_WRITE_FAILED");
       expect(raw.error.data?.code).not.toBe("INTERACTIVE_CONSOLE_BROKER_FAILED");
-      expect(consoleState.handles.has(handle)).toBe(true);
+      expect(consoleState.handles.has(handle)).toBe(false);
       expect(brokerEvents.map((event) => (event as { readonly kind: string }).kind)).toEqual([
         "close",
       ]);
@@ -19018,6 +19022,30 @@ printf '%s\\n' '${match}'
     expect(reapResults).toEqual([true]);
   });
 
+  it("preserves cleanup debt when process-owned runtime teardown rejects at EOF", async () => {
+    const input = new PassThrough();
+    const output = new PassThrough();
+    output.resume();
+    const outcomes: boolean[] = [];
+    let runtimeCalls = 0;
+    const shutdownRuntime = vi.fn(async () => {
+      runtimeCalls += 1;
+      if (runtimeCalls === 1) throw new Error("runtime teardown failed");
+    });
+    const server = runStdioWardenServer({
+      input,
+      output,
+      shutdownRuntime,
+      onShutdown: ({ reaped }) => outcomes.push(reaped),
+    });
+
+    input.end();
+    await vi.waitFor(() => expect(outcomes).toEqual([false]));
+
+    await expect(server.close()).resolves.toBeUndefined();
+    expect(shutdownRuntime).toHaveBeenCalledTimes(2);
+  });
+
   it("fires onShutdown within the reap budget on EOF even if the in-flight execute hangs (P1-19)", async () => {
     const input = new PassThrough();
     const output = new PassThrough();
@@ -20063,6 +20091,87 @@ printf '%s\\n' '${match}'
     }
   });
 
+  it("drops released controller state before a fallible release outcome audit append", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "keel-rpc-console-release-outcome-audit-fail-"));
+    try {
+      const auditPath = join(dir, "audit.jsonl");
+      const delegateWriter = auditWriter(auditPath);
+      const failingOutcomeWriter: AuditSink = {
+        get head() {
+          return delegateWriter.head;
+        },
+        append(input) {
+          if (input.payload["kind"] === "interactive_console_release_returned") {
+            throw new Error("release outcome audit write failed");
+          }
+          return delegateWriter.append(input);
+        },
+        checkpointNow: () => delegateWriter.checkpointNow(),
+        checkpointPublicKey: () => delegateWriter.checkpointPublicKey(),
+        close: () => delegateWriter.close(),
+      };
+      const consoleState = createConsoleRuntimeState();
+      const handle = "con_01ARZ3NDEKTSV4RRFFQ69G5FBG";
+      const releaseTarget: ConsolePolicyTargetProfile = {
+        ...QEMU_CONSOLE_TARGET,
+        targetId: "qemu-release-outcome-audit-fail",
+        allowRelease: true,
+      };
+      const processIdentity = { kind: "fake-console", id: handle };
+      consoleState.handles.set(handle, {
+        handle,
+        targetId: releaseTarget.targetId,
+        targetDigest: releaseTarget.targetDigest,
+        sessionId: "ses_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        profile: releaseTarget,
+        openedAt: "2026-07-10T18:00:00.000Z",
+        processIdentity,
+        lifecycle: createConsoleLifecycleState({
+          profile: releaseTarget,
+          nowMs: Date.parse("2026-07-10T18:00:00.000Z"),
+          processIdentity,
+        }),
+        nextSeq: 0,
+      });
+      const brokerEvents: unknown[] = [];
+
+      const raw = JsonRpcErrorResponse.parse(
+        await handleRpcLine(
+          JSON.stringify(
+            consoleExecuteFrame("console-release-outcome-audit-fail", CONSOLE_TOOL_NAMES.release, {
+              handle,
+              reason: "external-grader",
+            }),
+          ),
+          {
+            workspaceTrusted: true,
+            sandbox: sandbox({
+              available: true,
+              backend: "fake-sandbox",
+              enforcementTier: "sandbox:fake",
+            }),
+            policy: ALLOW_POLICY,
+            auditWriter: failingOutcomeWriter,
+            interactiveConsoleState: consoleState,
+            interactiveConsoleBroker: fakeConsoleBroker(brokerEvents),
+            interactiveConsoleTargets: { [releaseTarget.targetId]: releaseTarget },
+          },
+        ),
+      );
+
+      expect(raw.error.data?.code).toBe("AUDIT_WRITE_FAILED");
+      expect(raw.error.data?.["mutationPossible"]).toBe(true);
+      expect(raw.error.data?.code).not.toBe("INTERACTIVE_CONSOLE_BROKER_FAILED");
+      expect(raw.error.message).not.toContain("remains Warden-controlled");
+      expect(consoleState.handles.has(handle)).toBe(false);
+      expect(brokerEvents.map((event) => (event as { readonly kind: string }).kind)).toEqual([
+        "release",
+      ]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("allows reviewed opened-handle console grants to release target-approved handles", async () => {
     const dir = mkdtempSync(join(tmpdir(), "keel-rpc-console-release-grant-"));
     const auditPath = join(dir, "audit.jsonl");
@@ -20515,9 +20624,10 @@ printf '%s\\n' '${match}'
     ).rejects.toThrow("dispose failed");
   });
 
-  it("keeps stdio close non-throwing when interactive console broker disposal rejects", async () => {
+  it("keeps stdio close non-throwing while exposing failed console settlement", async () => {
     const input = new PassThrough();
     const output = new PassThrough();
+    const shutdownRuntime = vi.fn(async () => {});
     const server = runStdioWardenServer({
       workspaceTrusted: true,
       input,
@@ -20535,9 +20645,39 @@ printf '%s\\n' '${match}'
           throw new Error("dispose rejected");
         },
       },
+      shutdownRuntime,
     });
 
     await expect(server.close()).resolves.toBeUndefined();
+    await expect(server.closeWithOutcome()).resolves.toEqual({ reaped: false });
+    expect(shutdownRuntime).not.toHaveBeenCalled();
+  });
+
+  it("retries rejected console settlement before the runtime can reset", async () => {
+    const input = new PassThrough();
+    const output = new PassThrough();
+    let disposeCalls = 0;
+    const shutdownRuntime = vi.fn(async () => {});
+    const server = runStdioWardenServer({
+      workspaceTrusted: true,
+      input,
+      output,
+      interactiveConsoleState: createConsoleRuntimeState(),
+      interactiveConsoleBroker: {
+        ...fakeConsoleBroker(),
+        dispose: async () => {
+          disposeCalls += 1;
+          if (disposeCalls === 1) throw new Error("transient console settlement failure");
+        },
+      },
+      shutdownRuntime,
+    });
+
+    await expect(server.closeWithOutcome()).resolves.toEqual({ reaped: false });
+    expect(shutdownRuntime).not.toHaveBeenCalled();
+    await expect(server.closeWithOutcome()).resolves.toEqual({ reaped: true });
+    expect(disposeCalls).toBe(2);
+    expect(shutdownRuntime).toHaveBeenCalledOnce();
   });
 
   it("DENIED PATH: console cleanup audit failure skips broker close", async () => {
@@ -21059,6 +21199,7 @@ printf '%s\\n' '${match}'
     const state = {
       aborted: false,
       settled: false,
+      executeCalls: 0,
       sawSignal: undefined as AbortSignal | undefined,
     };
     let markStarted!: () => void;
@@ -21078,6 +21219,7 @@ printf '%s\\n' '${match}'
           stdout: string;
           stderr: string;
         }>((resolve) => {
+          state.executeCalls += 1;
           state.sawSignal = options?.signal;
           markStarted();
           const finish = (): void => {
@@ -21188,6 +21330,29 @@ printf '%s\\n' '${match}'
     expect(state.settled).toBe(true);
   });
 
+  it("does not start queued executions after transport close begins", async () => {
+    const input = new PassThrough();
+    const output = new PassThrough();
+    output.resume();
+    const { sandbox, state, started } = blockingSandbox({ postAbortMs: 20 });
+    const server = runStdioWardenServer({ input, output, ...teardownServerOptions(sandbox) });
+
+    input.write(`${JSON.stringify(executeFrame("active", "printf active"))}\n`);
+    await started;
+    input.write(
+      Array.from(
+        { length: 9 },
+        (_, index) =>
+          `${JSON.stringify(executeFrame(`queued-${String(index)}`, "printf queued"))}\n`,
+      ).join(""),
+    );
+
+    await server.close();
+
+    expect(state.settled).toBe(true);
+    expect(state.executeCalls).toBe(1);
+  });
+
   it("awaits process-owned runtime teardown exactly once across repeated closes", async () => {
     const input = new PassThrough();
     const output = new PassThrough();
@@ -21214,30 +21379,52 @@ printf '%s\\n' '${match}'
     expect(shutdownRuntime).toHaveBeenCalledOnce();
   });
 
-  it("keeps clean RPC shutdown bounded when process-owned runtime teardown fails", async () => {
+  it("shares an in-flight failed runtime teardown and retries on a later close", async () => {
+    const input = new PassThrough();
+    const output = new PassThrough();
+    let shutdownCalls = 0;
+    const shutdownRuntime = vi.fn(async () => {
+      shutdownCalls += 1;
+      if (shutdownCalls === 1) throw new Error("transient runtime teardown failure");
+    });
+    const server = runStdioWardenServer({ input, output, shutdownRuntime });
+
+    const first = server.closeWithOutcome();
+    const concurrent = server.closeWithOutcome();
+    await expect(first).resolves.toEqual({ reaped: false });
+    await expect(concurrent).resolves.toEqual({ reaped: false });
+    expect(shutdownRuntime).toHaveBeenCalledOnce();
+    await expect(server.closeWithOutcome()).resolves.toEqual({ reaped: true });
+    expect(shutdownRuntime).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps clean RPC shutdown bounded and reports runtime cleanup debt", async () => {
     const input = new PassThrough();
     const output = new PassThrough();
     const order: string[] = [];
+    let runtimeCalls = 0;
     const shutdownRuntime = vi.fn(async () => {
+      runtimeCalls += 1;
       order.push("runtime");
-      throw new Error("runtime teardown failed");
+      if (runtimeCalls === 1) throw new Error("runtime teardown failed");
     });
     const server = runStdioWardenServer({
       input,
       output,
       shutdownRuntime,
-      onShutdown: () => {
-        order.push("shutdown");
+      onShutdown: ({ reaped }) => {
+        order.push(`shutdown:${reaped ? "reaped" : "retained"}`);
       },
     });
 
     const shutdownLine = readStreamLine(output);
     input.write(`${JSON.stringify(request("runtime-shutdown", "warden.shutdown"))}\n`);
     expect(success(await shutdownLine).id).toBe("runtime-shutdown");
-    await vi.waitFor(() => expect(order).toEqual(["runtime", "shutdown"]));
+    await vi.waitFor(() => expect(order).toEqual(["runtime", "shutdown:retained"]));
 
     await server.close();
-    expect(shutdownRuntime).toHaveBeenCalledOnce();
+    expect(shutdownRuntime).toHaveBeenCalledTimes(2);
+    expect(order).toEqual(["runtime", "shutdown:retained", "runtime"]);
   });
 
   it("threads lifecycle and credential proxy options through the stdio execute boundary", async () => {

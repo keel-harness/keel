@@ -53,7 +53,7 @@ The parts of keel you can rely on now:
 
 See the [getting-started guide](guide/getting-started.md) for how to use these.
 
-## Now — finishing for the first public release
+## Now — hardening the public pre-alpha
 
 - **TUI polish** to a "no dead-ends" bar: every surface either works or honestly says it
   is unavailable.

@@ -26,6 +26,8 @@ const LAUNCH_PREPARER: ConsoleSandboxLaunchPreparer = {
   status: () => ({ available: true, backend: "srt:vendored", enforcementTier: "sandbox:srt" }),
   prepareLaunch: async () => ({
     descriptor: { argv: ["/usr/bin/env", "true"], env: {} },
+    revoke: () => {},
+    release: () => {},
     cleanup: () => {},
   }),
 };

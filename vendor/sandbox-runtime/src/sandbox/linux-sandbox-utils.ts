@@ -358,11 +358,85 @@ async function linuxGetMandatoryDenyPaths(
   return [...new Set(denyPaths)]
 }
 
-// Track mount points created by bwrap for non-existent deny paths.
+// Track mount points created by bwrap for non-existent deny paths and the
+// generated empty-directory sources used for nested deny binds.
 // When bwrap does --ro-bind /dev/null /nonexistent/path, it creates an empty
 // file on the host as a mount point. These persist after bwrap exits and must
 // be cleaned up explicitly.
-const bwrapMountPoints: Set<string> = new Set()
+const bwrapMountPointOwners: Map<string, number> = new Map()
+const bwrapGeneratedBindSourceOwners: Map<string, number> = new Map()
+
+function registerBwrapMountPoint(
+  mountPoint: string,
+  invocationMountPoints: Set<string>,
+): void {
+  if (invocationMountPoints.has(mountPoint)) return
+  invocationMountPoints.add(mountPoint)
+  bwrapMountPointOwners.set(
+    mountPoint,
+    (bwrapMountPointOwners.get(mountPoint) ?? 0) + 1,
+  )
+  registerExitCleanupHandler()
+}
+
+function registerGeneratedBwrapBindSource(
+  source: string,
+  invocationBindSources: Set<string>,
+): void {
+  if (invocationBindSources.has(source)) return
+  invocationBindSources.add(source)
+  bwrapGeneratedBindSourceOwners.set(
+    source,
+    (bwrapGeneratedBindSourceOwners.get(source) ?? 0) + 1,
+  )
+  registerExitCleanupHandler()
+}
+
+function removeEmptyBwrapPath(target: string): void {
+  try {
+    const stat = fs.statSync(target)
+    if (stat.isFile() && stat.size === 0) {
+      fs.unlinkSync(target)
+      logForDebugging(
+        `[Sandbox Linux] Cleaned up bwrap mount path (file): ${target}`,
+      )
+    } else if (stat.isDirectory() && fs.readdirSync(target).length === 0) {
+      fs.rmdirSync(target)
+      logForDebugging(
+        `[Sandbox Linux] Cleaned up bwrap mount path (dir): ${target}`,
+      )
+    }
+  } catch {
+    // Ignore cleanup errors — the path may have already been removed.
+  }
+}
+
+function abandonFailedBwrapInvocation(
+  invocationMountPoints: Set<string>,
+  invocationBindSources: Set<string>,
+): void {
+  if (activeSandboxCount > 0) activeSandboxCount--
+  for (const mountPoint of invocationMountPoints) {
+    const owners = bwrapMountPointOwners.get(mountPoint)
+    if (owners === undefined || owners <= 1) {
+      bwrapMountPointOwners.delete(mountPoint)
+    } else {
+      bwrapMountPointOwners.set(mountPoint, owners - 1)
+    }
+  }
+  for (const source of invocationBindSources) {
+    const owners = bwrapGeneratedBindSourceOwners.get(source)
+    if (owners === undefined || owners <= 1) {
+      bwrapGeneratedBindSourceOwners.delete(source)
+      // The command was never returned to a caller, so no sandbox can hold
+      // this generated source. It is safe to remove immediately even while a
+      // different launch remains active.
+      removeEmptyBwrapPath(source)
+    } else {
+      bwrapGeneratedBindSourceOwners.set(source, owners - 1)
+    }
+  }
+}
 
 // Number of wrapped commands that have been generated but whose cleanup has
 // not yet run. cleanupBwrapMountPoints() defers file deletion while this is
@@ -382,7 +456,7 @@ function registerExitCleanupHandler(): void {
   }
 
   process.on('exit', () => {
-    cleanupBwrapMountPoints({ force: true })
+    cleanupBwrapMountPointsOnProcessExit()
   })
 
   exitHandlerRegistered = true
@@ -406,8 +480,8 @@ function registerExitCleanupHandler(): void {
  * is unhashed, so path lookup no longer finds the mount) and the deny rule
  * stops applying inside that sandbox.
  *
- * Pass `{ force: true }` to delete unconditionally — used by the process-exit
- * handler and reset() where deferral is not meaningful.
+ * Pass `{ force: true }` only after the controller has proved every process settled. Process exit
+ * alone is not settlement and never overrides an active count.
  */
 export function cleanupBwrapMountPoints(opts?: { force?: boolean }): void {
   if (!opts?.force) {
@@ -424,32 +498,27 @@ export function cleanupBwrapMountPoints(opts?: { force?: boolean }): void {
     activeSandboxCount = 0
   }
 
-  for (const mountPoint of bwrapMountPoints) {
-    try {
-      // Only remove if it's still the empty file/directory bwrap created.
-      // If something else has written real content, leave it alone.
-      const stat = fs.statSync(mountPoint)
-      if (stat.isFile() && stat.size === 0) {
-        fs.unlinkSync(mountPoint)
-        logForDebugging(
-          `[Sandbox Linux] Cleaned up bwrap mount point (file): ${mountPoint}`,
-        )
-      } else if (stat.isDirectory()) {
-        // Empty directory mount points are created for intermediate
-        // components (Fix 2). Only remove if still empty.
-        const entries = fs.readdirSync(mountPoint)
-        if (entries.length === 0) {
-          fs.rmdirSync(mountPoint)
-          logForDebugging(
-            `[Sandbox Linux] Cleaned up bwrap mount point (dir): ${mountPoint}`,
-          )
-        }
-      }
-    } catch {
-      // Ignore cleanup errors — the file may have already been removed
-    }
+  for (const mountPoint of bwrapMountPointOwners.keys()) {
+    // Only remove if it is still the empty file/directory bwrap created. If
+    // something else has written real content, leave it alone.
+    removeEmptyBwrapPath(mountPoint)
   }
-  bwrapMountPoints.clear()
+  for (const source of bwrapGeneratedBindSourceOwners.keys()) {
+    removeEmptyBwrapPath(source)
+  }
+  bwrapMountPointOwners.clear()
+  bwrapGeneratedBindSourceOwners.clear()
+}
+
+/** Preserve live deny-mount sources on crash or bounded unclean exit. */
+export function cleanupBwrapMountPointsOnProcessExit(): void {
+  if (activeSandboxCount > 0) {
+    logForDebugging(
+      `[Sandbox Linux] Preserving mount points on exit — ${activeSandboxCount} sandbox(es) may still be active`,
+    )
+    return
+  }
+  cleanupBwrapMountPoints({ force: true })
 }
 
 /**
@@ -900,6 +969,8 @@ async function generateFilesystemArgs(
   mandatoryDenySearchDepth: number = DEFAULT_MANDATORY_DENY_SEARCH_DEPTH,
   allowGitConfig = false,
   abortSignal?: AbortSignal,
+  invocationMountPoints: Set<string> = new Set(),
+  invocationBindSources: Set<string> = new Set(),
 ): Promise<string[]> {
   const args: string[] = []
   // fs already imported
@@ -1011,8 +1082,8 @@ async function generateFilesystemArgs(
       // doesn't exist yet, bypassing the deny rule entirely.
       //
       // bwrap creates empty files on the host as mount points for these binds.
-      // We track them in bwrapMountPoints so cleanupBwrapMountPoints() can
-      // remove them after the command exits.
+      // We track their destinations and any generated bind sources so
+      // cleanupBwrapMountPoints() can remove them after the command exits.
       if (!fs.existsSync(normalizedPath)) {
         // Fix 1 (worktree): If any existing component in the deny path is a
         // file (not a directory), skip the deny entirely. You can't mkdir
@@ -1051,16 +1122,15 @@ async function generateFilesystemArgs(
             const emptyDir = fs.mkdtempSync(
               path.join(tmpdir(), 'claude-empty-'),
             )
+            registerGeneratedBwrapBindSource(emptyDir, invocationBindSources)
             denyWriteArgs.push('--ro-bind', emptyDir, firstNonExistent)
-            bwrapMountPoints.add(firstNonExistent)
-            registerExitCleanupHandler()
+            registerBwrapMountPoint(firstNonExistent, invocationMountPoints)
             logForDebugging(
               `[Sandbox Linux] Mounted empty dir at ${firstNonExistent} to block creation of ${normalizedPath}`,
             )
           } else {
             denyWriteArgs.push('--ro-bind', '/dev/null', firstNonExistent)
-            bwrapMountPoints.add(firstNonExistent)
-            registerExitCleanupHandler()
+            registerBwrapMountPoint(firstNonExistent, invocationMountPoints)
             logForDebugging(
               `[Sandbox Linux] Mounted /dev/null at ${firstNonExistent} to block creation of ${normalizedPath}`,
             )
@@ -1391,6 +1461,8 @@ export async function wrapCommandWithSandboxLinux(
   activeSandboxCount++
 
   const bwrapArgs: string[] = ['--new-session', '--die-with-parent']
+  const invocationMountPoints = new Set<string>()
+  const invocationBindSources = new Set<string>()
   let applySeccompPrefix: string | undefined
 
   try {
@@ -1511,6 +1583,8 @@ export async function wrapCommandWithSandboxLinux(
       mandatoryDenySearchDepth,
       allowGitConfig,
       abortSignal,
+      invocationMountPoints,
+      invocationBindSources,
     )
     bwrapArgs.push(...fsArgs)
 
@@ -1595,11 +1669,10 @@ export async function wrapCommandWithSandboxLinux(
 
     return wrappedCommand
   } catch (error) {
-    // Undo the activeSandboxCount increment — the caller won't call
-    // cleanupBwrapMountPoints() for a wrap that threw.
-    if (activeSandboxCount > 0) {
-      activeSandboxCount--
-    }
+    // The caller never receives a launch handle for a failed wrap. Remove only this invocation's
+    // ownership: transferring its paths into a concurrent live launch would let that later cleanup
+    // delete a legitimate file created after the failed preparation.
+    abandonFailedBwrapInvocation(invocationMountPoints, invocationBindSources)
     throw error
   }
 }

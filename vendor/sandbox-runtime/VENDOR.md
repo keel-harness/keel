@@ -64,6 +64,7 @@ not source needed for Keel's reviewed adapter path:
 - `test/sandbox/endpoint-lease-child.ts`
 - `test/sandbox/launch-authority-lifecycle.test.ts`
 - `test/sandbox/launch-authority.test.ts`
+- `test/sandbox/mandatory-deny-paths.test.ts`
 - `test/sandbox/socks-server-lifecycle.test.ts`
 
 ## Local Patches
@@ -183,7 +184,8 @@ not source needed for Keel's reviewed adapter path:
 - Patch: `patches/per-launch-srt-authority.patch`
 - Applied files: `src/sandbox/endpoint-lease-registry.ts`, `src/sandbox/http-proxy.ts`,
   `src/sandbox/linux-sandbox-utils.ts`, `src/sandbox/sandbox-manager.ts`,
-  `src/sandbox/socks-proxy.ts`, and `src/sandbox/tls-terminate-proxy.ts`.
+  `src/sandbox/socks-proxy.ts`, `src/sandbox/tls-terminate-proxy.ts`, and the listed lifecycle and
+  mandatory-denial regression postimages.
 - Reason: process-scoped proxy tokens, mutable proxy configuration, and shared credential helpers let
   one surviving governed profile retain or borrow authority prepared for a later launch. ADR-0091
   requires a unique token and immutable policy/credential snapshot per launch, with authority absent
@@ -191,21 +193,34 @@ not source needed for Keel's reviewed adapter path:
 - Security impact: each network-bearing launch gets exclusive authenticated HTTP/SOCKS endpoints, a
   pinned resolver, launch-local credential/TLS state, and a durable endpoint lease outside governed
   profiles. An exact deny-all launch instead gets an endpointless network-denied OS profile and no
-  token, listener, bridge, TLS authority, credential projection, or lease. Cleanup
-  revokes authentication first, aborts pending resolution, persistently drains late client accepts,
-  closes tracked TLS children and Linux bridges, and fails closed after a fixed two-second bound.
+  token, listener, bridge, TLS authority, credential projection, or lease. Revocation deactivates
+  authentication first, aborts pending resolution, persistently drains late client accepts, closes
+  tracked TLS children and Linux bridges, and fails closed after a fixed two-second bound. Terminal
+  callers then settle the process before releasing Linux mount/placeholder state; explicit console
+  release is the sole live-process authority-transfer exception and carries no continuing
+  filesystem-containment claim.
+  Keel removes the upstream manager's competing process `exit`/`SIGINT`/`SIGTERM` reset hooks;
+  Warden-owned bounded shutdown is the sole teardown controller. The Linux process-exit fallback
+  now preserves deny-mount sources whenever a sandbox count remains active, so an unconfirmed child
+  cannot lose inherited filesystem enforcement during forced Warden exit.
   Separate owner-only generation markers distinguish live peer Wardens from crash residue; the public
   registry contains no token, credential, request, or process detail. Compact registry V2 uses a
   fixed retired-port bitmap and exact active port pairs, conservatively migrates V1 exclusions, and
   stays below four MiB even at the theoretical 12,768-pair port limit. Preparation and reset share one
   lifecycle queue; Linux bridge cleanup targets the complete detached process group; and
+  generated nested-deny bind sources follow per-invocation ownership and are removed after
+  confirmed process settlement or failed preparation without disturbing concurrent launches;
   weaker/external/parent-proxy routes cannot establish this capability.
 - Compatibility: consumers that do not request Keel's launch lifecycle keep the upstream process-level
   path. Keel advertises `srt-launch-authority/v1` only with this exact API, durable registry, pinned
-  destination resolver, async cleanup, and successful initialization. Windows does not advertise it.
+  destination resolver, two-phase async revoke/cleanup, and successful initialization. Windows does
+  not advertise it.
 - Evidence: deterministic registry, capacity/migration, deadline, HTTP/SOCKS pre-activation and
-  late-accept, TLS-child/listener, process-group, loader-quarantine, and lifecycle-race tests plus real
-  macOS Seatbelt and Linux bubblewrap product suites. The real launch
+  late-accept, TLS-child/listener, process-group, loader-quarantine, revoke-process-cleanup ordering,
+  startup/RPC shutdown-debt, process-exit mount retention, competing-hook absence, failed-wrap count
+  balancing, invocation-owned stale-path deletion under concurrent wrapping, generated nested-deny source
+  cleanup after successful settlement and failed preparation, and lifecycle-race tests plus
+  real macOS Seatbelt and Linux bubblewrap product suites. The real launch
   probe includes positive own-authority controls and adversarial exact peer-token HTTP/SOCKS attempts.
 - Upstreamable status: Keel-specific lifecycle extension over the pinned permissive upstream. Recorded
   2026-08-11; not yet submitted upstream.

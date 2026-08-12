@@ -1,7 +1,7 @@
-import { existsSync, mkdirSync, readFileSync, rmSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   createConsoleLifecycleState,
   parseConsoleToolCall,
@@ -10,8 +10,9 @@ import {
 } from "./index.js";
 import {
   SYSTEM_TMUX_CONSOLE_BROKER_KIND,
+  createNodeTmuxProcessGroupController,
   createNodeTmuxCommandRunner,
-  createSystemTmuxConsoleBroker,
+  createSystemTmuxConsoleBroker as createActualSystemTmuxConsoleBroker,
   probeSystemTmuxConsoleBroker,
   type TmuxCommandRequest,
   type TmuxCommandResult,
@@ -25,6 +26,30 @@ import type {
   SandboxSpawnDescriptor,
   SandboxStatus,
 } from "../sandbox.js";
+
+function createSystemTmuxConsoleBroker(
+  options: Parameters<typeof createActualSystemTmuxConsoleBroker>[0],
+): ReturnType<typeof createActualSystemTmuxConsoleBroker> {
+  let missingChecks = 0;
+  return createActualSystemTmuxConsoleBroker({
+    processGroupController: {
+      isAlive: () => {
+        if (missingChecks === 0) return true;
+        missingChecks -= 1;
+        return false;
+      },
+      signal: (_processGroupId, signal) => {
+        if (signal === "SIGKILL") missingChecks = 2;
+      },
+      wait: async () => {},
+      nowMs: (() => {
+        let now = 0;
+        return () => (now += 100);
+      })(),
+    },
+    ...options,
+  });
+}
 
 const TARGET: ConsolePolicyTargetProfile = {
   targetId: "qemu-alpine",
@@ -62,6 +87,8 @@ function failing(stderr = "tmux missing"): TmuxCommandResult {
 
 function launchPreparer(options: {
   readonly descriptor: SandboxSpawnDescriptor;
+  readonly revoke?: () => void | Promise<void>;
+  readonly release?: () => void | Promise<void>;
   readonly cleanup: () => void | Promise<void>;
   readonly prepared: Array<{
     readonly invocation: SandboxInvocation;
@@ -82,6 +109,8 @@ function launchPreparer(options: {
       options.prepared.push({ invocation, profile });
       return {
         descriptor: options.descriptor,
+        revoke: options.revoke ?? (() => {}),
+        release: options.release ?? options.cleanup,
         cleanup: options.cleanup,
       };
     },
@@ -132,6 +161,101 @@ describe("system tmux console broker", () => {
 
     expect(status.tmuxVersion).toMatch(/^tmux\s+\S+/u);
     expect(status.tmuxPath).toBe("tmux");
+  });
+
+  it("REAL: reaps a HUP/TERM-resistant pane group before returning close success", async () => {
+    if (process.env["KEEL_RUN_REAL_TMUX_REAP_TEST"] !== "1") {
+      console.log("[system-tmux-process-reap] NOT_RUN: set KEEL_RUN_REAL_TMUX_REAP_TEST=1");
+      return;
+    }
+    const status = await probeSystemTmuxConsoleBroker();
+    if (!status.available || status.tmuxPath === undefined || status.tmuxVersion === undefined) {
+      console.log(`[system-tmux-process-reap] NOT_RUN: ${status.reason ?? "tmux unavailable"}`);
+      return;
+    }
+    const tmuxPath = [
+      ...(status.tmuxPath.includes("/") ? [status.tmuxPath] : []),
+      "/opt/homebrew/bin/tmux",
+      "/usr/local/bin/tmux",
+      "/usr/bin/tmux",
+    ].find((candidate) => existsSync(candidate));
+    if (tmuxPath === undefined) {
+      console.log("[system-tmux-process-reap] NOT_RUN: absolute tmux path unavailable");
+      return;
+    }
+    const root = join("/tmp", `keel-tmux-real-process-group-${String(process.pid)}`);
+    const privateRoot = join(root, "broker");
+    const readyMarker = join(root, "pane-ready");
+    const resistantScript = join(root, "term-resistant-pane.cjs");
+    rmSync(root, { recursive: true, force: true });
+    mkdirSync(root, { recursive: true });
+    writeFileSync(
+      resistantScript,
+      "const fs=require('node:fs'); const ready=process.argv[2]; " +
+        "process.on('SIGHUP',()=>{}); process.on('SIGTERM',()=>{}); " +
+        "fs.writeFileSync(ready,'ready'); setTimeout(() => process.exit(0), 60_000);",
+      { mode: 0o600 },
+    );
+    let panePid: number | undefined;
+    const broker = createActualSystemTmuxConsoleBroker({
+      tmuxPath,
+      tmuxVersion: status.tmuxVersion,
+      privateRoot,
+      launchPreparer: launchPreparer({
+        prepared: [],
+        cleanup: () => {},
+        descriptor: {
+          argv: [process.execPath, resistantScript, readyMarker],
+          cwd: tmpdir(),
+          env: { PATH: process.env["PATH"] ?? "/usr/bin:/bin" },
+        },
+      }),
+    });
+    const sandbox = broker.prepareSandboxPlan({
+      invocation: { command: TARGET.command, cwd: tmpdir() },
+      profile: { filesystem: { allowRead: [tmpdir()], allowWrite: [tmpdir()] } },
+    });
+    try {
+      const opened = await broker.open(openRequest(sandbox, "con_tmux_real_reap"));
+      panePid = Number(opened.processIdentity["panePid"]);
+      const handle = { ...handleRecord(opened.processIdentity), handle: "con_tmux_real_reap" };
+
+      const readyDeadline = Date.now() + 2_000;
+      while (!existsSync(readyMarker) && Date.now() < readyDeadline) {
+        await new Promise<void>((resolve) => setTimeout(resolve, 10));
+      }
+      expect(existsSync(readyMarker)).toBe(true);
+
+      const closeStartedAt = Date.now();
+      await expect(
+        broker.close({
+          handle,
+          operation: parseConsoleToolCall({
+            name: "interactive_console.close",
+            args: { handle: handle.handle },
+          }) as Extract<ReturnType<typeof parseConsoleToolCall>, { readonly kind: "close" }>,
+          profile: TARGET,
+        }),
+      ).resolves.toEqual({ closed: true });
+      expect(Date.now() - closeStartedAt).toBeGreaterThanOrEqual(100);
+      let paneGroupAbsent = false;
+      try {
+        process.kill(-panePid, 0);
+      } catch (error) {
+        paneGroupAbsent = (error as NodeJS.ErrnoException).code === "ESRCH";
+      }
+      expect(paneGroupAbsent).toBe(true);
+    } finally {
+      if (panePid !== undefined) {
+        try {
+          process.kill(-panePid, "SIGKILL");
+        } catch {
+          // Expected after the broker proves the isolated test group is absent.
+        }
+      }
+      await Promise.resolve(broker.dispose()).catch(() => undefined);
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   it("runs tmux commands through the node runner with argv-only execution, stdin, and timeout handling", async () => {
@@ -189,6 +313,57 @@ describe("system tmux console broker", () => {
     });
     expect(large.stdout.length).toBeLessThanOrEqual(1_048_576);
   });
+
+  it("treats only ESRCH as host process-group absence", async () => {
+    const calls: Array<{ readonly pid: number; readonly signal: NodeJS.Signals | 0 }> = [];
+    let mode: "alive" | "absent" | "refused" = "alive";
+    let waited = 0;
+    const controller = createNodeTmuxProcessGroupController({
+      killProcess: (pid, signal) => {
+        calls.push({ pid, signal });
+        if (mode === "absent") {
+          throw Object.assign(new Error("process group absent"), { code: "ESRCH" });
+        }
+        if (mode === "refused") {
+          throw Object.assign(new Error("process group probe refused"), { code: "EPERM" });
+        }
+      },
+      wait: async (milliseconds) => {
+        waited += milliseconds;
+      },
+      nowMs: () => 42,
+    });
+
+    expect(controller.isAlive(4321)).toBe(true);
+    controller.signal(4321, "SIGTERM");
+    mode = "absent";
+    expect(controller.isAlive(4321)).toBe(false);
+    expect(() => controller.signal(4321, "SIGKILL")).not.toThrow();
+    mode = "refused";
+    expect(() => controller.isAlive(4321)).toThrow("process group probe refused");
+    expect(() => controller.signal(4321, "SIGKILL")).toThrow("process group probe refused");
+    await controller.wait(25);
+    expect(waited).toBe(25);
+    expect(controller.nowMs()).toBe(42);
+    expect(calls).toContainEqual({ pid: -4321, signal: "SIGTERM" });
+  });
+
+  it.skipIf(process.platform === "win32")(
+    "uses bounded host defaults without mistaking an absent process group for failure",
+    async () => {
+      const absentProcessGroup = 2_147_483_646;
+      const hostSignals = createNodeTmuxProcessGroupController({
+        wait: async () => {},
+        nowMs: () => 0,
+      });
+      expect(hostSignals.isAlive(absentProcessGroup)).toBe(false);
+
+      const hostClock = createNodeTmuxProcessGroupController({ killProcess: () => {} });
+      const before = Date.now();
+      await hostClock.wait(0);
+      expect(hostClock.nowMs()).toBeGreaterThanOrEqual(before);
+    },
+  );
 
   it("reports tmux availability without hiding install/doctor diagnostics", async () => {
     const unavailable = await probeSystemTmuxConsoleBroker({
@@ -380,8 +555,10 @@ describe("system tmux console broker", () => {
     mkdirSync(root, { recursive: true });
     const abort = new AbortController();
     let launchSignal: AbortSignal | undefined;
+    let paneGroupAlive = false;
     const runner = fakeRunner((request) => {
       if (request.argv.includes("new-session")) {
+        paneGroupAlive = true;
         if (request.argv.includes("-e")) return failing("tmux: unknown option -- e");
         return successful("$7|%9|1234|0\n");
       }
@@ -393,6 +570,17 @@ describe("system tmux console broker", () => {
         tmuxVersion: "tmux 3.5a",
         privateRoot,
         runner,
+        processGroupController: {
+          isAlive: () => paneGroupAlive,
+          signal: (_processGroupId, signal) => {
+            if (signal === "SIGKILL") paneGroupAlive = false;
+          },
+          wait: async () => {},
+          nowMs: (() => {
+            let now = 0;
+            return () => (now += 100);
+          })(),
+        },
         launchPreparer: {
           status: () => ({
             available: true,
@@ -413,6 +601,8 @@ describe("system tmux console broker", () => {
                 cwd: "/workspace",
                 env: { PATH: "/bin" },
               },
+              revoke: () => undefined,
+              release: () => undefined,
               cleanup: () => undefined,
             };
           },
@@ -432,6 +622,149 @@ describe("system tmux console broker", () => {
       const openCommand = runner.commands.find((command) => command.argv.includes("new-session"));
       expect(openCommand?.signal).toBe(abort.signal);
     } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("allows only one outstanding Warden-controlled system-tmux session", async () => {
+    const root = join(tmpdir(), "keel-tmux-broker-single-session-test");
+    const privateRoot = join(root, "broker");
+    rmSync(root, { recursive: true, force: true });
+    mkdirSync(root, { recursive: true });
+    const runner = fakeRunner((request) => {
+      if (request.argv.includes("new-session")) return successful("$7|%9|1234|0\n");
+      if (request.argv.includes("display-message")) return successful("$7|%9|1234|0\n");
+      return successful();
+    });
+    const broker = createSystemTmuxConsoleBroker({
+      tmuxPath: "/usr/local/bin/tmux",
+      tmuxVersion: "tmux 3.5a",
+      privateRoot,
+      runner,
+      launchPreparer: launchPreparer({
+        prepared: [],
+        cleanup: () => undefined,
+        descriptor: {
+          argv: ["/srt-wrap", "--", "qemu-system-x86_64"],
+          cwd: "/workspace",
+          env: { PATH: "/bin" },
+        },
+      }),
+    });
+    try {
+      const sandbox = broker.prepareSandboxPlan({
+        invocation: { command: TARGET.command, cwd: TARGET.cwd },
+        profile: { filesystem: { allowRead: ["/workspace"], allowWrite: ["/workspace"] } },
+      });
+      const opened = await broker.open(openRequest(sandbox, "con_tmux_first"));
+      const first = { ...handleRecord(opened.processIdentity), handle: "con_tmux_first" };
+      await broker.checkProcessIdentity({
+        handle: first,
+        operation: parseConsoleToolCall({
+          name: "interactive_console.close",
+          args: { handle: "con_tmux_first", reason: "shutdown" },
+        }) as Extract<ReturnType<typeof parseConsoleToolCall>, { readonly kind: "close" }>,
+        profile: TARGET,
+      });
+      const identityProbe = [...runner.commands]
+        .reverse()
+        .find((command) => command.argv.includes("display-message"));
+      expect(identityProbe?.timeoutMs).toBe(2_000);
+
+      await expect(broker.open(openRequest(sandbox, "con_tmux_second"))).rejects.toThrow(
+        /one outstanding Warden-controlled session/,
+      );
+
+      await broker.close({
+        handle: first,
+        operation: parseConsoleToolCall({
+          name: "interactive_console.close",
+          args: { handle: "con_tmux_first" },
+        }) as Extract<ReturnType<typeof parseConsoleToolCall>, { readonly kind: "close" }>,
+        profile: TARGET,
+      });
+      await expect(
+        broker.open(openRequest(sandbox, "con_tmux_after_close")),
+      ).resolves.toMatchObject({ processIdentity: { kind: "tmux-pane" } });
+      await broker.dispose();
+      const serverStop = [...runner.commands]
+        .reverse()
+        .find((command) => command.argv.includes("kill-server"));
+      expect(serverStop?.timeoutMs).toBe(2_000);
+    } finally {
+      try {
+        await broker.dispose();
+      } catch {
+        // Cleanup debt is asserted in the test body when expected.
+      }
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("reserves the single system-tmux session slot while launch preparation is pending", async () => {
+    const root = join(tmpdir(), "keel-tmux-broker-opening-slot-test");
+    const privateRoot = join(root, "broker");
+    rmSync(root, { recursive: true, force: true });
+    mkdirSync(root, { recursive: true });
+    let releasePreparation = (): void => {};
+    const preparationGate = new Promise<void>((resolve) => {
+      releasePreparation = resolve;
+    });
+    let markPreparationEntered = (): void => {};
+    const preparationEntered = new Promise<void>((resolve) => {
+      markPreparationEntered = resolve;
+    });
+    const runner = fakeRunner((request) =>
+      request.argv.includes("new-session") ? successful("$7|%9|1234|0\n") : successful(),
+    );
+    const broker = createSystemTmuxConsoleBroker({
+      tmuxPath: "/usr/local/bin/tmux",
+      tmuxVersion: "tmux 3.5a",
+      privateRoot,
+      runner,
+      launchPreparer: {
+        status: () => ({
+          available: true,
+          backend: "fake-srt",
+          enforcementTier: "sandbox:fake",
+        }),
+        prepareLaunch: async () => {
+          markPreparationEntered();
+          await preparationGate;
+          return {
+            descriptor: {
+              argv: ["/srt-wrap", "--", "qemu-system-x86_64"],
+              cwd: "/workspace",
+              env: { PATH: "/bin" },
+            },
+            revoke: () => undefined,
+            release: () => undefined,
+            cleanup: () => undefined,
+          };
+        },
+      },
+    });
+    const sandbox = broker.prepareSandboxPlan({
+      invocation: { command: TARGET.command, cwd: TARGET.cwd },
+      profile: { filesystem: { allowRead: ["/workspace"], allowWrite: ["/workspace"] } },
+    });
+    const firstOpen = broker.open(openRequest(sandbox, "con_tmux_opening"));
+    await preparationEntered;
+    try {
+      await expect(broker.open(openRequest(sandbox, "con_tmux_racing"))).rejects.toThrow(
+        /one outstanding Warden-controlled session/,
+      );
+    } finally {
+      releasePreparation();
+    }
+    try {
+      await expect(firstOpen).resolves.toMatchObject({ processIdentity: { kind: "tmux-pane" } });
+    } finally {
+      try {
+        await broker.dispose();
+      } catch {
+        // Cleanup debt is asserted in the test body when expected.
+      }
       rmSync(root, { recursive: true, force: true });
     }
   });
@@ -751,6 +1084,131 @@ describe("system tmux console broker", () => {
     }
   });
 
+  it("confirms pane process-group death before releasing launch filesystem state", async () => {
+    const root = join(tmpdir(), "keel-tmux-broker-process-group-settlement-test");
+    const privateRoot = join(root, "broker");
+    rmSync(root, { recursive: true, force: true });
+    mkdirSync(root, { recursive: true });
+    const events: string[] = [];
+    let live = true;
+    const runner = fakeRunner((request) => {
+      if (request.argv.includes("new-session")) return successful("$7|%9|4321|0\n");
+      if (request.argv.includes("kill-session")) {
+        events.push("kill-session");
+        return successful();
+      }
+      return successful();
+    });
+    try {
+      const broker = createSystemTmuxConsoleBroker({
+        tmuxPath: "/usr/local/bin/tmux",
+        tmuxVersion: "tmux 3.5a",
+        privateRoot,
+        runner,
+        processGroupController: {
+          isAlive: () => live,
+          signal: (_processGroupId: number, signal: NodeJS.Signals) => {
+            events.push(signal);
+            if (signal === "SIGKILL") live = false;
+          },
+          wait: async () => {},
+          nowMs: (() => {
+            let now = 0;
+            return () => (now += 100);
+          })(),
+        },
+        launchPreparer: launchPreparer({
+          prepared: [],
+          revoke: () => {
+            events.push("revoke");
+          },
+          cleanup: () => {
+            events.push("cleanup");
+          },
+          descriptor: {
+            argv: ["/srt-wrap", "--", "qemu-system-x86_64"],
+            cwd: "/workspace",
+            env: { PATH: "/bin" },
+          },
+        }),
+      });
+      const sandbox = broker.prepareSandboxPlan({
+        invocation: { command: TARGET.command, cwd: TARGET.cwd },
+        profile: { filesystem: { allowRead: ["/workspace"], allowWrite: ["/workspace"] } },
+      });
+      const opened = await broker.open(openRequest(sandbox));
+
+      await expect(
+        broker.close({
+          handle: handleRecord(opened.processIdentity),
+          operation: parseConsoleToolCall({
+            name: "interactive_console.close",
+            args: { handle: handleRecord(opened.processIdentity).handle },
+          }) as Extract<ReturnType<typeof parseConsoleToolCall>, { readonly kind: "close" }>,
+          profile: TARGET,
+        }),
+      ).resolves.toEqual({ closed: true });
+
+      expect(events).toEqual(["revoke", "SIGTERM", "kill-session", "SIGKILL", "cleanup"]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("retains launch cleanup debt when pane process-group signaling is refused", async () => {
+    const root = join(tmpdir(), "keel-tmux-broker-process-group-signal-failure-test");
+    const privateRoot = join(root, "broker");
+    rmSync(root, { recursive: true, force: true });
+    mkdirSync(root, { recursive: true });
+    let cleanupCalls = 0;
+    const runner = fakeRunner((request) =>
+      request.argv.includes("new-session") ? successful("$7|%9|4321|0\n") : successful(),
+    );
+    try {
+      const broker = createSystemTmuxConsoleBroker({
+        tmuxPath: "/usr/local/bin/tmux",
+        tmuxVersion: "tmux 3.5a",
+        privateRoot,
+        runner,
+        processGroupController: {
+          isAlive: () => true,
+          signal: () => {
+            throw Object.assign(new Error("process group signal refused"), { code: "EPERM" });
+          },
+          wait: async () => {},
+          nowMs: () => 0,
+        },
+        launchPreparer: launchPreparer({
+          prepared: [],
+          cleanup: () => {
+            cleanupCalls += 1;
+          },
+          descriptor: { argv: ["/srt-wrap", "--"], env: { PATH: "/bin" } },
+        }),
+      });
+      const sandbox = broker.prepareSandboxPlan({
+        invocation: { command: TARGET.command, cwd: TARGET.cwd },
+        profile: { filesystem: { allowRead: ["/workspace"], allowWrite: ["/workspace"] } },
+      });
+      const opened = await broker.open(openRequest(sandbox));
+      const handle = handleRecord(opened.processIdentity);
+
+      await expect(
+        broker.close({
+          handle,
+          operation: parseConsoleToolCall({
+            name: "interactive_console.close",
+            args: { handle: handle.handle },
+          }) as Extract<ReturnType<typeof parseConsoleToolCall>, { readonly kind: "close" }>,
+          profile: TARGET,
+        }),
+      ).rejects.toThrow("process group signal refused");
+      expect(cleanupCalls).toBe(0);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("rejects single-argument launch descriptors so tmux cannot fall back to shell command parsing", async () => {
     const root = join(tmpdir(), "keel-tmux-broker-single-argv-test");
     const privateRoot = join(root, "broker");
@@ -849,6 +1307,7 @@ describe("system tmux console broker", () => {
     mkdirSync(root, { recursive: true });
     const prepared: Array<{ invocation: SandboxInvocation; profile: SandboxProfile }> = [];
     let cleanupCount = 0;
+    let paneGroupAlive = false;
     let mode:
       | "open-ok"
       | "open-dead"
@@ -863,6 +1322,7 @@ describe("system tmux console broker", () => {
       | "dispose-throw" = "open-ok";
     const runner = fakeRunner((request) => {
       if (request.argv.includes("new-session")) {
+        paneGroupAlive = true;
         if (mode === "open-dead") return successful("$7|%9|1234|1\n");
         if (
           mode === "open-invalid" ||
@@ -902,6 +1362,26 @@ describe("system tmux console broker", () => {
         tmuxVersion: "tmux 3.5a",
         privateRoot,
         runner,
+        processGroupController: {
+          isAlive: () => paneGroupAlive,
+          signal: (_processGroupId, signal) => {
+            if (
+              mode === "kill-fail" ||
+              mode === "rollback-kill-fail" ||
+              mode === "rollback-kill-throw"
+            ) {
+              throw new Error(
+                mode === "rollback-kill-throw" ? "rollback kill threw" : "kill failed",
+              );
+            }
+            if (signal === "SIGKILL") paneGroupAlive = false;
+          },
+          wait: async () => {},
+          nowMs: (() => {
+            let now = 0;
+            return () => (now += 100);
+          })(),
+        },
         launchPreparer: launchPreparer({
           prepared,
           cleanup: () => {
@@ -926,21 +1406,55 @@ describe("system tmux console broker", () => {
       expect(cleanupCount).toBe(1);
       expect(runner.commands.some((command) => command.argv.includes("kill-session"))).toBe(true);
 
-      mode = "rollback-kill-fail";
-      await expect(
-        broker.open(openRequest(sandbox, "con_tmux_rollback_kill_fail")),
-      ).rejects.toThrow(/valid session\/pane/u);
-      expect(cleanupCount).toBe(2);
-
-      mode = "rollback-kill-throw";
-      await expect(
-        broker.open(openRequest(sandbox, "con_tmux_rollback_kill_throw")),
-      ).rejects.toThrow(/valid session\/pane/u);
-      expect(cleanupCount).toBe(3);
+      for (const rollbackMode of ["rollback-kill-fail", "rollback-kill-throw"] as const) {
+        mode = rollbackMode;
+        let rollbackCleanupCount = 0;
+        const rollbackBroker = createSystemTmuxConsoleBroker({
+          tmuxPath: "/usr/local/bin/tmux",
+          tmuxVersion: "tmux 3.5a",
+          privateRoot: join(root, `${rollbackMode}-broker`),
+          runner,
+          processGroupController: {
+            isAlive: () => paneGroupAlive,
+            signal: (_processGroupId, signal) => {
+              if (mode === "rollback-kill-fail" || mode === "rollback-kill-throw") {
+                throw new Error(
+                  rollbackMode === "rollback-kill-throw" ? "rollback kill threw" : "kill failed",
+                );
+              }
+              if (signal === "SIGKILL") paneGroupAlive = false;
+            },
+            wait: async () => {},
+            nowMs: (() => {
+              let now = 0;
+              return () => (now += 100);
+            })(),
+          },
+          launchPreparer: launchPreparer({
+            prepared,
+            cleanup: () => {
+              rollbackCleanupCount += 1;
+            },
+            descriptor: { argv: ["/srt-wrap", "--"], env: { PATH: "/bin" } },
+          }),
+        });
+        await expect(
+          rollbackBroker.open(
+            openRequest(
+              rollbackBroker.prepareSandboxPlan(basePlan),
+              `con_tmux_${rollbackMode.replaceAll("-", "_")}`,
+            ),
+          ),
+        ).rejects.toThrow(/valid session\/pane/u);
+        expect(rollbackCleanupCount).toBe(0);
+        mode = "open-ok";
+        await expect(rollbackBroker.dispose()).resolves.toBeUndefined();
+        expect(rollbackCleanupCount).toBe(1);
+      }
 
       mode = "open-dead";
       await expect(broker.open(openRequest(sandbox))).rejects.toThrow(/pane exited/u);
-      expect(cleanupCount).toBe(4);
+      expect(cleanupCount).toBe(2);
 
       mode = "open-ok";
       const opened = await broker.open(openRequest(sandbox));
@@ -1087,7 +1601,7 @@ describe("system tmux console broker", () => {
           profile: TARGET,
         }),
       ).rejects.toThrow(/kill failed/u);
-      expect(cleanupCount).toBe(5);
+      expect(cleanupCount).toBe(2);
 
       mode = "open-ok";
       await expect(
@@ -1110,16 +1624,16 @@ describe("system tmux console broker", () => {
           profile: TARGET,
         }),
       ).resolves.toEqual({ closed: true });
-      expect(cleanupCount).toBe(6);
+      expect(cleanupCount).toBe(3);
 
       const openedForDispose = await broker.open(openRequest(sandbox));
       expect(openedForDispose.processIdentity).toMatchObject({ paneId: "%9" });
       mode = "kill-fail";
-      await expect(broker.dispose()).resolves.toBeUndefined();
-      expect(cleanupCount).toBe(7);
+      await expect(broker.dispose()).rejects.toThrow(/process settlement was not confirmed/u);
+      expect(cleanupCount).toBe(3);
       mode = "open-ok";
       await expect(broker.dispose()).resolves.toBeUndefined();
-      expect(cleanupCount).toBe(7);
+      expect(cleanupCount).toBe(4);
 
       const brokerForThrowingDispose = createSystemTmuxConsoleBroker({
         tmuxPath: "/usr/local/bin/tmux",
@@ -1147,7 +1661,7 @@ describe("system tmux console broker", () => {
       await expect(brokerForThrowingDispose.dispose()).rejects.toThrow(
         /process settlement was not confirmed/u,
       );
-      expect(cleanupCount).toBe(8);
+      expect(cleanupCount).toBe(5);
       expect(existsSync(join(root, "dispose-throw"))).toBe(true);
     } finally {
       rmSync(root, { recursive: true, force: true });
@@ -1219,6 +1733,10 @@ describe("system tmux console broker", () => {
       expect(cleanupCount).toBe(1);
       expect(runner.commands.some((command) => command.argv.includes("kill-server"))).toBe(false);
       expect(runner.commands.some((command) => command.argv.includes("kill-session"))).toBe(false);
+      await expect(broker.open(openRequest(sandbox))).rejects.toThrow(
+        "interactive console broker is disposed",
+      );
+      expect(cleanupCount).toBe(1);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -1244,10 +1762,14 @@ describe("system tmux console broker", () => {
         runner,
         launchPreparer: launchPreparer({
           prepared: [],
-          cleanup: async () => {
+          release: async () => {
             cleanupCalls += 1;
             events.push(`cleanup-${String(cleanupCalls)}`);
             if (cleanupCalls === 1) throw new Error("drain not confirmed");
+          },
+          cleanup: async () => {
+            cleanupCalls += 1;
+            events.push(`cleanup-${String(cleanupCalls)}`);
           },
           descriptor: { argv: ["/srt-wrap", "--"], env: { PATH: "/bin" } },
         }),
@@ -1281,18 +1803,19 @@ describe("system tmux console broker", () => {
         }),
       ).resolves.toEqual({ closed: true });
       expect(cleanupCalls).toBe(2);
-      expect(events).toEqual(["cleanup-1", "cleanup-2", "kill-session"]);
+      expect(events).toEqual(["cleanup-1", "kill-session", "cleanup-2"]);
       expect(runner.commands.some((command) => command.argv.includes("kill-session"))).toBe(true);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
   });
 
-  it("still kills an uncertain tmux session when open rollback authority cleanup fails", async () => {
+  it("withholds filesystem cleanup when failed-open pane identity cannot be recovered", async () => {
     const root = join(tmpdir(), "keel-tmux-broker-open-cleanup-failure-test");
     const privateRoot = join(root, "broker");
     rmSync(root, { recursive: true, force: true });
     mkdirSync(root, { recursive: true });
+    let cleanupCalls = 0;
     const runner = fakeRunner((request) => {
       if (request.argv.includes("new-session")) return successful("invalid identity\n");
       return successful();
@@ -1306,6 +1829,7 @@ describe("system tmux console broker", () => {
         launchPreparer: launchPreparer({
           prepared: [],
           cleanup: async () => {
+            cleanupCalls += 1;
             throw new Error("rollback drain failed");
           },
           descriptor: { argv: ["/srt-wrap", "--"], env: { PATH: "/bin" } },
@@ -1316,8 +1840,11 @@ describe("system tmux console broker", () => {
         profile: { filesystem: { allowRead: ["/workspace"], allowWrite: ["/workspace"] } },
       });
 
-      await expect(broker.open(openRequest(sandbox))).rejects.toThrow("rollback drain failed");
+      await expect(broker.open(openRequest(sandbox))).rejects.toThrow(
+        /process-group settlement was not confirmed/u,
+      );
       expect(runner.commands.some((command) => command.argv.includes("kill-session"))).toBe(true);
+      expect(cleanupCalls).toBe(0);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -1372,17 +1899,17 @@ describe("system tmux console broker", () => {
           profile: TARGET,
         }),
       ).rejects.toThrow("drain not confirmed");
-      expect(events).toEqual(["cleanup", "kill-1"]);
+      expect(events).toEqual(["kill-1", "cleanup"]);
 
       await expect(broker.dispose()).rejects.toThrow(/settlement was not confirmed/u);
-      expect(events).toEqual(["cleanup", "kill-1", "cleanup"]);
+      expect(events).toEqual(["kill-1", "cleanup", "cleanup"]);
       expect(existsSync(privateRoot)).toBe(true);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
   });
 
-  it("falls back to its private tmux server when an unreleased session kill fails", async () => {
+  it("does not treat private tmux-server shutdown as process-group settlement", async () => {
     const root = join(tmpdir(), "keel-tmux-broker-server-fallback-test");
     const privateRoot = join(root, "broker");
     rmSync(root, { recursive: true, force: true });
@@ -1403,6 +1930,15 @@ describe("system tmux console broker", () => {
         tmuxVersion: "tmux 3.5a",
         privateRoot,
         runner,
+        processGroupController: {
+          isAlive: () => true,
+          signal: () => {},
+          wait: async () => {},
+          nowMs: (() => {
+            let now = 0;
+            return () => (now += 1_000);
+          })(),
+        },
         launchPreparer: launchPreparer({
           prepared: [],
           cleanup: () => {},
@@ -1415,24 +1951,29 @@ describe("system tmux console broker", () => {
       });
       await broker.open(openRequest(sandbox));
 
-      await expect(broker.dispose()).resolves.toBeUndefined();
-      expect(events).toEqual(["kill-session", "kill-server"]);
-      expect(existsSync(privateRoot)).toBe(false);
+      await expect(broker.dispose()).rejects.toThrow(/process settlement was not confirmed/u);
+      expect(events).toEqual(["kill-session"]);
+      expect(existsSync(privateRoot)).toBe(true);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
   });
 
-  it("finishes a retried authority drain after private-server process settlement", async () => {
+  it("retries session settlement and authority cleanup independently", async () => {
     const root = join(tmpdir(), "keel-tmux-broker-server-retry-test");
     const privateRoot = join(root, "broker");
     rmSync(root, { recursive: true, force: true });
     mkdirSync(root, { recursive: true });
     let cleanupCalls = 0;
     let killServerCalls = 0;
+    let killSessionCalls = 0;
+    let killSignals = 0;
     const runner = fakeRunner((request) => {
       if (request.argv.includes("new-session")) return successful("$7|%9|1234|0\n");
-      if (request.argv.includes("kill-session")) return failing("session remained");
+      if (request.argv.includes("kill-session")) {
+        killSessionCalls += 1;
+        return killSessionCalls === 1 ? failing("session remained") : successful();
+      }
       if (request.argv.includes("kill-server")) {
         killServerCalls += 1;
         return killServerCalls === 1 ? successful() : failing("server already settled");
@@ -1445,6 +1986,17 @@ describe("system tmux console broker", () => {
         tmuxVersion: "tmux 3.5a",
         privateRoot,
         runner,
+        processGroupController: {
+          isAlive: () => killSignals < 2,
+          signal: (_processGroupId, signal) => {
+            if (signal === "SIGKILL") killSignals += 1;
+          },
+          wait: async () => {},
+          nowMs: (() => {
+            let now = 0;
+            return () => (now += 1_000);
+          })(),
+        },
         launchPreparer: launchPreparer({
           prepared: [],
           cleanup: () => {
@@ -1460,8 +2012,9 @@ describe("system tmux console broker", () => {
       });
       await broker.open(openRequest(sandbox));
 
-      await expect(broker.dispose()).rejects.toThrow(/authority cleanup/u);
+      await expect(broker.dispose()).rejects.toThrow(/process settlement/u);
       expect(existsSync(privateRoot)).toBe(true);
+      await expect(broker.dispose()).rejects.toThrow(/authority cleanup/u);
       await expect(broker.dispose()).resolves.toBeUndefined();
       expect(cleanupCalls).toBe(2);
       expect(killServerCalls).toBe(1);
@@ -1478,12 +2031,17 @@ describe("system tmux console broker", () => {
     mkdirSync(root, { recursive: true });
     let cleanupCalls = 0;
     let killSessionCalls = 0;
+    let displayCalls = 0;
     const runner = fakeRunner((request) => {
       if (request.argv.includes("new-session")) return successful("invalid identity\n");
+      if (request.argv.includes("display-message")) {
+        displayCalls += 1;
+        return displayCalls === 1 ? successful() : successful("$7|%9|1234|0\n");
+      }
       if (request.argv.includes("kill-session")) {
         killSessionCalls += 1;
         if (killSessionCalls === 1) return failing("session remained");
-        throw new Error("session status unavailable");
+        return successful();
       }
       return successful();
     });
@@ -1513,9 +2071,11 @@ describe("system tmux console broker", () => {
       await expect(broker.open(openRequest(sandbox))).rejects.toThrow(
         /previous tmux session cleanup settlement was not confirmed/u,
       );
-      expect(cleanupCalls).toBe(1);
+      expect(cleanupCalls).toBe(0);
       expect(killSessionCalls).toBe(1);
 
+      await expect(broker.dispose()).rejects.toThrow(/authority cleanup/u);
+      expect(cleanupCalls).toBe(1);
       await expect(broker.dispose()).resolves.toBeUndefined();
       expect(cleanupCalls).toBe(2);
       expect(killSessionCalls).toBe(2);
@@ -1554,13 +2114,78 @@ describe("system tmux console broker", () => {
           descriptor: { argv: ["/srt-wrap", "--"], env: { PATH: "/bin" } },
         }),
       });
+      writeFileSync(join(privateRoot, "tmux.sock"), "live-server-marker");
 
       await expect(broker.dispose()).rejects.toThrow(/process settlement was not confirmed/u);
       expect(existsSync(privateRoot)).toBe(true);
+      rmSync(join(privateRoot, "tmux.sock"), { force: true });
       await expect(broker.dispose()).resolves.toBeUndefined();
       expect(killServerCalls).toBe(2);
       expect(existsSync(privateRoot)).toBe(false);
     } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("bounds failed-open pane PID recovery before retaining cleanup debt", async () => {
+    vi.useFakeTimers();
+    const root = join(tmpdir(), "keel-tmux-broker-pid-recovery-deadline-test");
+    const privateRoot = join(root, "broker");
+    rmSync(root, { recursive: true, force: true });
+    mkdirSync(root, { recursive: true });
+    let recoveryAborted = false;
+    const runner = fakeRunner((request) => {
+      if (request.argv.includes("new-session")) return successful("invalid identity\n");
+      if (request.argv.includes("display-message")) {
+        return new Promise<TmuxCommandResult>((resolve) => {
+          request.signal?.addEventListener(
+            "abort",
+            () => {
+              recoveryAborted = true;
+              resolve(failing("display-message aborted"));
+            },
+            { once: true },
+          );
+        });
+      }
+      return successful();
+    });
+    try {
+      const broker = createSystemTmuxConsoleBroker({
+        tmuxPath: "/usr/local/bin/tmux",
+        tmuxVersion: "tmux 3.5a",
+        privateRoot,
+        runner,
+        launchPreparer: launchPreparer({
+          prepared: [],
+          cleanup: () => {
+            throw new Error("cleanup must remain withheld");
+          },
+          descriptor: { argv: ["/srt-wrap", "--"], env: { PATH: "/bin" } },
+        }),
+      });
+      const sandbox = broker.prepareSandboxPlan({
+        invocation: { command: TARGET.command, cwd: TARGET.cwd },
+        profile: { filesystem: { allowRead: ["/workspace"], allowWrite: ["/workspace"] } },
+      });
+      const opening = broker.open(openRequest(sandbox));
+      let settled = false;
+      void opening.then(
+        () => {
+          settled = true;
+        },
+        () => {
+          settled = true;
+        },
+      );
+
+      await vi.advanceTimersByTimeAsync(1_999);
+      expect(settled).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      await expect(opening).rejects.toThrow(/settlement was not confirmed/u);
+      expect(recoveryAborted).toBe(true);
+    } finally {
+      vi.useRealTimers();
       rmSync(root, { recursive: true, force: true });
     }
   });
@@ -1584,6 +2209,9 @@ describe("system tmux console broker", () => {
         runner,
         launchPreparer: launchPreparer({
           prepared: [],
+          revoke: () => {
+            events.push("revoke");
+          },
           cleanup: () => {
             events.push("cleanup");
           },
@@ -1597,7 +2225,7 @@ describe("system tmux console broker", () => {
       await broker.open(openRequest(sandbox));
 
       await broker.dispose();
-      expect(events).toEqual(["cleanup", "kill-session"]);
+      expect(events).toEqual(["revoke", "kill-session", "cleanup"]);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

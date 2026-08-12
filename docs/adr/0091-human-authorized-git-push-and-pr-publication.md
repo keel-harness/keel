@@ -5,8 +5,9 @@
   an earlier surviving sandbox launch authenticate against a later launch's network or credential
   configuration. The maintainer authorized the narrow structural repair: every network-bearing launch
   receives OS-confined exclusive proxy endpoints plus a unique defense-in-depth token, both bound to an
-  immutable authority snapshot; cleanup revokes the authority, drops credential state, and drains
-  associated connections; publication capabilities are withheld when that scoped authority is
+  immutable authority snapshot; cleanup first revokes network authority, drops credential state, and
+  drains associated connections, then releases filesystem state only after process settlement;
+  publication capabilities are withheld when that scoped authority is
   unavailable. This amendment also supersedes ADR-0066 Decision §7's original
   latest-config behavior. It amends the SRT enforcement design, but changes no frozen RPC, policy,
   audit, or tool-schema shape, no grant, TLS-verification, or credential-custody requirement, and no
@@ -237,26 +238,52 @@ and terminated-TLS traffic stay bound to that selected snapshot for the entire c
 including keepalive and streaming. A connection cannot switch tokens, endpoints, or borrow another
 launch's host, filter, resolver, placeholder, or credential state.
 
-The prepared launch owns an idempotent asynchronous cleanup handle. Cleanup first deactivates the
-token and clears credential-bearing in-memory authority so no new request can authenticate. It then aborts pending
+The prepared launch owns separate idempotent asynchronous revoke, release, and terminal-cleanup
+handles backed by one shared settlement state. Revocation first deactivates the token and clears
+credential-bearing in-memory authority so no new request can authenticate. It then aborts pending
 filter/resolution/dial work, closes the launch-exclusive listeners/bridges, destroys every tracked
-client, upstream, opaque-tunnel, TLS-loopback, and keepalive connection for that launch, waits within
-a fixed two-second graceful-drain bound, and releases launch-local placeholder and mount state. Wrap
-failure, spawn failure, normal exit, timeout, abort, interactive-console close,
-interactive-console release, broker disposal, and Warden shutdown all invoke the same revoke-first
-path.
+client, upstream, opaque-tunnel, TLS-loopback, and keepalive connection for that launch, and waits
+within a fixed two-second graceful-drain bound. Revocation deliberately retains launch-local
+placeholder and mount state: on Linux, removing a live bwrap mount source before its process group is
+settled could weaken the filesystem profile inherited by that group. Wrap failure, spawn failure,
+normal exit, timeout, abort, interactive-console close, broker disposal, and Warden shutdown therefore
+revoke network authority first, kill and reap the controlled process or process group, and only then
+invoke terminal cleanup to release placeholder and mount state.
+
+For the system-tmux console broker, tmux session/server destruction is metadata and terminal-server
+settlement only; it is not evidence that the pane process group exited. Keel records the positive
+pane PID as process-group authority, validates that group at open, then uses host-side `SIGTERM`, a
+bounded grace interval, `SIGKILL` escalation, and an `ESRCH` absence check before declaring terminal
+settlement. A missing/unknown group, `EPERM`, or a group still present at the deadline retains the
+launch and filesystem cleanup debt. An August 11, 2026 macOS reproduction against tmux 3.7b proved
+the need for this boundary: `kill-session` returned zero while a HUP/TERM-ignoring pane PGID remained
+alive and reparented to PID 1. This process-group proof does not claim complete descendant-tree proof;
+endpoint pairs therefore remain permanently retired as specified below.
+
+The product system-tmux broker admits at most one outstanding Warden-controlled session per Warden,
+counting launch preparation, a live handle, and any unconfirmed cleanup debt. A successful explicit
+release ends Warden control and frees that slot; released external processes are outside the bound and
+outside Keel's continuing containment claim. This structural limit makes shutdown latency finite
+without parallelizing the serialized SRT lifecycle. Structural identity checks and private tmux-server
+shutdown use two-second command bounds. The Warden then reserves 24 seconds for one in-flight ordinary
+launch, the one system-tmux session (including one cleanup retry), and the five-second resolver drain;
+the kernel waits 28 seconds before `SIGKILL`. The deadline is a last-resort exit bound, not settlement
+proof: if any stage remains unconfirmed, controller truth stays `reaped:false`, mount and temporary
+state are retained, and no cleanup or authority-transfer success is reported.
 
 Removing the token does not revoke an already authenticated stream. Authority-transfer operations
 therefore cannot succeed merely because the two-second drain bound elapsed. In particular,
 `interactive_console.release` returns success only after every associated connection is confirmed
-closed and the endpoint lease is durably retired; only then may the explicitly released external
-process remain alive without SRT authority. If drain cannot be confirmed, release is denied, the
-process and its profile-bearing group remain Warden-controlled, and the terminal cleanup path kills
-and reaps them. Shutdown, broker disposal, and every other terminal cleanup path likewise kill and
-reap any surviving controlled process group after graceful drain. Failure to prove connection closure
-or process settlement permanently retires the endpoint, quarantines the runtime, withholds
-publication capabilities until a fresh Warden/SRT initialization succeeds, and never reports a
-successful release or cleanup transfer.
+closed and the endpoint lease is durably retired. That explicit authority-transfer operation is the
+sole live-process exception: after network revocation succeeds, Keel ends Warden control and releases
+the launch-local placeholder and mount state while the external process remains alive. The released
+process carries no continuing Keel filesystem-containment claim. If drain cannot be confirmed,
+release is denied, the process and its profile-bearing group remain Warden-controlled, and the
+terminal cleanup path kills and reaps them before releasing filesystem state. Shutdown, broker
+disposal, and every other terminal cleanup path use the same two-phase ordering. Failure to prove
+connection closure or process settlement permanently retires the endpoint, quarantines the runtime,
+withholds publication capabilities until a fresh Warden/SRT initialization succeeds, and never
+reports a successful release or cleanup transfer.
 
 Every network-bearing allocation has a cross-generation obligation because an immutable Seatbelt profile is
 inherited by descendants and can still admit its old exact proxy port after the original Warden or
@@ -797,10 +824,13 @@ walking skeleton can merge, evidence must prove at least:
     excluded even after parent/Warden exit or with detached/reparented descendants; token replay fails
     before filtering or dial; revoke during filter, resolution, dial, opaque tunnel, TLS, and response
     streaming drains within the bound without disrupting an unrelated active launch;
-15. wrap/spawn failure, normal completion, timeout, abort, duplicate cleanup, console close/release,
-    broker disposal, and Warden shutdown all revoke first; a forced drain timeout denies release,
-    retains control, kills/reaps the process group, permanently retires the endpoint, and never leaves
-    an authenticated stream alive; publication capability is absent without
+15. wrap/spawn failure, normal completion, timeout, abort, duplicate and cross-method cleanup,
+    console close/release, broker disposal, startup rollback, RPC/stdio EOF, explicit shutdown, and
+    Warden shutdown all revoke first; terminal paths retain filesystem mount state until process
+    settlement, while successful explicit console release records the end of containment before
+    releasing that state. A forced drain timeout denies release, retains control, kills/reaps the
+    process group, permanently retires the endpoint, and never leaves an authenticated stream alive;
+    publication capability is absent without
     `srt-launch-authority/v1`; and
 16. helper inspection refuses unsafe HOME/XDG, project/command/blob/stdin origins, unsafe includes,
     workspace/symlinked executables, project path arguments, and compound/ambiguous shell syntax with

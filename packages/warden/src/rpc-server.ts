@@ -256,11 +256,12 @@ function gitPushAuditAuthorityId(writer: AuditSink): string {
   return created;
 }
 
-/** Max time the warden waits for an in-flight execution to reap during teardown before force-exiting
- *  anyway — so a pathological/hung reap can never wedge shutdown (used by both the SIGTERM path in
- *  bin.ts and the EOF path here). The kernel's SIGKILL escalation grace is kept strictly greater than
- *  this so a warden using its full teardown budget exits cleanly before the kernel force-kills it. */
-export const WARDEN_TEARDOWN_BUDGET_MS = 2_000;
+/** Max time the warden waits for teardown before force-exiting. Product system-tmux brokers admit at
+ *  most one outstanding Warden-controlled session. The 24-second bound therefore covers one
+ *  in-flight launch's two-second revoke plus two-second process settlement, the console's bounded
+ *  identity check, revoke/cleanup retry, process settlement, and private-server stop, then the
+ *  five-second resolver shutdown, with margin. The kernel's SIGKILL grace is strictly greater. */
+export const WARDEN_TEARDOWN_BUDGET_MS = 24_000;
 
 export interface WardenRpcHandlerOptions {
   sandbox?: SandboxPort;
@@ -3345,20 +3346,38 @@ async function executeConsoleHandleWithBroker(
       policy: auditPolicyInfo(context, decision),
       provenance: auditProvenanceInfo(policyInput),
     });
+    let released: Awaited<ReturnType<ConsoleBrokerPort["release"]>>;
     try {
-      const released = await broker.release({
+      released = await broker.release({
         handle,
         operation,
         profile: handle.profile,
         ...(context.signal === undefined ? {} : { signal: context.signal }),
       });
-      const result = {
-        kind: "interactive_console_released",
-        handle: handle.handle,
-        released: released.released,
-        wardenControlled: !released.released,
-      };
-      const outcomeAuditSeq = appendAuditSeq(context, {
+    } catch (error) {
+      return auditConsoleBrokerFailure(
+        context,
+        params,
+        policyInput,
+        decision,
+        error,
+        grant === undefined ? {} : consoleHandleContinuationGrantPayload(grant, { applied: true }),
+      );
+    }
+    if (released.released) {
+      // The broker's authority transfer is already irreversible. Controller truth must change
+      // before the fallible outcome append so an audit failure cannot resurrect a phantom handle.
+      context.interactiveConsoleState.handles.delete(handle.handle);
+    }
+    const result = {
+      kind: "interactive_console_released",
+      handle: handle.handle,
+      released: released.released,
+      wardenControlled: !released.released,
+    };
+    const outcomeAuditSeq = appendAuditSeq(
+      context,
+      {
         eventType: "tool.execute",
         sessionId: params.sessionId,
         payload: consoleToolPayload(params, policyInput, {
@@ -3376,21 +3395,10 @@ async function executeConsoleHandleWithBroker(
         sideEffect: policyInput.sideEffect,
         policy: auditPolicyInfo(context, decision),
         provenance: auditProvenanceInfo(policyInput),
-      });
-      if (released.released) {
-        context.interactiveConsoleState.handles.delete(handle.handle);
-      }
-      return { verdict: decision.verdict, result, auditSeq: outcomeAuditSeq };
-    } catch (error) {
-      return auditConsoleBrokerFailure(
-        context,
-        params,
-        policyInput,
-        decision,
-        error,
-        grant === undefined ? {} : consoleHandleContinuationGrantPayload(grant, { applied: true }),
-      );
-    }
+      },
+      released.released ? { actionMayHaveExecuted: true, mutationPossible: true } : {},
+    );
+    return { verdict: decision.verdict, result, auditSeq: outcomeAuditSeq };
   }
   appendAuditSeq(context, {
     eventType: "tool.execute",
@@ -3419,24 +3427,30 @@ async function executeConsoleHandleWithBroker(
     handle: handle.handle,
     closed: closed.closed,
   };
-  const outcomeAuditSeq = appendAuditSeq(context, {
-    eventType: "tool.execute",
-    sessionId: params.sessionId,
-    payload: consoleToolPayload(params, policyInput, {
-      kind: "interactive_console_close_returned",
-      processIdentity: handle.processIdentity,
-      close: {
-        ...(operation.args.reason === undefined ? {} : { reason: operation.args.reason }),
-        closed: closed.closed,
-      },
-    }),
-    sideEffect: policyInput.sideEffect,
-    policy: auditPolicyInfo(context, decision),
-    provenance: auditProvenanceInfo(policyInput),
-  });
   if (closed.closed) {
+    // As with release, the broker has already settled its process/authority state. Do not retain a
+    // controller handle merely because the outcome record cannot be appended afterward.
     context.interactiveConsoleState.handles.delete(handle.handle);
   }
+  const outcomeAuditSeq = appendAuditSeq(
+    context,
+    {
+      eventType: "tool.execute",
+      sessionId: params.sessionId,
+      payload: consoleToolPayload(params, policyInput, {
+        kind: "interactive_console_close_returned",
+        processIdentity: handle.processIdentity,
+        close: {
+          ...(operation.args.reason === undefined ? {} : { reason: operation.args.reason }),
+          closed: closed.closed,
+        },
+      }),
+      sideEffect: policyInput.sideEffect,
+      policy: auditPolicyInfo(context, decision),
+      provenance: auditProvenanceInfo(policyInput),
+    },
+    closed.closed ? { actionMayHaveExecuted: true } : {},
+  );
   return { verdict: decision.verdict, result, auditSeq: outcomeAuditSeq };
 }
 
@@ -8407,9 +8421,12 @@ export interface StdioWardenServerOptions {
 }
 
 export interface StdioWardenServer {
-  /** Aborts the in-flight execution and resolves once it has settled (the sandbox child group is
-   *  reaped), so a caller can await a clean teardown before exiting. Never rejects. */
+  /** Aborts the in-flight execution and resolves once every teardown attempt has settled. Authority
+   *  cleanup debt is available through closeWithOutcome(). Never rejects. */
   close(): Promise<void>;
+  /** Same non-throwing teardown boundary with controller-owned settlement truth for embedders that
+   *  must decide whether authority-bearing temporary state is safe to remove. */
+  closeWithOutcome(): Promise<{ readonly reaped: boolean }>;
 }
 
 export function runStdioWardenServer(options: StdioWardenServerOptions = {}): StdioWardenServer {
@@ -8493,6 +8510,7 @@ export function runStdioWardenServer(options: StdioWardenServerOptions = {}): St
   const maxLineBytes = options.maxLineBytes ?? DEFAULT_MAX_LINE_BYTES;
   let buffer = "";
   let closed = false;
+  let shutdownRequested = false;
   let queue = Promise.resolve();
   let presentationCleanup: Promise<void> | undefined;
   let consoleCleanup: Promise<void> | undefined;
@@ -8660,8 +8678,12 @@ export function runStdioWardenServer(options: StdioWardenServerOptions = {}): St
         if (options.mutationPresentation !== undefined) {
           await cleanupMutationPresentationOnce();
         }
-        if (options.shutdownRuntime !== undefined) await cleanupRuntimeOnce();
-        options.onShutdown?.({ reaped: true });
+        if (options.shutdownRuntime === undefined) {
+          options.onShutdown?.({ reaped: true });
+        } else {
+          const runtimeSettlement = await Promise.allSettled([cleanupRuntimeOnce()]);
+          options.onShutdown?.({ reaped: runtimeSettlement[0]?.status === "fulfilled" });
+        }
       }
     }
   };
@@ -8676,10 +8698,10 @@ export function runStdioWardenServer(options: StdioWardenServerOptions = {}): St
     );
   };
 
-  const enqueueLine = (line: string): void => {
+  const enqueueLine = (line: string, allowDuringShutdown = false): void => {
     queue = queue.then(
-      () => processLine(line),
-      () => processLine(line),
+      () => (shutdownRequested && !allowDuringShutdown ? undefined : processLine(line)),
+      () => (shutdownRequested && !allowDuringShutdown ? undefined : processLine(line)),
     );
     void queue.catch(writeInternalError);
   };
@@ -8716,13 +8738,16 @@ export function runStdioWardenServer(options: StdioWardenServerOptions = {}): St
         // Control-plane read: answer immediately, off the serial execute queue, so a long in-flight
         // execution can't stall a status poll (#9). statusResult is synchronous, so this cannot
         // observe a torn state from an execute suspended at an await.
-        void processLine(line).catch(writeInternalError);
+        if (!shutdownRequested) void processLine(line).catch(writeInternalError);
       } else if (method === "warden.shutdown") {
         // Teardown must not wait behind a long execution: abort the in-flight execute (it then reaps
         // fast), and enqueue shutdown so it runs AFTER the reap — its onShutdown (process exit) thus
         // fires only once the sandbox child group is gone (#9 + #6).
-        abortInFlightExecution();
-        enqueueLine(line);
+        if (!shutdownRequested) {
+          shutdownRequested = true;
+          abortInFlightExecution();
+          enqueueLine(line, true);
+        }
       } else {
         enqueueLine(line);
       }
@@ -8755,51 +8780,58 @@ export function runStdioWardenServer(options: StdioWardenServerOptions = {}): St
 
   const cleanupConsoleHandlesOnce = (): Promise<void> => {
     consoleCleanup ??= (async () => {
-      try {
-        const context = await buildRpcContext(handlerOptions);
-        await cleanupInteractiveConsoleAuthority({
-          context,
-          state: interactiveConsoleState,
-          reason: "shutdown",
-        });
-      } catch {
-        // close() must remain non-throwing teardown; cleanup is fail-closed by skipping effects.
-      }
+      const context = await buildRpcContext(handlerOptions);
+      await cleanupInteractiveConsoleAuthority({
+        context,
+        state: interactiveConsoleState,
+        reason: "shutdown",
+      });
     })();
+    void consoleCleanup.catch(() => {
+      consoleCleanup = undefined;
+    });
     return consoleCleanup;
   };
 
   const cleanupRuntimeOnce = (): Promise<void> => {
-    runtimeCleanup ??= (async () => {
-      try {
-        await options.shutdownRuntime?.();
-      } catch {
-        // close() is a non-throwing boundary; runtime authority is already fail-closed on teardown.
-      }
-    })();
+    runtimeCleanup ??= Promise.resolve().then(() => options.shutdownRuntime?.());
+    void runtimeCleanup.catch(() => {
+      runtimeCleanup = undefined;
+    });
     return runtimeCleanup;
+  };
+
+  const settleRuntimeAuthoritiesInOrder = async (): Promise<{ readonly reaped: boolean }> => {
+    const consoleSettlement = await Promise.allSettled([cleanupConsoleHandlesOnce()]);
+    if (consoleSettlement[0]?.status !== "fulfilled") {
+      // Runtime reset may release Linux mount sources. It is safe only after every console process
+      // has settled; preserve the runtime and its filesystem state when console settlement is debt.
+      return { reaped: false };
+    }
+    const runtimeSettlement = await Promise.allSettled([cleanupRuntimeOnce()]);
+    return { reaped: runtimeSettlement[0]?.status === "fulfilled" };
   };
 
   // Abort the in-flight execution, drain any cooperative presentation constructor, then clean live
   // console handles. Resolves only once teardown has settled so a caller (bin.ts SIGTERM handler)
   // can await a clean teardown and not exit before either presentation cleanup or srt's
-  // SIGTERM->SIGKILL escalation finishes (#6). Never rejects. Idempotent (both transport cleanups are
-  // memoized; abort is a no-op once aborted).
-  const performClose = (): Promise<void> => {
+  // SIGTERM->SIGKILL escalation finishes (#6). Never rejects; authority cleanup rejection is retained
+  // as controller-owned settlement truth. Idempotent (both transport cleanups are memoized; abort is
+  // a no-op once aborted).
+  const performClose = (): Promise<{ readonly reaped: boolean }> => {
     closed = true;
+    shutdownRequested = true;
     input.off("data", onData);
     abortInFlightExecution();
     const presentationCleanup = cleanupMutationPresentationOnce();
     return queue.then(
       async () => {
         await presentationCleanup;
-        await cleanupConsoleHandlesOnce();
-        await cleanupRuntimeOnce();
+        return await settleRuntimeAuthoritiesInOrder();
       },
       async () => {
         await presentationCleanup;
-        await cleanupConsoleHandlesOnce();
-        await cleanupRuntimeOnce();
+        return await settleRuntimeAuthoritiesInOrder();
       },
     );
   };
@@ -8820,7 +8852,7 @@ export function runStdioWardenServer(options: StdioWardenServerOptions = {}): St
     // and no kernel left to escalate), so a pathological hung reap must never wedge it. Report whether
     // teardown settled so the embedder never removes temp state that a live child may still be using.
     void Promise.race([
-      performClose().then(() => ({ reaped: true as const })),
+      performClose(),
       new Promise<{ readonly reaped: false }>((resolve) => {
         setTimeout(() => resolve({ reaped: false }), reapBudgetMs).unref();
       }),
@@ -8832,7 +8864,10 @@ export function runStdioWardenServer(options: StdioWardenServerOptions = {}): St
   input.once("close", requestShutdownOnEof);
 
   return {
-    close(): Promise<void> {
+    async close(): Promise<void> {
+      await performClose();
+    },
+    closeWithOutcome(): Promise<{ readonly reaped: boolean }> {
       return performClose();
     },
   };

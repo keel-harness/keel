@@ -99,8 +99,8 @@ export interface GitCredentialBrokerOptions {
 }
 
 export class GitCredentialBrokerError extends Error {
-  constructor(message: string) {
-    super(message);
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options);
     this.name = "GitCredentialBrokerError";
   }
 }
@@ -418,6 +418,7 @@ export function createGitCredentialBroker(
       if (error instanceof GitCredentialAuthorityError) {
         throw new GitCredentialBrokerError(
           `Git credential helper authority is unavailable (${error.code})`,
+          { cause: error },
         );
       }
       throw new GitCredentialBrokerError("Git credential helper authority inspection failed");

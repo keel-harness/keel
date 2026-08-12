@@ -93,6 +93,8 @@ export interface LaunchAuthorityOptions {
 export interface PreparedLaunchAuthority {
   readonly argv: string[]
   readonly env: NodeJS.ProcessEnv
+  revoke(): Promise<void>
+  release(): Promise<void>
   cleanup(): Promise<void>
 }
 
@@ -107,6 +109,10 @@ interface LaunchAuthorityState {
   readonly lease: EndpointLease
   readonly abortController: AbortController
   readonly readiness: { active: boolean }
+  revoked: boolean
+  filesystemReleased: boolean
+  revokePromise?: Promise<void>
+  filesystemReleasePromise?: Promise<void>
   cleanupPromise?: Promise<void>
 }
 
@@ -143,7 +149,6 @@ let httpProxyServer: ReturnType<typeof createHttpProxyServer> | undefined
 let socksProxyServer: SocksProxyWrapper | undefined
 let managerContext: HostNetworkManagerContext | undefined
 let initializationPromise: Promise<HostNetworkManagerContext> | undefined
-let cleanupRegistered = false
 let logMonitorShutdown: (() => void) | undefined
 let parentProxy: ResolvedParentProxy | undefined
 let mitmCA: MitmCA | undefined
@@ -210,22 +215,6 @@ function assertDestinationGuardRoutesCompatible(network: NetworkConfig): void {
       `network.${incompatible.join(', network.')} is incompatible with network.resolveDestination`,
     )
   }
-}
-
-function registerCleanup(): void {
-  if (cleanupRegistered) {
-    return
-  }
-  const cleanupHandler = () =>
-    reset().catch(e => {
-      logForDebugging(`Cleanup failed in registerCleanup ${e}`, {
-        level: 'error',
-      })
-    })
-  process.once('exit', cleanupHandler)
-  process.once('SIGINT', cleanupHandler)
-  process.once('SIGTERM', cleanupHandler)
-  cleanupRegistered = true
 }
 
 async function filterNetworkRequest(
@@ -748,9 +737,10 @@ function launchResolveDestination(
   }
 }
 
-async function closeLaunchAuthorityUnserialized(
+async function revokeLaunchAuthorityUnserialized(
   state: LaunchAuthorityState,
 ): Promise<void> {
+  if (state.revoked) return
   state.readiness.active = false
   state.abortController.abort()
   state.sentinelRegistry.clear()
@@ -789,7 +779,6 @@ async function closeLaunchAuthorityUnserialized(
         }
       }
     }
-    cleanupBwrapMountPoints()
     // V1 conservatively tombstones every authority. A direct child exit does
     // not prove that no detached descendant still inherits its exact profile.
     const transitioned = state.leaseRegistry.retire(state.lease)
@@ -797,26 +786,72 @@ async function closeLaunchAuthorityUnserialized(
       throw new Error('launch proxy authority cleanup failed')
     }
     activeLaunchAuthorities.delete(state)
+    state.revoked = true
   })()
 }
 
-function closeLaunchAuthority(state: LaunchAuthorityState): Promise<void> {
-  if (state.cleanupPromise !== undefined) return state.cleanupPromise
+function revokeLaunchAuthority(state: LaunchAuthorityState): Promise<void> {
+  if (state.revoked) return Promise.resolve()
+  if (state.revokePromise !== undefined) return state.revokePromise
   if (launchResetPromise !== undefined) {
-    state.cleanupPromise = launchResetPromise
+    state.revokePromise = launchResetPromise
     return launchResetPromise
   }
   const operation = launchLifecycleTail.then(() =>
-    closeLaunchAuthorityUnserialized(state),
+    revokeLaunchAuthorityUnserialized(state),
   )
-  state.cleanupPromise = operation
+  state.revokePromise = operation
   void operation.catch(() => {
-    if (state.cleanupPromise === operation) state.cleanupPromise = undefined
+    if (state.revokePromise === operation) state.revokePromise = undefined
   })
   launchLifecycleTail = operation.then(
     () => undefined,
     () => undefined,
   )
+  return operation
+}
+
+function cleanupLaunchAuthority(state: LaunchAuthorityState): Promise<void> {
+  if (state.cleanupPromise !== undefined) return state.cleanupPromise
+  const operation = revokeLaunchAuthority(state).then(() =>
+    releaseLaunchFilesystemState(state),
+  )
+  state.cleanupPromise = operation
+  void operation.catch(() => {
+    if (state.cleanupPromise === operation) state.cleanupPromise = undefined
+  })
+  return operation
+}
+
+function releaseLaunchFilesystemState(
+  state: LaunchAuthorityState,
+): Promise<void> {
+  if (state.filesystemReleased) return Promise.resolve()
+  if (state.filesystemReleasePromise !== undefined) {
+    return state.filesystemReleasePromise
+  }
+  const operation = Promise.resolve().then(() => {
+    // The caller confirms process settlement before full cleanup. Linux mount
+    // placeholders must remain present while bwrap still enforces them.
+    cleanupBwrapMountPoints()
+    state.filesystemReleased = true
+  })
+  state.filesystemReleasePromise = operation
+  void operation.catch(() => {
+    if (state.filesystemReleasePromise === operation) {
+      state.filesystemReleasePromise = undefined
+    }
+  })
+  return operation
+}
+
+function releaseLaunchAuthority(state: LaunchAuthorityState): Promise<void> {
+  const operation = revokeLaunchAuthority(state).then(() => {
+    // Explicit authority transfer is the sole live-process exception: after
+    // network revocation, the released process is no longer represented as
+    // Warden-controlled and no filesystem-containment claim remains.
+    return releaseLaunchFilesystemState(state)
+  })
   return operation
 }
 
@@ -878,19 +913,36 @@ async function prepareLaunchAuthorityUnserialized(
         new SentinelRegistry(),
       ),
     )
-    const wrapped = await wrapLaunchCommand(
-      options,
-      snapshot,
-      undefined,
-      undefined,
-      undefined,
-      restrictions,
-    )
-    assertLifecycleActive()
+    let wrapped: { argv: string[]; env: NodeJS.ProcessEnv }
+    let filesystemWrapped = false
+    try {
+      wrapped = await wrapLaunchCommand(
+        options,
+        snapshot,
+        undefined,
+        undefined,
+        undefined,
+        restrictions,
+      )
+      filesystemWrapped = platform === 'linux'
+      assertLifecycleActive()
+    } catch (error) {
+      // A fulfilled Linux wrap owns exactly one active-sandbox count even if the lifecycle is
+      // revoked before the launch handle can be returned. Its matching decrement must happen here;
+      // the Warden's per-launch caller cannot safely invoke process-global cleanup on failure.
+      if (filesystemWrapped) cleanupBwrapMountPoints()
+      throw error
+    }
     let cleaned = false
     return {
       argv: wrapped.argv,
       env: wrapped.env,
+      async revoke() {},
+      async release() {
+        if (cleaned) return
+        cleaned = true
+        cleanupBwrapMountPoints()
+      },
       async cleanup() {
         if (cleaned) return
         cleaned = true
@@ -963,6 +1015,7 @@ async function prepareLaunchAuthorityUnserialized(
   let linuxBridge: LinuxNetworkBridgeContext | undefined
   let httpServer: ReturnType<typeof createHttpProxyServer> | undefined
   let socksServer: SocksProxyWrapper | undefined
+  let filesystemWrapped = false
   try {
     const excludedEndpoints = leaseRegistry.excludedEndpoints()
     const excludedPorts = excludedTcpPorts(excludedEndpoints)
@@ -1041,6 +1094,7 @@ async function prepareLaunchAuthorityUnserialized(
       launchMitmCA,
       credentialRestrictions,
     )
+    filesystemWrapped = platform === 'linux'
     assertLifecycleActive()
     state = {
       generationId,
@@ -1053,18 +1107,23 @@ async function prepareLaunchAuthorityUnserialized(
       lease,
       abortController,
       readiness,
+      revoked: false,
+      filesystemReleased: false,
     }
     activeLaunchAuthorities.add(state)
     readiness.active = true
     return {
       argv: wrapped.argv,
       env: wrapped.env,
-      cleanup: () => closeLaunchAuthority(state!),
+      revoke: () => revokeLaunchAuthority(state!),
+      release: () => releaseLaunchAuthority(state!),
+      cleanup: () => cleanupLaunchAuthority(state!),
     }
   } catch (error) {
     readiness.active = false
     abortController.abort()
     if (state !== undefined) activeLaunchAuthorities.delete(state)
+    if (filesystemWrapped) cleanupBwrapMountPoints()
     let partialCleanupConfirmed = false
     try {
       partialCleanupConfirmed = await settleLaunchAuthorityDrain([
@@ -1196,8 +1255,8 @@ async function wrapLaunchCommand(
     wrapped = await wrapCommandWithSandboxLinux({
       command: options.command,
       needsNetworkRestriction: true,
-      httpSocketPath: bridge.httpSocketPath,
-      socksSocketPath: bridge.socksSocketPath,
+      httpSocketPath: bridge?.httpSocketPath,
+      socksSocketPath: bridge?.socksSocketPath,
       httpProxyPort: context?.httpProxyPort,
       socksProxyPort: context?.socksProxyPort,
       proxyAuthToken: token,
@@ -1347,9 +1406,6 @@ async function initialize(
     )
     logForDebugging('Started macOS sandbox log monitor')
   }
-
-  // Register cleanup handlers first time
-  registerCleanup()
 
   // Initialize network infrastructure
   initializationPromise = (async () => {
@@ -2192,7 +2248,7 @@ export function forceCloseHttpServer(server: ForceCloseHttpServer): Promise<void
 async function resetUnserialized(): Promise<void> {
   const launchCloseResults = await Promise.allSettled(
     [...activeLaunchAuthorities].map(authority =>
-      closeLaunchAuthorityUnserialized(authority),
+      revokeLaunchAuthorityUnserialized(authority),
     ),
   )
   let launchCleanupFailed = launchCloseResults.some(result => {

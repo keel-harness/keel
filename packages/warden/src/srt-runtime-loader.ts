@@ -5,12 +5,12 @@ import {
   type SrtSandboxLaunchPreparer,
   type SrtRuntimeAdapter,
   type SrtSandboxPortOptions,
+  executePreparedSrtLaunch,
 } from "./srt-sandbox.js";
 import type {
   SandboxExecutionResult,
   SandboxPort,
   SandboxProcessRunner,
-  SandboxProcessRunnerOptions,
   SandboxStatus,
 } from "./sandbox.js";
 import {
@@ -88,6 +88,8 @@ export interface VendoredSrtManager {
   ) => Promise<{
     readonly argv: string[];
     readonly env: NodeJS.ProcessEnv;
+    revoke(): void | Promise<void>;
+    release(): void | Promise<void>;
     cleanup(): void | Promise<void>;
   }>;
   wrapWithSandboxArgv(
@@ -125,6 +127,8 @@ export interface VendoredSrtSandboxPortOptions {
 export interface VendoredSrtSandboxComponents {
   readonly sandbox: SandboxPort;
   readonly launchPreparer?: SrtSandboxLaunchPreparer;
+  /** Withholds new work without releasing filesystem state used by live processes. */
+  readonly quarantine: () => void;
   /** Stops accepting sandbox work and tears down the process-scoped SRT proxy infrastructure. */
   readonly shutdown: () => Promise<void>;
 }
@@ -287,7 +291,7 @@ function unavailablePort(status: UnavailableVendoredSrtStatus): SandboxPort {
 }
 
 function unavailableComponents(status: UnavailableVendoredSrtStatus): VendoredSrtSandboxComponents {
-  return { sandbox: unavailablePort(status), shutdown: async () => {} };
+  return { sandbox: unavailablePort(status), quarantine: () => {}, shutdown: async () => {} };
 }
 
 function unavailableStatus(reason: string, fixCommand: string): UnavailableVendoredSrtStatus {
@@ -387,22 +391,20 @@ export async function createVendoredSrtSandboxPort(
   return components.sandbox;
 }
 
-function runnerOptions(signal: AbortSignal | undefined): SandboxProcessRunnerOptions | undefined {
-  return signal === undefined ? undefined : { signal };
-}
-
 function sandboxFromLaunchPreparer(
   launchPreparer: SrtSandboxLaunchPreparer,
   runner: SandboxProcessRunner,
+  onLifecycleFailure?: () => void,
 ): SandboxPort {
   return {
     status: () => launchPreparer.status(),
     async execute(invocation, profile, executeOptions): Promise<SandboxExecutionResult> {
       const launch = await launchPreparer.prepareLaunch(invocation, profile, executeOptions);
       try {
-        return await runner.run(launch.descriptor, runnerOptions(executeOptions?.signal));
-      } finally {
-        await launch.cleanup();
+        return await executePreparedSrtLaunch(launch, runner, executeOptions?.signal);
+      } catch (error) {
+        onLifecycleFailure?.();
+        throw error;
       }
     },
   };
@@ -494,14 +496,8 @@ export async function createVendoredSrtSandboxComponents(
 
   let stopped = false;
   let shutdownPromise: Promise<void> | undefined;
-  const quarantineRuntime = async (cause: unknown): Promise<never> => {
+  const quarantineRuntime = (cause: unknown): never => {
     stopped = true;
-    shutdownPromise ??= manager.reset?.() ?? Promise.resolve();
-    try {
-      await shutdownPromise;
-    } catch {
-      throw new Error("launch authority failure and runtime quarantine failed", { cause });
-    }
     throw cause;
   };
 
@@ -619,19 +615,33 @@ export async function createVendoredSrtSandboxComponents(
       }
       return {
         descriptor: launch.descriptor,
+        async revoke() {
+          try {
+            await launch.revoke();
+          } catch (error) {
+            stopped = true;
+            // Revocation is called before process settlement. Quarantine new launches now, but do
+            // not globally reset filesystem mount state until the caller kills/reaps the process.
+            throw error;
+          }
+        },
+        async release() {
+          try {
+            await launch.release();
+          } catch (error) {
+            stopped = true;
+            // A failed release retains Warden control over a live process. Its terminal close path
+            // performs process settlement before cleanup/reset may release filesystem mount state.
+            throw error;
+          }
+        },
         async cleanup() {
           try {
             await launch.cleanup();
           } catch (error) {
             stopped = true;
-            shutdownPromise ??= manager.reset?.() ?? Promise.resolve();
-            try {
-              await shutdownPromise;
-            } catch {
-              throw new Error("launch authority cleanup and runtime quarantine failed", {
-                cause: error,
-              });
-            }
+            // Other launch processes can still be live. Quarantine immediately, then defer global
+            // reset until controller-owned shutdown has settled every process in this runtime.
             throw error;
           }
         },
@@ -640,12 +650,20 @@ export async function createVendoredSrtSandboxComponents(
   };
   const runner = options.runner ?? createNodeSandboxProcessRunner();
   return {
-    sandbox: sandboxFromLaunchPreparer(launchPreparer, runner),
+    sandbox: sandboxFromLaunchPreparer(launchPreparer, runner, () => {
+      stopped = true;
+    }),
     launchPreparer,
+    quarantine: () => {
+      stopped = true;
+    },
     shutdown: () => {
       if (shutdownPromise !== undefined) return shutdownPromise;
       stopped = true;
       shutdownPromise = manager.reset?.() ?? Promise.resolve();
+      void shutdownPromise.catch(() => {
+        shutdownPromise = undefined;
+      });
       return shutdownPromise;
     },
   };

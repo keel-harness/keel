@@ -5,6 +5,8 @@ import { parseJsonRejectingDuplicateKeys, supportedGitPushVersion } from "@keel/
 
 const INTERNAL_GIT_CREDENTIAL_DOCTOR_ENV = "KEEL_INTERNAL_GIT_CREDENTIAL_DOCTOR_V1";
 const GIT_CREDENTIAL_DOCTOR_REQUEST_ENV = "KEEL_GIT_CREDENTIAL_DOCTOR_REQUEST_B64";
+const MAX_GIT_CREDENTIAL_DOCTOR_RESPONSE_BYTES = 1_024;
+const UNSAFE_GIT_CREDENTIAL_DOCTOR_TEXT = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u;
 
 export interface GatherDoctorGitProbeOptions {
   readonly workspaceRoot: string;
@@ -32,7 +34,7 @@ function oneLine(value: unknown): value is string {
     typeof value === "string" &&
     value !== "" &&
     Buffer.byteLength(value, "utf8") <= 1_024 &&
-    !/[\r\n\u2028\u2029]/u.test(value)
+    !UNSAFE_GIT_CREDENTIAL_DOCTOR_TEXT.test(value)
   );
 }
 
@@ -66,6 +68,9 @@ function credentialAuthorityProbe(
       child.stderr !== ""
     ) {
       throw new Error("Warden credential doctor process failed");
+    }
+    if (Buffer.byteLength(child.stdout, "utf8") > MAX_GIT_CREDENTIAL_DOCTOR_RESPONSE_BYTES) {
+      throw new Error("Warden credential doctor response exceeded its wire bound");
     }
     const lines = child.stdout.trimEnd().split(/\r?\n/u);
     if (lines.length !== 1 || lines[0] === "") throw new Error("invalid response framing");

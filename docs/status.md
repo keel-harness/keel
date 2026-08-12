@@ -18,8 +18,8 @@ Two earlier versions are not release carriers:
 | `0.1.0` | Staged on 2026-08-01 but never approved, so it never became public. The registry has no `0.1.0` tarball. |
 | `0.0.1` | The original name-reservation placeholder. Superseded by `0.1.1`. |
 
-This is **not a stable or public-alpha release**. It is a pre-alpha carrier published during
-open-source preparation. Expect breaking changes.
+This is **not a stable or public-alpha release**. It is a public pre-alpha carrier. Expect breaking
+changes.
 
 Standalone Bun binaries remain test-only. ADR-0040 holds them back pending a review of linked
 LGPL components. Every npm publication follows the staged, human-approved flow in the

@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { CredentialProxyRule } from "./credential-proxy.js";
 import type { BoundedEgressAddressResolver } from "./egress-resolver.js";
 import type { SandboxPort } from "./sandbox.js";
+import type { StdioWardenServerOptions } from "./rpc-server.js";
 
 describe("warden credential TLS product wiring", () => {
   afterEach(() => {
@@ -16,20 +17,29 @@ describe("warden credential TLS product wiring", () => {
       status: () => ({ available: true, backend: "srt:vendored", enforcementTier: "sandbox:srt" }),
       execute: async () => ({ exitCode: 0, signal: null, stdout: "", stderr: "" }),
     };
+    const sandboxShutdown = vi.fn(async () => {});
+    const resolverShutdown = vi.fn(async () => ({ drained: true, activeLookups: 0 }));
+    const createBoundedEgressAddressResolver = vi.fn(() => ({
+      resolveDestination: vi.fn(async () => []),
+      snapshot: vi.fn(() => ({ state: "running", activeLookups: 0, queuedLookups: 0 })),
+      shutdown: resolverShutdown,
+    }));
     const createVendoredSrtSandboxComponents = vi.fn(
       async (_options?: {
         readonly credentialTlsTermination?: boolean;
         readonly resolveDestination?: BoundedEgressAddressResolver["resolveDestination"];
       }) => {
         order.push("sandbox");
-        return { sandbox };
+        return { sandbox, shutdown: sandboxShutdown };
       },
     );
     const credentialProxyRulesFromEnvValues = vi.fn(() => {
       order.push("credentials");
       return rules;
     });
-    const runStdioWardenServer = vi.fn(() => ({ close: async () => {} }));
+    const runStdioWardenServer = vi.fn((_options: StdioWardenServerOptions) => ({
+      close: async () => {},
+    }));
     const discoverMcpServerWithSandbox = vi.fn(async () => ({
       protocolVersion: "test",
       capabilities: {},
@@ -38,8 +48,10 @@ describe("warden credential TLS product wiring", () => {
       run: vi.fn(),
       close: vi.fn(() => ({ cleanup: "complete" as const })),
     };
+    const sandboxTempCleanup = vi.fn();
 
     vi.doMock("./srt-runtime-loader.js", () => ({ createVendoredSrtSandboxComponents }));
+    vi.doMock("./egress-resolver.js", () => ({ createBoundedEgressAddressResolver }));
     vi.doMock("./egress-address-exceptions.js", () => ({
       ensureEgressAddressExceptionAuthorityHome: () => "/tmp/keel-home",
       loadEgressAddressExceptionSnapshot: () => ({
@@ -54,13 +66,13 @@ describe("warden credential TLS product wiring", () => {
         path: "/private/tmp/keel-credential-tls-product-root",
         declaredTempRoots: ["/private/tmp/keel-credential-tls-product-root"],
         assertOwned: vi.fn(),
-        cleanup: vi.fn(),
+        cleanup: sandboxTempCleanup,
       }),
     }));
     vi.doMock("./credential-proxy.js", () => ({ credentialProxyRulesFromEnvValues }));
     vi.doMock("./rpc-server.js", () => ({
       DEFAULT_MAX_LINE_BYTES: 1024,
-      WARDEN_TEARDOWN_BUDGET_MS: 2_000,
+      WARDEN_TEARDOWN_BUDGET_MS: 24_000,
       runStdioWardenServer,
     }));
     vi.doMock("./audit/checkpoint-key.js", () => ({
@@ -106,6 +118,10 @@ describe("warden credential TLS product wiring", () => {
       discoverMcpServerWithSandbox,
       order,
       runStdioWardenServer,
+      resolverShutdown,
+      sandboxTempCleanup,
+      sandboxShutdown,
+      typedMutationRunner,
     };
   }
 
@@ -201,5 +217,59 @@ describe("warden credential TLS product wiring", () => {
     expect(mocked.runStdioWardenServer).toHaveBeenCalledWith(
       expect.objectContaining({ gitPushAuthority }),
     );
+  });
+
+  it("attempts every runtime authority shutdown and rejects if any remains unsettled", async () => {
+    const mocked = mockProductModules(undefined);
+    mocked.resolverShutdown.mockRejectedValueOnce(new Error("resolver shutdown failed"));
+    mocked.sandboxShutdown.mockRejectedValueOnce(new Error("sandbox shutdown failed"));
+    vi.stubEnv("KEEL_WARDEN_SANDBOX", "srt");
+
+    const { runWardenFromEnv } = await import("./bin.js");
+    await runWardenFromEnv();
+
+    const shutdownRuntime = mocked.runStdioWardenServer.mock.calls[0]?.[0].shutdownRuntime;
+    expect(shutdownRuntime).toBeDefined();
+    await expect(shutdownRuntime?.()).rejects.toThrow("runtime authority teardown failed");
+    expect(mocked.resolverShutdown).toHaveBeenCalledOnce();
+    expect(mocked.sandboxShutdown).toHaveBeenCalledOnce();
+  });
+
+  it("retains cleanup debt when the address resolver cannot drain", async () => {
+    const mocked = mockProductModules(undefined);
+    mocked.resolverShutdown.mockResolvedValueOnce({ drained: false, activeLookups: 1 });
+    vi.stubEnv("KEEL_WARDEN_SANDBOX", "srt");
+
+    const { runWardenFromEnv } = await import("./bin.js");
+    await runWardenFromEnv();
+
+    const shutdownRuntime = mocked.runStdioWardenServer.mock.calls[0]?.[0].shutdownRuntime;
+    await expect(shutdownRuntime?.()).rejects.toThrow("runtime authority teardown failed");
+    expect(mocked.resolverShutdown).toHaveBeenCalledOnce();
+    expect(mocked.sandboxShutdown).toHaveBeenCalledOnce();
+  });
+
+  it("preserves startup cleanup debt and both failures when runtime teardown is unconfirmed", async () => {
+    const mocked = mockProductModules(undefined);
+    mocked.runStdioWardenServer.mockImplementationOnce(() => {
+      throw new Error("stdio startup failed");
+    });
+    mocked.resolverShutdown.mockRejectedValueOnce(new Error("resolver shutdown failed"));
+    vi.stubEnv("KEEL_WARDEN_SANDBOX", "srt");
+
+    const { runWardenFromEnv } = await import("./bin.js");
+    const failure = await runWardenFromEnv().catch((error: unknown) => error);
+
+    expect(failure).toBeInstanceOf(AggregateError);
+    expect((failure as AggregateError).errors).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ message: "stdio startup failed" }),
+        expect.objectContaining({ message: "runtime authority teardown failed" }),
+      ]),
+    );
+    expect(mocked.resolverShutdown).toHaveBeenCalledOnce();
+    expect(mocked.sandboxShutdown).toHaveBeenCalledOnce();
+    expect(mocked.typedMutationRunner.close).not.toHaveBeenCalled();
+    expect(mocked.sandboxTempCleanup).not.toHaveBeenCalled();
   });
 });

@@ -23,9 +23,9 @@ Status legend: **Pending** (claim defined, proving test not yet implemented) ·
 
 Historical Phase-2 closeout note (2026-06-30): Phase-2 implementation/readiness completed with
 named limitations for a constrained private developer preview, not an unqualified all-green gate
-pass. Current release posture (2026-07-29) is **pre-alpha open-source preparation**, not a stable or
-public-alpha release. No full current 89-task Terminal-Bench 2.1 comparison is promoted as claim
-evidence unless its exact build, logs, harness-related issue triage, and scores are recorded.
+pass. Current release posture is **public pre-alpha**, not a stable or public-alpha release. No full
+current 89-task Terminal-Bench 2.1 comparison is promoted as claim evidence unless its exact build,
+logs, harness-related issue triage, and scores are recorded.
 
 Current Epic 2.26/2.27/3.14 MCP note (2026-07-28): historical rows below that say
 plugin/MCP surfaces are outside proof are narrowed by the SEC-MCP Slice-1

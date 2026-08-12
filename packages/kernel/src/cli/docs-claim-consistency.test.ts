@@ -235,7 +235,7 @@ describe("public docs claim consistency", () => {
     expect(reference).toMatch(/still pending.*close.*denied.*nonzero.*unconfirmed/is);
   });
 
-  it("keeps README status aligned with open-source preparation evidence and limitations", () => {
+  it("keeps README status aligned with public pre-alpha evidence and limitations", () => {
     const readme = readRepoFile("README.md");
     // The full limitation set moved to docs/status.md so the README could lead with what keel is
     // rather than with its caveats. Each claim below is still pinned to an exact file — the guard
@@ -255,7 +255,7 @@ describe("public docs claim consistency", () => {
     expect(status).not.toMatch(/private developer preview/i);
 
     // The README keeps the honest headline framing and a status summary that names the boundary.
-    expect(readme).toMatch(/open-source preparation/i);
+    expect(readme).toMatch(/pre-alpha and publicly available/i);
     expect(readme).toMatch(/trusted typed\s+file tools/i);
     expect(readme).toMatch(/`read`.*`search`.*`write`.*`edit`/is);
     expect(readme).toMatch(/not a stable or public-alpha release/i);
@@ -263,7 +263,7 @@ describe("public docs claim consistency", () => {
     expect(readme).toMatch(/\[docs\/status\.md\]\(docs\/status\.md\)/);
 
     // docs/status.md owns the itemized limits.
-    expect(status).toMatch(/open-source preparation/i);
+    expect(status).toMatch(/public pre-alpha carrier/i);
     expect(status).toMatch(/trusted `read`\/`search`\/`write`\/`edit`/i);
     expect(status).toMatch(/signed.*offline.*evidence/i);
     expect(status).toMatch(/macOS audit-latency pass/i);

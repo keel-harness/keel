@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 /* global console, URL */
+import { createHash } from "node:crypto";
 import { access, readFile } from "node:fs/promises";
 
 const root = new URL("../..", import.meta.url);
@@ -30,6 +31,7 @@ const expected = {
     "src/sandbox/macos-sandbox-utils.ts",
     "src/sandbox/windows-sandbox-utils.ts",
     "test/sandbox/wrap-with-sandbox.test.ts",
+    "test/sandbox/mandatory-deny-paths.test.ts",
     "test/sandbox/linux-proxy-readiness.test.ts",
     "test/sandbox/destination-dial.test.ts",
     "test/sandbox/destination-guard-proxy.test.ts",
@@ -74,6 +76,11 @@ async function readJson(relativePath) {
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
+}
+
+async function sha256(relativePath) {
+  const bytes = await readFile(new URL(relativePath, vendorDir));
+  return createHash("sha256").update(bytes).digest("hex");
 }
 
 const packageJson = await readJson("package.json");
@@ -211,6 +218,10 @@ for (const token of [
   "LAUNCH_AUTHORITY_DRAIN_TIMEOUT_MS = 2_000",
   "per-launch proxy authority requires a destination resolver",
   "launchLifecycleTail",
+  "revoke(): Promise<void>",
+  "release(): Promise<void>",
+  "releaseLaunchFilesystemState",
+  "generated nested-deny bind sources follow invocation ownership and settlement",
 ]) {
   assert(
     launchAuthorityPatch.includes(token),
@@ -225,6 +236,47 @@ assert(
   sandboxManagerSource.includes("launchLifecycleTail"),
   "per-launch authority preparation and reset are not lifecycle-serialized",
 );
+assert(
+  sandboxManagerSource.includes("releaseLaunchFilesystemState"),
+  "per-launch authority does not separate network revocation from filesystem settlement",
+);
+const launchAuthorityPostimage = {
+  "src/sandbox/endpoint-lease-registry.ts":
+    "6bd8e7e4f48f0fc6c3f210a45006b4bb36db1c8263568f1dd14ac2aa62cc3583",
+  "src/sandbox/http-proxy.ts":
+    "40b7ab556a176e923ec9581ee42f85820dad609f83973006abe192b79a4c9d7d",
+  "src/sandbox/linux-sandbox-utils.ts":
+    "a6f4bc22b124e6760a4961d7d8ed746625b4148f6ffe90d12058345a0a3c165d",
+  "src/sandbox/sandbox-manager.ts":
+    "1035d4ffc297d6f176207fdf619bcfbe12956c42279014dd9b4f0b6ca4ecb483",
+  "src/sandbox/socks-proxy.ts":
+    "f9e4ff4007adee881e7078fde7e0bed561f02afd254b89fb6c2ae5d2b641f011",
+  "src/sandbox/tls-terminate-proxy.ts":
+    "f326bda46a0c61223abf1a9f6544c6420478797937c3d3cb991c24d5d5eeda5c",
+  "test/sandbox/endpoint-lease-registry.test.ts":
+    "fdea7a1ac92fcff604135fcde4fa2c972718f1ba842ccec30981d2a5f4ebcc7d",
+  "test/sandbox/endpoint-lease-registry-aba.test.ts":
+    "8be035029d226f2733e3baa08689eb3fce81f6d1ef5dda459d90b99f1d6acf82",
+  "test/sandbox/endpoint-lease-child.ts":
+    "4a90fe2910cbd9744368b5de46ed89ecb8aee8a39d5927feeb40ee62350cf420",
+  "test/sandbox/http-server-lifecycle.test.ts":
+    "2734ddae95ad7dde284d081252b45f5a1a315a8438c915499883a12be549a196",
+  "test/sandbox/launch-authority-lifecycle.test.ts":
+    "b8c6e2d8ee0e06a4e4ef0449373690360b5b36de505f2882040cc61599409996",
+  "test/sandbox/launch-authority.test.ts":
+    "a72bd0698e14cbf65e82a371f2e243e3e74ccad2777ee28df7ff12210e1a31e8",
+  "test/sandbox/linux-bridge-process-group.test.ts":
+    "d83c523bac7beff3d2815eed527c55de7ed052c9936f4bb47da79cfd20dbb7f8",
+  "test/sandbox/mandatory-deny-paths.test.ts":
+    "e2e2031665b435a118072406c1f098aa9b6ecea2598b8aa4ee083fc3d9fb2a52",
+  "test/sandbox/socks-server-lifecycle.test.ts":
+    "1845900b163e17a97a0e2f898ba289af1591756cd3404ea5373f56d391df1b3f",
+  "test/sandbox/tls-loopback-lifecycle.test.ts":
+    "6f819e2d8d659978b9c2032cf2c1081ac3aa435e7f4335941be5b7780d61cd6a",
+};
+for (const [path, digest] of Object.entries(launchAuthorityPostimage)) {
+  assert((await sha256(path)) === digest, `per-launch authority postimage drifted: ${path}`);
+}
 const endpointRegistrySource = await readFile(
   new URL("src/sandbox/endpoint-lease-registry.ts", vendorDir),
   "utf8",
