@@ -139,7 +139,7 @@ describe('HTTP proxy server lifecycle', () => {
     await expect(forceCloseHttpServer(server)).rejects.toBe(forceCloseError)
   })
 
-  it('logs and resolves a synchronous Node close callback error', async () => {
+  it('logs and rejects a synchronous Node close callback error', async () => {
     process.env.SRT_DEBUG = '1'
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
     const server: ForceCloseHttpServer = {
@@ -149,7 +149,7 @@ describe('HTTP proxy server lifecycle', () => {
       closeAllConnections() {},
     }
 
-    await expect(forceCloseHttpServer(server)).resolves.toBeUndefined()
+    await expect(forceCloseHttpServer(server)).rejects.toThrow('close callback failed')
     expect(consoleError).toHaveBeenCalledWith(
       '[SandboxDebug] Error closing HTTP proxy server: close callback failed',
     )

@@ -110,6 +110,30 @@ interface LaunchAuthorityState {
   cleanupPromise?: Promise<void>
 }
 
+export const LAUNCH_AUTHORITY_DRAIN_TIMEOUT_MS = 2_000
+
+export function settleLaunchAuthorityDrain(
+  operations: readonly Promise<unknown>[],
+): Promise<boolean> {
+  return new Promise(resolve => {
+    let settled = false
+    const finish = (clean: boolean) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      resolve(clean)
+    }
+    const timer = setTimeout(
+      () => finish(false),
+      LAUNCH_AUTHORITY_DRAIN_TIMEOUT_MS,
+    )
+    timer.unref?.()
+    void Promise.allSettled(operations).then(results =>
+      finish(results.every(result => result.status === 'fulfilled')),
+    )
+  })
+}
+
 // ============================================================================
 // Private Module State
 // ============================================================================
@@ -135,8 +159,12 @@ const sandboxViolationStore = new SandboxViolationStore()
 // process memory; never written to disk or logged. Cleared on reset().
 const sentinelRegistry = new SentinelRegistry()
 const activeLaunchAuthorities = new Set<LaunchAuthorityState>()
-const launchAuthorityGenerationId = `${process.pid}-${randomBytes(16).toString('hex')}`
-let launchPreparationTail: Promise<void> = Promise.resolve()
+let launchAuthorityRegistry: EndpointLeaseRegistry | undefined
+let launchAuthorityRegistryPath: string | undefined
+let launchAuthorityGenerationId: string | undefined
+let launchLifecycleTail: Promise<void> = Promise.resolve()
+let launchAuthorityAccepting = false
+let launchAuthorityEpoch = 0
 const LAUNCH_PROXY_PORT_RANGE = [40000, 65535] as const
 
 // ============================================================================
@@ -673,15 +701,14 @@ function launchResolveDestination(
   }
 }
 
-async function closeLaunchAuthority(
+async function closeLaunchAuthorityUnserialized(
   state: LaunchAuthorityState,
 ): Promise<void> {
-  if (state.cleanupPromise !== undefined) return state.cleanupPromise
   state.readiness.active = false
   state.abortController.abort()
   state.sentinelRegistry.clear()
-  state.cleanupPromise = (async () => {
-    const closeResults = await Promise.allSettled([
+  await (async () => {
+    let clean = await settleLaunchAuthorityDrain([
       forceCloseHttpServer(state.httpProxyServer),
       state.socksProxyServer.close(),
       ...(state.managerContext.linuxBridge === undefined
@@ -698,7 +725,6 @@ async function closeLaunchAuthority(
           ]),
       ...(state.mitmCA === undefined ? [] : [disposeMitmCA(state.mitmCA)]),
     ])
-    let clean = closeResults.every(result => result.status === 'fulfilled')
     if (clean) {
       // The listener and all tracked connections are confirmed closed. Drop
       // request callbacks so their immutable credential snapshot is released.
@@ -717,21 +743,40 @@ async function closeLaunchAuthority(
       }
     }
     cleanupBwrapMountPoints()
-    activeLaunchAuthorities.delete(state)
     // V1 conservatively tombstones every authority. A direct child exit does
     // not prove that no detached descendant still inherits its exact profile.
     const transitioned = state.leaseRegistry.retire(state.lease)
     if (!transitioned || !clean) {
       throw new Error('launch proxy authority cleanup failed')
     }
+    activeLaunchAuthorities.delete(state)
   })()
-  return state.cleanupPromise
+}
+
+function closeLaunchAuthority(state: LaunchAuthorityState): Promise<void> {
+  if (state.cleanupPromise !== undefined) return state.cleanupPromise
+  const operation = launchLifecycleTail.then(() =>
+    closeLaunchAuthorityUnserialized(state),
+  )
+  state.cleanupPromise = operation
+  launchLifecycleTail = operation.then(
+    () => undefined,
+    () => undefined,
+  )
+  return operation
 }
 
 async function prepareLaunchAuthorityUnserialized(
   runtimeConfig: SandboxRuntimeConfig,
   options: LaunchAuthorityOptions,
+  expectedEpoch: number,
 ): Promise<PreparedLaunchAuthority> {
+  const assertLifecycleActive = () => {
+    if (!launchAuthorityAccepting || launchAuthorityEpoch !== expectedEpoch) {
+      throw new Error('per-launch proxy authority is stopped')
+    }
+  }
+  assertLifecycleActive()
   const platform = getPlatform()
   if (platform === 'windows') {
     throw new Error('per-launch proxy authority is unavailable on Windows')
@@ -756,6 +801,19 @@ async function prepareLaunchAuthorityUnserialized(
       'network.tlsTerminate and network.mitmProxy are mutually exclusive',
     )
   }
+  if (runtimeConfig.network.resolveDestination === undefined) {
+    throw new Error('per-launch proxy authority requires a destination resolver')
+  }
+
+  const leaseRegistry = launchAuthorityRegistry
+  const generationId = launchAuthorityGenerationId
+  if (
+    leaseRegistry === undefined ||
+    generationId === undefined ||
+    launchAuthorityRegistryPath !== options.endpointRegistryPath
+  ) {
+    throw new Error('per-launch proxy authority is not initialized')
+  }
 
   const snapshot = cloneRuntimeConfigForLaunch(runtimeConfig)
   const networkSnapshot = { network: snapshot.network }
@@ -764,12 +822,6 @@ async function prepareLaunchAuthorityUnserialized(
     : undefined
   const launchSentinelRegistry = new SentinelRegistry()
   const token = randomBytes(32).toString('hex')
-  const generationId = launchAuthorityGenerationId
-  const leaseRegistry = new EndpointLeaseRegistry(
-    options.endpointRegistryPath,
-    { generationId },
-  )
-  leaseRegistry.recoverPriorGenerations()
   const readiness = { active: false }
   const abortController = new AbortController()
   const guardedResolver = launchResolveDestination(
@@ -778,66 +830,72 @@ async function prepareLaunchAuthorityUnserialized(
     abortController.signal,
   )
 
-  const httpServer = createHttpProxyServer({
-    filter: (port, host) =>
-      filterNetworkRequestForConfig(
-        networkSnapshot,
-        port,
-        host,
-        undefined,
-        (candidateHost, candidatePort) =>
-          launchEndpointIsInternal(
-            leaseRegistry.excludedEndpoints(),
-            candidateHost,
-            candidatePort,
-          ),
+  const createLaunchHttpServer = () =>
+    createHttpProxyServer({
+      filter: (port, host) =>
+        filterNetworkRequestForConfig(
+          networkSnapshot,
+          port,
+          host,
+          undefined,
+          (candidateHost, candidatePort) =>
+            launchEndpointIsInternal(
+              leaseRegistry.excludedEndpoints(),
+              candidateHost,
+              candidatePort,
+            ),
+        ),
+      getMitmSocketPath: host => getMitmSocketPathForConfig(snapshot, host),
+      mitmCA: launchMitmCA,
+      filterRequest: buildRequestFilterForConfig(snapshot),
+      mutateHeaders: buildCredentialInjectorForConfig(
+        snapshot,
+        launchSentinelRegistry,
       ),
-    getMitmSocketPath: host => getMitmSocketPathForConfig(snapshot, host),
-    mitmCA: launchMitmCA,
-    filterRequest: buildRequestFilterForConfig(snapshot),
-    mutateHeaders: buildCredentialInjectorForConfig(
-      snapshot,
-      launchSentinelRegistry,
-    ),
-    mutateHeadersPlaintext: buildCredentialInjectorForConfig(
-      snapshot,
-      launchSentinelRegistry,
-      { requirePlaintextOptIn: true },
-    ),
-    parentProxy: undefined,
-    resolveDestination: guardedResolver,
-    proxyAuthToken: token,
-    isProxyAuthActive: () => readiness.active,
-  })
-  const socksServer = createSocksProxyServer({
-    filter: (port, host) =>
-      filterNetworkRequestForConfig(
-        networkSnapshot,
-        port,
-        host,
-        undefined,
-        (candidateHost, candidatePort) =>
-          launchEndpointIsInternal(
-            leaseRegistry.excludedEndpoints(),
-            candidateHost,
-            candidatePort,
-          ),
+      mutateHeadersPlaintext: buildCredentialInjectorForConfig(
+        snapshot,
+        launchSentinelRegistry,
+        { requirePlaintextOptIn: true },
       ),
-    parentProxy: undefined,
-    resolveDestination: guardedResolver,
-    proxyAuthToken: token,
-    isProxyAuthActive: () => readiness.active,
-  })
+      parentProxy: undefined,
+      resolveDestination: guardedResolver,
+      proxyAuthToken: token,
+      isProxyAuthActive: () => readiness.active,
+    })
+  const createLaunchSocksServer = () =>
+    createSocksProxyServer({
+      filter: (port, host) =>
+        filterNetworkRequestForConfig(
+          networkSnapshot,
+          port,
+          host,
+          undefined,
+          (candidateHost, candidatePort) =>
+            launchEndpointIsInternal(
+              leaseRegistry.excludedEndpoints(),
+              candidateHost,
+              candidatePort,
+            ),
+        ),
+      parentProxy: undefined,
+      resolveDestination: guardedResolver,
+      proxyAuthToken: token,
+      isProxyAuthActive: () => readiness.active,
+    })
 
   let lease: EndpointLease | undefined
   let state: LaunchAuthorityState | undefined
   let linuxBridge: LinuxNetworkBridgeContext | undefined
+  let httpServer: ReturnType<typeof createHttpProxyServer> | undefined
+  let socksServer: SocksProxyWrapper | undefined
   try {
     const excludedEndpoints = leaseRegistry.excludedEndpoints()
     const excludedPorts = excludedTcpPorts(excludedEndpoints)
+    httpServer = createLaunchHttpServer()
+    socksServer = createLaunchSocksServer()
     await listenInRange(
       httpServer,
-      port => httpServer.listen(port, '127.0.0.1'),
+      port => httpServer!.listen(port, '127.0.0.1'),
       LAUNCH_PROXY_PORT_RANGE,
       excludedPorts,
     )
@@ -849,7 +907,11 @@ async function prepareLaunchAuthorityUnserialized(
     excludedPorts.add(httpPort)
     let socksPort: number | undefined
     let lastSocksError: unknown
-    for (let port = LAUNCH_PROXY_PORT_RANGE[0]; port <= LAUNCH_PROXY_PORT_RANGE[1]; port++) {
+    for (
+      let port = LAUNCH_PROXY_PORT_RANGE[0];
+      port <= LAUNCH_PROXY_PORT_RANGE[1];
+      port++
+    ) {
       if (excludedPorts.has(port)) continue
       try {
         socksPort = await socksServer.listen(port, '127.0.0.1')
@@ -864,20 +926,21 @@ async function prepareLaunchAuthorityUnserialized(
         `no launch SOCKS proxy endpoint is available: ${String(lastSocksError)}`,
       )
     }
-    const socketId = platform === 'linux' ? randomBytes(16).toString('hex') : undefined
-    const linuxEndpointKeys =
-      socketId === undefined
+    const socketId =
+      platform === 'linux' ? randomBytes(16).toString('hex') : undefined
+    // Both OS sockets are exclusively held but readiness remains false, so no
+    // request can authenticate. Durably exclude the selected endpoints before
+    // installing a profile-bearing child or activating this authority.
+    lease = leaseRegistry.reserve([
+      endpointKey(httpPort),
+      endpointKey(socksPort),
+      ...(socketId === undefined
         ? []
         : [
             `unix:${join(dirname(options.endpointRegistryPath), `keel-http-${socketId}.sock`)}`,
             `unix:${join(dirname(options.endpointRegistryPath), `keel-socks-${socketId}.sock`)}`,
-          ]
-    lease = leaseRegistry.reserve([
-      endpointKey(httpPort),
-      endpointKey(socksPort),
-      ...linuxEndpointKeys,
+          ]),
     ])
-    readiness.active = true
     httpServer.unref()
     socksServer.unref()
 
@@ -890,6 +953,7 @@ async function prepareLaunchAuthorityUnserialized(
         socketId,
       )
     }
+    assertLifecycleActive()
 
     const context: HostNetworkManagerContext = {
       httpProxyPort: httpPort,
@@ -909,6 +973,7 @@ async function prepareLaunchAuthorityUnserialized(
       launchMitmCA,
       credentialRestrictions,
     )
+    assertLifecycleActive()
     state = {
       generationId,
       managerContext: context,
@@ -922,6 +987,7 @@ async function prepareLaunchAuthorityUnserialized(
       readiness,
     }
     activeLaunchAuthorities.add(state)
+    readiness.active = true
     return {
       argv: wrapped.argv,
       env: wrapped.env,
@@ -932,9 +998,9 @@ async function prepareLaunchAuthorityUnserialized(
     abortController.abort()
     if (state !== undefined) activeLaunchAuthorities.delete(state)
     try {
-      await Promise.allSettled([
-        forceCloseHttpServer(httpServer),
-        socksServer.close(),
+      await settleLaunchAuthorityDrain([
+        ...(httpServer === undefined ? [] : [forceCloseHttpServer(httpServer)]),
+        ...(socksServer === undefined ? [] : [socksServer.close()]),
         ...(linuxBridge === undefined
           ? []
           : [
@@ -1081,20 +1147,41 @@ function supportsLaunchAuthority(): boolean {
 }
 
 function initializeLaunchAuthority(endpointRegistryPath: string): void {
+  if (launchAuthorityRegistry !== undefined) {
+    throw new Error('per-launch proxy authority is already initialized')
+  }
+  const generationId = randomBytes(32).toString('hex')
   const registry = new EndpointLeaseRegistry(endpointRegistryPath, {
-    generationId: launchAuthorityGenerationId,
+    generationId,
   })
-  registry.recoverPriorGenerations()
+  registry.claimGeneration()
+  try {
+    registry.recoverPriorGenerations()
+  } catch (error) {
+    try {
+      registry.releaseGeneration()
+    } catch {
+      // Initialization remains failed closed; the exact owner marker can be
+      // recovered after process exit if corrupt durable state blocks release.
+    }
+    throw error
+  }
+  launchAuthorityRegistry = registry
+  launchAuthorityRegistryPath = endpointRegistryPath
+  launchAuthorityGenerationId = generationId
+  launchAuthorityAccepting = true
+  launchAuthorityEpoch += 1
 }
 
 function prepareLaunchAuthority(
   runtimeConfig: SandboxRuntimeConfig,
   options: LaunchAuthorityOptions,
 ): Promise<PreparedLaunchAuthority> {
-  const operation = launchPreparationTail.then(() =>
-    prepareLaunchAuthorityUnserialized(runtimeConfig, options),
+  const expectedEpoch = launchAuthorityEpoch
+  const operation = launchLifecycleTail.then(() =>
+    prepareLaunchAuthorityUnserialized(runtimeConfig, options, expectedEpoch),
   )
-  launchPreparationTail = operation.then(
+  launchLifecycleTail = operation.then(
     () => undefined,
     () => undefined,
   )
@@ -1962,16 +2049,11 @@ function killBridgeProcess(proc: ChildProcess, label: string): Promise<void> {
     process.kill(proc.pid, 'SIGTERM')
     logForDebugging(`Sent SIGTERM to ${label} bridge process`)
   } catch (err) {
-    if ((err as NodeJS.ErrnoException).code !== 'ESRCH') {
-      logForDebugging(`Error killing ${label} bridge: ${err}`, {
-        level: 'error',
-      })
-    }
-    // ESRCH = process already gone; nothing to wait for either way.
-    return Promise.resolve()
+    if ((err as NodeJS.ErrnoException).code === 'ESRCH') return Promise.resolve()
+    return Promise.reject(err)
   }
 
-  return new Promise<void>(resolve => {
+  return new Promise<void>((resolve, reject) => {
     let settled = false
     const done = () => {
       if (settled) return
@@ -1991,11 +2073,17 @@ function killBridgeProcess(proc: ChildProcess, label: string): Promise<void> {
         })
         try {
           if (proc.pid) process.kill(proc.pid, 'SIGKILL')
-        } catch {
-          // Process may have already exited
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code === 'ESRCH') {
+            done()
+            return
+          }
+          settled = true
+          reject(error)
         }
       }
-      done()
+      // Do not report settlement merely because SIGKILL was sent. The outer
+      // launch deadline rejects unless the child emits exit and is reaped.
     }, BRIDGE_EXIT_TIMEOUT_MS)
     // The bridge process is being torn down; this timer must not be the
     // only thing keeping the event loop alive.
@@ -2025,8 +2113,15 @@ export function forceCloseHttpServer(server: ForceCloseHttpServer): Promise<void
   return new Promise<void>((resolve, reject) => {
     let closeCallbackReturned = false
     let orderingComplete = false
+    let pendingTrackedDrains = 0
     const settle = () => {
-      if (closeCallbackReturned && orderingComplete) resolve()
+      if (
+        closeCallbackReturned &&
+        orderingComplete &&
+        pendingTrackedDrains === 0
+      ) {
+        resolve()
+      }
     }
     const close = () =>
       server.close(error => {
@@ -2034,15 +2129,25 @@ export function forceCloseHttpServer(server: ForceCloseHttpServer): Promise<void
           logForDebugging(`Error closing HTTP proxy server: ${error.message}`, {
             level: 'error',
           })
+          reject(error)
+          return
         }
         closeCallbackReturned = true
         settle()
       })
     const closeAllConnections = () => server.closeAllConnections?.()
-    const destroyTrackedConnections = () =>
-      destroyTrackedHttpProxyConnections(
+    const destroyTrackedConnections = () => {
+      pendingTrackedDrains += 1
+      void destroyTrackedHttpProxyConnections(
         server as ReturnType<typeof createHttpProxyServer>,
+      ).then(
+        () => {
+          pendingTrackedDrains -= 1
+          settle()
+        },
+        reject,
       )
+    }
 
     try {
       if (typeof (globalThis as { Bun?: unknown }).Bun === 'object') {
@@ -2069,11 +2174,13 @@ export function forceCloseHttpServer(server: ForceCloseHttpServer): Promise<void
   })
 }
 
-async function reset(): Promise<void> {
+async function resetUnserialized(): Promise<void> {
   const launchCloseResults = await Promise.allSettled(
-    [...activeLaunchAuthorities].map(authority => closeLaunchAuthority(authority)),
+    [...activeLaunchAuthorities].map(authority =>
+      authority.cleanupPromise ?? closeLaunchAuthorityUnserialized(authority),
+    ),
   )
-  const launchCleanupFailed = launchCloseResults.some(result => {
+  let launchCleanupFailed = launchCloseResults.some(result => {
     if (result.status === 'fulfilled') return false
     logForDebugging(`Error closing launch authority: ${String(result.reason)}`, {
       level: 'error',
@@ -2166,9 +2273,36 @@ async function reset(): Promise<void> {
   config = undefined
   destinationResolver = undefined
   sentinelRegistry.clear()
+  if (launchAuthorityRegistry !== undefined) {
+    try {
+      if (!launchAuthorityRegistry.releaseGeneration()) {
+        launchCleanupFailed = true
+      } else {
+        launchAuthorityRegistry = undefined
+        launchAuthorityRegistryPath = undefined
+        launchAuthorityGenerationId = undefined
+      }
+    } catch (error) {
+      launchCleanupFailed = true
+      logForDebugging(`Error releasing launch authority generation: ${String(error)}`, {
+        level: 'error',
+      })
+    }
+  }
   if (launchCleanupFailed) {
     throw new Error('one or more launch authorities failed to close')
   }
+}
+
+function reset(): Promise<void> {
+  launchAuthorityAccepting = false
+  launchAuthorityEpoch += 1
+  const operation = launchLifecycleTail.then(() => resetUnserialized())
+  launchLifecycleTail = operation.then(
+    () => undefined,
+    () => undefined,
+  )
+  return operation
 }
 
 function getSandboxViolationStore() {

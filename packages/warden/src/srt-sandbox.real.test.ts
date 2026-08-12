@@ -94,6 +94,7 @@ suite("real SRT sandbox enforcement (opt-in: KEEL_REQUIRE_REAL_SANDBOX=1)", () =
     chmodSync(authorityRoot, 0o700);
     const components = await createVendoredSrtSandboxComponents({
       launchAuthorityRegistryPath: join(authorityRoot, "endpoint-leases.json"),
+      resolveDestination: async () => [{ address: "127.0.0.1", family: 4 }],
     });
     const real = components.sandbox;
     shutdownSandbox = components.shutdown;

@@ -151,7 +151,7 @@ assert(
   "TLS terminator still destroys the client on normal loopback close",
 );
 assert(
-  tlsTerminateSource.includes("socket.once('finish', cleanup)"),
+  tlsTerminateSource.includes("socket.once('finish', () => void cleanup())"),
   "TLS terminator does not clean up after the client write finishes",
 );
 
@@ -198,6 +198,48 @@ assert(
 assert(
   sandboxManagerSource.includes("destroyTrackedHttpProxyConnections("),
   "HTTP proxy teardown does not invoke upgraded-socket draining",
+);
+const launchAuthorityPatch = await readFile(
+  new URL("patches/per-launch-srt-authority.patch", vendorDir),
+  "utf8",
+);
+for (const token of [
+  "src/sandbox/endpoint-lease-registry.ts",
+  "src/sandbox/sandbox-manager.ts",
+  "src/sandbox/socks-proxy.ts",
+  "src/sandbox/tls-terminate-proxy.ts",
+  "LAUNCH_AUTHORITY_DRAIN_TIMEOUT_MS = 2_000",
+  "per-launch proxy authority requires a destination resolver",
+  "launchLifecycleTail",
+]) {
+  assert(
+    launchAuthorityPatch.includes(token),
+    `per-launch SRT authority patch omits ${token}`,
+  );
+}
+assert(
+  sandboxManagerSource.includes("export const LAUNCH_AUTHORITY_DRAIN_TIMEOUT_MS = 2_000"),
+  "per-launch authority cleanup is missing its fixed drain bound",
+);
+assert(
+  sandboxManagerSource.includes("launchLifecycleTail"),
+  "per-launch authority preparation and reset are not lifecycle-serialized",
+);
+const endpointRegistrySource = await readFile(
+  new URL("src/sandbox/endpoint-lease-registry.ts", vendorDir),
+  "utf8",
+);
+assert(
+  endpointRegistrySource.includes("claimGeneration(): void"),
+  "per-launch authority is missing generation ownership",
+);
+const socksProxySource = await readFile(
+  new URL("src/sandbox/socks-proxy.ts", vendorDir),
+  "utf8",
+);
+assert(
+  socksProxySource.includes("if (draining)"),
+  "SOCKS proxy teardown does not persistently drain late sockets",
 );
 
 console.log(

@@ -452,6 +452,7 @@ export async function createVendoredSrtSandboxComponents(
 
   const launchAuthorityAvailable =
     launchAuthorityRegistryPath !== undefined &&
+    resolveDestination !== undefined &&
     manager.supportsLaunchAuthority?.() === true &&
     manager.initializeLaunchAuthority !== undefined &&
     manager.prepareLaunchAuthority !== undefined &&
@@ -572,6 +573,16 @@ export async function createVendoredSrtSandboxComponents(
         profile,
         executeOptions,
       );
+      if (stopped) {
+        try {
+          await launch.cleanup();
+        } catch (error) {
+          throw new Error("launch authority cleanup after runtime stop failed", {
+            cause: error,
+          });
+        }
+        throw new Error(stoppedStatus.reason);
+      }
       return {
         descriptor: launch.descriptor,
         async cleanup() {

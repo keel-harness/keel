@@ -1107,9 +1107,12 @@ describe("system tmux console broker", () => {
 
       const openedForDispose = await broker.open(openRequest(sandbox));
       expect(openedForDispose.processIdentity).toMatchObject({ paneId: "%9" });
-      mode = "dispose-fail";
+      mode = "kill-fail";
       await expect(broker.dispose()).resolves.toBeUndefined();
       expect(cleanupCount).toBe(7);
+      mode = "open-ok";
+      await expect(broker.dispose()).resolves.toBeUndefined();
+      expect(cleanupCount).toBe(8);
 
       const brokerForThrowingDispose = createSystemTmuxConsoleBroker({
         tmuxPath: "/usr/local/bin/tmux",
@@ -1135,7 +1138,7 @@ describe("system tmux console broker", () => {
       ).resolves.toMatchObject({ processIdentity: { paneId: "%9" } });
       mode = "dispose-throw";
       await expect(brokerForThrowingDispose.dispose()).resolves.toBeUndefined();
-      expect(cleanupCount).toBe(8);
+      expect(cleanupCount).toBe(9);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

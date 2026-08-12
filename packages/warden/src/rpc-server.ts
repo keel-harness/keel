@@ -2084,6 +2084,8 @@ function auditConsoleDeny(
 
 const CONSOLE_BROKER_FAILURE_MESSAGE =
   "interactive console broker failed; no console result was returned";
+const CONSOLE_RELEASE_FAILURE_MESSAGE =
+  "interactive console release denied because authority cleanup was not confirmed; the process remains Warden-controlled. Close the console or restart keel.";
 
 function redactConsolePrivatePaths(value: string): string {
   return value
@@ -2109,8 +2111,8 @@ function sanitizedConsoleBrokerErrorMessage(error: unknown): string {
   return sanitizeConsoleBrokerDiagnosticText(message);
 }
 
-function consoleBrokerFailureResponse(): RpcResponse {
-  return rpcError(null, -32000, CONSOLE_BROKER_FAILURE_MESSAGE, {
+function consoleBrokerFailureResponse(message: string): RpcResponse {
+  return rpcError(null, -32000, message, {
     code: "INTERACTIVE_CONSOLE_BROKER_FAILED",
     details: { kind: "interactive_console_broker_failed" },
   });
@@ -2124,12 +2126,16 @@ function auditConsoleBrokerFailure(
   error: unknown,
   extra: JsonObjectT = {},
 ): RpcResponse {
+  const guidance =
+    params.toolCall.name === CONSOLE_TOOL_NAMES.release
+      ? CONSOLE_RELEASE_FAILURE_MESSAGE
+      : CONSOLE_BROKER_FAILURE_MESSAGE;
   appendAuditSeq(context, {
     eventType: "tool.deny",
     sessionId: params.sessionId,
     payload: consoleToolPayload(params, policyInput, {
       kind: "interactive_console_broker_failed",
-      guidance: CONSOLE_BROKER_FAILURE_MESSAGE,
+      guidance,
       brokerError: { message: sanitizedConsoleBrokerErrorMessage(error) },
       ...extra,
     }),
@@ -2137,7 +2143,7 @@ function auditConsoleBrokerFailure(
     policy: auditPolicyInfo(context, { ...decision, verdict: "deny" }),
     provenance: auditProvenanceInfo(policyInput),
   });
-  return consoleBrokerFailureResponse();
+  return consoleBrokerFailureResponse(guidance);
 }
 
 function consoleGrantKeyFor(

@@ -39,10 +39,13 @@ const { terminateAndForward } = await import("../../src/sandbox/tls-terminate-pr
 class FakeInnerServer extends EventEmitter {
   closeCalls = 0;
 
-  close(): this {
+  close(callback?: (error?: Error) => void): this {
     this.closeCalls += 1;
+    callback?.();
     return this;
   }
+
+  closeAllConnections(): void {}
 
   listen(_path: string, callback: () => void): this {
     callback();
@@ -76,11 +79,14 @@ class HeldWriteDuplex extends Duplex {
   }
 }
 
-function startProxy(client: Duplex, loopback: PassThrough): FakeInnerServer {
+function startProxy(client: Duplex, loopback: PassThrough): {
+  inner: FakeInnerServer;
+  connection: ReturnType<typeof terminateAndForward>;
+} {
   const inner = new FakeInnerServer();
   transport.inner = inner;
   transport.loopback = loopback;
-  terminateAndForward(
+  const connection = terminateAndForward(
     {} as Parameters<typeof terminateAndForward>[0],
     undefined,
     undefined,
@@ -93,7 +99,7 @@ function startProxy(client: Duplex, loopback: PassThrough): FakeInnerServer {
     },
   );
   loopback.emit("connect");
-  return inner;
+  return { inner, connection };
 }
 
 describe("TLS loopback lifecycle", () => {
@@ -104,7 +110,7 @@ describe("TLS loopback lifecycle", () => {
       "HTTP/1.1 502 Bad Gateway\r\nContent-Length: 11\r\n\r\nBad Gateway",
     );
 
-    const inner = startProxy(client, loopback);
+    const { inner, connection } = startProxy(client, loopback);
 
     const loopbackClosed = new Promise<void>((resolve) => loopback.once("close", resolve));
     const clientFinished = new Promise<void>((resolve) => client.once("finish", resolve));
@@ -118,6 +124,7 @@ describe("TLS loopback lifecycle", () => {
     client.releaseWrite();
     await clientFinished;
     expect(client.writableFinished).toBe(true);
+    await expect(connection.closed).resolves.toBeUndefined();
 
     // The readable side deliberately remains open. Per-connection server
     // resources must not wait for a cooperative peer FIN.
@@ -133,9 +140,10 @@ describe("TLS loopback lifecycle", () => {
     const loopback = new PassThrough();
     const clientClosed = new Promise<void>((resolve) => client.once("close", resolve));
 
-    const inner = startProxy(client, loopback);
+    const { inner, connection } = startProxy(client, loopback);
     loopback.destroy(new Error("loopback failed"));
     await clientClosed;
+    await expect(connection.closed).resolves.toBeUndefined();
 
     expect(client.destroyed).toBe(true);
     expect(inner.closeCalls).toBe(1);

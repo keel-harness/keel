@@ -116,6 +116,7 @@ export interface HttpProxyServerOptions {
 
 type AcceptedSocketState = {
   readonly sockets: Set<Socket>
+  readonly childCleanups: Set<() => Promise<void>>
   draining: boolean
 }
 
@@ -125,7 +126,7 @@ const acceptedSocketsByServer = new WeakMap<Server, AcceptedSocketState>()
  * Destroy every TCP client accepted by this proxy, including CONNECT sockets
  * that Node removes from `server.closeAllConnections()` after upgrade.
  */
-export function destroyTrackedHttpProxyConnections(server: Server): void {
+export async function destroyTrackedHttpProxyConnections(server: Server): Promise<void> {
   const state = acceptedSocketsByServer.get(server)
   if (state === undefined) return
   // Node may have accepted a connection in libuv before close() stopped the
@@ -134,12 +135,18 @@ export function destroyTrackedHttpProxyConnections(server: Server): void {
   state.draining = true
   for (const socket of state.sockets) socket.destroy()
   state.sockets.clear()
+  const results = await Promise.allSettled(
+    [...state.childCleanups].map(cleanup => cleanup()),
+  )
+  const failure = results.find(result => result.status === 'rejected')
+  if (failure?.status === 'rejected') throw failure.reason
 }
 
 export function createHttpProxyServer(options: HttpProxyServerOptions): Server {
   const server = createServer()
   const acceptedSocketState: AcceptedSocketState = {
     sockets: new Set<Socket>(),
+    childCleanups: new Set<() => Promise<void>>(),
     draining: false,
   }
   acceptedSocketsByServer.set(server, acceptedSocketState)
@@ -244,7 +251,7 @@ export function createHttpProxyServer(options: HttpProxyServerOptions): Server {
         const peeked = await peekForClientHello(socket, head)
         if (clientGone) return
         if (peeked.isTLS) {
-          terminateAndForward(
+          const terminated = terminateAndForward(
             activeMitmCA,
             options.filterRequest,
             options.mutateHeaders,
@@ -257,6 +264,11 @@ export function createHttpProxyServer(options: HttpProxyServerOptions): Server {
               resolveDestination: options.resolveDestination,
               signal: dialAbort.signal,
             },
+          )
+          acceptedSocketState.childCleanups.add(terminated.close)
+          void terminated.closed.then(
+            () => acceptedSocketState.childCleanups.delete(terminated.close),
+            () => acceptedSocketState.childCleanups.delete(terminated.close),
           )
           return
         }

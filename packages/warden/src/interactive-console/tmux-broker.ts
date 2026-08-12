@@ -720,7 +720,14 @@ export function createSystemTmuxConsoleBroker(
             // Best-effort cleanup after an open failure. The open failure remains authoritative.
           }
         }
-        if (cleanupError !== undefined) throw throwableError(cleanupError);
+        if (cleanupError !== undefined) {
+          const openError = throwableError(error);
+          const drainError = throwableError(cleanupError);
+          throw new AggregateError(
+            [openError, drainError],
+            `tmux open failed: ${openError.message}; launch authority cleanup failed: ${drainError.message}`,
+          );
+        }
         throw error;
       }
     },
@@ -852,6 +859,7 @@ export function createSystemTmuxConsoleBroker(
       return { closed: true };
     },
     async dispose(): Promise<void> {
+      let processSettlementUnconfirmed = false;
       for (const [handle, state] of handles) {
         try {
           await state.cleanup();
@@ -860,13 +868,19 @@ export function createSystemTmuxConsoleBroker(
           // still kill the controlled process rather than transferring it.
         }
         try {
-          await runTmuxStatus(["kill-session", "-t", `=${state.sessionName}`]);
+          const result = await runTmuxStatus(["kill-session", "-t", `=${state.sessionName}`]);
+          if (result.exitCode !== 0) {
+            processSettlementUnconfirmed = true;
+            continue;
+          }
         } catch {
           // Disposal is best effort; broker close paths own authoritative audit.
+          processSettlementUnconfirmed = true;
+          continue;
         }
         handles.delete(handle);
       }
-      if (releasedSessions.size > 0) {
+      if (releasedSessions.size > 0 || processSettlementUnconfirmed) {
         return;
       }
       try {

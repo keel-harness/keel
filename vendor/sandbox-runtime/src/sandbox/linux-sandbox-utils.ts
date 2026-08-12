@@ -67,6 +67,48 @@ export interface LinuxSandboxParams {
   abortSignal?: AbortSignal
 }
 
+async function stopPartialBridgeProcess(proc: ChildProcess): Promise<void> {
+  if (!proc.pid || proc.exitCode !== null || proc.signalCode !== null) return
+  await new Promise<void>((resolve, reject) => {
+    let killTimer: ReturnType<typeof setTimeout> | undefined
+    let failureTimer: ReturnType<typeof setTimeout> | undefined
+    const settle = (error?: Error) => {
+      if (killTimer !== undefined) clearTimeout(killTimer)
+      if (failureTimer !== undefined) clearTimeout(failureTimer)
+      proc.removeListener('exit', onExit)
+      if (error === undefined) resolve()
+      else reject(error)
+    }
+    const onExit = () => settle()
+    proc.once('exit', onExit)
+    try {
+      process.kill(proc.pid!, 'SIGTERM')
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ESRCH') settle()
+      else settle(error as Error)
+      return
+    }
+    killTimer = setTimeout(() => {
+      try {
+        process.kill(proc.pid!, 'SIGKILL')
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ESRCH') {
+          settle()
+          return
+        }
+        settle(error as Error)
+        return
+      }
+      failureTimer = setTimeout(
+        () => settle(new Error('Linux bridge process settlement was not confirmed')),
+        400,
+      )
+      failureTimer.unref?.()
+    }, 1_500)
+    killTimer.unref?.()
+  })
+}
+
 /** Default max depth for searching dangerous files */
 const DEFAULT_MANDATORY_DENY_SEARCH_DEPTH = 3
 
@@ -509,7 +551,9 @@ export async function initializeLinuxNetworkBridge(
   const socat = socatPath ?? 'socat'
   const httpSocketPath = join(socketRoot, `keel-http-${socketId}.sock`)
   const socksSocketPath = join(socketRoot, `keel-socks-${socketId}.sock`)
+  const spawned: ChildProcess[] = []
 
+  try {
   // Start HTTP bridge
   const httpSocatArgs = [
     `UNIX-LISTEN:${httpSocketPath},fork,reuseaddr`,
@@ -521,6 +565,7 @@ export async function initializeLinuxNetworkBridge(
   const httpBridgeProcess = spawn(socat, httpSocatArgs, {
     stdio: 'ignore',
   })
+  spawned.push(httpBridgeProcess)
 
   // Add error and exit handlers to monitor bridge health. These must be
   // registered before the !pid check: when spawn fails (e.g. socat is
@@ -553,6 +598,7 @@ export async function initializeLinuxNetworkBridge(
   const socksBridgeProcess = spawn(socat, socksSocatArgs, {
     stdio: 'ignore',
   })
+  spawned.push(socksBridgeProcess)
 
   // Add error and exit handlers to monitor bridge health — registered
   // before the !pid check for the same reason as the HTTP bridge above.
@@ -633,6 +679,23 @@ export async function initializeLinuxNetworkBridge(
     socksBridgeProcess,
     httpProxyPort,
     socksProxyPort,
+  }
+  } catch (error) {
+    const settlements = await Promise.allSettled(
+      spawned.map(process => stopPartialBridgeProcess(process)),
+    )
+    for (const socketPath of [httpSocketPath, socksSocketPath]) {
+      try {
+        fs.rmSync(socketPath, { force: true })
+      } catch {
+        // The preparation remains failed closed; the caller's durable endpoint
+        // lease prevents reuse when socket cleanup cannot be confirmed.
+      }
+    }
+    if (settlements.some(result => result.status === 'rejected')) {
+      throw new Error('Linux bridge initialization cleanup failed', { cause: error })
+    }
+    throw error
   }
 }
 

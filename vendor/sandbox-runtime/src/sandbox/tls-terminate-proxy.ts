@@ -105,6 +105,11 @@ export type TerminateTarget = {
   signal: AbortSignal
 }
 
+export interface TerminatedTlsConnection {
+  close(): Promise<void>
+  readonly closed: Promise<void>
+}
+
 /**
  * Terminate the client's TLS on `socket`, parse the decrypted HTTP/1.1
  * stream, and forward each request to `target` over a fresh upstream TLS
@@ -128,7 +133,7 @@ export function terminateAndForward(
   socket: Duplex,
   head: Buffer,
   target: TerminateTarget,
-): void {
+): TerminatedTlsConnection {
   // ALPN advertises HTTP/1.1 only — terminating HTTP/2 would require a frame
   // parser; clients negotiate down. The base secureContext covers clients
   // that don't send SNI; SNICallback covers everyone else.
@@ -166,11 +171,49 @@ export function terminateAndForward(
 
   const sockPath = innerSocketPath()
   let cleanedUp = false
-  const cleanup = () => {
-    if (cleanedUp) return
+  let loop: ReturnType<typeof connect> | undefined
+  let cleanupPromise: Promise<void> | undefined
+  let resolveClosed!: () => void
+  let rejectClosed!: (error: unknown) => void
+  const closed = new Promise<void>((resolve, reject) => {
+    resolveClosed = resolve
+    rejectClosed = reject
+  })
+  const cleanup = (): Promise<void> => {
+    if (cleanupPromise !== undefined) return cleanupPromise
     cleanedUp = true
-    inner.close()
-    unlink(sockPath, () => {})
+    loop?.destroy()
+    socket.unpipe()
+    inner.closeAllConnections?.()
+    cleanupPromise = new Promise<void>((resolve, reject) => {
+      const finish = (error?: Error) => {
+        unlink(sockPath, unlinkError => {
+          if (error !== undefined) reject(error)
+          else if (
+            unlinkError !== null &&
+            (unlinkError as NodeJS.ErrnoException).code !== 'ENOENT'
+          ) {
+            reject(unlinkError)
+          } else resolve()
+        })
+      }
+      try {
+        inner.close(error => {
+          if (
+            error !== undefined &&
+            (error as NodeJS.ErrnoException).code !== 'ERR_SERVER_NOT_RUNNING'
+          ) {
+            finish(error)
+          } else finish()
+        })
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ERR_SERVER_NOT_RUNNING') {
+          finish()
+        } else finish(error as Error)
+      }
+    })
+    void cleanupPromise.then(resolveClosed, rejectClosed)
+    return cleanupPromise
   }
   inner.on('error', err => {
     logForDebugging(
@@ -178,16 +221,20 @@ export function terminateAndForward(
       { level: 'error' },
     )
     socket.destroy()
-    cleanup()
+    void cleanup()
   })
+  socket.on('error', () => loop?.destroy())
+  socket.once('finish', () => void cleanup())
+  socket.once('close', () => void cleanup())
   inner.listen(sockPath, () => {
-    const loop = connect({ path: sockPath })
+    if (cleanedUp) return
+    loop = connect({ path: sockPath })
     loop.on('error', err => {
       logForDebugging(`[tls-terminate] inner loopback failed: ${err.message}`, {
         level: 'error',
       })
       socket.destroy()
-      cleanup()
+      void cleanup()
     })
     loop.once('connect', () => {
       // The caller wrote `200 Connection Established` before sniffing for the
@@ -196,20 +243,12 @@ export function terminateAndForward(
       socket.pipe(loop)
       loop.pipe(socket)
     })
-    socket.on('error', () => loop.destroy())
-    // A peer can keep its readable half open after our response has fully
-    // flushed. Release the per-connection listener as soon as the writable
-    // side finishes instead of waiting indefinitely for peer FIN.
-    socket.once('finish', cleanup)
-    socket.once('close', () => {
-      loop.destroy()
-      cleanup()
-    })
     // `loop.pipe(socket)` ends the client only after queued response bytes
     // flush. Loopback errors still destroy it immediately in the handler above;
     // a normal close must not truncate that final write.
   })
   inner.unref()
+  return { close: cleanup, closed }
 }
 
 async function forwardUpstream(

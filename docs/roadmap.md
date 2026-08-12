@@ -34,7 +34,9 @@ The parts of keel you can rely on now:
   vetted addresses to the final dial. The claim is backend-specific.
 - **Bounded typed Git push in current source** — trusted interactive macOS/Linux sessions can use
   Git 2.x (2.39 or newer) and `git.push` to create or fast-forward one exact non-default feature ref
-  to one approved full commit OID over canonical HTTPS and `srt:vendored`, with one once-only human approval. Raw
+  to one approved full commit OID over canonical HTTPS and `srt:vendored`, with
+  `srt-launch-authority/v1` binding unique authenticated proxy endpoints plus one immutable
+  configuration/credential snapshot to the launch, and one once-only human approval. Raw
   `process.run git push`, force, deletion, tags, default-branch push, SSH, redirects, project
   credential helpers, reusable grants, and automatic retry remain unavailable. Published
   `keel-harness@0.1.1` predates this capability.
@@ -44,6 +46,8 @@ The parts of keel you can rely on now:
   verifies the exact result. GitHub Enterprise, forks/cross-repository heads, generic forge APIs,
   `gh`, combined push-and-PR approval, merge/auto-merge, labels, reviews, releases, deployments, and
   automatic retry remain unavailable. Published `keel-harness@0.1.1` predates this capability.
+  V1 permanently excludes retired endpoints and fails closed if its finite proxy-port space is
+  exhausted; safe registry migration or endpoint reuse remains future work.
 
 See the [getting-started guide](guide/getting-started.md) for how to use these.
 

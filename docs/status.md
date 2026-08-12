@@ -52,7 +52,9 @@ evidence proves the governed product path, not that arbitrary models will choose
 `git.push` is deliberately narrower than a generic Git command. It binds one canonical HTTPS
 repository, one exact non-default `refs/heads/*` destination, and one full commit OID; runs supported
 Git 2.x (2.39 or newer) through `srt:vendored` verified TLS and the active address guard; and uses only operator
-system/global credential-helper authority. Force, deletion, tags, default-branch push, SSH,
+system/global credential-helper authority. It is advertised only with `srt-launch-authority/v1`:
+unique authenticated proxy endpoints and an immutable configuration/credential snapshot are bound
+to that launch, then revoked and drained during cleanup. Force, deletion, tags, default-branch push, SSH,
 redirects, project helpers, reusable grants, and automatic retry are unavailable. Raw
 `process.run git push` remains terminal. Indeterminate attempts require a restart followed by
 independent remote-ref and audit inspection before a deliberate fresh request.
@@ -70,6 +72,10 @@ The PR path is same-repository and GitHub.com-only. It does not support GitHub E
 cross-repository heads, generic forge APIs, `gh`, combined push-and-PR approval, merge/auto-merge,
 labels, assignees, reviewers or reviews, comments, releases, deployments, or branch mutation.
 Repository permissions and protected-branch behavior remain server-enforced.
+
+V1 never reuses a retired launch endpoint because detached descendants may still hold an old sandbox
+profile. The durable registry therefore has a finite proxy-port space; exhaustion withholds the
+publication capabilities and fails closed pending a future registry migration design.
 
 This describes current source, not the published `keel-harness@0.1.1` bytes, which predates both
 typed publication capabilities. Published-carrier proof remains release-gated.

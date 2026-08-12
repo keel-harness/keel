@@ -585,6 +585,7 @@ describe("vendored srt runtime loader", () => {
         }),
       },
       launchAuthorityRegistryPath: registryPath,
+      resolveDestination: async () => [{ address: "192.0.2.1", family: 4 }],
     });
 
     expect(components.sandbox.status().features).toContain("srt-launch-authority/v1");
@@ -617,6 +618,38 @@ describe("vendored srt runtime loader", () => {
     ]);
   });
 
+  it("withholds launch authority when pinned destination resolution is absent", async () => {
+    let launchInitializationCalls = 0;
+    let processInitializationCalls = 0;
+    const manager = {
+      isSupportedPlatform: () => true,
+      checkDependencies: () => ({ errors: [], warnings: [] }),
+      supportsLaunchAuthority: () => true,
+      initializeLaunchAuthority: () => {
+        launchInitializationCalls += 1;
+      },
+      prepareLaunchAuthority: async () => {
+        throw new Error("must not prepare launch authority");
+      },
+      initialize: async () => {
+        processInitializationCalls += 1;
+      },
+      updateConfig: () => {},
+      wrapWithSandboxArgv: async () => ({ argv: ["/usr/bin/env", "true"], env: {} }),
+      reset: async () => {},
+    } as unknown as VendoredSrtManager;
+
+    const components = await createVendoredSrtSandboxComponents({
+      importRuntime: async () => ({ SandboxManager: manager }),
+      hostDependencyErrors: () => [],
+      launchAuthorityRegistryPath: "/warden/keel-home/srt-endpoint-leases.json",
+    });
+
+    expect(components.sandbox.status().features ?? []).not.toContain("srt-launch-authority/v1");
+    expect(launchInitializationCalls).toBe(0);
+    expect(processInitializationCalls).toBe(1);
+  });
+
   it("quarantines the runtime and withholds capabilities when launch cleanup fails", async () => {
     let resetCalls = 0;
     const manager = {
@@ -645,6 +678,7 @@ describe("vendored srt runtime loader", () => {
         run: async () => ({ exitCode: 0, signal: null, stdout: "", stderr: "" }),
       },
       launchAuthorityRegistryPath: "/warden/keel-home/srt-endpoint-leases.json",
+      resolveDestination: async () => [{ address: "192.0.2.1", family: 4 }],
     });
 
     await expect(components.sandbox.execute({ command: "true" }, {})).rejects.toThrow(
@@ -684,6 +718,7 @@ describe("vendored srt runtime loader", () => {
       importRuntime: async () => ({ SandboxManager: manager }),
       hostDependencyErrors: () => [],
       launchAuthorityRegistryPath: "/warden/keel-home/srt-endpoint-leases.json",
+      resolveDestination: async () => [{ address: "192.0.2.1", family: 4 }],
     });
 
     expect(components.sandbox.status()).toMatchObject({
@@ -718,6 +753,7 @@ describe("vendored srt runtime loader", () => {
       importRuntime: async () => ({ SandboxManager: manager }),
       hostDependencyErrors: () => [],
       launchAuthorityRegistryPath: "/warden/keel-home/srt-endpoint-leases.json",
+      resolveDestination: async () => [{ address: "192.0.2.1", family: 4 }],
     });
 
     await expect(components.sandbox.execute({ command: "true" }, {})).rejects.toThrow(
@@ -728,6 +764,54 @@ describe("vendored srt runtime loader", () => {
       available: false,
       enforcementTier: "none",
     });
+  });
+
+  it("revokes a launch that finishes preparing after shutdown begins", async () => {
+    let finishPreparation!: (launch: {
+      argv: string[];
+      env: NodeJS.ProcessEnv;
+      cleanup(): Promise<void>;
+    }) => void;
+    const preparation = new Promise<{
+      argv: string[];
+      env: NodeJS.ProcessEnv;
+      cleanup(): Promise<void>;
+    }>((resolve) => {
+      finishPreparation = resolve;
+    });
+    let cleanupCalls = 0;
+    const manager = {
+      isSupportedPlatform: () => true,
+      checkDependencies: () => ({ errors: [], warnings: [] }),
+      supportsLaunchAuthority: () => true,
+      initializeLaunchAuthority: () => {},
+      prepareLaunchAuthority: async () => preparation,
+      initialize: async () => {},
+      updateConfig: () => {},
+      wrapWithSandboxArgv: async () => ({ argv: ["/usr/bin/env", "true"], env: {} }),
+      reset: async () => {},
+    } as unknown as VendoredSrtManager;
+    const components = await createVendoredSrtSandboxComponents({
+      importRuntime: async () => ({ SandboxManager: manager }),
+      hostDependencyErrors: () => [],
+      launchAuthorityRegistryPath: "/warden/keel-home/srt-endpoint-leases.json",
+      resolveDestination: async () => [{ address: "192.0.2.1", family: 4 }],
+    });
+
+    const preparing = components.launchPreparer!.prepareLaunch({ command: "true" }, {});
+    await Promise.resolve();
+    const shutdown = components.shutdown();
+    finishPreparation({
+      argv: ["/usr/bin/env", "true"],
+      env: {},
+      cleanup: async () => {
+        cleanupCalls += 1;
+      },
+    });
+
+    await shutdown;
+    await expect(preparing).rejects.toThrow("sandbox runtime is stopped");
+    expect(cleanupCalls).toBe(1);
   });
 
   it("preserves credential proxy config when completing vendored per-call config", async () => {

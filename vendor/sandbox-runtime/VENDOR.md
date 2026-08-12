@@ -52,11 +52,17 @@ not source needed for Keel's reviewed adapter path:
 - `patches/reemit-macos-glob-read-denies.patch`
 - `patches/flush-tls-loopback-response.patch`
 - `patches/runtime-aware-http-proxy-close.patch`
+- `patches/per-launch-srt-authority.patch`
 - `test/sandbox/linux-proxy-readiness.test.ts`
 - `test/sandbox/destination-dial.test.ts`
 - `test/sandbox/destination-guard-proxy.test.ts`
 - `test/sandbox/http-server-lifecycle.test.ts`
 - `test/sandbox/tls-loopback-lifecycle.test.ts`
+- `test/sandbox/endpoint-lease-registry.test.ts`
+- `test/sandbox/endpoint-lease-child.ts`
+- `test/sandbox/launch-authority-lifecycle.test.ts`
+- `test/sandbox/launch-authority.test.ts`
+- `test/sandbox/socks-server-lifecycle.test.ts`
 
 ## Local Patches
 
@@ -169,6 +175,32 @@ not source needed for Keel's reviewed adapter path:
   stopping acceptance. Deterministic tests preserve both orderings, the Node and Bun interleavings,
   and a real Node `CONNECT` upgrade.
 - Upstreamable status: minimal and upstreamable. Recorded 2026-08-11; not yet submitted upstream.
+
+### Bind proxy authority to one governed launch
+
+- Patch: `patches/per-launch-srt-authority.patch`
+- Applied files: `src/sandbox/endpoint-lease-registry.ts`, `src/sandbox/http-proxy.ts`,
+  `src/sandbox/linux-sandbox-utils.ts`, `src/sandbox/sandbox-manager.ts`,
+  `src/sandbox/socks-proxy.ts`, and `src/sandbox/tls-terminate-proxy.ts`.
+- Reason: process-scoped proxy tokens, mutable proxy configuration, and shared credential helpers let
+  one surviving governed profile retain or borrow authority prepared for a later launch. ADR-0091
+  requires a unique token and immutable policy/credential snapshot per launch, with authority absent
+  whenever that lifecycle cannot be structurally established.
+- Security impact: each launch gets exclusive authenticated HTTP/SOCKS endpoints, a pinned resolver,
+  launch-local credential/TLS state, and a durable endpoint lease outside governed profiles. Cleanup
+  revokes authentication first, aborts pending resolution, persistently drains late client accepts,
+  closes tracked TLS children and Linux bridges, and fails closed after a fixed two-second bound.
+  Separate owner-only generation markers distinguish live peer Wardens from crash residue; the public
+  registry contains no token, credential, request, or process detail. Preparation and reset share one
+  lifecycle queue, and weaker/external/parent-proxy routes cannot establish this capability.
+- Compatibility: consumers that do not request Keel's launch lifecycle keep the upstream process-level
+  path. Keel advertises `srt-launch-authority/v1` only with this exact API, durable registry, pinned
+  destination resolver, async cleanup, and successful initialization. Windows does not advertise it.
+- Evidence: deterministic registry, deadline, HTTP/SOCKS late-accept, TLS-child, loader-quarantine, and
+  lifecycle-race tests plus real macOS Seatbelt and Linux bubblewrap product suites. The real launch
+  probe includes positive own-authority controls and adversarial exact peer-token HTTP/SOCKS attempts.
+- Upstreamable status: Keel-specific lifecycle extension over the pinned permissive upstream. Recorded
+  2026-08-11; not yet submitted upstream.
 
 ## License And Notice
 

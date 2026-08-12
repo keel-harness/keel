@@ -1,4 +1,5 @@
 import { chmodSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { spawn } from 'node:child_process'
 import { once } from 'node:events'
 import { createServer as createHttpServer } from 'node:http'
 import { createServer, connect } from 'node:net'
@@ -28,6 +29,17 @@ function endpointFromArgv(argv: readonly string[]): { token: string; port: numbe
     argv.join(' ').replaceAll('\\', ''),
   )
   if (!match) throw new Error('prepared launch did not contain an authenticated HTTP proxy')
+  return { token: match[1]!, port: Number(match[2]!) }
+}
+
+function socksEndpointFromArgv(argv: readonly string[]): {
+  token: string
+  port: number
+} {
+  const match = /socks5h:\/\/srt:([0-9a-f]{64})@localhost:(\d+)/u.exec(
+    argv.join(' ').replaceAll('\\', ''),
+  )
+  if (!match) throw new Error('prepared launch did not contain an authenticated SOCKS proxy')
   return { token: match[1]!, port: Number(match[2]!) }
 }
 
@@ -138,6 +150,40 @@ function openTunnelThroughProxy(
   })
 }
 
+function runPreparedLaunch(launch: {
+  argv: readonly string[]
+  env: NodeJS.ProcessEnv
+}): Promise<{ exitCode: number | null; stdout: string; stderr: string }> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(launch.argv[0]!, launch.argv.slice(1), {
+      env: launch.env,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+    let stdout = ''
+    let stderr = ''
+    child.stdout.setEncoding('utf8')
+    child.stderr.setEncoding('utf8')
+    child.stdout.on('data', chunk => {
+      stdout += chunk
+    })
+    child.stderr.on('data', chunk => {
+      stderr += chunk
+    })
+    child.once('error', reject)
+    let timedOut = false
+    const timeout = setTimeout(() => {
+      timedOut = true
+      child.kill('SIGKILL')
+    }, 5_000)
+    timeout.unref?.()
+    child.once('close', exitCode => {
+      clearTimeout(timeout)
+      if (timedOut) reject(new Error('prepared launch exceeded its host deadline'))
+      else resolve({ exitCode, stdout, stderr })
+    })
+  })
+}
+
 suite('immutable per-launch SRT authority', () => {
   it('isolates concurrent config and token authority, then revokes only the cleaned launch', async () => {
     const targetServer = createHttpServer((request, response) => {
@@ -152,6 +198,7 @@ suite('immutable per-launch SRT authority', () => {
 
     const manager = SandboxManager as typeof SandboxManager & {
       supportsLaunchAuthority(): boolean
+      initializeLaunchAuthority(endpointRegistryPath: string): void
       prepareLaunchAuthority(
         config: SandboxRuntimeConfig,
         options: {
@@ -163,6 +210,7 @@ suite('immutable per-launch SRT authority', () => {
     }
     expect(manager.supportsLaunchAuthority()).toBe(true)
     const registryPath = join(privateRoot(), 'leases.json')
+    manager.initializeLaunchAuthority(registryPath)
     const [first, second] = await Promise.all([
       manager.prepareLaunchAuthority(config('one.invalid', address.port, 'secret-one'), {
         command: 'true',
@@ -179,7 +227,10 @@ suite('immutable per-launch SRT authority', () => {
     try {
       const firstProxy = endpointFromArgv(first.argv)
       const secondProxy = endpointFromArgv(second.argv)
+      const firstSocks = socksEndpointFromArgv(first.argv)
+      const secondSocks = socksEndpointFromArgv(second.argv)
       expect(firstProxy).not.toEqual(secondProxy)
+      expect(firstSocks).not.toEqual(secondSocks)
       expect(
         await connectThroughProxy(firstProxy, { host: 'one.invalid', port: address.port }),
       ).toBe(200)
@@ -207,6 +258,18 @@ suite('immutable per-launch SRT authority', () => {
       ).toBe(403)
       expect(
         await connectThroughProxy(firstProxy, {
+          host: 'localhost.',
+          port: secondProxy.port,
+        }),
+      ).toBe(403)
+      expect(
+        await connectThroughProxy(firstProxy, {
+          host: '[::ffff:127.0.0.1]',
+          port: secondProxy.port,
+        }),
+      ).not.toBe(200)
+      expect(
+        await connectThroughProxy(firstProxy, {
           host: 'one.invalid',
           port: secondProxy.port,
         }),
@@ -223,6 +286,40 @@ suite('immutable per-launch SRT authority', () => {
           port: address.port,
         }),
       ).toBe('Bearer secret-two')
+
+      const peerTokenAttack = await manager.prepareLaunchAuthority(
+        config('one.invalid', address.port),
+        {
+          command:
+            `own_http="$(curl --noproxy '' --proxy "$HTTP_PROXY" ` +
+            `--connect-timeout 1 --max-time 2 --fail --silent --show-error ` +
+            `http://one.invalid:${String(address.port)}/)" || exit 10; ` +
+            `own_socks="$(curl --noproxy '' --proxy "$ALL_PROXY" ` +
+            `--connect-timeout 1 --max-time 2 --fail --silent --show-error ` +
+            `http://one.invalid:${String(address.port)}/)" || exit 11; ` +
+            `printf 'own-http=%s\\nown-socks=%s\\n' "$own_http" "$own_socks"; ` +
+            `if curl --noproxy '' --proxy ` +
+            `http://srt:${firstProxy.token}@localhost:${String(firstProxy.port)} ` +
+            `--connect-timeout 1 --max-time 2 --fail --silent --output /dev/null ` +
+            `http://one.invalid:${String(address.port)}/; then exit 20; fi; ` +
+            `if curl --noproxy '' --proxy ` +
+            `socks5h://srt:${firstSocks.token}@localhost:${String(firstSocks.port)} ` +
+            `--connect-timeout 1 --max-time 2 --fail --silent --output /dev/null ` +
+            `http://one.invalid:${String(address.port)}/; then exit 21; fi`,
+          binShell: '/bin/bash',
+          endpointRegistryPath: registryPath,
+        },
+      )
+      try {
+        const attackResult = await runPreparedLaunch(peerTokenAttack)
+        expect(attackResult.exitCode).toBe(0)
+        expect(attackResult.stdout).toContain('own-http=none')
+        expect(attackResult.stdout).toContain('own-socks=none')
+        expect(attackResult.stdout).not.toContain('secret-one')
+        expect(attackResult.stderr).not.toContain('secret-one')
+      } finally {
+        await peerTokenAttack.cleanup()
+      }
 
       const liveTunnel = await openTunnelThroughProxy(firstProxy, {
         host: 'one.invalid',
@@ -272,5 +369,58 @@ suite('immutable per-launch SRT authority', () => {
       await second.cleanup()
       await new Promise<void>(resolve => targetServer.close(() => resolve()))
     }
+  })
+
+  it('aborts pending launch resolution before the bounded listener drain', async () => {
+    let resolverStarted!: () => void
+    const started = new Promise<void>(resolve => {
+      resolverStarted = resolve
+    })
+    let resolverAborted = false
+    const runtimeConfig = config('stall.invalid', 443)
+    runtimeConfig.network.resolveDestination = async (_hostname, _port, signal) => {
+      resolverStarted()
+      await new Promise<void>((_resolve, reject) => {
+        signal.addEventListener(
+          'abort',
+          () => {
+            resolverAborted = true
+            reject(new Error('resolver aborted'))
+          },
+          { once: true },
+        )
+      })
+      return []
+    }
+    const manager = SandboxManager as typeof SandboxManager & {
+      initializeLaunchAuthority(endpointRegistryPath: string): void
+      prepareLaunchAuthority(
+        config: SandboxRuntimeConfig,
+        options: {
+          command: string
+          binShell?: string
+          endpointRegistryPath: string
+        },
+      ): Promise<{ argv: string[]; env: NodeJS.ProcessEnv; cleanup(): Promise<void> }>
+    }
+    const registryPath = join(privateRoot(), 'leases.json')
+    manager.initializeLaunchAuthority(registryPath)
+    const launch = await manager.prepareLaunchAuthority(runtimeConfig, {
+      command: 'true',
+      binShell: '/bin/bash',
+      endpointRegistryPath: registryPath,
+    })
+    const request = requestThroughProxy(endpointFromArgv(launch.argv), {
+      host: 'stall.invalid',
+      port: 443,
+    })
+    await started
+
+    const cleanupStarted = Date.now()
+    await launch.cleanup()
+
+    expect(resolverAborted).toBe(true)
+    expect(Date.now() - cleanupStarted).toBeLessThan(2_000)
+    await expect(request).resolves.toBe('')
   })
 })

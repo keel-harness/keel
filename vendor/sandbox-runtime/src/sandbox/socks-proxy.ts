@@ -195,7 +195,12 @@ export function createSocksProxyServer(
   const internalServer = (socksServer as unknown as { server?: NetServer })
     ?.server
   const openSockets = new Set<Socket>()
+  let draining = false
   internalServer?.on('connection', (socket: Socket) => {
+    if (draining) {
+      socket.destroy()
+      return
+    }
     openSockets.add(socket)
     socket.once('close', () => openSockets.delete(socket))
   })
@@ -238,6 +243,7 @@ export function createSocksProxyServer(
     },
     async close(): Promise<void> {
       return new Promise((resolve, reject) => {
+        draining = true
         socksServer.close(error => {
           if (error) {
             // Only reject for actual errors, not for "already closed" states

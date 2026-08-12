@@ -41,19 +41,27 @@ interface HttpsFixture {
   close(): Promise<void>;
 }
 
-function listen(server: Server): Promise<number> {
-  return new Promise((resolveListen, reject) => {
-    server.once("error", reject);
-    server.listen(0, "localhost", () => {
-      server.removeListener("error", reject);
-      const address = server.address();
-      if (address === null || typeof address === "string") {
-        reject(new Error("expected a TCP fixture address"));
-        return;
-      }
-      resolveListen(address.port);
-    });
-  });
+async function listen(server: Server): Promise<number> {
+  // Launch-proxy leases intentionally make 40000-65535 permanently unavailable
+  // to later governed profiles. Keep the localhost-only credential fixture out
+  // of that authority range so the test cannot accidentally request a retired
+  // proxy endpoint that the launch resolver must deny.
+  for (let port = 20_000; port < 40_000; port += 1) {
+    try {
+      await new Promise<void>((resolveListen, reject) => {
+        const onError = (error: NodeJS.ErrnoException) => reject(error);
+        server.once("error", onError);
+        server.listen(port, "127.0.0.1", () => {
+          server.removeListener("error", onError);
+          resolveListen();
+        });
+      });
+      return port;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EADDRINUSE") throw error;
+    }
+  }
+  throw new Error("no credential fixture port is available outside the launch range");
 }
 
 function closeServer(server: Server): Promise<void> {
@@ -146,6 +154,7 @@ suite("real SRT verified-HTTPS credential injection (opt-in)", () => {
     const components = await createVendoredSrtSandboxComponents({
       credentialTlsTermination: true,
       launchAuthorityRegistryPath: join(authorityRoot, "endpoint-leases.json"),
+      resolveDestination: async () => [{ address: "127.0.0.1", family: 4 }],
     });
     shutdownSandbox = components.shutdown;
     const status = components.sandbox.status();

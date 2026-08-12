@@ -207,10 +207,12 @@ The registry entry captures one immutable behavioral snapshot of the launch's:
 Function callbacks may remain stable Warden-owned references where JavaScript cannot clone them, but
 no request-path callback may consult mutable global launch configuration. `updateConfig` establishes
 only the complete template used to prepare a future launch. Template update, immutable snapshot
-capture, endpoint allocation, durable lease mutation, registry insertion, listener publication, and
+capture, endpoint selection, durable lease mutation, authentication activation, and
 cleanup transition are serialized per runtime. Preparation captures one complete template generation
-atomically; it cannot combine callbacks or values from different updates or expose a listener before
-its snapshot and durable lease exist. `updateConfig` cannot widen, narrow, replace, or revoke an
+atomically; it cannot combine callbacks or values from different updates. The runtime may exclusively
+bind its selected sockets with authentication/readiness disabled while it durably records their lease,
+but it cannot authenticate a request, install a profile-bearing child, or expose credential authority
+before its snapshot and durable lease exist. `updateConfig` cannot widen, narrow, replace, or revoke an
 authority already registered.
 
 HTTP proxy authentication requires exactly the `srt` username and that endpoint's launch token.
@@ -247,8 +249,9 @@ inherited by descendants and can still admit its old exact proxy port after the 
 pane exits. While holding the owner-only registry lock and its selected sockets, and before wrapping
 or launching any profile-bearing child, the Warden atomically and durably writes an active endpoint
 lease for the allocated TCP ports and bridge paths to a host-user SRT endpoint registry outside every
-governed filesystem profile. Only after that write is fsynced may the authority become reachable or
-the sandbox profile be installed. The registry contains no token, credential, request, process
+governed filesystem profile. Only after that write is fsynced may authentication become active or the
+sandbox profile be installed; a held listener before that transition rejects every request without
+consulting or exposing its snapshot. The registry contains no token, credential, request, process
 detail, or audit data and is not a public/session/audit schema.
 
 On startup, every active lease left by an unclean prior generation is atomically converted to a

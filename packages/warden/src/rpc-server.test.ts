@@ -19994,6 +19994,72 @@ printf '%s\\n' '${match}'
     }
   });
 
+  it("explains failed release as retained Warden control with an exact recovery action", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "keel-rpc-console-release-failure-"));
+    try {
+      const consoleState = createConsoleRuntimeState();
+      const handle = "con_01ARZ3NDEKTSV4RRFFQ69G5FBF";
+      const releaseTarget: ConsolePolicyTargetProfile = {
+        ...QEMU_CONSOLE_TARGET,
+        targetId: "qemu-release-failure",
+        allowRelease: true,
+      };
+      consoleState.handles.set(handle, {
+        handle,
+        targetId: releaseTarget.targetId,
+        targetDigest: releaseTarget.targetDigest,
+        sessionId: "ses_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        profile: releaseTarget,
+        openedAt: "2026-07-10T18:00:00.000Z",
+        processIdentity: { kind: "fake-console", id: handle },
+        lifecycle: createConsoleLifecycleState({
+          profile: releaseTarget,
+          nowMs: Date.parse("2026-07-10T18:00:00.000Z"),
+          processIdentity: { kind: "fake-console", id: handle },
+        }),
+        nextSeq: 0,
+      });
+      const broker: ConsoleBrokerPort = {
+        ...fakeConsoleBroker([]),
+        release: async () => {
+          throw new Error("authority drain not confirmed");
+        },
+      };
+
+      const raw = JsonRpcErrorResponse.parse(
+        await handleRpcLine(
+          JSON.stringify(
+            consoleExecuteFrame("console-release-failure", CONSOLE_TOOL_NAMES.release, {
+              handle,
+              reason: "external-grader",
+            }),
+          ),
+          {
+            workspaceTrusted: true,
+            sandbox: sandbox({
+              available: true,
+              backend: "fake-sandbox",
+              enforcementTier: "sandbox:fake",
+            }),
+            policy: ALLOW_POLICY,
+            auditWriter: auditWriter(join(dir, "audit.jsonl")),
+            interactiveConsoleState: consoleState,
+            interactiveConsoleBroker: broker,
+            interactiveConsoleTargets: { [releaseTarget.targetId]: releaseTarget },
+          },
+        ),
+      );
+
+      expect(raw.error.data?.code).toBe("INTERACTIVE_CONSOLE_BROKER_FAILED");
+      expect(raw.error.message).toBe(
+        "interactive console release denied because authority cleanup was not confirmed; the process remains Warden-controlled. Close the console or restart keel.",
+      );
+      expect(consoleState.handles.has(handle)).toBe(true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("allows reviewed opened-handle console grants to release target-approved handles", async () => {
     const dir = mkdtempSync(join(tmpdir(), "keel-rpc-console-release-grant-"));
     const auditPath = join(dir, "audit.jsonl");
