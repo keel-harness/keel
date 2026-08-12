@@ -6,12 +6,28 @@ const race = vi.hoisted(() => ({
   armedPath: undefined as string | undefined,
   replacement: undefined as string | undefined,
   fired: false,
+  releaseOnCreateCollisionPath: undefined as string | undefined,
+  createCollisionFired: false,
 }))
 
 vi.mock('node:fs', async importOriginal => {
   const actual = await importOriginal<typeof import('node:fs')>()
   return {
     ...actual,
+    openSync(path: string, flags: number, mode?: number) {
+      try {
+        return actual.openSync(path, flags, mode)
+      } catch (error) {
+        if (
+          (error as NodeJS.ErrnoException).code === 'EEXIST' &&
+          race.releaseOnCreateCollisionPath === path
+        ) {
+          race.createCollisionFired = true
+          actual.unlinkSync(path)
+        }
+        throw error
+      }
+    },
     linkSync(existingPath: string, newPath: string) {
       actual.linkSync(existingPath, newPath)
       if (race.armedPath === existingPath && race.replacement !== undefined) {
@@ -37,10 +53,39 @@ afterEach(() => {
   race.armedPath = undefined
   race.replacement = undefined
   race.fired = false
+  race.releaseOnCreateCollisionPath = undefined
+  race.createCollisionFired = false
   for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true, force: true })
 })
 
 describe('endpoint lease owner reclamation identity', () => {
+  it('retries when the observed registry lock disappears before owner inspection', () => {
+    const root = fs.mkdtempSync(join(tmpdir(), 'keel-srt-owner-release-race-'))
+    fs.chmodSync(root, 0o700)
+    roots.push(root)
+    const registryPath = join(root, 'leases.json')
+    const lockPath = `${registryPath}.lock`
+    fs.writeFileSync(
+      lockPath,
+      `${JSON.stringify({
+        pid: process.pid,
+        generationId: 'generation-holder',
+        nonce: 'a'.repeat(48),
+      })}\n`,
+      { mode: 0o600 },
+    )
+    race.releaseOnCreateCollisionPath = lockPath
+
+    const registry = new EndpointLeaseRegistry(registryPath, {
+      generationId: 'generation-waiter',
+    })
+    registry.claimGeneration()
+
+    expect(() => registry.recoverPriorGenerations()).not.toThrow()
+    expect(race.createCollisionFired).toBe(true)
+    expect(registry.releaseGeneration()).toBe(true)
+  })
+
   it('does not unlink a newer live owner that replaces the dead inode mid-reclaim', () => {
     const root = fs.mkdtempSync(join(tmpdir(), 'keel-srt-owner-aba-'))
     fs.chmodSync(root, 0o700)
