@@ -1,10 +1,10 @@
 /** User-facing kernel strings — microcopy is a product surface (charter §6.4). */
 
-/** Escalating loop-breaker guidance (F7 — **OPT-IN**, default off). The advisory loop-detection rail
+/** Escalating loop-breaker guidance (F7 — **OPT-IN**, default off). The advisory loop-detection safeguard
  *  injects a nudge each time it trips; by default it repeats the flat L0 text (`loopGuidance`). When the
- *  caller opts in (`escalateGuidance` / `KEEL_LOOP_ESCALATION`) these levels push progressively harder —
+ *  caller explicitly opts in (`escalateGuidance` / `KEEL_LOOP_ESCALATION`) these levels push progressively harder —
  *  reconsider → rewrite the plan → switch strategy or honestly stop — while the rail stays NON-TERMINAL
- *  (Epic 1.13: advisory never halts; only the wording escalates). Default is flat because the bounded fix-validation run run
+ *  (Epic 1.13: advisory never halts; only the wording escalates). Default is flat because the bounded fix-validation run
  *  measured the escalation net-negative (it regressed `tune-mjcf` + `schemelike`); the levels are kept so
  *  the behavior can be re-ablated. L0 is byte-identical to the flat single-trip guidance. */
 const LOOP_GUIDANCE_L0 =
