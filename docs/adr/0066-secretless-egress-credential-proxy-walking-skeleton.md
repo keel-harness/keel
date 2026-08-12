@@ -1,5 +1,14 @@
 # ADR-0066 - Secretless egress credential proxy
 
+- **Amended (2026-08-11, per-launch proxy authority):** Decision §7's original "latest per-call
+  runtime config" behavior is superseded for Keel's vendored-SRT product path by ADR-0091's accepted
+  per-launch authority amendment. `updateConfig` may establish a template for a future launch, but it
+  cannot change the network, request-filter, resolver, TLS, placeholder, or credential authority of
+  an already prepared launch. Each launch receives OS-confined launch-exclusive proxy endpoints, a
+  defense-in-depth token, and one unique authenticated authority; cleanup revokes that authority and
+  its connections. This accepted enforcement design narrows authority and does not weaken the
+  host-bound substitution or TLS requirements below, but it remains unproven until ADR-0091's
+  executable gates pass and does not promote the current public claim status.
 - **Amended (2026-08-01, security):** This ADR's Decision §1 read the trusted project config
   `.keel/credential-proxy.json` and honored `{env|file|command}` sources from it. Because the model's
   governed tools can author that workspace file inside a trusted workspace, its `command` source ran
@@ -67,10 +76,11 @@ For Epic 2.10, keel implements a warden-owned credential-proxy rule path:
 6. The resolved secret is passed only as a host-side SRT per-call runtime credential
    (`credentials.authorizationHeaders` / `credentials.authorizationPlaceholders`). It is
    stripped from child spawn descriptors and runner options.
-7. Vendored SRT installs stable dynamic request filtering and mutation that read the
-   latest per-call runtime config. Swap-on-access injects `Authorization:
-   <scheme> <secret>` only when the destination host matches a configured host.
-   Placeholder mode swaps only a known placeholder bound to that host and scheme.
+7. Vendored SRT installs request filtering and mutation bound to the immutable per-launch authority
+   defined by ADR-0091. Swap-on-access injects `Authorization: <scheme> <secret>` only when the
+   destination host matches that launch's configured host. Placeholder mode swaps only a known
+   placeholder bound to that launch, host, and scheme. A later call's runtime configuration cannot
+   widen or replace an earlier launch's authority.
 8. Wrong-host and unknown `keelcred_*` placeholder values receive 403 before upstream
    dial. Existing non-placeholder `Authorization` headers are forwarded untouched.
 9. TLS is still the default requirement for credential injection. Plaintext injection is

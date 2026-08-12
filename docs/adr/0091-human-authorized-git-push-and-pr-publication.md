@@ -1,5 +1,16 @@
 # ADR-0091 — Human-authorized Git push and pull-request publication
 
+- **Amended (2026-08-11, per-launch SRT authority):** Aggregate Slice 6 adversarial review found
+  that a process-scoped proxy token combined with live global runtime-config replacement could let
+  an earlier surviving sandbox launch authenticate against a later launch's network or credential
+  configuration. The maintainer authorized the narrow structural repair: every launch receives
+  OS-confined exclusive proxy endpoints plus a unique defense-in-depth token, both bound to an
+  immutable authority snapshot; cleanup revokes the authority, drops credential state, and drains
+  associated connections; publication capabilities are withheld when that scoped authority is
+  unavailable. This amendment also supersedes ADR-0066 Decision §7's original
+  latest-config behavior. It amends the SRT enforcement design, but changes no frozen RPC, policy,
+  audit, or tool-schema shape, no grant, TLS-verification, or credential-custody requirement, and no
+  current public claim status. The amended design remains unproven until its executable gates pass.
 - **Status:** **Accepted.** The keel maintainer accepted the five authority decisions in public issue
   [#191](https://github.com/keel-harness/keel/issues/191) on 2026-08-10 and authorized this contract
   slice, followed by the red-first walking skeleton only after this ADR merges and exact post-merge
@@ -97,6 +108,8 @@ converts, or retries the original command.
 active:
 
 - an enforcing `srt:vendored` sandbox;
+- `srt-launch-authority/v1`, providing authenticated immutable per-launch proxy authority and
+  revoke-and-drain cleanup;
 - verified HTTPS termination suitable for ADR-0066 host-side credential injection;
 - ADR-0086 `egress-address-guard/v1` connect-time resolution and address pinning;
 - a Warden-owned declared temporary root;
@@ -136,6 +149,139 @@ inspection can reach this exception, or a fixture request can select any other h
 If implementation needs controller inference from prose for authority, a new RPC method/field, a new
 grant scope, or a non-open durable schema change, this ADR is insufficient. Stop for a protocol
 version, compatibility analysis, and separate ADR.
+
+### 1A. Vendored-SRT authority is immutable and revocable per launch
+
+Before the Warden prepares any governed child, SRT registers one launch authority with fresh,
+launch-exclusive HTTP/SOCKS endpoint reachability and a freshly generated 256-bit random token.
+Collision, endpoint-allocation failure, partial registration, or unavailable cleanup makes
+preparation fail closed. An equivalent later configuration still receives different endpoints and a
+different token. Neither is a session, process, repository, host, branch, grant, or reusable
+publication credential.
+
+The token is defense in depth, not launch identity or a secrecy boundary. Arbitrary child code can
+read and transform its own proxy environment, so a transferable bearer alone cannot select another
+launch's authority. The operating-system sandbox must make the selected endpoint reachable only by
+the launch it was prepared for:
+
+- on macOS, each launch gets newly allocated loopback ports and its generated Seatbelt profile admits
+  outbound connections only to those exact ports; a profile containing `network*`, wildcard
+  loopback, `allowLocalBinding`, or any other route to a peer launch's ports cannot establish
+  `srt-launch-authority/v1`;
+- on Linux, each launch gets newly allocated host Unix-socket bridges under the Warden-owned
+  owner-only temporary root; bubblewrap binds only those exact sockets into that launch's new network
+  namespace, at fixed inner proxy ports, and no peer launch's bridge path is present; and
+- unsupported native Windows, external proxy ports, weaker-network modes, missing seccomp/namespace
+  confinement, or any configuration that cannot prove exclusive endpoint reachability withholds the
+  feature and therefore both publication capabilities.
+
+A launch that knows another launch's token must still be unable to reach that launch's endpoint
+directly. OS confinement is not sufficient by itself: launch A could otherwise ask A's admitted proxy
+to CONNECT to B's host-loopback listener. The runtime therefore keeps one non-secret, process-wide
+deny set containing every active and retired internal HTTP/SOCKS listener address/port and Linux
+bridge destination allocated during that runtime generation. Every child- or remote-derived direct,
+parent, CONNECT, absolute-form HTTP, SOCKS, resolver-result, redirect, and destination-dial path
+rejects an internal endpoint before forwarding, parent routing, TLS termination, or credential
+handling. No hostname alias, alternate address family, IPv4-mapped IPv6 form, redirect, or resolver
+answer may reach an internal endpoint. A required launch-local TLS/bridge transition uses an opaque
+host-owned reference after authority selection; request bytes cannot name or retarget it. Allocation
+and reuse follow the durable lease transitions below: an active or permanently tombstoned endpoint is
+never reallocated, while an ordinary clean lease becomes eligible only after complete reap and drain.
+
+The defense-in-depth token then authenticates the exact `srt` user at the already launch-exclusive
+endpoint. A direct A-to-B attempt is stopped by OS confinement; a nested
+A-to-A-proxy-to-B-endpoint attempt is stopped by the registry-wide internal-endpoint deny before the
+second dial. Keel makes no stronger claim against same-user malware outside the governed tool
+surface, consistent with the master threat model.
+
+The registry entry captures one immutable behavioral snapshot of the launch's:
+
+- allowed and denied domains, strict-allowlist posture, request filter, and parent-routing posture;
+- initialization-bound destination resolver and address-guard authority;
+- TLS-termination posture and trusted CA identity;
+- complete Authorization-header and placeholder configuration, plaintext opt-in posture, and a
+  launch-local placeholder/sentinel registry; and
+- any other proxy input that can affect filtering, dialing, request mutation, or credential
+  disclosure.
+
+Function callbacks may remain stable Warden-owned references where JavaScript cannot clone them, but
+no request-path callback may consult mutable global launch configuration. `updateConfig` establishes
+only the complete template used to prepare a future launch. Template update, immutable snapshot
+capture, endpoint allocation, durable lease mutation, registry insertion, listener publication, and
+cleanup transition are serialized per runtime. Preparation captures one complete template generation
+atomically; it cannot combine callbacks or values from different updates or expose a listener before
+its snapshot and durable lease exist. `updateConfig` cannot widen, narrow, replace, or revoke an
+authority already registered.
+
+HTTP proxy authentication requires exactly the `srt` username and that endpoint's launch token.
+SOCKS5 uses the same defense-in-depth credential. Endpoint ownership and authentication select the
+registry snapshot before host allowlisting, request-level filtering, destination resolution,
+upstream dialing, TLS termination, or credential injection. HTTP CONNECT, absolute-form HTTP, SOCKS,
+and terminated-TLS traffic stay bound to that selected snapshot for the entire client connection,
+including keepalive and streaming. A connection cannot switch tokens, endpoints, or borrow another
+launch's host, filter, resolver, placeholder, or credential state.
+
+The prepared launch owns an idempotent asynchronous cleanup handle. Cleanup first removes the token
+and credential-bearing registry entry so no new request can authenticate. It then aborts pending
+filter/resolution/dial work, closes the launch-exclusive listeners/bridges, destroys every tracked
+client, upstream, opaque-tunnel, TLS-loopback, and keepalive connection for that launch, waits within
+a fixed two-second graceful-drain bound, and releases launch-local placeholder and mount state. Wrap
+failure, spawn failure, normal exit, timeout, abort, interactive-console close,
+interactive-console release, broker disposal, and Warden shutdown all invoke the same revoke-first
+path.
+
+Removing the token does not revoke an already authenticated stream. Authority-transfer operations
+therefore cannot succeed merely because the two-second drain bound elapsed. In particular,
+`interactive_console.release` returns success only after every associated connection is confirmed
+closed and the endpoint lease is durably retired; only then may the explicitly released external
+process remain alive without SRT authority. If drain cannot be confirmed, release is denied, the
+process and its profile-bearing group remain Warden-controlled, and the terminal cleanup path kills
+and reaps them. Shutdown, broker disposal, and every other terminal cleanup path likewise kill and
+reap any surviving controlled process group after graceful drain. Failure to prove connection closure
+or process settlement permanently retires the endpoint, quarantines the runtime, withholds
+publication capabilities until a fresh Warden/SRT initialization succeeds, and never reports a
+successful release or cleanup transfer.
+
+Every allocation has a cross-generation obligation because an immutable Seatbelt profile is
+inherited by descendants and can still admit its old exact proxy port after the original Warden or
+pane exits. While holding the owner-only registry lock and its selected sockets, and before wrapping
+or launching any profile-bearing child, the Warden atomically and durably writes an active endpoint
+lease for the allocated TCP ports and bridge paths to a host-user SRT endpoint registry outside every
+governed filesystem profile. Only after that write is fsynced may the authority become reachable or
+the sandbox profile be installed. The registry contains no token, credential, request, process
+detail, or audit data and is not a public/session/audit schema.
+
+On startup, every active lease left by an unclean prior generation is atomically converted to a
+permanent tombstone before new allocation. Released and indeterminate endpoints are never pruned or
+reused in V1. Parent exit, PID reuse, process-group settlement, and Warden restart are insufficient
+because a detached or reparented descendant may retain the profile. There is no model- or
+project-accessible reset. Port-space exhaustion or a corrupt, missing-authority, un-lockable, or
+un-fsyncable registry fails closed and withholds `srt-launch-authority/v1`; it never guesses that an
+endpoint is reusable.
+
+Only an ordinary, non-release cleanup may atomically delete its active lease and make the endpoint
+eligible for later allocation, and only after the Warden structurally proves the complete
+profile-bearing process tree is reaped and every associated connection and tunnel is gone. A release,
+crash residue, failed drain/reap, or any indeterminate descendant state instead transitions the lease
+to a permanent tombstone under the same lock. A partial preparation that provably created no
+profile-bearing child and published no listener may roll back its lease under that lock; otherwise it
+is retired. This keeps an old profile denied even if it later learns a new launch's token.
+
+The proxy token necessarily exists in the governed child's proxy configuration and may therefore be
+model-visible if child code prints or transforms it. Keel does not intentionally copy the token into
+RPC, session state, TUI/receipt text, audit records, evidence bundles, errors, or exported artifacts,
+and exact untransformed values pass the normal redaction path, but redaction is not authority.
+Launch-exclusive OS reachability remains decisive even when an adversarial launch knows the token.
+Real credentials retain ADR-0066's stronger rule: they remain host-side and do not enter the child
+proxy configuration. Revocation drops all retained references to the snapshot and its credentials;
+JavaScript does not claim deterministic zeroization of immutable string storage.
+
+Process-scoped shared proxy listeners, external HTTP/SOCKS proxy ports, an unowned proxy, or a
+vendored runtime lacking this lifecycle API cannot establish `srt-launch-authority/v1`. In those
+states `git-push/v1` and
+`github-pr-create/v1` are mechanically absent rather than falling back to session-global authority.
+Existing non-publication SRT launches use the same per-launch lifecycle so that a stale ordinary or
+interactive-console child cannot inherit later publication authority.
 
 ### 2. V1 request is minimal and exact
 
@@ -314,9 +460,9 @@ plumbing parent-side for the exact canonical HTTPS context. The broker:
   expired, or context-mismatched output;
 - passes no secret in argv and accepts exactly one matching protocol/host/path username/password
   result under a versioned parser;
-- may execute an operator-configured helper or shell snippet because the same OS user and operator
-  config are trusted in V1, but binds its public identity into the review and never accepts helper
-  authority from the project;
+- may execute exactly one operator-configured helper only through §5A's fixed simple-command grammar,
+  binds its public identity into the review, rejects arbitrary compound shell snippets, and never
+  accepts helper authority from the project;
 - never invokes credential `approve`, `store`, `reject`, or `erase`; and
 - keeps username/password/token only in Warden memory long enough to construct the HTTPS Basic
   authorization value.
@@ -331,6 +477,67 @@ Project `.git/config`, `.keel` config, workspace files, environment named by the
 prose cannot choose a helper or Warden secret source. `keel doctor` may inspect Git/helper
 availability without resolving or printing a credential and gives one copy-paste GitHub HTTPS setup
 path. Doctor never calls a token-printing command.
+
+### 5A. Operator helper authority has explicit filesystem provenance
+
+The broker constructor receives the canonical trusted workspace and Warden deny roots. It resolves
+`HOME`, optional `XDG_CONFIG_HOME`, the Git executable, Git's exec path, and the fixed system shell
+before inspection. HOME and XDG roots must be absolute owner-controlled directories, not writable by
+group or other users, and outside the workspace and every deny root. Symlinks are resolved before
+those comparisons. Ambient `SHELL` supplies no authority; Git's documented helper shell execution is
+bound to the exact system `/bin/sh` identity.
+
+Ambient `PATH` is discovery input, not execution authority. Relative, empty, missing,
+workspace-contained, denied, or non-directory entries are ignored and can never win helper
+resolution. The Warden resolves the selected helper to one canonical ordinary executable outside the
+workspace/deny roots, binds its identity and parent authority, and constructs the `credential fill`
+environment's PATH only from the canonical Git directory, Git exec path, fixed system directories,
+and the selected helper directory. Directories and files must be root- or operator-owned; same-user
+or privileged host mutation remains the existing explicit threat-model residual. This supports
+ordinary macOS Homebrew ownership without inheriting arbitrary project PATH entries. `keel doctor`
+reports the rejected entry or unresolved helper and one exact remediation without printing config or
+credential data.
+
+One bounded, NUL-framed `git config --includes --show-origin --show-scope --list` inspection is the
+source of both configuration identity and ordered credential-helper records. After applying Git's
+empty-value reset semantics, V1 requires exactly one effective non-empty helper. Zero helpers makes
+the credential unavailable; multiple effective helpers are refused before `credential fill` rather
+than approximating Git's sequential partial-field protocol or constructing a PATH that could resolve
+same-named helpers differently. Every consumed record
+must have `system` or `global` scope and an ordinary `file:` origin whose canonical file and parent
+authority are outside the workspace/deny roots and not group/other writable. Local, worktree,
+command, blob, standard-input, relative, malformed, missing, or unsafe origins are refused. Active
+includes remain supported only when every contributing origin and include target passes the same
+checks. The binding covers ordered helper and empty-reset records, canonical origin paths and file
+identities, Git and exec-path identities, HOME/XDG/PATH/shell identity, and the resolved helper
+executable.
+
+Git documents three helper transformations: a leading `!` is a shell command; a leading absolute path
+is used verbatim; otherwise `git credential-` is prepended, after which the command and appended
+operation are executed by the shell. Keel does not approximate those rules with a whitespace-only
+first-token regex. V1 accepts only a losslessly parsed, fixed simple command: exactly one named or
+absolute helper executable followed by zero or more literal non-path arguments. Single quotes,
+double quotes, and backslash escapes are accepted only when they decode unambiguously to that simple
+argv; a quoted absolute path containing spaces is therefore supported. The executable is resolved
+canonically and identity-bound. Every later argument must use a narrow option/name/value alphabet and
+contain no slash, backslash, relative-path segment, expansion, assignment, or executable source.
+
+Shell operators, redirections, substitutions, expansions, environment assignments, multiple
+commands, unterminated quoting, malformed forms, interpreter/script path arguments, and any other
+compound syntax are refused. A leading `!` form such as `!gh auth git-credential` is eligible only
+because it parses to the same fixed simple-command grammar; `!/bin/sh /workspace/helper.sh`,
+`!source helper`, and equivalent project-code loaders are terminal denials before `credential fill`.
+The exact stored value, parsed argv, `/bin/sh`, resolved executable, and constructed PATH identities
+are all bound and revalidated. No helper executable or helper-supplied code path resolving into the
+workspace or a deny root is eligible.
+
+The complete provenance inspection is repeated immediately before `credential fill`. Any environment,
+origin/include, file, ordering, shell, Git, exec-path, or helper-identity drift consumes the review
+and denies before credential resolution or network access. Failure messages remain bounded and
+generic; they never reproduce config contents, helper output, username, token, or Authorization
+bytes. These rules follow Git's official
+[`gitcredentials`](https://git-scm.com/docs/gitcredentials.html) transformation contract and
+[`git config`](https://git-scm.com/docs/git-config/2.51.1.html) origin/scope/include/framing contract.
 
 ### 6. Approval consumes first; execution revalidates and stays config-independent
 
@@ -537,8 +744,9 @@ walking skeleton can merge, evidence must prove at least:
    credential-broker drift, and secret-scan incompleteness cause zero network and child execution;
 8. approval is consumed before credential/network work, intent is durable before the first network
    operation, and failure/indeterminate outcomes never retry automatically;
-9. canary username/token/Basic bytes are absent from child argv/env/config, descriptors, process
-   listings, stdout/stderr, model output, controller/TUI/headless/resume/receipt state, session JSONL,
+9. canary remote-credential username/token/Basic bytes are absent from child argv/env/config,
+   descriptors, process listings, stdout/stderr, model output,
+   controller/TUI/headless/resume/receipt state, session JSONL,
    audit, evidence bundle, snapshots, screenshots, fixtures, and repository;
 10. `already-at-commit`, new-branch `pushed`, subsequent fast-forward `pushed`, non-fast-forward
     rejection, remote-default denial, server rejection, lost response, verification mismatch, and
@@ -548,7 +756,30 @@ walking skeleton can merge, evidence must prove at least:
     losslessness; and
 12. focused tests, coverage, security suite, real macOS/Linux sandbox, egress product, Node 20/22/24,
     exact npm carrier, exact-head CI, post-main CI, and independent spec/security, reliability, DX,
-    and simplicity reviews pass before any claim changes.
+    and simplicity reviews pass before any claim changes;
+13. two concurrent launches with different host and credential authority receive different
+    OS-confined endpoint sets; launch A is denied when it presents launch B's known token or targets
+    B's endpoint both directly and through A's own proxy, including hostname/IPv4/IPv6/mapped-address,
+    parent, redirect, resolver, CONNECT, absolute HTTP, SOCKS, terminated TLS, keepalive, and
+    streaming paths; neither can use the other's allowlist, request filter, placeholder, resolver, or
+    Authorization value;
+14. an old or released launch remains denied after a later config or Warden generation allows the
+    same host; allocation is durably leased before a profile-bearing child exists, crash residue is
+    permanently tombstoned before later allocation, and released/indeterminate endpoints remain
+    excluded even after parent/Warden exit or with detached/reparented descendants; token replay fails
+    before filtering or dial; revoke during filter, resolution, dial, opaque tunnel, TLS, and response
+    streaming drains within the bound without disrupting an unrelated active launch;
+15. wrap/spawn failure, normal completion, timeout, abort, duplicate cleanup, console close/release,
+    broker disposal, and Warden shutdown all revoke first; a forced drain timeout denies release,
+    retains control, kills/reaps the process group, permanently retires the endpoint, and never leaves
+    an authenticated stream alive; publication capability is absent without
+    `srt-launch-authority/v1`; and
+16. helper inspection refuses unsafe HOME/XDG, project/command/blob/stdin origins, unsafe includes,
+    workspace/symlinked executables, project path arguments, and compound/ambiguous shell syntax with
+    zero credential fill or network, while one effective safe system/global helper (including the
+    fixed simple `!gh auth git-credential` form), safe includes, and a Warden-constructed PATH remain
+    functional; zero/multiple effective helpers are unavailable, and all helper/config/executable
+    drift invalidates approval.
 
 The first red walking skeleton specifically proves that current main cannot open/resolve `git.push`
 or carry real Git through the verified-TLS credential path. It then makes only one exact new
@@ -568,6 +799,15 @@ Stop rather than implement if:
   grants become necessary for the walking skeleton;
 - durable intent cannot precede the first network operation or indeterminate mutation can retry;
 - the object handoff cannot exclude repository-controlled execution/config widening;
+- any proxy route can authenticate, filter, resolve, dial, terminate TLS, or inject a credential
+  without first selecting one active immutable launch authority;
+- revocation cannot account for and boundedly drain every connection associated with the launch, or
+  a released console must retain reusable publication/network authority;
+- a supported OS cannot provide an owner-only locked durable endpoint-tombstone registry that
+  permanently prevents cross-generation reuse after release or indeterminate descendant cleanup;
+- supported Git cannot expose system/global helper configuration with trustworthy scope, origin, and
+  include provenance, or helper identity would require an unbound executable or new shell parser
+  dependency;
 - an additional dependency is proposed without separate necessity/license/supply-chain review;
 - a frozen RPC/audit/policy/taxonomy/grant/session/evidence contract must change without a versioned
   ADR; or
