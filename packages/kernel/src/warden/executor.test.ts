@@ -397,6 +397,78 @@ describe("WardenExecutor", () => {
     },
   );
 
+  it.each(["pushed", "already-at-commit"] as const)(
+    "explains that git.push %s completion is proven by the observed ref",
+    async (status) => {
+      const commit = "0123456789abcdef0123456789abcdef01234567";
+      const executor = new WardenExecutor({
+        client: clientReturning({
+          verdict: "allow",
+          result: {
+            kind: "git_push_result",
+            status,
+            repository: "https://example.com/repo",
+            branch: "feature/x",
+            destinationRef: "refs/heads/feature/x",
+            commit,
+            observedRef: commit,
+            transport: "srt:vendored verified HTTPS with address guard",
+            automaticRetry: false,
+            actionMayHaveExecuted: false,
+          },
+          auditSeq: 8,
+        }),
+        sessionId: SESSION_ID,
+      });
+
+      const result = await executor.execute(
+        call("git.push", {
+          remote: "origin",
+          branch: "feature/x",
+          expectedHead: commit,
+        }),
+      );
+
+      expect(result.ok).toBe(true);
+      expect(result.output).toContain(
+        "git.push outcome verified: the exact requested remote ref equals the approved commit",
+      );
+      expect(result.output).toContain(
+        "actionMayHaveExecuted is only an ambiguity flag for unresolved failures",
+      );
+      expect(result.output).toContain('"actionMayHaveExecuted":false');
+    },
+  );
+
+  it("does not describe a mismatched git.push observation as verified", async () => {
+    const commit = "0123456789abcdef0123456789abcdef01234567";
+    const executor = new WardenExecutor({
+      client: clientReturning({
+        verdict: "allow",
+        result: {
+          kind: "git_push_result",
+          status: "pushed",
+          commit,
+          observedRef: "fedcba9876543210fedcba9876543210fedcba98",
+          actionMayHaveExecuted: false,
+        },
+        auditSeq: 8,
+      }),
+      sessionId: SESSION_ID,
+    });
+
+    const result = await executor.execute(
+      call("git.push", {
+        remote: "origin",
+        branch: "feature/x",
+        expectedHead: commit,
+      }),
+    );
+
+    expect(result.ok).toBe(true);
+    expect(result.output).not.toContain("git.push outcome verified");
+  });
+
   it.each([
     [
       "an inherited audit sequence",

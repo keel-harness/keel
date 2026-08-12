@@ -487,6 +487,28 @@ function renderGitPushAttempt(
   );
 }
 
+function verifiedGitPushOutcomeGuidance(
+  result: ExecuteResult | ResolveReviewResult,
+  toolName: string,
+): string | undefined {
+  if (toolName !== "git.push" || result.verdict !== "allow" || !isObject(result.result)) {
+    return undefined;
+  }
+  const detail = result.result;
+  const status = detail["status"];
+  const commit = detail["commit"];
+  const observedRef = detail["observedRef"];
+  if (
+    detail["kind"] !== "git_push_result" ||
+    (status !== "pushed" && status !== "already-at-commit") ||
+    typeof commit !== "string" ||
+    observedRef !== commit
+  ) {
+    return undefined;
+  }
+  return "git.push outcome verified: the exact requested remote ref equals the approved commit; actionMayHaveExecuted is only an ambiguity flag for unresolved failures";
+}
+
 function renderGithubPrCreateAttempt(
   result: ExecuteResult | ResolveReviewResult,
   toolName: string,
@@ -594,6 +616,9 @@ function renderVerdict(
     );
   }
   const body = withUntrustedMarker(result, renderJsonValue(result.result));
+  const verifiedGitPushGuidance = verifiedGitPushOutcomeGuidance(result, toolName);
+  const verifiedBody =
+    verifiedGitPushGuidance === undefined ? body : withBody(verifiedGitPushGuidance, body);
   const bashLimited = trustedCommandResultIsLimited(result, toolName);
   const containment = verifiedSandboxContainment(result, toolName);
   const allowedResult = (output: string): ToolResultT => {
@@ -603,7 +628,9 @@ function renderVerdict(
   switch (result.verdict) {
     case "allow":
       return allowedResult(
-        containment !== undefined ? withBody(VERIFIED_SANDBOX_CONTAINMENT_GUIDANCE, body) : body,
+        containment !== undefined
+          ? withBody(VERIFIED_SANDBOX_CONTAINMENT_GUIDANCE, verifiedBody)
+          : verifiedBody,
       );
     case "warn":
       return allowedResult(
