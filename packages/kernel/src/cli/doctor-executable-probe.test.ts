@@ -12,6 +12,7 @@ import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  doctorHarnessExecutablePaths,
   probeDoctorExecutable,
   resolveDoctorExecutable,
   resolveDoctorSelectedExecutable,
@@ -36,6 +37,33 @@ afterEach(() => {
 });
 
 describe("doctor executable probe authority", () => {
+  it("includes the compiled carrier command but not the host Node executable", () => {
+    const compiled = doctorHarnessExecutablePaths("/opt/rg", {
+      command: "/workspace/keel",
+      args: [],
+      env: { KEEL_INTERNAL_WARDEN_STDIO: "1" },
+    });
+    const node = doctorHarnessExecutablePaths("/opt/rg", {
+      command: "/usr/local/bin/node",
+      args: ["/opt/keel/keel-warden.mjs"],
+    });
+
+    expect(compiled).toEqual(["/opt/rg", "/workspace/keel"]);
+    expect(node).toEqual(["/opt/rg", "/opt/keel/keel-warden.mjs"]);
+  });
+
+  it("omits unavailable and non-absolute executable candidates", () => {
+    expect(doctorHarnessExecutablePaths(undefined, undefined)).toEqual([]);
+    expect(doctorHarnessExecutablePaths("/opt/rg", undefined)).toEqual(["/opt/rg"]);
+    expect(
+      doctorHarnessExecutablePaths(undefined, {
+        command: "keel",
+        args: ["--warden", "file:///opt/keel/keel-warden.mjs", "/opt/keel/warden-entry.mjs"],
+        env: { KEEL_INTERNAL_WARDEN_STDIO: "1" },
+      }),
+    ).toEqual(["/opt/keel/warden-entry.mjs"]);
+  });
+
   it("probes an exact preselected bundled executable even when the install is inside the workspace", () => {
     const workspace = tempDir("keel-doctor-executable-workspace-");
     const bundled = join(workspace, "node_modules", "@vscode", "ripgrep", "bin", "rg");

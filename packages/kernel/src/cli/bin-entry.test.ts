@@ -1,8 +1,16 @@
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import {
+  chmodSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { delimiter, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { describe, expect, it } from "vitest";
 
@@ -193,6 +201,39 @@ describe("bin entrypoint Plan Autopilot confirmation", () => {
     } finally {
       rmSync(keelHome, { recursive: true, force: true });
       rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("bin entrypoint doctor executable posture", () => {
+  it("does not misclassify a PATH-selected ripgrep outside the workspace as workspace-writable", () => {
+    const root = mkdtempSync(join(tmpdir(), "keel-bin-doctor-rg-path-"));
+    const workspace = join(root, "workspace");
+    const tools = join(root, "tools");
+    const keelHome = join(root, "keel-home");
+    mkdirSync(workspace);
+    mkdirSync(tools);
+    mkdirSync(keelHome, { mode: 0o700 });
+    const ripgrep = join(tools, "rg");
+    writeFileSync(ripgrep, "#!/bin/sh\nprintf 'ripgrep 15.1.0\\n'\n", { mode: 0o755 });
+    chmodSync(ripgrep, 0o755);
+
+    try {
+      const env = binEnv(realpathSync(keelHome));
+      env["KEEL_RG_PATH"] = "rg";
+      env["PATH"] = [tools, process.env["PATH"] ?? ""].join(delimiter);
+      const result = spawnSync(
+        process.execPath,
+        ["--import", TSX_ESM_LOADER, "--conditions=@keel/source", BIN_ENTRY, "doctor"],
+        { cwd: workspace, encoding: "utf8", env, maxBuffer: 1024 * 1024 },
+      );
+
+      expect([0, 1], `${result.stdout}\n${result.stderr}`).toContain(result.status);
+      expect(result.signal, `${result.stdout}\n${result.stderr}`).toBeNull();
+      expect(result.stdout).toContain("ripgrep");
+      expect(result.stdout).not.toContain("workspace-writable");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
     }
   });
 });
