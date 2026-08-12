@@ -13,6 +13,7 @@ import { randomBytes } from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   GitCredentialBrokerError,
+  applyGitCredentialStdinErrorPolicy,
   createGitCredentialBroker,
   parseGitCredentialOutput,
   type GitCredentialProcessRequest,
@@ -158,6 +159,17 @@ afterEach(() => {
 });
 
 describe("ADR-0091 operator Git credential protocol", () => {
+  it.each([
+    ["empty inspection input", "", 0],
+    ["credential-bearing input", "protocol=https\n", 1],
+  ] as const)("handles an asynchronous stdin failure for %s", (_label, stdin, failures) => {
+    const failClosed = vi.fn();
+
+    applyGitCredentialStdinErrorPolicy(stdin, failClosed);
+
+    expect(failClosed).toHaveBeenCalledTimes(failures);
+  });
+
   it("parses one exact matching HTTPS username/password record", () => {
     expect(
       parseGitCredentialOutput(exactCredentialOutput("x-access-token", "token"), context),
