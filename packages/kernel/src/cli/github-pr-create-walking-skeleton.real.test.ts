@@ -636,8 +636,15 @@ function expectSecretAbsentFromTree(root: string, secret: string): void {
 
 suite("ADR-0091 github.pr.create complete product path (real sandbox)", () => {
   it("creates one exact PR through model projection, TUI review, spawned Warden, and verified HTTPS", async () => {
+    const markStage = (stage: string): void => {
+      if (process.env["CI"] === "true" && process.versions.node.startsWith("22.")) {
+        process.stderr.write(`[real-product-stage] github.pr.create ${stage}\n`);
+      }
+    };
+    markStage("workspace-setup-start");
     const source = createWorkspace();
     const fixture = await startGithubApiFixture(source.head, source.base);
+    markStage("fixture-ready");
     const home = tempDir("keel-github-pr-product-home-");
     const auditDir = tempDir("keel-github-pr-product-audit-");
     const env: NodeJS.ProcessEnv = {
@@ -677,6 +684,7 @@ suite("ADR-0091 github.pr.create complete product path (real sandbox)", () => {
       trustFlag: true,
       warden,
     });
+    markStage("session-started");
 
     try {
       ui.queue.push({ kind: "line", text: "create the exact pull request" });
@@ -690,6 +698,7 @@ suite("ADR-0091 github.pr.create complete product path (real sandbox)", () => {
           frame.includes('Body JSON: "Exact body\\n\\n- verified"')
         );
       });
+      markStage("approval-ready");
       const approvalFrame = renderFrame(ui.latest!);
       expect(approvalFrame).toContain("trigger repository notifications");
       expect(approvalFrame).toContain("this occurrence once");
@@ -708,11 +717,13 @@ suite("ADR-0091 github.pr.create complete product path (real sandbox)", () => {
             timeout.unref();
           }),
         ]);
+        markStage("credential-request-entered");
         const authorization = fixture.acceptedAuthorization();
         if (authorization === undefined) throw new Error("fixture observed no Bearer credential");
         expectSecretAbsent(processListing(), authorization.slice("Bearer ".length));
       } finally {
         credentialWindow.release();
+        markStage("credential-request-released");
       }
 
       await waitFor(
@@ -721,8 +732,11 @@ suite("ADR-0091 github.pr.create complete product path (real sandbox)", () => {
         (view) => view.awaitingInput === true && renderFrame(view).includes("created PR"),
         35_000,
       );
+      markStage("tool-completion-rendered");
       ui.queue.push({ kind: "command", name: "/exit" });
+      markStage("exit-queued");
       await done;
+      markStage("session-settled");
 
       const authorization = fixture.acceptedAuthorization();
       if (authorization === undefined) throw new Error("fixture retained no Bearer credential");
@@ -783,6 +797,7 @@ suite("ADR-0091 github.pr.create complete product path (real sandbox)", () => {
       expectSecretAbsentFromTree(source.cwd, secret);
 
       const exportDir = tempDir("keel-github-pr-product-export-");
+      markStage("audit-export-start");
       const exportMessage = await runAuditExportCommand({
         sessionId,
         cwd: source.cwd,
@@ -790,14 +805,19 @@ suite("ADR-0091 github.pr.create complete product path (real sandbox)", () => {
         env,
         warden: spawnedAuditExportWarden({ auditDir, workspaceRoot: source.cwd }),
       });
+      markStage("audit-export-settled");
       expect(exportMessage).toContain("exported audit bundle:");
       const bundlePath = join(exportDir, `bundle_${sessionId}`);
       expect(runAuditVerifyCommand({ bundlePath })).toContain("verified audit bundle:");
       expectSecretAbsentFromTree(bundlePath, secret);
+      markStage("assertions-complete");
     } finally {
+      markStage("cleanup-start");
       ui.queue.push({ kind: "command", name: "/exit" });
       await done.catch(() => undefined);
+      markStage("cleanup-session-settled");
       await fixture.close();
+      markStage("cleanup-fixture-settled");
     }
   }, 60_000);
 });

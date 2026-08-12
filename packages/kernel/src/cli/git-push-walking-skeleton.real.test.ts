@@ -688,7 +688,14 @@ function spawnedAuditExportWarden(options: {
 
 suite("ADR-0091 git.push walking skeleton (real sandbox)", () => {
   it("pushes one exact new branch through model projection, review, SRT TLS, verification, audit, and TUI", async () => {
+    const markStage = (stage: string): void => {
+      if (process.env["CI"] === "true" && process.versions.node.startsWith("22.")) {
+        process.stderr.write(`[real-product-stage] git.push ${stage}\n`);
+      }
+    };
+    markStage("fixture-setup-start");
     const fixture = await startSmartGitFixture();
+    markStage("fixture-ready");
     const { cwd, head } = createWorkspace(fixture.canonicalUrl);
     const hostilePrePushHook = join(cwd, ".git", "hooks", "pre-push");
     writeFileSync(hostilePrePushHook, "#!/bin/sh\nexit 73\n", { mode: 0o700 });
@@ -725,6 +732,7 @@ suite("ADR-0091 git.push walking skeleton (real sandbox)", () => {
       trustFlag: true,
       warden,
     });
+    markStage("session-started");
 
     try {
       ui.queue.push({ kind: "line", text: "publish the exact commit" });
@@ -737,6 +745,7 @@ suite("ADR-0091 git.push walking skeleton (real sandbox)", () => {
           frame.includes(head)
         );
       });
+      markStage("approval-ready");
       const approvalFrame = renderFrame(ui.latest!);
       expect(approvalFrame).toContain("create this branch or fast-forward it to this commit");
       expect(approvalFrame).toContain("this occurrence once");
@@ -757,9 +766,11 @@ suite("ADR-0091 git.push walking skeleton (real sandbox)", () => {
             timeout.unref();
           }),
         ]);
+        markStage("credential-request-entered");
         liveProcessListing = processListing();
       } finally {
         liveCredentialWindow.release();
+        markStage("credential-request-released");
       }
       expect(liveProcessListing).toContain(warden.entryPath);
       expectCredentialAbsent(liveProcessListing, observedCredential(fixture));
@@ -810,8 +821,11 @@ suite("ADR-0091 git.push walking skeleton (real sandbox)", () => {
           `${error instanceof Error ? error.message : String(error)}; HTTPS request count: ${String(fixture.requests.length)}; bounded preflight diagnostic: ${JSON.stringify(diagnostic)}`,
         );
       }
+      markStage("tool-completion-rendered");
       ui.queue.push({ kind: "command", name: "/exit" });
+      markStage("exit-queued");
       await done;
+      markStage("session-settled");
 
       expect(git(["--git-dir", fixture.remoteGitDir, "rev-parse", destinationRef])).toBe(head);
       expect(unrelatedRemoteRefs(fixture.remoteGitDir, destinationRef)).toBe(unrelatedRefsBefore);
@@ -862,6 +876,7 @@ suite("ADR-0091 git.push walking skeleton (real sandbox)", () => {
       // second process audit-only proves the retained bundle without adding an unrelated SRT
       // listener lifecycle to the credential-custody assertion.
       const exportWarden = spawnedAuditExportWarden({ auditDir, workspaceRoot: cwd });
+      markStage("audit-export-start");
       const exportMessage = await runAuditExportCommand({
         sessionId,
         cwd,
@@ -869,6 +884,7 @@ suite("ADR-0091 git.push walking skeleton (real sandbox)", () => {
         env,
         warden: exportWarden,
       });
+      markStage("audit-export-settled");
       expect(exportMessage).toContain("exported audit bundle:");
       const bundlePath = join(exportDir, `bundle_${sessionId}`);
       expect(runAuditVerifyCommand({ bundlePath })).toContain("verified audit bundle:");
@@ -882,10 +898,14 @@ suite("ADR-0091 git.push walking skeleton (real sandbox)", () => {
               "pushed",
         ),
       ).toBe(true);
+      markStage("assertions-complete");
     } finally {
+      markStage("cleanup-start");
       ui.queue.push({ kind: "command", name: "/exit" });
       await done.catch(() => undefined);
+      markStage("cleanup-session-settled");
       await fixture.close();
+      markStage("cleanup-fixture-settled");
     }
   }, 60_000);
 
