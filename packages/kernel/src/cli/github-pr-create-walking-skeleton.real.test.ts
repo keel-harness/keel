@@ -68,6 +68,11 @@ const WARDEN_GIT_CREDENTIAL_BROKER_URL = pathToFileURL(
 const TLS_FIXTURE_DIR = join(ROOT, "vendor/sandbox-runtime/test/fixtures/tls-terminate");
 const repository = "keel-harness/keel";
 const canonicalRemote = `https://github.com/${repository}.git`;
+// The spawned Warden and per-launch SRT may take longer than the former 8-second observation
+// window on a loaded supported runtime. Keep this bounded below the 50-second RPC deadline and
+// reuse it for subsequent product-settlement observations. The outer 120-second test deadlines
+// leave room for readiness, two bounded Warden stages, cleanup, and the happy-path audit export.
+const PRODUCT_SETTLEMENT_TIMEOUT_MS = 35_000;
 const principal = {
   osUser: "github-pr-product-test",
   configuredId: null,
@@ -398,19 +403,24 @@ async function waitFor(
   predicate: (view: ViewModel) => boolean,
   timeoutMs = 8_000,
 ): Promise<void> {
-  await Promise.race([
-    ui.awaitRender(predicate),
-    new Promise<never>((_, reject) => {
-      const timeout = setTimeout(() => {
-        reject(
-          new Error(
-            `timed out waiting for ${label}; latest frame: ${ui.latest === undefined ? "<none>" : renderFrame(ui.latest)}`,
-          ),
-        );
-      }, timeoutMs);
-      timeout.unref();
-    }),
-  ]);
+  let timeout: NodeJS.Timeout | undefined;
+  try {
+    await Promise.race([
+      ui.awaitRender(predicate),
+      new Promise<never>((_, reject) => {
+        timeout = setTimeout(() => {
+          reject(
+            new Error(
+              `timed out waiting for ${label}; latest frame: ${ui.latest === undefined ? "<none>" : renderFrame(ui.latest)}`,
+            ),
+          );
+        }, timeoutMs);
+        timeout.unref();
+      }),
+    ]);
+  } finally {
+    if (timeout !== undefined) clearTimeout(timeout);
+  }
 }
 
 /** Keep Warden startup outside the mutation-stage watchdogs. The interactive shell deliberately
@@ -737,16 +747,21 @@ suite("ADR-0091 github.pr.create complete product path (real sandbox)", () => {
     try {
       await waitForGovernedProductSession(ui);
       ui.queue.push({ kind: "line", text: "create the exact pull request" });
-      await waitFor(ui, "lossless github.pr.create approval", (view) => {
-        const frame = renderFrame(view);
-        return (
-          frame.includes("GitHub pull request creation requires approval") &&
-          frame.includes(repository) &&
-          frame.includes(source.head) &&
-          frame.includes('Title JSON: "Ship product path"') &&
-          frame.includes('Body JSON: "Exact body\\n\\n- verified"')
-        );
-      });
+      await waitFor(
+        ui,
+        "lossless github.pr.create approval",
+        (view) => {
+          const frame = renderFrame(view);
+          return (
+            frame.includes("GitHub pull request creation requires approval") &&
+            frame.includes(repository) &&
+            frame.includes(source.head) &&
+            frame.includes('Title JSON: "Ship product path"') &&
+            frame.includes('Body JSON: "Exact body\\n\\n- verified"')
+          );
+        },
+        PRODUCT_SETTLEMENT_TIMEOUT_MS,
+      );
       const approvalFrame = renderFrame(ui.latest!);
       expect(approvalFrame).toContain("trigger repository notifications");
       expect(approvalFrame).toContain("this occurrence once");
@@ -754,21 +769,23 @@ suite("ADR-0091 github.pr.create complete product path (real sandbox)", () => {
 
       const credentialWindow = fixture.pauseNextAuthenticatedRequest();
       ui.queue.push({ kind: "command", name: "/approve", args: "once" });
+      let credentialProcessTimeout: NodeJS.Timeout | undefined;
       try {
         await Promise.race([
           credentialWindow.entered,
           new Promise<never>((_, reject) => {
-            const timeout = setTimeout(
+            credentialProcessTimeout = setTimeout(
               () => reject(new Error("timed out waiting for credential-bearing curl")),
-              8_000,
+              PRODUCT_SETTLEMENT_TIMEOUT_MS,
             );
-            timeout.unref();
+            credentialProcessTimeout.unref();
           }),
         ]);
         const authorization = fixture.acceptedAuthorization();
         if (authorization === undefined) throw new Error("fixture observed no Bearer credential");
         expectSecretAbsent(processListing(), authorization.slice("Bearer ".length));
       } finally {
+        if (credentialProcessTimeout !== undefined) clearTimeout(credentialProcessTimeout);
         credentialWindow.release();
       }
 
@@ -776,7 +793,7 @@ suite("ADR-0091 github.pr.create complete product path (real sandbox)", () => {
         ui,
         "verified github.pr.create completion",
         (view) => view.awaitingInput === true && renderFrame(view).includes("created PR"),
-        35_000,
+        PRODUCT_SETTLEMENT_TIMEOUT_MS,
       );
       ui.queue.push({ kind: "command", name: "/exit" });
       await done;
@@ -856,7 +873,7 @@ suite("ADR-0091 github.pr.create complete product path (real sandbox)", () => {
       await interruptActiveTurnAndWait(ui, done);
       await fixture.close();
     }
-  }, 60_000);
+  }, 120_000);
 
   it("interrupts an approved in-flight request before test cleanup waits for the session", async () => {
     const source = createWorkspace();
@@ -903,20 +920,26 @@ suite("ADR-0091 github.pr.create complete product path (real sandbox)", () => {
     try {
       await waitForGovernedProductSession(ui);
       ui.queue.push({ kind: "line", text: "create the exact pull request" });
-      await waitFor(ui, "interrupt regression approval", (view) =>
-        renderFrame(view).includes("GitHub pull request creation requires approval"),
+      await waitFor(
+        ui,
+        "interrupt regression approval",
+        (view) => renderFrame(view).includes("GitHub pull request creation requires approval"),
+        PRODUCT_SETTLEMENT_TIMEOUT_MS,
       );
       ui.queue.push({ kind: "command", name: "/approve", args: "once" });
+      let credentialProcessTimeout: NodeJS.Timeout | undefined;
       await Promise.race([
         credentialWindow.entered,
         new Promise<never>((_, reject) => {
-          const timeout = setTimeout(
+          credentialProcessTimeout = setTimeout(
             () => reject(new Error("timed out entering interrupt regression credential window")),
-            8_000,
+            PRODUCT_SETTLEMENT_TIMEOUT_MS,
           );
-          timeout.unref();
+          credentialProcessTimeout.unref();
         }),
-      ]);
+      ]).finally(() => {
+        if (credentialProcessTimeout !== undefined) clearTimeout(credentialProcessTimeout);
+      });
 
       expect(await interruptActiveTurnAndWait(ui, done)).toBe(true);
       await expect(done).resolves.toMatchObject({ lastStop: "aborted" });
@@ -926,5 +949,5 @@ suite("ADR-0091 github.pr.create complete product path (real sandbox)", () => {
       await interruptActiveTurnAndWait(ui, done);
       await fixture.close();
     }
-  }, 20_000);
+  }, 120_000);
 });

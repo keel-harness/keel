@@ -69,7 +69,8 @@ const PRINCIPAL = {
 } as const;
 // The spawned Warden and per-launch SRT may take longer than the former 8-second observation
 // window on a loaded supported runtime. Keep this bounded below the 50-second RPC deadline and
-// reuse it for the subsequent product-settlement observation.
+// reuse it for subsequent product-settlement observations. The outer 120-second test deadlines
+// leave room for readiness, two bounded Warden stages, cleanup, and the happy-path audit export.
 const PRODUCT_SETTLEMENT_TIMEOUT_MS = 35_000;
 
 const tempDirs: string[] = [];
@@ -507,21 +508,26 @@ async function waitFor(
   predicate: (view: ViewModel) => boolean,
   timeoutMs = 8_000,
 ): Promise<void> {
-  await Promise.race([
-    ui.awaitRender(predicate),
-    new Promise<never>((_, reject) => {
-      const timeout = setTimeout(() => {
-        reject(
-          new Error(
-            `timed out waiting for ${label}; latest frame: ${
-              ui.latest === undefined ? "<none>" : renderFrame(ui.latest)
-            }`,
-          ),
-        );
-      }, timeoutMs);
-      timeout.unref();
-    }),
-  ]);
+  let timeout: NodeJS.Timeout | undefined;
+  try {
+    await Promise.race([
+      ui.awaitRender(predicate),
+      new Promise<never>((_, reject) => {
+        timeout = setTimeout(() => {
+          reject(
+            new Error(
+              `timed out waiting for ${label}; latest frame: ${
+                ui.latest === undefined ? "<none>" : renderFrame(ui.latest)
+              }`,
+            ),
+          );
+        }, timeoutMs);
+        timeout.unref();
+      }),
+    ]);
+  } finally {
+    if (timeout !== undefined) clearTimeout(timeout);
+  }
 }
 
 /** Keep Warden startup outside mutation-stage watchdogs. The session is ready for governed
@@ -941,7 +947,7 @@ suite("ADR-0091 git.push walking skeleton (real sandbox)", () => {
       await interruptActiveTurnAndWait(ui, done);
       await fixture.close();
     }
-  }, 60_000);
+  }, 120_000);
 
   it("fast-forwards one existing feature branch to the separately approved exact commit", async () => {
     const fixture = await startSmartGitFixture();
@@ -1018,7 +1024,7 @@ suite("ADR-0091 git.push walking skeleton (real sandbox)", () => {
         ui,
         "verified fast-forward completion",
         (view) => view.awaitingInput === true && renderFrame(view).includes("fast-forwarded"),
-        35_000,
+        PRODUCT_SETTLEMENT_TIMEOUT_MS,
       );
       ui.queue.push({ kind: "command", name: "/exit" });
       await done;
@@ -1049,7 +1055,7 @@ suite("ADR-0091 git.push walking skeleton (real sandbox)", () => {
       await interruptActiveTurnAndWait(ui, done);
       await fixture.close();
     }
-  }, 60_000);
+  }, 120_000);
 
   it("reports a real concurrent non-fast-forward rejection and leaves the remote tip unchanged", async () => {
     const fixture = await startSmartGitFixture();
@@ -1144,7 +1150,7 @@ suite("ADR-0091 git.push walking skeleton (real sandbox)", () => {
         ui,
         "non-fast-forward rejection settlement",
         (view) => view.awaitingInput === true && renderFrame(view).includes("handled rejection"),
-        35_000,
+        PRODUCT_SETTLEMENT_TIMEOUT_MS,
       );
       ui.queue.push({ kind: "command", name: "/exit" });
       await done;
@@ -1172,7 +1178,7 @@ suite("ADR-0091 git.push walking skeleton (real sandbox)", () => {
       await interruptActiveTurnAndWait(ui, done);
       await fixture.close();
     }
-  }, 60_000);
+  }, 120_000);
 
   it("reports one real protected-branch rejection without changing any remote ref", async () => {
     const fixture = await startSmartGitFixture();
@@ -1243,7 +1249,7 @@ exit 0
         "protected-branch rejection settlement",
         (view) =>
           view.awaitingInput === true && renderFrame(view).includes("handled protected branch"),
-        35_000,
+        PRODUCT_SETTLEMENT_TIMEOUT_MS,
       );
       ui.queue.push({ kind: "command", name: "/exit" });
       await done;
@@ -1295,5 +1301,5 @@ exit 0
       await interruptActiveTurnAndWait(ui, done);
       await fixture.close();
     }
-  }, 60_000);
+  }, 120_000);
 });
