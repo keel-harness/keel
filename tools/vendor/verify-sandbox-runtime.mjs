@@ -16,6 +16,7 @@ const expected = {
     "VENDOR.md",
     "patches/connect-time-destination-resolver.patch",
     "patches/flush-tls-loopback-response.patch",
+    "patches/runtime-aware-http-proxy-close.patch",
     "patches/read-hidden-write-deny.patch",
     "patches/wait-for-linux-proxy-readiness.patch",
     "patches/reemit-macos-glob-read-denies.patch",
@@ -32,6 +33,7 @@ const expected = {
     "test/sandbox/linux-proxy-readiness.test.ts",
     "test/sandbox/destination-dial.test.ts",
     "test/sandbox/destination-guard-proxy.test.ts",
+    "test/sandbox/http-server-lifecycle.test.ts",
     "test/sandbox/tls-loopback-lifecycle.test.ts",
     "vendor/seccomp-src/apply-seccomp.c",
     "vendor/srt-win-src/Cargo.toml",
@@ -151,6 +153,51 @@ assert(
 assert(
   tlsTerminateSource.includes("socket.once('finish', cleanup)"),
   "TLS terminator does not clean up after the client write finishes",
+);
+
+const httpClosePatch = await readFile(
+  new URL("patches/runtime-aware-http-proxy-close.patch", vendorDir),
+  "utf8",
+);
+assert(
+  httpClosePatch.includes("src/sandbox/sandbox-manager.ts"),
+  "runtime-aware HTTP close patch omits sandbox-manager.ts",
+);
+assert(
+  httpClosePatch.includes("src/sandbox/http-proxy.ts"),
+  "runtime-aware HTTP close patch omits upgraded-socket tracking",
+);
+assert(
+  httpClosePatch.includes("index 6fa3dae..b6749c3 100644"),
+  "runtime-aware HTTP close patch does not record the exact http-proxy postimage",
+);
+const httpProxySource = await readFile(
+  new URL("src/sandbox/http-proxy.ts", vendorDir),
+  "utf8",
+);
+assert(
+  httpProxySource.includes("destroyTrackedHttpProxyConnections"),
+  "HTTP proxy teardown does not track CONNECT-upgraded sockets",
+);
+assert(
+  httpProxySource.includes("state.draining = true"),
+  "HTTP proxy teardown does not persistently drain late socket events",
+);
+const sandboxManagerSource = await readFile(
+  new URL("src/sandbox/sandbox-manager.ts", vendorDir),
+  "utf8",
+);
+assert(
+  sandboxManagerSource.includes("typeof (globalThis as { Bun?: unknown }).Bun === 'object'"),
+  "HTTP proxy teardown does not select a runtime-safe close order",
+);
+assert(
+  sandboxManagerSource.includes("close()\n        closeAllConnections()"),
+  "Node HTTP proxy teardown does not stop acceptance before force-close",
+);
+assert(
+  sandboxManagerSource.includes("destroyTrackedHttpProxyConnections("),
+  "HTTP proxy teardown does not invoke upgraded-socket draining",
 );
 
 console.log(

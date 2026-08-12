@@ -1,4 +1,7 @@
-import { createHttpProxyServer } from './http-proxy.js'
+import {
+  createHttpProxyServer,
+  destroyTrackedHttpProxyConnections,
+} from './http-proxy.js'
 import { createSocksProxyServer } from './socks-proxy.js'
 import type { SocksProxyWrapper } from './socks-proxy.js'
 import { SentinelRegistry } from './credential-sentinel.js'
@@ -1405,31 +1408,59 @@ function killBridgeProcess(proc: ChildProcess, label: string): Promise<void> {
  * 30s before giving up. Combined with a socat fork that hasn't yet seen
  * its unix-socket EOF, that leaves a fully-open inbound connection and
  * `server.close()` never calls back. `closeAllConnections()` (Node 18.2+,
- * also implemented in Bun) tears down those sockets so `close()` resolves
- * immediately.
+ * also implemented in Bun) tears down ordinary HTTP sockets, while the
+ * explicit accepted-socket registry also covers CONNECT-upgraded tunnels.
  */
-function forceCloseHttpServer(
-  server: ReturnType<typeof createHttpProxyServer>,
-): Promise<void> {
-  return new Promise<void>(resolve => {
-    // Must run *before* close(): in Bun, close() also detaches the
-    // underlying handle, so a closeAllConnections() called afterwards
-    // becomes a no-op and the close callback waits for the in-flight
-    // request to drain — defeating the purpose. With closeAllConnections()
-    // first, the connections are gone by the time close() runs and its
-    // callback fires immediately (Bun reports "Server is not running.",
-    // Node reports no error). Verified against both orderings.
-    if (typeof server.closeAllConnections === 'function') {
-      server.closeAllConnections()
+export interface ForceCloseHttpServer {
+  close(callback: (error?: Error) => void): unknown
+  closeAllConnections?(): void
+}
+
+export function forceCloseHttpServer(server: ForceCloseHttpServer): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    let closeCallbackReturned = false
+    let orderingComplete = false
+    const settle = () => {
+      if (closeCallbackReturned && orderingComplete) resolve()
     }
-    server.close(error => {
-      if (error && error.message !== 'Server is not running.') {
-        logForDebugging(`Error closing HTTP proxy server: ${error.message}`, {
-          level: 'error',
-        })
+    const close = () =>
+      server.close(error => {
+        if (error && error.message !== 'Server is not running.') {
+          logForDebugging(`Error closing HTTP proxy server: ${error.message}`, {
+            level: 'error',
+          })
+        }
+        closeCallbackReturned = true
+        settle()
+      })
+    const closeAllConnections = () => server.closeAllConnections?.()
+    const destroyTrackedConnections = () =>
+      destroyTrackedHttpProxyConnections(
+        server as ReturnType<typeof createHttpProxyServer>,
+      )
+
+    try {
+      if (typeof (globalThis as { Bun?: unknown }).Bun === 'object') {
+        // Bun detaches the underlying handle in close(), so force-close its
+        // established connections first or close() can wait indefinitely.
+        closeAllConnections()
+        destroyTrackedConnections()
+        close()
+        // A connection can arrive after the pre-close drain but before close()
+        // detaches the listener. Drain that final fixed set as well.
+        destroyTrackedConnections()
+      } else {
+        // Node can accept a new connection between closeAllConnections() and
+        // close(). Stop acceptance first, then force-close the fixed set.
+        close()
+        closeAllConnections()
+        destroyTrackedConnections()
       }
-      resolve()
-    })
+      orderingComplete = true
+      settle()
+    } catch (error) {
+      reject(error)
+    }
   })
 }
 

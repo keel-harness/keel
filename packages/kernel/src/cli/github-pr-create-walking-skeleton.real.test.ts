@@ -355,6 +355,30 @@ class TestUI {
   }
 }
 
+/** Test cleanup must stop an active governed turn and close its input stream. `/exit` alone is
+ * deliberately only a notice while a turn is running, so awaiting the session after an earlier
+ * assertion/fixture timeout would otherwise mask that useful error until Vitest's outer timeout.
+ * The bounded join returns false instead of replacing the test's original, more useful failure. */
+async function interruptActiveTurnAndWait(ui: TestUI, done: Promise<unknown>): Promise<boolean> {
+  ui.queue.push({ kind: "interrupt" });
+  ui.queue.close();
+  let timeout: NodeJS.Timeout | undefined;
+  try {
+    return await Promise.race([
+      done.then(
+        () => true,
+        () => true,
+      ),
+      new Promise<false>((resolveTimeout) => {
+        timeout = setTimeout(() => resolveTimeout(false), 5_000);
+        timeout.unref();
+      }),
+    ]);
+  } finally {
+    if (timeout !== undefined) clearTimeout(timeout);
+  }
+}
+
 async function waitFor(
   ui: TestUI,
   label: string,
@@ -795,9 +819,77 @@ suite("ADR-0091 github.pr.create complete product path (real sandbox)", () => {
       expect(runAuditVerifyCommand({ bundlePath })).toContain("verified audit bundle:");
       expectSecretAbsentFromTree(bundlePath, secret);
     } finally {
-      ui.queue.push({ kind: "command", name: "/exit" });
-      await done.catch(() => undefined);
+      await interruptActiveTurnAndWait(ui, done);
       await fixture.close();
     }
   }, 60_000);
+
+  it("interrupts an approved in-flight request before test cleanup waits for the session", async () => {
+    const source = createWorkspace();
+    const fixture = await startGithubApiFixture(source.head, source.base);
+    const home = tempDir("keel-github-pr-interrupt-home-");
+    const auditDir = tempDir("keel-github-pr-interrupt-audit-");
+    const env: NodeJS.ProcessEnv = {
+      KEEL_HOME: home,
+      KEEL_NO_SNAPSHOT: "1",
+      USER: principal.osUser,
+    };
+    const ui = new TestUI();
+    const done = runKeelCommand(undefined, {
+      model: new ScriptedModel({
+        turns: [
+          {
+            toolCalls: [
+              {
+                name: "github.pr.create",
+                args: {
+                  remote: "origin",
+                  repository,
+                  head: "feature/pr-product",
+                  expectedHead: source.head,
+                  base: "main",
+                  title: "Ship product path",
+                  body: "Exact body\n\n- verified",
+                  draft: false,
+                  maintainerCanModify: true,
+                },
+              },
+            ],
+          },
+        ],
+      }),
+      ui,
+      cwd: source.cwd,
+      env,
+      trustFlag: true,
+      warden: spawnedGithubPrWarden({ auditDir, fixture, workspaceRoot: source.cwd }),
+    });
+    const credentialWindow = fixture.pauseNextAuthenticatedRequest();
+
+    try {
+      ui.queue.push({ kind: "line", text: "create the exact pull request" });
+      await waitFor(ui, "interrupt regression approval", (view) =>
+        renderFrame(view).includes("GitHub pull request creation requires approval"),
+      );
+      ui.queue.push({ kind: "command", name: "/approve", args: "once" });
+      await Promise.race([
+        credentialWindow.entered,
+        new Promise<never>((_, reject) => {
+          const timeout = setTimeout(
+            () => reject(new Error("timed out entering interrupt regression credential window")),
+            8_000,
+          );
+          timeout.unref();
+        }),
+      ]);
+
+      expect(await interruptActiveTurnAndWait(ui, done)).toBe(true);
+      await expect(done).resolves.toMatchObject({ lastStop: "aborted" });
+      expect(fixture.requests).toEqual([]);
+    } finally {
+      credentialWindow.release();
+      await interruptActiveTurnAndWait(ui, done);
+      await fixture.close();
+    }
+  }, 20_000);
 });

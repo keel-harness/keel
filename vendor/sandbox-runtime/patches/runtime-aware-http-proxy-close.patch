@@ -1,0 +1,127 @@
+diff --git a/src/sandbox/http-proxy.ts b/src/sandbox/http-proxy.ts
+index 6fa3dae..b6749c3 100644
+--- a/src/sandbox/http-proxy.ts
++++ b/src/sandbox/http-proxy.ts
+@@ -107,0 +108,22 @@ export interface HttpProxyServerOptions {
++type AcceptedSocketState = {
++  readonly sockets: Set<Socket>
++  draining: boolean
++}
++
++const acceptedSocketsByServer = new WeakMap<Server, AcceptedSocketState>()
++
++/**
++ * Destroy every TCP client accepted by this proxy, including CONNECT sockets
++ * that Node removes from `server.closeAllConnections()` after upgrade.
++ */
++export function destroyTrackedHttpProxyConnections(server: Server): void {
++  const state = acceptedSocketsByServer.get(server)
++  if (state === undefined) return
++  // Node may have accepted a connection in libuv before close() stopped the
++  // listener while delivering its JavaScript event on a later turn. Keep the
++  // registry in draining mode so that socket cannot escape this snapshot.
++  state.draining = true
++  for (const socket of state.sockets) socket.destroy()
++  state.sockets.clear()
++}
++
+@@ -109,0 +132,13 @@ export function createHttpProxyServer(options: HttpProxyServerOptions): Server {
++  const acceptedSocketState: AcceptedSocketState = {
++    sockets: new Set<Socket>(),
++    draining: false,
++  }
++  acceptedSocketsByServer.set(server, acceptedSocketState)
++  server.on('connection', socket => {
++    if (acceptedSocketState.draining) {
++      socket.destroy()
++      return
++    }
++    acceptedSocketState.sockets.add(socket)
++    socket.once('close', () => acceptedSocketState.sockets.delete(socket))
++  })
+diff --git a/src/sandbox/sandbox-manager.ts b/src/sandbox/sandbox-manager.ts
+index b673d0c..f6cbbe1 100644
+--- a/src/sandbox/sandbox-manager.ts
++++ b/src/sandbox/sandbox-manager.ts
+@@ -1 +1,4 @@
+-import { createHttpProxyServer } from './http-proxy.js'
++import {
++  createHttpProxyServer,
++  destroyTrackedHttpProxyConnections,
++} from './http-proxy.js'
+@@ -1408,2 +1411,2 @@ function killBridgeProcess(proc: ChildProcess, label: string): Promise<void> {
+- * also implemented in Bun) tears down those sockets so `close()` resolves
+- * immediately.
++ * also implemented in Bun) tears down ordinary HTTP sockets, while the
++ * explicit accepted-socket registry also covers CONNECT-upgraded tunnels.
+@@ -1411,13 +1414,11 @@ function killBridgeProcess(proc: ChildProcess, label: string): Promise<void> {
+-function forceCloseHttpServer(
+-  server: ReturnType<typeof createHttpProxyServer>,
+-): Promise<void> {
+-  return new Promise<void>(resolve => {
+-    // Must run *before* close(): in Bun, close() also detaches the
+-    // underlying handle, so a closeAllConnections() called afterwards
+-    // becomes a no-op and the close callback waits for the in-flight
+-    // request to drain — defeating the purpose. With closeAllConnections()
+-    // first, the connections are gone by the time close() runs and its
+-    // callback fires immediately (Bun reports "Server is not running.",
+-    // Node reports no error). Verified against both orderings.
+-    if (typeof server.closeAllConnections === 'function') {
+-      server.closeAllConnections()
++export interface ForceCloseHttpServer {
++  close(callback: (error?: Error) => void): unknown
++  closeAllConnections?(): void
++}
++
++export function forceCloseHttpServer(server: ForceCloseHttpServer): Promise<void> {
++  return new Promise<void>((resolve, reject) => {
++    let closeCallbackReturned = false
++    let orderingComplete = false
++    const settle = () => {
++      if (closeCallbackReturned && orderingComplete) resolve()
+@@ -1425,5 +1426,32 @@ function forceCloseHttpServer(
+-    server.close(error => {
+-      if (error && error.message !== 'Server is not running.') {
+-        logForDebugging(`Error closing HTTP proxy server: ${error.message}`, {
+-          level: 'error',
+-        })
++    const close = () =>
++      server.close(error => {
++        if (error && error.message !== 'Server is not running.') {
++          logForDebugging(`Error closing HTTP proxy server: ${error.message}`, {
++            level: 'error',
++          })
++        }
++        closeCallbackReturned = true
++        settle()
++      })
++    const closeAllConnections = () => server.closeAllConnections?.()
++    const destroyTrackedConnections = () =>
++      destroyTrackedHttpProxyConnections(
++        server as ReturnType<typeof createHttpProxyServer>,
++      )
++
++    try {
++      if (typeof (globalThis as { Bun?: unknown }).Bun === 'object') {
++        // Bun detaches the underlying handle in close(), so force-close its
++        // established connections first or close() can wait indefinitely.
++        closeAllConnections()
++        destroyTrackedConnections()
++        close()
++        // A connection can arrive after the pre-close drain but before close()
++        // detaches the listener. Drain that final fixed set as well.
++        destroyTrackedConnections()
++      } else {
++        // Node can accept a new connection between closeAllConnections() and
++        // close(). Stop acceptance first, then force-close the fixed set.
++        close()
++        closeAllConnections()
++        destroyTrackedConnections()
+@@ -1431,2 +1459,5 @@ function forceCloseHttpServer(
+-      resolve()
+-    })
++      orderingComplete = true
++      settle()
++    } catch (error) {
++      reject(error)
++    }

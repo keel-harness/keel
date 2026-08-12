@@ -472,6 +472,30 @@ class TestUI {
   }
 }
 
+/** Test cleanup must stop an active governed turn and close its input stream. `/exit` alone is
+ * deliberately only a notice while a turn is running, so awaiting the session after an earlier
+ * assertion/fixture timeout would otherwise mask that useful error until Vitest's outer timeout.
+ * The bounded join returns false instead of replacing the test's original, more useful failure. */
+async function interruptActiveTurnAndWait(ui: TestUI, done: Promise<unknown>): Promise<boolean> {
+  ui.queue.push({ kind: "interrupt" });
+  ui.queue.close();
+  let timeout: NodeJS.Timeout | undefined;
+  try {
+    return await Promise.race([
+      done.then(
+        () => true,
+        () => true,
+      ),
+      new Promise<false>((resolveTimeout) => {
+        timeout = setTimeout(() => resolveTimeout(false), 5_000);
+        timeout.unref();
+      }),
+    ]);
+  } finally {
+    if (timeout !== undefined) clearTimeout(timeout);
+  }
+}
+
 async function waitFor(
   ui: TestUI,
   label: string,
@@ -883,8 +907,7 @@ suite("ADR-0091 git.push walking skeleton (real sandbox)", () => {
         ),
       ).toBe(true);
     } finally {
-      ui.queue.push({ kind: "command", name: "/exit" });
-      await done.catch(() => undefined);
+      await interruptActiveTurnAndWait(ui, done);
       await fixture.close();
     }
   }, 60_000);
@@ -986,8 +1009,7 @@ suite("ADR-0091 git.push walking skeleton (real sandbox)", () => {
         credential,
       );
     } finally {
-      ui.queue.push({ kind: "command", name: "/exit" });
-      await done.catch(() => undefined);
+      await interruptActiveTurnAndWait(ui, done);
       await fixture.close();
     }
   }, 60_000);
@@ -1104,8 +1126,7 @@ suite("ADR-0091 git.push walking skeleton (real sandbox)", () => {
         fixture.requests.every((request) => request.authorization === credential.authorization),
       ).toBe(true);
     } finally {
-      ui.queue.push({ kind: "command", name: "/exit" });
-      await done.catch(() => undefined);
+      await interruptActiveTurnAndWait(ui, done);
       await fixture.close();
     }
   }, 60_000);
@@ -1222,8 +1243,7 @@ exit 0
         .map((line) => AnyAuditRecord.parse(JSON.parse(line)));
       expect(verifyChain(toChainRecords(records)).ok).toBe(true);
     } finally {
-      ui.queue.push({ kind: "command", name: "/exit" });
-      await done.catch(() => undefined);
+      await interruptActiveTurnAndWait(ui, done);
       await fixture.close();
     }
   }, 60_000);
