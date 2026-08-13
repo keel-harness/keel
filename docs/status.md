@@ -8,15 +8,21 @@ it. Where this page and the ledger disagree, the ledger wins.
 
 ## Release status
 
-`keel-harness@0.1.1` is published on npm and tagged `latest`. It was published on
-2026-08-03. The package runs `keel --version` and `keel doctor` on Node 20.
+`keel-harness@0.1.2` is published on npm and tagged `latest`. It was published on
+2026-08-13 with a matching [GitHub Release](https://github.com/keel-harness/keel/releases/tag/v0.1.2).
+The npm and GitHub tarballs are byte-identical to the inspected staged candidate at source commit
+`42119ba120b1a53f166b6828f1bfbc5176965ee0` (SHA-256
+`e5b0b07458e34bd674e73d36fe17c2688ddb8cf084ebf5e3ce17bc3936410a19`). The fresh public carrier
+runs `keel --version`, `keel doctor`, governed replay, audit export/verification, and the installed
+MCP review smoke on Node 20.
 
-Two earlier versions are not release carriers:
+Earlier registry history:
 
 | Version | State |
 | --- | --- |
+| `0.1.1` | The previous public pre-alpha carrier, published 2026-08-03 and superseded by `0.1.2`. |
 | `0.1.0` | Staged on 2026-08-01 but never approved, so it never became public. The registry has no `0.1.0` tarball. |
-| `0.0.1` | The original name-reservation placeholder. Superseded by `0.1.1`. |
+| `0.0.1` | The original name-reservation placeholder; not a release carrier. |
 
 This is **not a stable or public-alpha release**. It is a public pre-alpha carrier. Expect breaking
 changes.
@@ -36,9 +42,9 @@ sandbox and profile checks, and per-session audit:
 - the trusted `read`/`search`/`write`/`edit` file tools;
 - `lifecycle.run`;
 - reviewed, pinned local-stdio MCP calls, under the bounded ADR-0084 contract;
-- in current source, typed `git.push` for one once-only human-approved HTTPS feature-branch create or
+- typed `git.push` for one once-only human-approved HTTPS feature-branch create or
   fast-forward in a trusted interactive macOS/Linux session;
-- in current source, typed `github.pr.create` for one separately approved, same-repository GitHub.com
+- typed `github.pr.create` for one separately approved, same-repository GitHub.com
   pull request after the exact remote head is independently verified.
 
 Phase 2B signed, offline-verifiable evidence bundles are implemented for exported audit evidence.
@@ -61,9 +67,12 @@ redirects, project helpers, reusable grants, and automatic retry are unavailable
 independent remote-ref and audit inspection before a deliberate fresh request.
 Doctor validates eligible helper authority without resolving a credential. Either publication tool
 can therefore still fail before review or after approval, but before network, when the helper or an
-exact path-scoped credential is unavailable; that bounded failure remains
-`actionMayHaveExecuted: false` and points to
+exact path-scoped credential is unavailable. Current source reports that expected broker-readiness
+case as `actionMayHaveExecuted: false` and points to
 `gh auth login --git-protocol https && gh auth setup-git && keel doctor` without exposing helper output.
+The published `0.1.2` carrier predates that recovery and may instead surface an internal failure; no
+network action starts in the covered pre-review case, and the operator must repair credentials and
+submit a deliberate fresh request rather than automatically retrying.
 
 `github.pr.create` is a distinct authority, not a continuation of push approval. It binds the
 canonical GitHub.com repository, current local branch and full SHA-1 OID, remote head and base,
@@ -73,6 +82,11 @@ system/global Git credential-helper boundary, performs fixed GitHub REST preflig
 `srt:vendored`, sends at most one create request, and independently observes the exact pull request.
 An exact existing PR is reported without mutation. Results distinguish `created`, `already-exists`,
 `failed`, and `indeterminate`; there is no automatic retry.
+
+Current source accepts GitHub's `maintainerCanModify: false` representation after a requested `true`
+only for an independently verified exact same-repository result. The published `0.1.2` carrier
+predates that provider normalization and can conservatively report `indeterminate` after GitHub has
+created the PR; inspect GitHub and the audit record before any deliberate fresh request.
 
 The PR path is same-repository and GitHub.com-only. It does not support GitHub Enterprise, forks or
 cross-repository heads, generic forge APIs, `gh`, combined push-and-PR approval, merge/auto-merge,
@@ -84,8 +98,9 @@ may still hold an old sandbox profile. Compact registry V2 makes the 25,536-port
 capacity bound; exhaustion withholds publication and other network-bearing launch authority while
 endpointless deny-all execution remains available pending a future migration design.
 
-This describes current source, not the published `keel-harness@0.1.1` bytes, which predates both
-typed publication capabilities. Published-carrier proof remains release-gated.
+The published `keel-harness@0.1.2` carrier includes both bounded typed publication capabilities. Its
+public npm and GitHub tarballs are the inspected release bytes; the two post-release reliability/DX
+differences above remain current-source-only until a later carrier is separately released.
 
 ## What keel does not claim
 

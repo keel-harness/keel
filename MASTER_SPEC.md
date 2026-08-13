@@ -12,7 +12,7 @@ headline until it exists, per P1-8.)
 > `keel-harness/keel`; npm package: `keel-harness` (the command remains `keel`); canonical domain:
 > `keel-harness.com` — the GitHub Pages origin named by `site/CNAME` and the page's `rel=canonical`.
 > `keelharness.com` and `www.keel-harness.com` are owned redirects into it, not the canonical name.
-> The npm release carrier is `keel-harness@0.1.1`, published 2026-08-03 through
+> The npm release carrier is `keel-harness@0.1.2`, published 2026-08-13 through
 > the reviewed signing/publication workflow and tagged `latest`. It supersedes the original `0.0.1`
 > name-reservation entry. A crates.io name decision remains deferred until the Phase-4 Rust
 > distribution path.
@@ -977,7 +977,7 @@ Tasks: API keys stored outside the repo/workspace (**shipped: the `0600` file st
 
 #### Epic 1.10 — Packaging + doctor
 Tasks: the `npx keel-harness` carrier mechanism works in CI and is now a valid public install
-instruction — `keel-harness@0.1.1` was published 2026-08-03 and is tagged `latest`; the earlier
+instruction — `keel-harness@0.1.2` was published 2026-08-13 and is tagged `latest`; the earlier
 `0.1.0` candidate was staged on 2026-08-01 but never approved or made public, and is not a carrier;
 `bun build --compile` binaries (macOS arm64/x64, Linux
 x64/arm64) have smoke tests in CI; `keel doctor` checks node/ripgrep/(Phase 2: bubblewrap+socat on
@@ -1608,7 +1608,7 @@ Residual risks / TODOs:
 
 ### 9.1 Channels
 
-Shipped: the `keel-harness` npm carrier for trial use, published 2026-08-03 as `0.1.1` and tagged
+Shipped: the `keel-harness` npm carrier for trial use, published 2026-08-13 as `0.1.2` and tagged
 `latest`. Standalone compiled binaries, Homebrew, shell/PowerShell installers, and the Phase-4
 signed air-gap bundle remain separate roadmap channels; ADR-0040 currently holds standalone binaries
 from release. Registry commands for those unshipped channels remain operator verification templates
@@ -1628,7 +1628,7 @@ be reviewed before launch; no release turns a missing refresh or red security/DO
 ### 9.3 Public alpha checklist
 
 - [x] REL-001 current identity locked (product, npm, GitHub org/repository, domains)
-- [x] Real signed npm carrier published (`keel-harness@0.1.1`, 2026-08-03, tagged `latest`)
+- [x] Real signed npm carrier published (`keel-harness@0.1.2`, 2026-08-13, tagged `latest`)
 - [ ] crates.io name cleared before any Phase-4 Rust publication (not an alpha blocker)
 - [ ] Three claims each backed by a recorded demo + a CI test
 - [ ] Threat model published verbatim (§3) — including §3.3 limitations

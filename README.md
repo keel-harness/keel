@@ -90,8 +90,9 @@ Exact values, fractions, commands, and the staleness window live in the
 
 ## Status
 
-**keel is pre-alpha and publicly available.** `keel-harness@0.1.1` is published on npm and
-tagged `latest`, but this is **not a stable or public-alpha release**.
+**keel is pre-alpha and publicly available.** `keel-harness@0.1.2` is published on npm and
+tagged `latest`, with a matching [GitHub Release](https://github.com/keel-harness/keel/releases/tag/v0.1.2),
+but this is **not a stable or public-alpha release**.
 
 Keel is currently solo-maintained and has not received an independent security audit. Treat its
 tests, claim ledger, and reproducible evidence as material for review, not as a substitute for one.
@@ -105,7 +106,7 @@ grants, and MCP resources, prompts, sampling, and elicitation are not claimed. S
 surfaces such as `plan`, `skill`, and `retrieve`, provider API calls, and future tools are likewise
 not counted as governed product execution proof.
 
-Current source builds add two bounded publication paths for trusted interactive macOS/Linux
+The published `keel-harness@0.1.2` carrier includes two bounded publication paths for trusted interactive macOS/Linux
 sessions. With Git 2.x (2.39 or newer), typed `git.push` can create or fast-forward one non-default
 feature branch to one approved full commit OID over canonical HTTPS, through `srt:vendored` verified
 TLS and connect-time address guarding. The Warden offers both publication tools only when
@@ -132,8 +133,12 @@ permanently excludes retired network-bearing endpoints until a deliberate future
 that finite space withholds publication rather than reusing authority; endpointless offline execution
 remains available.
 
-The published `keel-harness@0.1.1` carrier predates both `git.push` and `github.pr.create`; these are
-current-source capabilities until a separately authorized release proves the exact published bytes.
+The npm and GitHub `0.1.2` tarballs are byte-identical to the inspected staged candidate. Current
+source adds two fail-closed reliability/DX corrections that are not in `0.1.2`: expected credential-
+broker readiness failures get actionable recovery, and GitHub's same-repository
+`maintainerCanModify: false` normalization is accepted only after every consequential field verifies.
+On `0.1.2`, those provider cases can surface as an internal or indeterminate result; do not retry
+automatically—inspect GitHub and the audit record first.
 
 **[docs/status.md](docs/status.md) is the full account** — every limitation, the audit and signing
 boundaries, the release flow, and a note on running the test suite locally. Read it before you

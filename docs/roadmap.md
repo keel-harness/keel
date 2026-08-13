@@ -32,21 +32,22 @@ The parts of keel you can rely on now:
 - **Connect-time egress address guard** — the vendored SRT TCP path resolves destinations in the
   warden immediately before each connection, rejects unsafe or mixed answer sets, and pins the
   vetted addresses to the final dial. The claim is backend-specific.
-- **Bounded typed Git push in current source** — trusted interactive macOS/Linux sessions can use
+- **Bounded typed Git push** — trusted interactive macOS/Linux sessions can use
   Git 2.x (2.39 or newer) and `git.push` to create or fast-forward one exact non-default feature ref
   to one approved full commit OID over canonical HTTPS and `srt:vendored`, with
   `srt-launch-authority/v1` binding unique authenticated proxy endpoints plus one immutable
   configuration/credential snapshot to each network-bearing launch, and one once-only human approval.
   Exact deny-all launches receive an endpointless network-denied OS profile with no proxy authority. Raw
   `process.run git push`, force, deletion, tags, default-branch push, SSH, redirects, project
-  credential helpers, reusable grants, and automatic retry remain unavailable. Published
-  `keel-harness@0.1.1` predates this capability.
-- **Bounded typed GitHub.com PR creation in current source** — `github.pr.create` gives one
+  credential helpers, reusable grants, and automatic retry remain unavailable. Published in
+  `keel-harness@0.1.2`; current source adds actionable expected credential-readiness recovery.
+- **Bounded typed GitHub.com PR creation** — `github.pr.create` gives one
   same-repository GitHub.com PR a separate once-only human approval after independently verifying
   the pushed head OID and base. It sends at most one create request through `srt:vendored` and
   verifies the exact result. GitHub Enterprise, forks/cross-repository heads, generic forge APIs,
   `gh`, combined push-and-PR approval, merge/auto-merge, labels, reviews, releases, deployments, and
-  automatic retry remain unavailable. Published `keel-harness@0.1.1` predates this capability.
+  automatic retry remain unavailable. Published in `keel-harness@0.1.2`; current source additionally
+  handles GitHub's exact same-repository `maintainerCanModify: false` normalization.
   Current source permanently excludes retired network-bearing endpoints; compact registry V2 makes
   the 25,536-port range the first capacity bound. Exhaustion fails closed for network-bearing
   launches while endpointless deny-all execution remains available; safe reuse remains future work.

@@ -370,11 +370,12 @@ describe("public docs claim consistency", () => {
     expect(memoryDescription).toMatch(/Phase 3/i);
     expect(memoryDescription).toMatch(/not implemented/i);
 
-    // The release facts now live in docs/status.md. It must state the published carrier, both
-    // superseded versions, and the binaries exclusion — a status page that lists only the good
+    // The release facts now live in docs/status.md. It must state the published carrier, earlier
+    // registry history, and the binaries exclusion — a status page that lists only the good
     // news is the same failure as a README that overclaims.
     const status = readRepoFile("docs/status.md");
-    expect(status).toMatch(/`keel-harness@0\.1\.1` is published on npm and tagged `latest`/i);
+    expect(status).toMatch(/`keel-harness@0\.1\.2` is published on npm and tagged `latest`/i);
+    expect(status).toMatch(/`0\.1\.1`[^|]*\|[^|]*previous public pre-alpha carrier/i);
     // `0.1.0` was STAGED and never approved — npm records a timestamp for a staged version, but it
     // never became public. It is not an unpublish: the registry has no `time.unpublished` marker,
     // no tarball, and answers "version not found". Do not let the docs drift back into calling it a
@@ -687,7 +688,7 @@ describe("connect-time egress documentation", () => {
 });
 
 describe("typed governed publication documentation", () => {
-  it("keeps the current-source Git paths and their non-goals together across truth surfaces", () => {
+  it("keeps the published Git paths, later source differences, and non-goals together", () => {
     for (const path of [
       "README.md",
       "docs/status.md",
@@ -697,11 +698,11 @@ describe("typed governed publication documentation", () => {
     ]) {
       const text = readRepoFile(path);
       expect(text, `${path} dropped the typed git.push surface`).toMatch(/`git\.push`/u);
-      expect(text, `${path} blurred source and published-carrier truth`).toMatch(
-        /current source/iu,
+      expect(text, `${path} dropped the post-0.1.2 current-source boundary`).toMatch(
+        /current\s+source/iu,
       );
-      expect(text, `${path} dropped the published 0.1.1 exclusion`).toMatch(
-        /(?:0\.1\.1.{0,160}predates|(?:predates|not the published).{0,160}0\.1\.1)/isu,
+      expect(text, `${path} dropped the published 0.1.2 inclusion`).toMatch(
+        /(?:published|included).{0,200}0\.1\.2|0\.1\.2.{0,200}(?:published|included)/isu,
       );
       expect(text, `${path} dropped the HTTPS boundary`).toMatch(/HTTPS/u);
       expect(text, `${path} widened the qualified Git family`).toMatch(/Git 2\.x/iu);
@@ -806,6 +807,12 @@ describe("landing page claim consistency (site/index.html)", () => {
       /npm i(?:nstall)?(?:\s+-g)?\s+keel-harness/i,
     );
     expect(text, `${PAGE} lost the npx alternative`).toMatch(/npx keel-harness/i);
+    expect(text, `${PAGE} lost the current published carrier version`).toMatch(
+      /keel-harness@0\.1\.2/i,
+    );
+    expect(text, `${PAGE} still advertises the superseded carrier`).not.toMatch(
+      /keel-harness@0\.1\.1/i,
+    );
     expect(text, `${PAGE} shows an install command without the pre-alpha caveat`).toMatch(
       /pre-alpha/i,
     );
