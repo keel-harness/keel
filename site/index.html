@@ -1544,17 +1544,17 @@
             <tbody>
               <tr>
                 <td>Tests</td>
-                <td>6,072 automated tests passed; 12 skipped</td>
+                <td>7,527 automated tests passed; 37 skipped</td>
                 <td><span class="run">pnpm test</span></td>
               </tr>
               <tr>
                 <td>Coverage</td>
-                <td>97.89% statements, 93.74% branches, with an enforced per-file gate</td>
+                <td>97.79% statements, 93.58% branches, with an enforced per-file gate</td>
                 <td><span class="run">pnpm test:cov</span></td>
               </tr>
               <tr>
                 <td>Security suite</td>
-                <td>990 adversarial and denied-path tests passed</td>
+                <td>1,123 adversarial and denied-path tests passed</td>
                 <td><span class="run">pnpm test:security</span></td>
               </tr>
               <tr>
@@ -1604,7 +1604,7 @@
             maps every security claim to its test evidence and states the limits of that evidence.
             The checkpoint-signing key is a local <code>0600</code> file readable by the same OS
             user; bundle verification therefore is not independent host attestation. Test and
-            coverage figures were measured on 2026-07-31 at <em>a22b127</em>. The evidence-number
+            coverage figures were measured on 2026-08-13 at <em>3f16f53</em>. The evidence-number
             ledger holds the exact reporter output. The enforced coverage floor is 90 percent per
             file, and 95 percent for the warden. Running <em>pnpm test</em> locally on a many-core
             machine can report failures that look like timeouts, because several suites spawn child

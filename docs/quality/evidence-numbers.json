@@ -2,34 +2,34 @@
   "schemaVersion": 1,
   "stalenessWindowDays": 30,
   "measuredAt": {
-    "date": "2026-07-31",
-    "commit": "a22b127fd37858920d006205758e46cd037e8565"
+    "date": "2026-08-13",
+    "commit": "3f16f5382bffbb14a0a9a0c403fa79f2de37ff7f"
   },
   "evidence": {
     "testsPassed": {
-      "value": 6072,
+      "value": 7527,
       "command": "pnpm test",
-      "detail": "342 test files passed; 12 tests and 2 files skipped"
+      "detail": "400 test files passed; 37 tests and 8 files skipped"
     },
     "testsSkipped": {
-      "value": 12,
+      "value": 37,
       "command": "pnpm test",
-      "detail": "12 tests skipped across 2 files"
+      "detail": "37 tests skipped across 8 files"
     },
     "securityTestsPassed": {
-      "value": 990,
+      "value": 1123,
       "command": "pnpm test:security",
-      "detail": "27 test files passed; no tests skipped"
+      "detail": "30 test files passed; no tests skipped"
     },
     "statementCoveragePercent": {
-      "value": 97.89,
+      "value": 97.79,
       "command": "pnpm test:cov",
-      "detail": "61765 of 63095 statements"
+      "detail": "81545 of 83380 statements"
     },
     "branchCoveragePercent": {
-      "value": 93.74,
+      "value": 93.58,
       "command": "pnpm test:cov",
-      "detail": "21878 of 23339 branches"
+      "detail": "27543 of 29430 branches"
     },
     "perFileCoverageFloorPercent": {
       "value": 90,

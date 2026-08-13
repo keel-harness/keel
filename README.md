@@ -68,9 +68,9 @@ Where the claims stand, and how to verify them yourself:
 
 | What | Where it stands | Reproduce |
 | --- | --- | --- |
-| Tests | 6,072 automated tests passed; 12 skipped | `pnpm test` |
-| Coverage | 97.89% statements / 93.74% branches, enforced gate (per-file ≥90%; warden ≥95% lines/functions/statements) | `pnpm test:cov` |
-| Security suite | 990 adversarial / denied-path tests passed | `pnpm test:security` |
+| Tests | 7,527 automated tests passed; 37 skipped | `pnpm test` |
+| Coverage | 97.79% statements / 93.58% branches, enforced gate (per-file ≥90%; warden ≥95% lines/functions/statements) | `pnpm test:cov` |
+| Security suite | 1,123 adversarial / denied-path tests passed | `pnpm test:security` |
 | Real OS sandbox | Seatbelt (macOS) + bubblewrap (Linux) denial probes run in CI | `pnpm test:sandbox:real` |
 | Connect-time egress guard | The vendored SRT TCP backend resolves, checks, and pins every destination before a new connection | `pnpm test:egress-product` |
 | Audit integrity | tamper-evident hash chain + Ed25519 checkpoints (local `0600` key, readable by the same OS user) + offline evidence-bundle verifier | `keel audit verify <bundle>` |
@@ -83,8 +83,8 @@ vetted set to the final dial. This scope does not include provider API calls, UD
 sandbox backends; see the [security model](docs/guide/security-model.md) and
 [ADR-0086](docs/adr/0086-warden-owned-egress-address-guard.md).
 
-Test and coverage figures were measured on 2026-07-31 at commit
-[`a22b127`](https://github.com/keel-harness/keel/commit/a22b127fd37858920d006205758e46cd037e8565).
+Test and coverage figures were measured on 2026-08-13 at commit
+[`3f16f53`](https://github.com/keel-harness/keel/commit/3f16f5382bffbb14a0a9a0c403fa79f2de37ff7f).
 Exact values, fractions, commands, and the staleness window live in the
 [evidence-number ledger](docs/quality/evidence-numbers.json).
 
