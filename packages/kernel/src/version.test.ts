@@ -33,7 +33,7 @@ describe("KEEL_VERSION", () => {
       "packages/warden/package.json",
     ];
 
-    expect(KEEL_VERSION).toBe("0.1.1");
+    expect(KEEL_VERSION).toBe("0.1.2");
     for (const path of manifests) {
       const manifest = JSON.parse(readFileSync(join(repoRoot, path), "utf8")) as {
         private?: boolean;

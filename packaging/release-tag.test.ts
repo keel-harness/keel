@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { restoreAnnotatedReleaseTag } from "./release-tag.js";
 
-const TAG = "v0.1.1";
+const TAG = "v0.1.2";
 const roots: string[] = [];
 
 function git(cwd: string, ...args: string[]): string {
@@ -34,7 +34,7 @@ function createFixture(options: { readonly annotated: boolean; readonly tagAtHea
   git(source, "add", "fixture.txt");
   git(source, "commit", "-m", "first");
   const tagCommit = git(source, "rev-parse", "HEAD");
-  if (options.annotated) git(source, "tag", "-a", TAG, "-m", "keel v0.1.1");
+  if (options.annotated) git(source, "tag", "-a", TAG, "-m", "keel v0.1.2");
   else git(source, "tag", TAG);
   if (!options.tagAtHead) {
     writeFileSync(join(source, "fixture.txt"), "second\n");
@@ -81,7 +81,7 @@ describe("release tag restoration", () => {
   it("rejects an unexpected tag before fetching a ref", () => {
     const { checkout } = createFixture({ annotated: true, tagAtHead: true });
     expect(() =>
-      restoreAnnotatedReleaseTag({ cwd: checkout, tag: "v0.1.2", expectedTag: TAG }),
-    ).toThrow("expected release tag v0.1.1");
+      restoreAnnotatedReleaseTag({ cwd: checkout, tag: "v0.1.1", expectedTag: TAG }),
+    ).toThrow("expected release tag v0.1.2");
   });
 });

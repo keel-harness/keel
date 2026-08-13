@@ -29,7 +29,7 @@ export PATH="$PNPM_HOME:$PATH"
 pnpm add --global "$TARBALL"
 KEEL_BIN="$PNPM_HOME/keel"
 test -x "$KEEL_BIN"
-"$KEEL_BIN" --version | grep -Fx "keel 0.1.1"
+"$KEEL_BIN" --version | grep -Fx "keel 0.1.2"
 "$KEEL_BIN" doctor
 
 OUT=$("$KEEL_BIN" run -p "verify the release carrier" --verbose --replay "$REPO_ROOT/packaging/smoke.recording.json" 2>&1)
@@ -52,5 +52,5 @@ node "$REPO_ROOT/packaging/smoke-npx-mcp-review.mjs" "$KEEL_BIN"
 node "$REPO_ROOT/packaging/smoke-dotenv-isolation.mjs" "$KEEL_BIN"
 
 DLX_OUT=$(pnpm --package "$TARBALL" dlx keel --version)
-echo "$DLX_OUT" | grep -Fx "keel 0.1.1"
+echo "$DLX_OUT" | grep -Fx "keel 0.1.2"
 echo "release carrier smoke passed with Node $(node --version)"

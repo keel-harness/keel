@@ -6,4 +6,4 @@
  * build stamps the publishable manifest from this constant, and `version.test.ts` is a drift guard
  * asserting it equals the kernel `package.json` version.
  */
-export const KEEL_VERSION = "0.1.1";
+export const KEEL_VERSION = "0.1.2";

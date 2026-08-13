@@ -7,10 +7,37 @@ with 0.x pre-release semantics (minor bumps may break).
 
 ## [Unreleased]
 
+## [0.1.2] — 2026-08-12
+
+The intended second public pre-alpha carrier, prepared from the exact current source. Publication remains
+subject to the protected tag workflow, immutable staged-byte inspection, and separate human 2FA
+approval.
+
+### Added
+
+- Added governed direct-argv `process.run` with exact-once review, audited invalid-argument recovery,
+  and fail-closed policy, sandbox, and audit enforcement.
+- Added typed `git.push` for one reviewed non-default feature-branch create or fast-forward to one
+  exact full commit OID over canonical HTTPS.
+- Added separately reviewed same-repository GitHub.com pull-request creation after exact remote-head
+  verification.
+- Bound every network-bearing vendored-SRT launch to unique authenticated proxy endpoints and an
+  immutable credential/configuration snapshot, with revocation and bounded draining on cleanup.
+
+### Improved
+
+- Polished the TUI's review, interruption, recovery, completion-truth, evidence, history, and
+  final-answer presentation surfaces through repeated real-product dogfood.
+- Hardened credential-helper provenance, repository/default-branch qualification, private pull-
+  request reconciliation, publication result projection, endpoint lease lifecycle, and runtime-safe
+  proxy shutdown.
+
 ### Fixed
 
 - Let TLS-terminated proxy responses flush completely on normal internal-loopback close while
   preserving immediate client teardown for actual loopback errors.
+- Preserve streamed tool-call arguments from OpenAI-compatible providers and remediate current
+  `brace-expansion` and `nanoid` advisories without weakening supply-chain gates.
 
 ## [0.1.1] — 2026-08-03
 
