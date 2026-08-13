@@ -22,7 +22,7 @@
     "@open-policy-agent/opa-wasm": "1.10.0"
   },
   "devDependencies": {
-    "tsx": "4.23.1",
+    "tsx": "4.23.11",
     "typescript": "5.9.3"
   }
 }
