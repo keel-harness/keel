@@ -14,10 +14,10 @@ agent cannot write through that tool surface.
 The result is high autonomy inside boundaries that hold even when the model is wrong or
 adversarially steered.
 
-[![A real keel session: the warden denies an SSH-key read and writes the audit record](site/demo.gif)](docs/demo/keel-deny-audit.cast)
+[![A real keel production TUI session launches, then its warden blocks an SSH private-key read before execution](site/demo.gif)](docs/demo/keel-deny-audit.cast)
 
-_Recorded from the real kernel → warden → policy → audit path. A deterministic offline replay
-supplies only the model turns; [run it locally](docs/demo/run-deny-audit-demo.mjs)._
+_The production TUI and real kernel → warden → policy → audit path. A deterministic offline replay
+supplies only the model turns—no provider key or network; [run it locally](docs/demo/run-deny-audit-demo.mjs)._
 
 Keel vendors Anthropic's [`@anthropic-ai/sandbox-runtime`](NOTICE) v0.0.59 under Apache-2.0 to
 orchestrate Seatbelt and bubblewrap. Keel adds the out-of-process Warden, policy mediation,
@@ -48,7 +48,7 @@ that reduced-enforcement layout. The released carrier requires Node 20+ and ripg
 tests Node 20, 22, and 24. `keel doctor` checks the OS sandbox and prints one copy-paste fix when
 something is missing.
 
-New here: [what keel is](docs/architecture.md) · [getting started](docs/guide/getting-started.md)
+New here: [getting started](docs/guide/getting-started.md) · [what keel is](docs/architecture.md)
 · [the honest security model](docs/guide/security-model.md) ·
 [status and limitations](docs/status.md).
 
@@ -68,9 +68,9 @@ Where the claims stand, and how to verify them yourself:
 
 | What | Where it stands | Reproduce |
 | --- | --- | --- |
-| Tests | 6,072 automated tests passed; 12 skipped | `pnpm test` |
-| Coverage | 97.89% statements / 93.74% branches, enforced gate (per-file ≥90%; warden ≥95% lines/functions/statements) | `pnpm test:cov` |
-| Security suite | 990 adversarial / denied-path tests passed | `pnpm test:security` |
+| Tests | 7,527 automated tests passed; 37 skipped | `pnpm test` |
+| Coverage | 97.79% statements / 93.58% branches, enforced gate (per-file ≥90%; warden ≥95% lines/functions/statements) | `pnpm test:cov` |
+| Security suite | 1,123 adversarial / denied-path tests passed | `pnpm test:security` |
 | Real OS sandbox | Seatbelt (macOS) + bubblewrap (Linux) denial probes run in CI | `pnpm test:sandbox:real` |
 | Connect-time egress guard | The vendored SRT TCP backend resolves, checks, and pins every destination before a new connection | `pnpm test:egress-product` |
 | Audit integrity | tamper-evident hash chain + Ed25519 checkpoints (local `0600` key, readable by the same OS user) + offline evidence-bundle verifier | `keel audit verify <bundle>` |
@@ -83,8 +83,8 @@ vetted set to the final dial. This scope does not include provider API calls, UD
 sandbox backends; see the [security model](docs/guide/security-model.md) and
 [ADR-0086](docs/adr/0086-warden-owned-egress-address-guard.md).
 
-Test and coverage figures were measured on 2026-07-31 at commit
-[`a22b127`](https://github.com/keel-harness/keel/commit/a22b127fd37858920d006205758e46cd037e8565).
+Test and coverage figures were measured on 2026-08-13 at commit
+[`ec2840a`](https://github.com/keel-harness/keel/commit/ec2840a8d08618ea289f4fc682c20259ba5bd987).
 Exact values, fractions, commands, and the staleness window live in the
 [evidence-number ledger](docs/quality/evidence-numbers.json).
 

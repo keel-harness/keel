@@ -74,15 +74,15 @@ they touch disk.
 Claims here map to executable evidence:
 
 ```sh
-pnpm test:security        # 990 adversarial and denied-path tests passed
+pnpm test:security        # 1,123 adversarial and denied-path tests passed
 pnpm test:egress-product  # connect-time guard product and policy paths
 pnpm test:sandbox:real    # real Seatbelt/bubblewrap denial probes (opt-in)
 keel audit export <id>    # then verify the bundle offline:
 keel audit verify <bundle>
 ```
 
-The security-suite count was measured on 2026-07-31 at commit
-[`a22b127`](https://github.com/keel-harness/keel/commit/a22b127fd37858920d006205758e46cd037e8565);
+The security-suite count was measured on 2026-08-13 at commit
+[`ec2840a`](https://github.com/keel-harness/keel/commit/ec2840a8d08618ea289f4fc682c20259ba5bd987);
 the command and exact reporter detail are recorded in the
 [evidence-number ledger](../quality/evidence-numbers.json).
 

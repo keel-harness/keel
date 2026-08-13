@@ -52,8 +52,9 @@ Phase 2B signed, offline-verifiable evidence bundles are implemented for exporte
 `process.run` accepts one bounded literal argv vector and routes it through Warden policy, the
 existing broad process sandbox profile, and intent/outcome audit. It adds no shell interpolation,
 model-controlled environment, working directory, stdin, or background authority, and does not make
-the invoked executable inherently safe. Its live-model efficacy remains `NOT_RUN`; the shipped
-evidence proves the governed product path, not that arbitrary models will choose it effectively.
+the invoked executable inherently safe. A bounded live Anthropic run exercised `process.run`, but
+model-selection efficacy remains `NOT_RUN`; the shipped evidence proves the governed product path,
+not that arbitrary models will choose it effectively.
 
 `git.push` is deliberately narrower than a generic Git command. It binds one canonical HTTPS
 repository, one exact non-default `refs/heads/*` destination, and one full commit OID; runs supported

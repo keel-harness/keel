@@ -1,10 +1,13 @@
 # keel documentation index
 
-A map of the docs, by what you are trying to do. New here? Read the
-[architecture one-pager](architecture.md), then the top-level [`README.md`](../README.md).
+A map of the docs, by what you are trying to do. New here? Start with
+[Getting started](guide/getting-started.md), then read the
+[architecture one-pager](architecture.md).
 
 ## Start here
 
+- **[guide/getting-started.md](guide/getting-started.md)** — install, authenticate, complete a
+  governed change, and learn the everyday commands.
 - **[architecture.md](architecture.md)** — the one-page tour: the kernel/warden split, the ports,
   connect-time egress checks, and the audit record.
 - **[status.md](status.md)** — what is true today: the release status, what keel governs, and
@@ -14,8 +17,6 @@ A map of the docs, by what you are trying to do. New here? Read the
 
 ## Using keel
 
-- **[guide/getting-started.md](guide/getting-started.md)** — authenticate, launch a session, and
-  the everyday commands.
 - **[guide/concepts.md](guide/concepts.md)** — the core ideas: the model/warden split, trust,
   autonomy postures, reviews, and evidence.
 - **[guide/reference.md](guide/reference.md)** — every command, flag, environment variable, and
