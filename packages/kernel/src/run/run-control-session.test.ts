@@ -593,6 +593,51 @@ describe("run-control sessions (Epic 2.12 product path)", () => {
     expect(frame).toContain(`note\n  ${controller}`);
   });
 
+  it("credits a successful controller exit check after the model turn changed a file", async () => {
+    const e = env();
+    const store = SessionStore.create({ cwd: "/w" }, e);
+    const ui = new CapturingUI();
+    const executor: ExecutorPort = {
+      execute: (call) => {
+        if (call.name === "write") {
+          return Promise.resolve({ ok: true, output: "write: created 'result.txt' (3 bytes)" });
+        }
+        if (call.name === "bash") {
+          return Promise.resolve({
+            ok: true,
+            output: JSON.stringify({ exitCode: 0, signal: null, stdout: "", stderr: "" }),
+          });
+        }
+        return Promise.resolve({ ok: false, output: `unexpected tool ${call.name}` });
+      },
+    };
+
+    const outcome = await runBoundedLoopSession({
+      model: new ScriptedModel({
+        turns: [
+          { toolCalls: [{ name: "write", args: { path: "result.txt", content: "ok\n" } }] },
+          { text: "the requested file is ready" },
+        ],
+      }),
+      executor,
+      ui,
+      store,
+      seed: [{ role: "user", content: "write result.txt and verify it" }],
+      env: e,
+      loop: { ...loop, bounds: { maxIterations: 1 } },
+    });
+
+    store.close();
+    expect(outcome.lastStop).toBe("model-stop");
+    expect(ui.latest?.turnSummary?.fileEvidence).toHaveLength(1);
+    expect(ui.latest?.turnSummary?.checked).toEqual(["pnpm test"]);
+    const frame = renderFrame(ui.latest!);
+    expect(frame).toContain("loop succeeded");
+    expect(frame).toContain("checked");
+    expect(frame).toContain("pnpm test");
+    expect(frame).not.toContain("verification not run");
+  });
+
   // "No hidden green": a FAILING exit check must never read as passed just because the governed
   // result carries a warden guidance header before the JSON body (`header\n\nbody`, e.g. a POL-008
   // `warn` on `pnpm install`). The old detector JSON.parse'd the whole output, so the header broke
@@ -643,6 +688,7 @@ describe("run-control sessions (Epic 2.12 product path)", () => {
       ).length,
     ).toBeGreaterThan(0);
     expect(checks).toBe(2); // it kept iterating instead of stopping early on a false pass
+    expect(ui.latest?.turnSummary?.checked).toEqual([]);
     expect(renderFrame(ui.latest!)).not.toMatch(/loop succeeded/iu);
   });
 
