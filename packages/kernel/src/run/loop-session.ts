@@ -144,7 +144,12 @@ function stopReasonFromTurn(
   return undefined;
 }
 
-function renderReceipt(ui: UIPort, view: ViewModel, content: string): ViewModel {
+function renderReceipt(
+  ui: UIPort,
+  view: ViewModel,
+  content: string,
+  controllerVerifiedCommand?: string,
+): ViewModel {
   const current = view.turnSummary ?? {
     title: "done" as const,
     changed: [],
@@ -152,11 +157,16 @@ function renderReceipt(ui: UIPort, view: ViewModel, content: string): ViewModel 
     attention: [],
   };
   const successful = content.startsWith("loop succeeded");
+  const checked =
+    controllerVerifiedCommand === undefined
+      ? current.checked
+      : [...new Set([...current.checked, controllerVerifiedCommand])];
   const next = reduce(view, {
     type: "turn-finalized",
     summary: {
       ...current,
       title: successful ? current.title : "needs attention",
+      checked,
       receipt: content.split("\n"),
     },
   });
@@ -531,6 +541,7 @@ export async function runBoundedLoopSession(opts: BoundedLoopSessionOpts): Promi
             evidenceRefs,
             next: "bounded loop complete",
           }),
+          check.command,
         );
         return withLoopStoppedOutcome(latest, "succeeded", finalView);
       }
