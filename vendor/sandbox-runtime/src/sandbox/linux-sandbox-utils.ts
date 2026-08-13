@@ -1522,6 +1522,31 @@ export async function wrapCommandWithSandboxLinux(
       }
     }
 
+    // Runtime identity and the sandbox-owned TMPDIR apply to every sandboxed launch, including
+    // endpointless profiles that structurally deny all network access. Proxy credentials and CA
+    // paths remain scoped to launches that actually receive both authenticated bridge sockets.
+    const hasProxyBridge =
+      needsNetworkRestriction &&
+      httpSocketPath !== undefined &&
+      httpSocketPath.length > 0 &&
+      socksSocketPath !== undefined &&
+      socksSocketPath.length > 0
+    const runtimeEnv = generateProxyEnvVars(
+      hasProxyBridge ? 3128 : undefined,
+      hasProxyBridge ? 1080 : undefined,
+      hasProxyBridge ? caCertPath : undefined,
+      hasProxyBridge ? proxyAuthToken : undefined,
+      writeConfig === undefined,
+    )
+    bwrapArgs.push(
+      ...runtimeEnv.flatMap((env: string) => {
+        const firstEq = env.indexOf('=')
+        const key = env.slice(0, firstEq)
+        const value = env.slice(firstEq + 1)
+        return ['--setenv', key, value]
+      }),
+    )
+
     // ========== NETWORK RESTRICTIONS ==========
     if (needsNetworkRestriction) {
       // Always unshare network namespace to isolate network access
@@ -1545,25 +1570,6 @@ export async function wrapCommandWithSandboxLinux(
               'The bridge process may have died. Try reinitializing the sandbox.',
           )
         }
-
-        // Add proxy environment variables
-        // HTTP_PROXY points to the socat listener inside the sandbox (port 3128)
-        // which forwards to the Unix socket that bridges to the host's proxy server
-        const proxyEnv = generateProxyEnvVars(
-          3128, // Internal HTTP listener port
-          1080, // Internal SOCKS listener port
-          caCertPath,
-          proxyAuthToken,
-          writeConfig === undefined,
-        )
-        bwrapArgs.push(
-          ...proxyEnv.flatMap((env: string) => {
-            const firstEq = env.indexOf('=')
-            const key = env.slice(0, firstEq)
-            const value = env.slice(firstEq + 1)
-            return ['--setenv', key, value]
-          }),
-        )
 
         // Add host proxy port environment variables for debugging/transparency
         // These show which host ports the Unix socket bridges connect to

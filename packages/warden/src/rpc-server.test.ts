@@ -21846,7 +21846,10 @@ printf '%s\\n' '${match}'
       const tempExecution = commandExecutionResult(
         WARDEN_METHODS["warden.execute"].result.parse(tempRaw.result),
       );
-      expect(tempExecution.exitCode).toBe(0);
+      expect(tempExecution, JSON.stringify(tempExecution)).toMatchObject({
+        exitCode: 0,
+        signal: null,
+      });
       const tempProbe = JSON.parse(readFileSync(tempReportPath, "utf8")) as {
         readonly root: string;
         readonly value: string;

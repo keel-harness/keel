@@ -1,0 +1,52 @@
+From: Keel maintainers <maintainers@keel.dev>
+Date: Thu, 13 Aug 2026 00:00:00 -0400
+Subject: [PATCH] preserve runtime environment for endpointless Linux launches
+
+Local incremental patch record against Keel's reviewed
+@anthropic-ai/sandbox-runtime v0.0.59 postimage
+(upstream 3f4233f173227ca2e9dfde8c4985bc31811a64fc).
+
+The reviewed postimage is carried in these vendored paths:
+
+- src/sandbox/linux-sandbox-utils.ts
+- test/sandbox/launch-authority-lifecycle.test.ts
+- test/sandbox/launch-authority.test.ts
+
+Root cause:
+
+The Linux wrapper emitted generateProxyEnvVars() only inside the authenticated
+HTTP/SOCKS bridge branch. A profile that structurally denied all network access
+correctly received no endpoints, token, or proxy authority, but consequently
+also missed the non-secret SANDBOX_RUNTIME marker and the Warden-selected
+TMPDIR. The temp root remained mounted and writable, yet ordinary child temp
+file APIs could not discover it.
+
+Contract anchors required by Keel's vendor verifier:
+
+- endpointless profiles receive SANDBOX_RUNTIME=1
+- endpointless filesystem profiles receive the trusted sandbox-owned TMPDIR
+- proxy credentials and CA paths require both authenticated bridge sockets
+- empty bridge paths cannot project proxy credentials or CA paths
+- endpointless profiles retain no HTTP, HTTPS, SOCKS, token, or host-port state
+- filesystem, network, credential, TLS, audit, policy, and retry authority are
+  unchanged
+
+Evidence:
+
+- a real Linux bubblewrap launch asserts the exact child TMPDIR key rather than
+  matching the CLAUDE_CODE_TMPDIR substring;
+- the same launch asserts SANDBOX_RUNTIME and rejects every proxy environment
+  spelling while retaining the existing no-endpoint checks;
+- an emitted-argv regression passes empty bridge paths alongside credential and
+  CA canaries and proves none of that proxy authority reaches the child;
+- the spawned-Warden filesystem probe runs node --test, writes through TMPDIR,
+  verifies the owner-only root, and retains all neighboring denial probes.
+
+Security and compatibility:
+
+The patch moves runtime environment emission outside the proxy-socket branch.
+It still passes proxy ports, proxy authentication, and CA trust paths to
+generateProxyEnvVars() only when both authenticated bridge sockets exist.
+Profiles without filesystem restrictions preserve the inherited TMPDIR exactly
+as before. The patch is minimal and upstreamable; recorded 2026-08-13 and not
+yet submitted upstream.

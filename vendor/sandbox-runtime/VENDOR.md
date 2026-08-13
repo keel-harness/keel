@@ -56,6 +56,7 @@ not source needed for Keel's reviewed adapter path:
 - `patches/per-launch-srt-authority.patch`
 - `patches/retry-released-endpoint-lease-locks.patch`
 - `patches/preserve-posix-literal-argv.patch`
+- `patches/preserve-endpointless-runtime-env.patch`
 - `test/sandbox/linux-proxy-readiness.test.ts`
 - `test/sandbox/destination-dial.test.ts`
 - `test/sandbox/destination-guard-proxy.test.ts`
@@ -295,6 +296,28 @@ not source needed for Keel's reviewed adapter path:
   probe cover `!`, `!==`, a pre-existing backslash before `!`, embedded quotes, and injection-looking
   neighbors without sibling effects.
 - Upstreamable status: minimal and upstreamable. Recorded 2026-08-12; not yet submitted upstream.
+
+### Preserve runtime environment for endpointless Linux launches
+
+- Patch: `patches/preserve-endpointless-runtime-env.patch`
+- Applied files: `src/sandbox/linux-sandbox-utils.ts`,
+  `test/sandbox/launch-authority-lifecycle.test.ts`, and
+  `test/sandbox/launch-authority.test.ts`.
+- Composition: incremental after the per-launch authority and literal-argv patches. The vendor
+  verifier pins the resulting source, regression, and patch-record postimages.
+- Reason: Linux emitted `generateProxyEnvVars()` only after both authenticated bridge sockets existed.
+  An exact deny-all launch correctly allocated no proxy authority but therefore also omitted the
+  non-secret `SANDBOX_RUNTIME` marker and the Warden-selected `TMPDIR`, even though that private root
+  was the launch's only delegated temporary write authority.
+- Security impact: all sandboxed Linux launches now receive the runtime marker, and filesystem-scoped
+  launches receive the trusted temp root. Proxy variables, credentials, CA paths, and host-port
+  metadata remain conditional on both authenticated bridge sockets. Endpointless launches remain
+  network-denied and expose no proxy endpoint or token.
+- Evidence: a real Linux bubblewrap regression asserts exact child environment keys and absence of all
+  proxy spellings; an emitted-argv adversarial case proves empty bridge paths cannot project credential
+  or CA canaries; the spawned-Warden filesystem probe writes through `TMPDIR`, verifies owner-only mode,
+  and retains the surrounding read/write denial probes.
+- Upstreamable status: minimal and upstreamable. Recorded 2026-08-13; not yet submitted upstream.
 
 ## License And Notice
 

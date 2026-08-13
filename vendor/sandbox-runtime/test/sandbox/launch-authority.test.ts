@@ -219,27 +219,46 @@ suite('immutable per-launch SRT authority', () => {
     denied.network.allowedDomains = []
     denied.network.deniedDomains = ['*']
     denied.network.strictAllowlist = true
-    manager.initializeLaunchAuthority(registryPath)
+    const sandboxTempRoot = privateRoot()
+    const previousTempRoot = process.env.CLAUDE_CODE_TMPDIR
+    process.env.CLAUDE_CODE_TMPDIR = sandboxTempRoot
+    try {
+      manager.initializeLaunchAuthority(registryPath)
 
-    for (let index = 0; index < 3; index++) {
-      const launch = await manager.prepareLaunchAuthority(denied, {
-        command: 'env',
-        binShell: '/bin/bash',
-        endpointRegistryPath: registryPath,
-      })
-      try {
-        const rendered = launch.argv.join(' ')
-        expect(rendered).not.toMatch(/srt:[0-9a-f]{64}@localhost/u)
-        expect(rendered).not.toMatch(
-          /CLAUDE_CODE_HOST_HTTP_PROXY_PORT(?:=|\\=|\s+)\d+/u,
-        )
-        const execution = await runPreparedLaunch(launch)
-        expect(execution.exitCode).toBe(0)
-        expect(execution.stdout).not.toMatch(/^(?:HTTP|HTTPS|ALL|FTP|RSYNC|GRPC)_PROXY=/mu)
-        expect(execution.stdout).not.toMatch(/^(?:http|https|all|ftp|grpc)_proxy=/mu)
-      } finally {
-        await launch.cleanup()
+      for (let index = 0; index < 3; index++) {
+        const launch = await manager.prepareLaunchAuthority(denied, {
+          command: 'env',
+          binShell: '/bin/bash',
+          endpointRegistryPath: registryPath,
+        })
+        try {
+          const rendered = launch.argv.join(' ')
+          expect(rendered).not.toMatch(/srt:[0-9a-f]{64}@localhost/u)
+          expect(rendered).not.toMatch(
+            /CLAUDE_CODE_HOST_HTTP_PROXY_PORT(?:=|\\=|\s+)\d+/u,
+          )
+          const execution = await runPreparedLaunch(launch)
+          expect(execution.exitCode).toBe(0)
+          const launchDiagnostic = JSON.stringify({ argv: launch.argv, stdout: execution.stdout })
+          const sandboxEnv = Object.fromEntries(
+            execution.stdout.trimEnd().split('\n').map(line => {
+              const separator = line.indexOf('=')
+              return [line.slice(0, separator), line.slice(separator + 1)]
+            }),
+          )
+          expect(sandboxEnv.TMPDIR, launchDiagnostic).toBe(sandboxTempRoot)
+          expect(sandboxEnv.SANDBOX_RUNTIME, launchDiagnostic).toBe('1')
+          expect(execution.stdout).not.toMatch(
+            /^(?:HTTP|HTTPS|ALL|FTP|RSYNC|GRPC)_PROXY=/mu,
+          )
+          expect(execution.stdout).not.toMatch(/^(?:http|https|all|ftp|grpc)_proxy=/mu)
+        } finally {
+          await launch.cleanup()
+        }
       }
+    } finally {
+      if (previousTempRoot === undefined) delete process.env.CLAUDE_CODE_TMPDIR
+      else process.env.CLAUDE_CODE_TMPDIR = previousTempRoot
     }
 
     expect(existsSync(registryPath)).toBe(true)
