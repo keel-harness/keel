@@ -164,7 +164,7 @@ describe("runDoctor — git.push non-secret preflight", () => {
       label: "git.push",
       status: "ok",
       detail:
-        "Git 2.39.5 · canonical origin HTTPS · operator helper authority eligible (credential availability checked only after approval) · SRT/TLS/address guard session-gated",
+        "Git 2.39.5 · canonical origin HTTPS · helper command structurally eligible; path-scoped credentials not checked (resolved only after approval) · SRT/TLS/address guard session-gated",
     });
   });
 

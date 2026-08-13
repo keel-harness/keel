@@ -227,6 +227,58 @@ describe("view-model reducer", () => {
     },
   );
 
+  it("keeps credential-unavailable git.push recovery actionable in live and resumed TUI state", () => {
+    const oid = "0123456789abcdef0123456789abcdef01234567";
+    const result = {
+      kind: "git_push_result",
+      status: "failed",
+      failureKind: "credential-unavailable",
+      repository: "https://github.com/keel-harness/keel.git",
+      branch: "feature/publish",
+      destinationRef: "refs/heads/feature/publish",
+      commit: oid,
+      observedRef: null,
+      transport: "srt:vendored verified HTTPS with address guard",
+      automaticRetry: false,
+      actionMayHaveExecuted: false,
+    };
+    const output =
+      "git.push credential resolution was unavailable before network access; no automatic retry was attempted; run: gh auth login --git-protocol https && gh auth setup-git && keel doctor\n\n" +
+      JSON.stringify(result);
+    const call = {
+      id: "push-credential",
+      name: "git.push",
+      args: { remote: "origin", branch: "feature/publish", expectedHead: oid },
+    };
+    let live = initialView(seed);
+    live = reduce(live, { type: "tool-call", ...call });
+    live = reduce(
+      live,
+      markToolPresentationOutcome(
+        { type: "tool-result", id: call.id, ok: false, output },
+        "failed",
+      ),
+    );
+    const resumed = initialView(
+      [
+        { role: "assistant", content: "", toolCalls: [call] },
+        { role: "tool", content: output, toolCallId: call.id, name: call.name },
+      ],
+      {},
+      { failedToolMessageIndexes: new Set([1]) },
+    );
+
+    for (const candidate of [live, resumed]) {
+      expect(candidate.items.at(-1)).toMatchObject({
+        kind: "tool",
+        name: "git.push",
+        status: "error",
+        summary:
+          "credential unavailable · run gh auth login --git-protocol https && gh auth setup-git && keel doctor",
+      });
+    }
+  });
+
   it("does not promote an incomplete git.push lookalike to resumed indeterminate truth", () => {
     const content = JSON.stringify({
       kind: "git_push_result",

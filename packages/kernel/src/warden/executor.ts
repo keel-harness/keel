@@ -471,6 +471,18 @@ function renderGitPushAttempt(
       "partial",
     );
   }
+  if (detail["failureKind"] === "credential-unavailable") {
+    return markToolPresentationOutcome(
+      {
+        ok: false,
+        output: withBody(
+          "git.push credential resolution was unavailable before network access; no automatic retry was attempted; run: gh auth login --git-protocol https && gh auth setup-git && keel doctor",
+          body,
+        ),
+      },
+      "failed",
+    );
+  }
   return markToolPresentationOutcome(
     {
       ok: false,

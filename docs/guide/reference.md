@@ -47,8 +47,11 @@ guarding, `srt-launch-authority/v1` per-launch authenticated proxy/credential is
 lossless human approval for that occurrence once. It can create or ordinarily fast-forward one exact
 non-default feature ref. Force, deletion, tags, default branch writes, SSH, redirects, project
 credential helpers, reusable grants, and automatic retry are not supported. `keel doctor` reports
-these non-secret prerequisites and one remediation when possible; it never resolves or prints a
-credential. Retired network-bearing proxy endpoints are permanently excluded, so exhausting the finite endpoint
+these non-secret prerequisites; an eligible helper command is not proof that a path-scoped
+credential exists, and doctor never resolves or prints one. If an approved GitHub push returns
+`credential-unavailable`, run
+`gh auth login --git-protocol https && gh auth setup-git && keel doctor`, then submit a fresh request.
+Retired network-bearing proxy endpoints are permanently excluded, so exhausting the finite endpoint
 space withholds both publication tools and fails closed. Compact registry V2 makes the 25,536-port
 range the first bound. Exact deny-all launches allocate no proxy endpoint or credential authority,
 so offline endpointless execution remains available at capacity.

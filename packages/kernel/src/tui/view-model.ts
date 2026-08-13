@@ -1451,6 +1451,7 @@ interface GitPushResultProjection {
   readonly destinationRef: string;
   readonly commit: string;
   readonly actionMayHaveExecuted: boolean;
+  readonly failureKind?: "credential-unavailable";
 }
 
 const GIT_PUSH_FULL_OID = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u;
@@ -1481,6 +1482,7 @@ function parseGitPushResultProjection(
   const destinationRef = parsed["destinationRef"];
   const commit = parsed["commit"];
   const observedRef = parsed["observedRef"];
+  const failureKind = parsed["failureKind"];
   if (
     (status !== "pushed" &&
       status !== "already-at-commit" &&
@@ -1500,7 +1502,10 @@ function parseGitPushResultProjection(
     parsed["transport"] !== "srt:vendored verified HTTPS with address guard" ||
     parsed["automaticRetry"] !== false ||
     typeof parsed["actionMayHaveExecuted"] !== "boolean" ||
-    ((status === "pushed" || status === "already-at-commit") && observedRef !== commit)
+    ((status === "pushed" || status === "already-at-commit") && observedRef !== commit) ||
+    (failureKind !== undefined && failureKind !== "credential-unavailable") ||
+    (failureKind === "credential-unavailable" &&
+      (status !== "failed" || observedRef !== null || parsed["actionMayHaveExecuted"] !== false))
   ) {
     return undefined;
   }
@@ -1509,10 +1514,14 @@ function parseGitPushResultProjection(
     destinationRef,
     commit,
     actionMayHaveExecuted: parsed["actionMayHaveExecuted"],
+    ...(failureKind === "credential-unavailable" ? { failureKind } : {}),
   };
 }
 
 function gitPushResultSummary(result: GitPushResultProjection): string {
+  if (result.failureKind === "credential-unavailable") {
+    return "credential unavailable · run gh auth login --git-protocol https && gh auth setup-git && keel doctor";
+  }
   const label =
     result.status === "pushed"
       ? "pushed"

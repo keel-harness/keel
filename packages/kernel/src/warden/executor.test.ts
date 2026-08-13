@@ -239,6 +239,47 @@ describe("WardenExecutor", () => {
     },
   );
 
+  it("renders bounded credential-helper recovery for a pre-network git.push failure", async () => {
+    const executor = new WardenExecutor({
+      client: clientReturning({
+        verdict: "deny",
+        result: {
+          kind: "git_push_result",
+          status: "failed",
+          failureKind: "credential-unavailable",
+          repository: "https://github.com/keel-harness/keel.git",
+          branch: "feature/x",
+          destinationRef: "refs/heads/feature/x",
+          commit: "0123456789abcdef0123456789abcdef01234567",
+          observedRef: null,
+          transport: "srt:vendored verified HTTPS with address guard",
+          automaticRetry: false,
+          actionMayHaveExecuted: false,
+        },
+        auditSeq: 8,
+      }),
+      sessionId: SESSION_ID,
+    });
+
+    const result = await executor.execute(
+      call("git.push", {
+        remote: "origin",
+        branch: "feature/x",
+        expectedHead: "0123456789abcdef0123456789abcdef01234567",
+      }),
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.output).toContain("credential resolution was unavailable before network access");
+    expect(result.output).toContain(
+      "gh auth login --git-protocol https && gh auth setup-git && keel doctor",
+    );
+    expect(result.output).toContain('"failureKind":"credential-unavailable"');
+    expect(result.output).toContain('"actionMayHaveExecuted":false');
+    expect(result.output).not.toContain("raw-helper-output-DO-NOT-RETAIN");
+    expect(toolPresentationOutcome(result)).toBe("failed");
+  });
+
   it("returns an audited pre-execution git.push INVALID_PARAMS denial for model correction", async () => {
     const client = new FakeWardenClient({
       error: new WardenClientError("INVALID_PARAMS", "expectedHead must be one full object ID", {

@@ -544,7 +544,7 @@ function gitPushCheck(input: DoctorInput): DoctorCheck | undefined {
   return {
     ...base,
     status: "ok",
-    detail: `Git ${version} · canonical origin HTTPS · operator helper authority eligible (credential availability checked only after approval) · SRT/TLS/address guard session-gated`,
+    detail: `Git ${version} · canonical origin HTTPS · helper command structurally eligible; path-scoped credentials not checked (resolved only after approval) · SRT/TLS/address guard session-gated`,
   };
 }
 
