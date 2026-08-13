@@ -55,6 +55,7 @@ not source needed for Keel's reviewed adapter path:
 - `patches/runtime-aware-http-proxy-close.patch`
 - `patches/per-launch-srt-authority.patch`
 - `patches/retry-released-endpoint-lease-locks.patch`
+- `patches/preserve-posix-literal-argv.patch`
 - `test/sandbox/linux-proxy-readiness.test.ts`
 - `test/sandbox/destination-dial.test.ts`
 - `test/sandbox/destination-guard-proxy.test.ts`
@@ -68,6 +69,7 @@ not source needed for Keel's reviewed adapter path:
 - `test/sandbox/launch-authority.test.ts`
 - `test/sandbox/mandatory-deny-paths.test.ts`
 - `test/sandbox/socks-server-lifecycle.test.ts`
+- `test/sandbox/posix-shell-quote.test.ts`
 
 ## Local Patches
 
@@ -273,6 +275,26 @@ not source needed for Keel's reviewed adapter path:
   verifier pins both exact accepted postimages.
 - Upstreamable status: part of Keel's per-launch authority extension. Recorded 2026-08-12; not yet
   submitted upstream.
+
+### Preserve literal argv through POSIX sandbox wrapping
+
+- Patch: `patches/preserve-posix-literal-argv.patch`
+- Applied files: `src/sandbox/posix-shell-quote.ts`, `src/sandbox/macos-sandbox-utils.ts`,
+  `src/sandbox/linux-sandbox-utils.ts`, and `test/sandbox/posix-shell-quote.test.ts`.
+- Composition: incremental after the per-launch SRT authority patch. The vendor verifier pins the
+  resulting source and regression postimages.
+- Reason: `shell-quote` double-quotes an already-rendered command string containing whitespace and
+  single quotes, then emits `\!`. POSIX shells retain that backslash inside double quotes, so a trusted
+  direct-argv `process.run` request containing `!` reached the contained child with an extra byte even
+  though the Warden retained and audited the exact original argv.
+- Security impact: restores byte-for-byte direct argv at the existing shell bridge. Values containing
+  `!` use lossless POSIX single-quote rendering at every nested macOS/Linux sandbox command layer;
+  other values keep upstream rendering. Validation, policy, sandbox profiles, review binding, audit,
+  no-retry behavior, TLS verification, credential handling, and process.run authority are unchanged.
+- Evidence: deterministic two-layer shell round-trip coverage plus the real macOS Seatbelt literal-argv
+  probe cover `!`, `!==`, a pre-existing backslash before `!`, embedded quotes, and injection-looking
+  neighbors without sibling effects.
+- Upstreamable status: minimal and upstreamable. Recorded 2026-08-12; not yet submitted upstream.
 
 ## License And Notice
 

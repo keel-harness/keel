@@ -1,6 +1,7 @@
 import shellquote from 'shell-quote'
 import { logForDebugging } from '../utils/debug.js'
 import { whichSync } from '../utils/which.js'
+import { quotePosixShellArgs } from './posix-shell-quote.js'
 import { randomBytes } from 'node:crypto'
 import * as fs from 'fs'
 import { spawn } from 'node:child_process'
@@ -850,15 +851,15 @@ export function buildSandboxCommand(
   // apply-seccomp runs after socat so socat can still create Unix sockets.
   if (applySeccompPrefix) {
     const applySeccompCmd =
-      applySeccompPrefix + shellquote.quote([shellPath, '-c', userCommand])
+      applySeccompPrefix + quotePosixShellArgs([shellPath, '-c', userCommand])
     const innerScript = [...socatCommands, applySeccompCmd].join('\n')
-    return `${shellPath} -c ${shellquote.quote([innerScript])}`
+    return `${shellPath} -c ${quotePosixShellArgs([innerScript])}`
   } else {
     const innerScript = [
       ...socatCommands,
-      `eval ${shellquote.quote([userCommand])}`,
+      `eval ${quotePosixShellArgs([userCommand])}`,
     ].join('\n')
-    return `${shellPath} -c ${shellquote.quote([innerScript])}`
+    return `${shellPath} -c ${quotePosixShellArgs([innerScript])}`
   }
 }
 
@@ -1680,13 +1681,13 @@ export async function wrapCommandWithSandboxLinux(
       bwrapArgs.push(sandboxCommand)
     } else if (applySeccompPrefix) {
       const applySeccompCmd =
-        applySeccompPrefix + shellquote.quote([shell, '-c', command])
+        applySeccompPrefix + quotePosixShellArgs([shell, '-c', command])
       bwrapArgs.push(applySeccompCmd)
     } else {
       bwrapArgs.push(command)
     }
 
-    const wrappedCommand = shellquote.quote([
+    const wrappedCommand = quotePosixShellArgs([
       bwrapPath ?? 'bwrap',
       ...bwrapArgs,
     ])

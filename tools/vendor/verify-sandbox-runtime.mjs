@@ -21,6 +21,7 @@ const expected = {
     "patches/read-hidden-write-deny.patch",
     "patches/preserve-linux-hidden-authority.patch",
     "patches/retry-released-endpoint-lease-locks.patch",
+    "patches/preserve-posix-literal-argv.patch",
     "patches/wait-for-linux-proxy-readiness.patch",
     "patches/reemit-macos-glob-read-denies.patch",
     "package.json",
@@ -31,9 +32,11 @@ const expected = {
     "src/sandbox/sandbox-manager.ts",
     "src/sandbox/linux-sandbox-utils.ts",
     "src/sandbox/macos-sandbox-utils.ts",
+    "src/sandbox/posix-shell-quote.ts",
     "src/sandbox/windows-sandbox-utils.ts",
     "test/sandbox/wrap-with-sandbox.test.ts",
     "test/sandbox/mandatory-deny-paths.test.ts",
+    "test/sandbox/posix-shell-quote.test.ts",
     "test/sandbox/linux-proxy-readiness.test.ts",
     "test/sandbox/destination-dial.test.ts",
     "test/sandbox/destination-guard-proxy.test.ts",
@@ -267,7 +270,7 @@ const launchAuthorityPostimage = {
   "src/sandbox/http-proxy.ts":
     "40b7ab556a176e923ec9581ee42f85820dad609f83973006abe192b79a4c9d7d",
   "src/sandbox/linux-sandbox-utils.ts":
-    "e360faeb2795fb0a3dba0e4f31a5c9023d2723f081d7f57ff72655bd58d3f74e",
+    "46a20ebdb28e20489b3e0c80085add9593beefcf1190a52d2d2034123354637c",
   "src/sandbox/sandbox-manager.ts":
     "1035d4ffc297d6f176207fdf619bcfbe12956c42279014dd9b4f0b6ca4ecb483",
   "src/sandbox/socks-proxy.ts":
@@ -313,6 +316,37 @@ assert(
     "4b869b8c937c17d9286aa28ea0a90c497f625b57ec4032a1b3b9e7938e097355",
   "released-lock patch record digest mismatch",
 );
+const literalArgvPatch = await readFile(
+  new URL("patches/preserve-posix-literal-argv.patch", vendorDir),
+  "utf8",
+);
+for (const token of [
+  "src/sandbox/posix-shell-quote.ts",
+  "src/sandbox/macos-sandbox-utils.ts",
+  "src/sandbox/linux-sandbox-utils.ts",
+  "test/sandbox/posix-shell-quote.test.ts",
+  "quotePosixShellArgs",
+  "no shell composition, environment, cwd, stdin, background, or retry authority",
+]) {
+  assert(literalArgvPatch.includes(token), `literal-argv patch omits ${token}`);
+}
+assert(
+  (await sha256("patches/preserve-posix-literal-argv.patch")) ===
+    "c337e8592012a044dbef96b75d0627c2868f3e476fd924ac1cf00585cd43b237",
+  "literal-argv patch record digest mismatch",
+);
+for (const [path, digest] of Object.entries({
+  "src/sandbox/posix-shell-quote.ts":
+    "e363395052f4563f81a3158c9ad93e5873210f08ca89bf16290735f946ccc8ea",
+  "src/sandbox/macos-sandbox-utils.ts":
+    "9faddbbdf3ff183b76a51874688ca4b8afadab455fd97e17b6d798ff3c17f5f2",
+  "src/sandbox/linux-sandbox-utils.ts":
+    "46a20ebdb28e20489b3e0c80085add9593beefcf1190a52d2d2034123354637c",
+  "test/sandbox/posix-shell-quote.test.ts":
+    "14b07eaf3dbb6a161a93d484d649778a87676571a3535de304b5ddb90a3435d0",
+})) {
+  assert((await sha256(path)) === digest, `literal-argv patch postimage drifted: ${path}`);
+}
 const endpointRegistrySource = await readFile(
   new URL("src/sandbox/endpoint-lease-registry.ts", vendorDir),
   "utf8",

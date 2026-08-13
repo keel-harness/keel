@@ -34,6 +34,7 @@ export default defineConfig({
       "packages/*/src/**/*.test.tsx",
       "packaging/**/*.test.ts",
       "vendor/sandbox-runtime/test/sandbox/linux-proxy-readiness.test.ts",
+      "vendor/sandbox-runtime/test/sandbox/posix-shell-quote.test.ts",
       "vendor/sandbox-runtime/test/sandbox/destination-dial.test.ts",
       "vendor/sandbox-runtime/test/sandbox/destination-guard-proxy.test.ts",
       "vendor/sandbox-runtime/test/sandbox/http-server-lifecycle.test.ts",

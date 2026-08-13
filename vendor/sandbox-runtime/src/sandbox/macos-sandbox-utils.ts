@@ -1,4 +1,4 @@
-import shellquote from 'shell-quote'
+import { quotePosixShellArgs } from './posix-shell-quote.js'
 import { spawn } from 'child_process'
 import * as path from 'path'
 import { logForDebugging } from '../utils/debug.js'
@@ -909,7 +909,7 @@ export function wrapCommandWithSandboxMacOS(
 
   // Use `env` command to set environment variables - each VAR=value is a separate
   // argument that shellquote handles properly, avoiding shell quoting issues
-  const wrappedCommand = shellquote.quote([
+  const wrappedCommand = quotePosixShellArgs([
     'env',
     ...unsetEnvArgs,
     ...setEnvArgs,

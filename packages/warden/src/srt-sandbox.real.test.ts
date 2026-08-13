@@ -335,6 +335,9 @@ suite("real SRT sandbox enforcement (opt-in: KEEL_REQUIRE_REAL_SANDBOX=1)", () =
       "2>&1",
       "*.txt",
       "{a,b}",
+      "literal!bang",
+      "literal!==comparison",
+      "literal\\!backslash-bang",
       "-leading",
       "",
     ];
@@ -349,7 +352,7 @@ suite("real SRT sandbox enforcement (opt-in: KEEL_REQUIRE_REAL_SANDBOX=1)", () =
       profile,
     );
 
-    expect(result.exitCode).toBe(0);
+    expect(result.exitCode, result.stderr).toBe(0);
     expect(JSON.parse(result.stdout)).toEqual(literalArgs);
     expect(existsSync(canary)).toBe(false);
   });
