@@ -20,6 +20,7 @@ const expected = {
     "patches/runtime-aware-http-proxy-close.patch",
     "patches/read-hidden-write-deny.patch",
     "patches/preserve-linux-hidden-authority.patch",
+    "patches/retry-released-endpoint-lease-locks.patch",
     "patches/wait-for-linux-proxy-readiness.patch",
     "patches/reemit-macos-glob-read-denies.patch",
     "package.json",
@@ -262,7 +263,7 @@ assert(
 );
 const launchAuthorityPostimage = {
   "src/sandbox/endpoint-lease-registry.ts":
-    "6bd8e7e4f48f0fc6c3f210a45006b4bb36db1c8263568f1dd14ac2aa62cc3583",
+    "c40873e8f1aa01a8911ce9e0f87992f099194f53a61064c6681a7f066edc22cf",
   "src/sandbox/http-proxy.ts":
     "40b7ab556a176e923ec9581ee42f85820dad609f83973006abe192b79a4c9d7d",
   "src/sandbox/linux-sandbox-utils.ts":
@@ -276,7 +277,7 @@ const launchAuthorityPostimage = {
   "test/sandbox/endpoint-lease-registry.test.ts":
     "fdea7a1ac92fcff604135fcde4fa2c972718f1ba842ccec30981d2a5f4ebcc7d",
   "test/sandbox/endpoint-lease-registry-aba.test.ts":
-    "8be035029d226f2733e3baa08689eb3fce81f6d1ef5dda459d90b99f1d6acf82",
+    "47e177dc94ecedc1de3a4ed6f7c077b258be439ad5c2b68c65e5c3bb350d1a80",
   "test/sandbox/endpoint-lease-child.ts":
     "4a90fe2910cbd9744368b5de46ed89ecb8aee8a39d5927feeb40ee62350cf420",
   "test/sandbox/http-server-lifecycle.test.ts":
@@ -297,6 +298,21 @@ const launchAuthorityPostimage = {
 for (const [path, digest] of Object.entries(launchAuthorityPostimage)) {
   assert((await sha256(path)) === digest, `per-launch authority postimage drifted: ${path}`);
 }
+const releasedLockPatchPath = "patches/retry-released-endpoint-lease-locks.patch";
+const releasedLockPatch = await readFile(new URL(releasedLockPatchPath, vendorDir), "utf8");
+for (const token of [
+  "src/sandbox/endpoint-lease-registry.ts",
+  "test/sandbox/endpoint-lease-registry-aba.test.ts",
+  "this.lock?.released === false",
+  "sequential operations reacquire the lock",
+]) {
+  assert(releasedLockPatch.includes(token), `released-lock patch omits ${token}`);
+}
+assert(
+  (await sha256(releasedLockPatchPath)) ===
+    "4b869b8c937c17d9286aa28ea0a90c497f625b57ec4032a1b3b9e7938e097355",
+  "released-lock patch record digest mismatch",
+);
 const endpointRegistrySource = await readFile(
   new URL("src/sandbox/endpoint-lease-registry.ts", vendorDir),
   "utf8",

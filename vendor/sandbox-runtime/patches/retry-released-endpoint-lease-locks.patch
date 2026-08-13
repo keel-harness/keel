@@ -1,0 +1,32 @@
+From: Keel maintainers <maintainers@keel.dev>
+Date: Wed, 12 Aug 2026 00:00:00 -0400
+Subject: [PATCH] retry endpoint lease mutations after a released lock
+
+Local incremental patch record against Keel's reviewed
+@anthropic-ai/sandbox-runtime v0.0.59 postimage
+(upstream 3f4233f173227ca2e9dfde8c4985bc31811a64fc).
+
+The reviewed postimage is carried in these vendored paths:
+
+- src/sandbox/endpoint-lease-registry.ts
+- test/sandbox/endpoint-lease-registry-aba.test.ts
+
+The per-launch authority patch originally pinned one registry object to one
+lock lifetime. A multi-operation registry instance could release the lock
+after its first mutation, then reject the next valid operation before trying
+to reacquire it. PR #218 changed withExclusiveLock() to treat a released lock
+as absent and added an ABA regression proving sequential operations reacquire
+authority safely.
+
+Contract anchors required by Keel's vendor verifier:
+
+- this.lock?.released === false
+- sequential operations reacquire the lock
+- compare-and-swap and generation ownership remain unchanged
+- no endpoint reuse, token exposure, policy, sandbox, audit, TLS, credential,
+  or security-claim weakening
+
+This record reconciles the already-reviewed #218 postimages with the vendor
+integrity gate. It changes no runtime bytes beyond #218. The patch is part of
+Keel's per-launch authority extension rather than an upstream v0.0.59 change;
+recorded 2026-08-12 and not yet submitted upstream.
