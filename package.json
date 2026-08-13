@@ -65,7 +65,7 @@
   "dependencies": {
     "@pondwader/socks5-server": "1.0.10",
     "node-forge": "1.4.0",
-    "shell-quote": "1.9.0",
+    "shell-quote": "1.10.0",
     "zod": "3.25.76"
   }
 }
