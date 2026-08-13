@@ -34,6 +34,41 @@ afterEach(async () => {
 })
 
 describe('launch authority cleanup deadline', () => {
+  it('keeps proxy authority out of endpointless Linux runtime environment', async () => {
+    const root = realpathSync(
+      mkdtempSync(join(tmpdir(), 'keel-linux-endpointless-env-')),
+    )
+    chmodSync(root, 0o700)
+    roots.push(root)
+    const previousTempRoot = process.env.CLAUDE_CODE_TMPDIR
+    process.env.CLAUDE_CODE_TMPDIR = root
+    try {
+      const wrapped = await wrapCommandWithSandboxLinux({
+        command: 'true',
+        needsNetworkRestriction: true,
+        httpSocketPath: '',
+        socksSocketPath: '',
+        proxyAuthToken: 'keel-proxy-secret',
+        caCertPath: '/tmp/keel-proxy-ca.pem',
+        readConfig: { denyOnly: [] },
+        writeConfig: { allowOnly: [root], denyWithinAllow: [] },
+        allowAllUnixSockets: true,
+        binShell: '/bin/sh',
+        bwrapPath: '/usr/bin/true',
+      })
+
+      expect(wrapped).toContain('--setenv SANDBOX_RUNTIME 1')
+      expect(wrapped).toContain(`--setenv TMPDIR ${root}`)
+      expect(wrapped).not.toContain('keel-proxy-secret')
+      expect(wrapped).not.toContain('/tmp/keel-proxy-ca.pem')
+      expect(wrapped).not.toMatch(/--setenv (?:HTTP|HTTPS|ALL)_PROXY/u)
+    } finally {
+      cleanupBwrapMountPoints()
+      if (previousTempRoot === undefined) delete process.env.CLAUDE_CODE_TMPDIR
+      else process.env.CLAUDE_CODE_TMPDIR = previousTempRoot
+    }
+  })
+
   it('binds authenticated Linux bridge sockets after a denied authority root is masked', async () => {
     const root = realpathSync(
       mkdtempSync(join(tmpdir(), 'keel-linux-denied-bridge-')),

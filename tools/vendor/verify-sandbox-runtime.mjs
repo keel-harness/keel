@@ -20,6 +20,7 @@ const expected = {
     "patches/runtime-aware-http-proxy-close.patch",
     "patches/read-hidden-write-deny.patch",
     "patches/preserve-linux-hidden-authority.patch",
+    "patches/preserve-endpointless-runtime-env.patch",
     "patches/retry-released-endpoint-lease-locks.patch",
     "patches/preserve-posix-literal-argv.patch",
     "patches/wait-for-linux-proxy-readiness.patch",
@@ -270,7 +271,7 @@ const launchAuthorityPostimage = {
   "src/sandbox/http-proxy.ts":
     "40b7ab556a176e923ec9581ee42f85820dad609f83973006abe192b79a4c9d7d",
   "src/sandbox/linux-sandbox-utils.ts":
-    "46a20ebdb28e20489b3e0c80085add9593beefcf1190a52d2d2034123354637c",
+    "2a481864d3a3fe2daf638853bdcb718508f7afe0d28bf9c3fd5b21451bdd8e6b",
   "src/sandbox/sandbox-manager.ts":
     "1035d4ffc297d6f176207fdf619bcfbe12956c42279014dd9b4f0b6ca4ecb483",
   "src/sandbox/socks-proxy.ts":
@@ -286,9 +287,9 @@ const launchAuthorityPostimage = {
   "test/sandbox/http-server-lifecycle.test.ts":
     "2734ddae95ad7dde284d081252b45f5a1a315a8438c915499883a12be549a196",
   "test/sandbox/launch-authority-lifecycle.test.ts":
-    "b0de62fbc78838b1c9fe71412c8e6b86e2b479f36a1a0ee0117e68e94e10f71a",
+    "66cda3cb8eb159064f22cb708844bfa2120dc897067686b0c6ed1fb903ee45a1",
   "test/sandbox/launch-authority.test.ts":
-    "90f22d680fc12810a67fd992c16fa2f7e68926fad304626474d39b9179b59c4c",
+    "93ad19c677e297c28875ed19130fd85a6380bd7bab856ef9ae16d62d3d95ef54",
   "test/sandbox/linux-bridge-process-group.test.ts":
     "d83c523bac7beff3d2815eed527c55de7ed052c9936f4bb47da79cfd20dbb7f8",
   "test/sandbox/mandatory-deny-paths.test.ts":
@@ -341,12 +342,51 @@ for (const [path, digest] of Object.entries({
   "src/sandbox/macos-sandbox-utils.ts":
     "9faddbbdf3ff183b76a51874688ca4b8afadab455fd97e17b6d798ff3c17f5f2",
   "src/sandbox/linux-sandbox-utils.ts":
-    "46a20ebdb28e20489b3e0c80085add9593beefcf1190a52d2d2034123354637c",
+    "2a481864d3a3fe2daf638853bdcb718508f7afe0d28bf9c3fd5b21451bdd8e6b",
   "test/sandbox/posix-shell-quote.test.ts":
     "14b07eaf3dbb6a161a93d484d649778a87676571a3535de304b5ddb90a3435d0",
 })) {
   assert((await sha256(path)) === digest, `literal-argv patch postimage drifted: ${path}`);
 }
+const endpointlessRuntimeEnvPatchPath = "patches/preserve-endpointless-runtime-env.patch";
+const endpointlessRuntimeEnvPatch = await readFile(
+  new URL(endpointlessRuntimeEnvPatchPath, vendorDir),
+  "utf8",
+);
+for (const token of [
+  "src/sandbox/linux-sandbox-utils.ts",
+  "test/sandbox/launch-authority-lifecycle.test.ts",
+  "test/sandbox/launch-authority.test.ts",
+  "endpointless profiles receive SANDBOX_RUNTIME=1",
+  "endpointless filesystem profiles receive the trusted sandbox-owned TMPDIR",
+  "proxy credentials and CA paths require both authenticated bridge sockets",
+  "empty bridge paths cannot project proxy credentials or CA paths",
+]) {
+  assert(
+    endpointlessRuntimeEnvPatch.includes(token),
+    `endpointless runtime-env patch omits ${token}`,
+  );
+}
+assert(
+  (await sha256(endpointlessRuntimeEnvPatchPath)) ===
+    "164f27f7bca2e575edc9b24d15dd32c7ba0aee968d10fcc1c3c2904b84044d01",
+  "endpointless runtime-env patch record digest mismatch",
+);
+assert(
+  (await sha256("src/sandbox/linux-sandbox-utils.ts")) ===
+    "2a481864d3a3fe2daf638853bdcb718508f7afe0d28bf9c3fd5b21451bdd8e6b",
+  "endpointless runtime-env source postimage drifted",
+);
+assert(
+  (await sha256("test/sandbox/launch-authority-lifecycle.test.ts")) ===
+    "66cda3cb8eb159064f22cb708844bfa2120dc897067686b0c6ed1fb903ee45a1",
+  "endpointless runtime-env argv regression postimage drifted",
+);
+assert(
+  (await sha256("test/sandbox/launch-authority.test.ts")) ===
+    "93ad19c677e297c28875ed19130fd85a6380bd7bab856ef9ae16d62d3d95ef54",
+  "endpointless runtime-env regression postimage drifted",
+);
 const endpointRegistrySource = await readFile(
   new URL("src/sandbox/endpoint-lease-registry.ts", vendorDir),
   "utf8",
