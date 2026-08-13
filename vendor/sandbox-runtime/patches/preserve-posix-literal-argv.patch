@@ -1,0 +1,48 @@
+From: Keel maintainers <maintainers@keel.dev>
+Date: Wed, 12 Aug 2026 00:00:00 -0400
+Subject: [PATCH] preserve literal argv through POSIX sandbox wrapping
+
+Local incremental patch record against Keel's reviewed
+@anthropic-ai/sandbox-runtime v0.0.59 postimage
+(upstream 3f4233f173227ca2e9dfde8c4985bc31811a64fc).
+
+The reviewed postimage is carried in these vendored paths:
+
+- src/sandbox/posix-shell-quote.ts
+- src/sandbox/macos-sandbox-utils.ts
+- src/sandbox/linux-sandbox-utils.ts
+- test/sandbox/posix-shell-quote.test.ts
+
+Root cause:
+
+shell-quote chooses double quotes for an already-rendered command string that
+contains whitespace and single quotes, then emits a defensive backslash before
+`!`. POSIX shells retain that backslash inside double quotes. A direct-argv
+`process.run` request therefore reached the contained child with an extra byte,
+despite the Warden retaining and auditing the exact original argv.
+
+Contract anchors required by Keel's vendor verifier:
+
+- quotePosixShellArgs
+- values containing `!` use lossless single-quote rendering
+- all other values retain upstream shell-quote rendering
+- macOS and Linux outer sandbox command layers use the lossless helper
+- Linux nested user-command and seccomp layers use the lossless helper
+- no shell composition, environment, cwd, stdin, background, or retry authority
+  is added to process.run
+
+Evidence:
+
+- deterministic two-layer shell round trip for `!`, `!==`, existing backslash
+  plus `!`, embedded single quote plus `!`, and an empty argument;
+- real macOS Seatbelt argv round trip through the vendored launch-authority path;
+- the existing process.run injection property and all neighboring shell-looking
+  literal arguments remain data and create no sibling effect.
+
+Security and compatibility:
+
+The patch restores the requested byte vector. Validation, policy, sandbox
+profile, audit intent/outcome, review binding, no-retry behavior, TLS and
+credential handling are unchanged. Rendering is unchanged when an argument
+contains no exclamation mark. The patch is minimal and upstreamable; recorded
+2026-08-12 and not yet submitted upstream.

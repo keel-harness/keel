@@ -81,6 +81,7 @@ describe("process.run argv boundary", () => {
           "(",
           ")",
           "`",
+          "!",
           ";",
           "&",
           "|",
@@ -110,6 +111,9 @@ describe("process.run argv boundary", () => {
             "2>&1",
             "*.ts",
             "{a,b}",
+            "literal!bang",
+            "literal!==comparison",
+            "literal\\!backslash-bang",
           ];
           const argv = [
             process.execPath,
