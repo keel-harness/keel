@@ -186,6 +186,36 @@ function credentialFreeRequestDiagnostics(
   }));
 }
 
+function credentialFreeToolResultDiagnostics(output: string | undefined): object {
+  if (output === undefined) return { present: false };
+  const identity = {
+    present: true,
+    outputBytes: Buffer.byteLength(output),
+    outputSha256: createHash("sha256").update(output).digest("hex"),
+  };
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(output);
+  } catch {
+    return { ...identity, validJson: false };
+  }
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return { ...identity, validJson: true, object: false };
+  }
+  const record = parsed as Record<string, unknown>;
+  return {
+    ...identity,
+    validJson: true,
+    object: true,
+    kind: typeof record["kind"] === "string" ? record["kind"] : null,
+    status: typeof record["status"] === "string" ? record["status"] : null,
+    observedRef: typeof record["observedRef"] === "string" ? record["observedRef"] : null,
+    automaticRetry: typeof record["automaticRetry"] === "boolean" ? record["automaticRetry"] : null,
+    actionMayHaveExecuted:
+      typeof record["actionMayHaveExecuted"] === "boolean" ? record["actionMayHaveExecuted"] : null,
+  };
+}
+
 function verificationRequestsAfterPush(
   requests: readonly GitRequestObservation[],
 ): readonly GitRequestObservation[] {
@@ -1087,18 +1117,36 @@ suite("ADR-0091 git.push walking skeleton (real sandbox)", () => {
       ui.queue.push({ kind: "command", name: "/exit" });
       await done;
 
-      expect(git(["--git-dir", fixture.remoteGitDir, "rev-parse", destinationRef])).toBe(head);
+      const sessionId = listSessions(env)[0]!.id;
+      const session = readSession(sessionId, env);
+      const result = session.events.find(
+        (event) => event.type === "tool_result" && event.name === "git.push",
+      );
+      const observedRemoteHead = git([
+        "--git-dir",
+        fixture.remoteGitDir,
+        "rev-parse",
+        destinationRef,
+      ]);
+      expect(
+        observedRemoteHead,
+        `the approved fast-forward did not reach the exact commit: ${JSON.stringify({
+          expectedHead: head,
+          observedRemoteHead,
+          resultType: result?.type ?? null,
+          resultIsError: result?.type === "tool_result" ? result.isError === true : null,
+          toolResult: credentialFreeToolResultDiagnostics(
+            result?.type === "tool_result" ? result.output : undefined,
+          ),
+          requests: credentialFreeRequestDiagnostics(fixture.requests),
+        })}`,
+      ).toBe(head);
       expect(unrelatedRemoteRefs(fixture.remoteGitDir, destinationRef)).toBe(unrelatedRefsBefore);
       expect(git(["merge-base", "--is-ancestor", baseHead, head], cwd)).toBe("");
       const credential = observedCredential(fixture);
       expect(
         fixture.requests.every((request) => request.authorization === credential.authorization),
       ).toBe(true);
-      const sessionId = listSessions(env)[0]!.id;
-      const session = readSession(sessionId, env);
-      const result = session.events.find(
-        (event) => event.type === "tool_result" && event.name === "git.push",
-      );
       expect(result).toMatchObject({ type: "tool_result" });
       if (result?.type !== "tool_result") throw new Error("expected fast-forward tool result");
       expect(result.isError).not.toBe(true);
