@@ -33,12 +33,17 @@ import {
   type GitPushResolveParams,
   type GitPushRpcResult,
 } from "./git-push-authority.js";
-import type {
-  GitCredentialAuthorization,
-  GitCredentialBroker,
-  GitCredentialBrokerIdentity,
-  GitCredentialContext,
+import {
+  GitCredentialBrokerError,
+  type GitCredentialAuthorization,
+  type GitCredentialBroker,
+  type GitCredentialBrokerIdentity,
+  type GitCredentialContext,
 } from "./git-credential-broker.js";
+/*
+ * Keep broker errors opaque outside the Warden. The class is used only to select one bounded public
+ * failure kind; its message and helper output never enter result, audit, RPC, or presentation bytes.
+ */
 import type { AuditAppendInput } from "./audit/writer.js";
 import {
   CREDENTIAL_TLS_TERMINATION_CAPABILITY,
@@ -1264,6 +1269,7 @@ function resultPayload(
   status: "pushed" | "already-at-commit" | "failed" | "indeterminate",
   observedRef: string | null,
   actionMayHaveExecuted: boolean,
+  failureKind?: "credential-unavailable",
 ): JsonObjectT {
   return {
     kind: "git_push_result",
@@ -1276,6 +1282,7 @@ function resultPayload(
     transport: "srt:vendored verified HTTPS with address guard",
     automaticRetry: false,
     actionMayHaveExecuted,
+    ...(failureKind === undefined ? {} : { failureKind }),
   };
 }
 
@@ -1984,7 +1991,11 @@ export async function resolveGitPushReview(
   } catch (error) {
     if (context.isAuditFailure?.(error) === true) throw error;
     const status = mutationAttempted ? "indeterminate" : "failed";
-    const result = resultPayload(review, status, null, mutationAttempted);
+    const failureKind =
+      !mutationAttempted && error instanceof GitCredentialBrokerError
+        ? "credential-unavailable"
+        : undefined;
+    const result = resultPayload(review, status, null, mutationAttempted, failureKind);
     const auditSeq = auditOutcome(
       context,
       review,

@@ -656,6 +656,7 @@ function createWorkspace(remoteUrl: string): { readonly cwd: string; readonly he
 
 function spawnedGitPushWarden(options: {
   readonly auditDir: string;
+  readonly credentialFailureCanary?: string;
   readonly fixture: SmartGitFixture;
   readonly workspaceRoot: string;
 }): ProductionWardenStartOptions & {
@@ -678,9 +679,15 @@ function spawnedGitPushWarden(options: {
   );
   writeFileSync(
     helperPath,
-    `#!/bin/sh
+    options.credentialFailureCanary === undefined
+      ? `#!/bin/sh
 while IFS= read -r line; do [ -z "$line" ] && break; done
 /bin/cat "$HOME/credential-store"
+`
+      : `#!/bin/sh
+while IFS= read -r line; do [ -z "$line" ] && break; done
+/bin/printf '%s\\n' ${JSON.stringify(options.credentialFailureCanary)} >&2
+exit 1
 `,
     { mode: 0o700 },
   );
@@ -1031,6 +1038,116 @@ suite("ADR-0091 git.push walking skeleton (real sandbox)", () => {
               "pushed",
         ),
       ).toBe(true);
+    } finally {
+      await interruptActiveTurnAndWait(ui, done);
+      await fixture.close();
+    }
+  }, 120_000);
+
+  it("keeps a helper lookup failure pre-network, secret-free, and actionable end to end", async () => {
+    const fixture = await startSmartGitFixture();
+    const { cwd, head } = createWorkspace(fixture.canonicalUrl);
+    const home = tempDir("keel-git-push-credential-failure-home-");
+    const auditDir = tempDir("keel-git-push-credential-failure-audit-");
+    const branch = "feature/credential-failure";
+    const destinationRef = `refs/heads/${branch}`;
+    const helperCanary = "RAW_HELPER_FAILURE_CANARY_DO_NOT_RETAIN";
+    const recovery = "gh auth login --git-protocol https && gh auth setup-git && keel doctor";
+    const env: NodeJS.ProcessEnv = {
+      KEEL_HOME: home,
+      KEEL_NO_SNAPSHOT: "1",
+      USER: PRINCIPAL.osUser,
+    };
+    const ui = new TestUI();
+    const warden = spawnedGitPushWarden({
+      auditDir,
+      credentialFailureCanary: helperCanary,
+      fixture,
+      workspaceRoot: cwd,
+    });
+    const done = runKeelCommand(undefined, {
+      model: new ScriptedModel({
+        turns: [
+          {
+            toolCalls: [
+              {
+                name: "git.push",
+                args: { remote: "origin", branch, expectedHead: head },
+              },
+            ],
+          },
+          { text: "credential recovery shown" },
+        ],
+      }),
+      ui,
+      cwd,
+      env,
+      trustFlag: true,
+      warden,
+    });
+
+    try {
+      await waitForGovernedProductSession(ui);
+      ui.queue.push({ kind: "line", text: "publish the exact commit" });
+      await waitFor(
+        ui,
+        "credential-failure git.push approval",
+        (view) => renderFrame(view).includes("approval required"),
+        PRODUCT_SETTLEMENT_TIMEOUT_MS,
+      );
+      expect(fixture.requests).toEqual([]);
+      ui.queue.push({ kind: "command", name: "/approve", args: "once" });
+      await waitFor(
+        ui,
+        "credential-failure recovery",
+        (view) =>
+          view.awaitingInput === true &&
+          renderFrame(view).includes("credential unavailable") &&
+          renderFrame(view).includes(recovery),
+        PRODUCT_SETTLEMENT_TIMEOUT_MS,
+      );
+      ui.queue.push({ kind: "command", name: "/exit" });
+      await done;
+
+      expect(fixture.requests).toEqual([]);
+      expect(
+        git([
+          "--git-dir",
+          fixture.remoteGitDir,
+          "for-each-ref",
+          "--format=%(objectname)",
+          destinationRef,
+        ]),
+      ).toBe("");
+      const sessionId = listSessions(env)[0]!.id;
+      const session = readSession(sessionId, env);
+      const result = session.events.find(
+        (event) => event.type === "tool_result" && event.name === "git.push",
+      );
+      expect(result).toMatchObject({ type: "tool_result", isError: true });
+      if (result?.type !== "tool_result") throw new Error("expected failed git.push tool result");
+      expect(result.output).toContain('"failureKind":"credential-unavailable"');
+      expect(result.output).toContain('"actionMayHaveExecuted":false');
+      expect(result.output).toContain(recovery);
+      expect(JSON.stringify(session.events)).not.toContain(helperCanary);
+      expect(ui.rendered.join("\n")).not.toContain(helperCanary);
+
+      const auditText = readFileSync(join(auditDir, `${sessionId}.jsonl`), "utf8");
+      expect(auditText).not.toContain(helperCanary);
+      const records = auditText
+        .trim()
+        .split("\n")
+        .map((line) => AnyAuditRecord.parse(JSON.parse(line)));
+      expect(verifyChain(toChainRecords(records)).ok).toBe(true);
+      expect(records.at(-1)?.payload).toMatchObject({
+        phase: "exception",
+        errorClass: "GitCredentialBrokerError",
+        result: {
+          status: "failed",
+          failureKind: "credential-unavailable",
+          actionMayHaveExecuted: false,
+        },
+      });
     } finally {
       await interruptActiveTurnAndWait(ui, done);
       await fixture.close();

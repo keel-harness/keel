@@ -19,7 +19,11 @@ import fc from "fast-check";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { supportedGitPushVersion, type JsonObjectT } from "@keel/shared";
 import { AuditChainWriter, type AuditAppendInput, type AuditSink } from "./audit/writer.js";
-import type { GitCredentialBroker, GitCredentialBrokerIdentity } from "./git-credential-broker.js";
+import {
+  GitCredentialBrokerError,
+  type GitCredentialBroker,
+  type GitCredentialBrokerIdentity,
+} from "./git-credential-broker.js";
 import type { GitPushBindingAuthorityRequest } from "./git-push-authority.js";
 import { handleRpcLine } from "./rpc-server.js";
 import {
@@ -1353,6 +1357,48 @@ describe("ADR-0091 git.push Warden walking skeleton", () => {
     expect(serialized).not.toContain(canarySecret);
     expect(JSON.stringify(h.audits)).not.toContain(canaryUser);
     expect(JSON.stringify(h.audits)).not.toContain(canarySecret);
+  });
+
+  it("classifies credential lookup failure without retaining broker output or launching network", async () => {
+    const brokerCanary = "raw-helper-output-DO-NOT-RETAIN";
+    const inspect = vi.fn(async () => brokerIdentity);
+    const resolveCredential = vi
+      .fn<GitCredentialBroker["resolve"]>()
+      .mockRejectedValue(new GitCredentialBrokerError(brokerCanary));
+    const broker: GitCredentialBroker = {
+      sourceClass: "operator Git credential helper (system/global config)",
+      inspect,
+      resolve: resolveCredential,
+    };
+    const state = brokerState(() => 1_000, broker);
+    const h = harness({ state });
+    const review = await request(h);
+
+    const resolved = await resolveGitPushReview(h.context, review, {
+      reviewId: review.reviewId,
+      approved: true,
+      scope: "once",
+      principal,
+    });
+
+    expect(resolved).toMatchObject({
+      verdict: "deny",
+      result: {
+        kind: "git_push_result",
+        status: "failed",
+        failureKind: "credential-unavailable",
+        actionMayHaveExecuted: false,
+        automaticRetry: false,
+      },
+    });
+    expect(resolveCredential).toHaveBeenCalledTimes(1);
+    expect(externalNetworkExecutions(h)).toEqual([]);
+    expect(JSON.stringify(resolved)).not.toContain(brokerCanary);
+    expect(JSON.stringify(h.audits)).not.toContain(brokerCanary);
+    expect(h.audits.at(-1)?.payload).toMatchObject({
+      phase: "exception",
+      errorClass: "GitCredentialBrokerError",
+    });
   });
 
   it("denies helper identity drift before credential resolution or network access", async () => {
