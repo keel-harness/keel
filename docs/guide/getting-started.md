@@ -1,10 +1,22 @@
 # Getting started
 
-How to run keel: authenticate, launch a session, and use the commands. For what keel *is*, read
-the [architecture one-pager](../architecture.md) first. For install, see the top-level
-[`README.md`](../../README.md).
+The shortest path from install to a useful governed coding session. For the system design, read
+the [architecture one-pager](../architecture.md); for every option, use the
+[reference](reference.md).
 
-## 1. Authenticate
+## 1. Install and check your machine
+
+The released npm carrier is the product path. It requires Node 20 or newer and `ripgrep`:
+
+```sh
+npm i -g keel-harness        # or prefix commands with: npx keel-harness
+keel doctor                  # checks Node, ripgrep, credentials, and the OS sandbox
+```
+
+Use a source checkout for contribution and development, not as the enforcement demo. The top-level
+[`README.md`](../../README.md) explains why and has the contributor commands.
+
+## 2. Authenticate
 
 keel talks to a model provider with a key you supply. Store it once in keel's `0600` credentials
 file:
@@ -23,13 +35,7 @@ a model id in `KEEL_MODEL`. If nothing is stored, keel falls back to a key in th
 keel reads credentials when the process starts. Replacing a key does not reload a running session.
 Restart from that session's workspace with `keel --continue`.
 
-Before your first run, check that your machine has the tools keel needs:
-
-```sh
-keel doctor                  # verifies node, ripgrep, and the OS sandbox
-```
-
-## 2. Launch a session
+## 3. Launch a session
 
 ```sh
 keel                         # interactive multi-turn session (the usual way in)
@@ -51,7 +57,37 @@ For one direct executable invocation, especially a build, test, lint, typecheck,
 Shell-looking arguments stay data. Deliberate pipelines, redirection, expansion, or persistent shell
 state remain `bash` work; `process.run` does not make the invoked program inherently safe.
 
-## 3. Autonomy at a glance
+## 4. Take a change through a pull request
+
+The everyday workflow is **edit → verify → commit → publish**. Ask naturally; keel chooses governed
+tools and shows consequential decisions in the TUI:
+
+```text
+Fix the failing parser test, run the relevant checks, show me the diff, commit it,
+push the current feature branch, and open a pull request.
+```
+
+Local edits, tests, and the commit remain governed work. Publishing is deliberately split into two
+typed capabilities: `git.push` can create or fast-forward the current non-default feature branch,
+then `github.pr.create` can open a same-repository GitHub.com pull request for that exact remote
+commit. They require **separate, once-only human approvals**; approving a push never approves a pull
+request. Force pushes, default-branch pushes, forks, merges, releases, and automatic retries are not
+included.
+
+Before the first publication request, give Git an eligible system/global HTTPS credential helper:
+
+```sh
+gh auth login --git-protocol https
+gh auth setup-git
+keel doctor
+```
+
+If publication reports a failed or indeterminate result, do not retry automatically. Inspect the
+remote and the audit record first, repair credentials if needed, then make a deliberate fresh
+request. A one-shot `keel run -p` cannot settle a live review; use interactive `keel` when an action
+may need approval. The [reference](reference.md) gives the complete boundary.
+
+## 5. Autonomy at a glance
 
 keel runs in a **policy posture** that the warden evaluates. It is not a model setting. Higher
 autonomy means fewer prompts inside enforced boundaries. It never means weaker enforcement.
@@ -76,7 +112,7 @@ There is **no YOLO or "enforcement-off" mode**. It is deliberately not wired. Fo
 mode labels, live approvals, and grant scopes — read the
 [policy and approval guide](policy-guide.md).
 
-## 4. Inside the session: slash commands
+## 6. Inside the session: slash commands
 
 Type `/` at the prompt to open the command palette. The everyday commands:
 
@@ -100,7 +136,7 @@ When the warden waits on a decision, respond in place with `/approve`, `/deny`, 
 one-key forms are `a`, `d`, and `?`. To steer mid-run, use `/now`, `/before-next-edit`, or
 `/stop-after-current`.
 
-## 5. Keyboard essentials
+## 7. Keyboard essentials
 
 | Key | Action |
 | --- | --- |
@@ -112,6 +148,15 @@ one-key forms are `a`, `d`, and `?`. To steer mid-run, use `/now`, `/before-next
 | `Ctrl-G` | Edit the current draft in `$VISUAL` / `$EDITOR`. |
 
 Standard Emacs line editing (`Ctrl-A/E/U/K/W/Y`, `Alt-B/F`) works at the prompt.
+
+## Common first-run fixes
+
+| What you see | What to do |
+| --- | --- |
+| `doctor` reports a missing prerequisite | Run the single fix it prints, then rerun `keel doctor`. |
+| A replaced API key is not picked up | Restart keel in the workspace with `keel --continue`. |
+| A one-shot stops because review is required | Start interactive `keel` and submit the task there. |
+| Publication says the credential is unavailable | Run the three `gh` / `doctor` commands above, then submit a fresh request. |
 
 ## Going deeper
 

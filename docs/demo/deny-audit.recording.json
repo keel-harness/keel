@@ -7,7 +7,7 @@
       "chunks": [
         {
           "type": "text-delta",
-          "text": "I'll test the boundary by requesting the SSH private key."
+          "text": "I'll inspect the SSH private-key header."
         },
         {
           "type": "tool-call",
@@ -26,7 +26,7 @@
       "chunks": [
         {
           "type": "text-delta",
-          "text": "The warden denied the secret read. I cannot access that key."
+          "text": "The warden blocked that secret read before execution. I cannot access the key."
         },
         { "type": "finish", "reason": "stop", "usage": { "inputTokens": 20, "outputTokens": 11 } }
       ]

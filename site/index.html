@@ -234,6 +234,7 @@
       .top nav {
         display: flex;
         align-items: center;
+        min-width: 0;
         flex-wrap: wrap;
         justify-content: flex-end;
         gap: 10px 22px;
@@ -488,108 +489,6 @@
       .foot .txt em {
         font-style: normal;
         color: var(--text);
-      }
-
-      /* ---------- terminal ---------- */
-      .term {
-        margin-top: 40px;
-        background: var(--term);
-        border: 1px solid var(--line);
-      }
-      .term-bar {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        flex-wrap: wrap;
-        gap: 12px;
-        padding: 12px 20px;
-        border-bottom: 1px solid var(--line-soft);
-        font-family: var(--mono);
-        font-size: 0.7rem;
-        letter-spacing: 0.1em;
-        text-transform: uppercase;
-        color: var(--term-label);
-      }
-      .legend {
-        display: flex;
-        gap: 16px;
-        align-items: center;
-      }
-      .legend span {
-        display: flex;
-        align-items: center;
-        gap: 6px;
-      }
-      .sw {
-        width: 6px;
-        height: 6px;
-      }
-      .term-body {
-        padding: 22px 20px 26px;
-        overflow-x: auto;
-        font-family: var(--mono);
-        font-size: 0.82rem;
-        line-height: 1.5;
-        color: var(--body);
-      }
-      .cmd {
-        color: var(--head);
-        margin-bottom: 18px;
-        white-space: nowrap;
-      }
-      .cmd .sig {
-        color: var(--dim);
-      }
-      .cmd .str {
-        color: var(--accent);
-      }
-      .rows {
-        display: grid;
-        grid-template-columns: 78px minmax(190px, 1.35fr) 96px minmax(210px, 1fr);
-        gap: 0 18px;
-        align-items: baseline;
-        min-width: 620px;
-      }
-      .rows > div {
-        padding: 7px 0;
-      }
-      .rows > .brd {
-        border-top: 1px solid #1d2126;
-      }
-      .t-tool {
-        color: var(--term-label);
-      }
-      .t-arg {
-        color: var(--term-value);
-      }
-      .t-ok {
-        color: var(--ok);
-      }
-      .t-deny {
-        color: var(--deny);
-        font-weight: 500;
-      }
-      .t-rev {
-        color: var(--accent);
-        font-weight: 500;
-      }
-      .t-note {
-        color: var(--muted);
-      }
-      .t-sub {
-        color: var(--dim);
-      }
-      .verify {
-        margin-top: 26px;
-        padding-top: 22px;
-        border-top: 1px solid var(--line-soft);
-      }
-      .vrows {
-        display: grid;
-        grid-template-columns: 96px 32px minmax(0, 1fr);
-        gap: 4px 12px;
-        margin-top: 12px;
-        min-width: 420px;
       }
 
       /* ---------- architecture ---------- */
@@ -1166,6 +1065,9 @@
           gap: 8px 14px;
           font-size: 0.72rem;
         }
+        .top nav .mobile-optional {
+          display: none;
+        }
       }
 
       @media (prefers-reduced-motion: reduce) {
@@ -1184,7 +1086,6 @@
       @media print {
         body,
         footer,
-        .term,
         .code,
         .box,
         .prop,
@@ -1236,13 +1137,13 @@
           </svg>
         </a>
         <nav aria-label="Main">
-          <a href="#see">example</a>
-          <a href="#how">architecture</a>
-          <a href="#design">properties</a>
-          <a href="#autonomy">autonomy</a>
-          <a href="#evidence">evidence</a>
-          <a href="#limits">limits</a>
-          <a href="#start">quickstart</a>
+          <a href="#demo">demo</a>
+          <a class="mobile-optional" href="#how">architecture</a>
+          <a class="mobile-optional" href="#design">properties</a>
+          <a class="mobile-optional" href="#autonomy">autonomy</a>
+          <a class="mobile-optional" href="#evidence">evidence</a>
+          <a class="mobile-optional" href="#limits">limits</a>
+          <a class="mobile-optional" href="#start">quickstart</a>
           <a href="#docs">docs</a>
           <a class="ghs keep" href="https://github.com/keel-harness/keel"
             >GitHub <span aria-hidden="true">↗</span></a
@@ -1339,132 +1240,29 @@
 
       <!-- ============ RECORDED DEMO ============ -->
       <div class="wrap">
-        <div class="demo-strip rule">
+        <div class="demo-strip rule" id="demo">
           <div class="demo-label">
-            <span style="color: var(--text)">Recorded denial</span>
+            <span style="color: var(--text)">Production TUI</span>
             <span class="fill" aria-hidden="true"></span>
-            <span>site/demo.gif</span>
+            <span>real Warden denial</span>
           </div>
           <img
             class="demo"
             src="demo.gif"
-            alt="A real keel session in which the warden denies an SSH private-key read and the resulting audit record is inspected."
+            alt="The production keel TUI launches, then its warden blocks an SSH private-key read before execution."
           />
           <p class="caption">
-            The recording shows the real program. Only the model replies come from a file, so the
-            session gives the same result every time. The kernel, the warden, the policy decision,
-            and the audit record are all real.
+            The production TUI and real kernel, Warden, policy decision, and audit path. A
+            deterministic replay supplies only the model turns—no provider key or network—so the
+            denial is safe to reproduce.
           </p>
         </div>
       </div>
 
-      <!-- ============ 01 TERMINAL ============ -->
-      <section class="wrap rule" id="see">
-        <div class="head">
-          <p class="eyebrow">01 / What it looks like</p>
-          <div>
-            <h2 class="sec">Enforcement you can read</h2>
-            <p class="sub">
-              The warden decides every governed action. It records the reason and the audit
-              reference with every verdict.
-            </p>
-          </div>
-        </div>
-
-        <div class="term">
-          <div class="term-bar">
-            <span>keel / governed session</span>
-            <span class="legend">
-              <span
-                ><i class="sw" style="background: var(--ok)" aria-hidden="true"></i>allowed</span
-              >
-              <span
-                ><i class="sw" style="background: var(--deny)" aria-hidden="true"></i>denied</span
-              >
-              <span
-                ><i class="sw" style="background: var(--accent)" aria-hidden="true"></i>review</span
-              >
-            </span>
-          </div>
-          <div
-            class="term-body"
-            role="region"
-            aria-label="Example keel session output"
-            tabindex="0"
-          >
-            <div class="cmd">
-              <span class="sig">$</span> pnpm keel run -p
-              <span class="str">"audit this repo and send me a summary"</span>
-            </div>
-            <div class="rows">
-              <div class="t-tool">read</div>
-              <div class="t-arg">src/index.ts</div>
-              <div class="t-ok">allowed</div>
-              <div class="t-note">workspace</div>
-
-              <div class="t-tool brd">search</div>
-              <div class="t-arg brd">"password|secret" src/</div>
-              <div class="t-ok brd">allowed</div>
-              <div class="t-note brd">workspace</div>
-
-              <div class="t-tool brd">bash</div>
-              <div class="t-arg brd">rg --files -g '*.ts'</div>
-              <div class="t-ok brd">allowed</div>
-              <div class="t-note brd">sandbox: bubblewrap</div>
-
-              <div class="t-tool brd">bash</div>
-              <div class="t-arg brd">cat ~/.ssh/id_rsa</div>
-              <div class="t-deny brd">DENIED</div>
-              <div class="t-note brd">
-                policy: secret read (POL-001)<br /><span class="t-sub"
-                  >audit ses_7f3a&hellip;#0091</span
-                >
-              </div>
-
-              <div class="t-tool brd">egress</div>
-              <div class="t-arg brd">evil.example.com:443</div>
-              <div class="t-rev brd">REVIEW</div>
-              <div class="t-note brd">
-                not on the allowlist<br /><span class="t-sub">waiting for a human</span>
-              </div>
-            </div>
-
-            <div class="verify">
-              <div class="cmd" style="margin: 0">
-                <span class="sig">$</span> pnpm keel audit verify
-                ~/.config/keel/audit/exports/bundle_ses_7f3a
-              </div>
-              <div class="vrows">
-                <div class="t-tool">chain</div>
-                <div class="t-ok">ok</div>
-                <div class="t-note">412 records, no gaps</div>
-                <div class="t-tool">signature</div>
-                <div class="t-ok">ok</div>
-                <div class="t-note">ed25519 checkpoint</div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div class="foot">
-          <p class="lbl">Note</p>
-          <p class="txt">
-            Illustrative output. The security suite covers the denial and review paths shown here.
-            See
-            <a href="https://github.com/keel-harness/keel/blob/main/docs/quality/claim-ledger.md"
-              >the claim ledger</a
-            >. <code>POL-001</code> is the secret-read rule in the starter policy pack. The
-            checkpoint-signing key is a local <code>0600</code> at-rest file that the same OS user
-            can read. Verification means the bundle was signed by that key, not by an actor
-            independent of the host. OS-keychain and hardware-backed custody are not implemented.
-          </p>
-        </div>
-      </section>
-
-      <!-- ============ 02 ARCHITECTURE ============ -->
+      <!-- ============ 01 ARCHITECTURE ============ -->
       <section class="wrap rule" id="how">
         <div class="head">
-          <p class="eyebrow">02 / Architecture</p>
+          <p class="eyebrow">01 / Architecture</p>
           <div>
             <h2 class="sec">Two processes, one boundary</h2>
             <p class="sub">
@@ -1569,9 +1367,11 @@
             Governed today: <code>bash</code>, capability-negotiated trusted direct-argv
             <code>process.run</code>, the trusted typed file tools (<code>read</code>,
             <code>search</code>, <code>write</code>, <code>edit</code>), <code>lifecycle.run</code>,
-            the interactive console tools, and reviewed, pinned local-stdio MCP calls.
-            <code>process.run</code> takes one literal argv vector; it adds no shell, environment,
-            working-directory, stdin, or background authority. The typed file tools,
+            reviewed and pinned local-stdio MCP calls, and two bounded publication tools:
+            <code>git.push</code> for a separately approved current feature branch, then
+            <code>github.pr.create</code> for a separately approved same-repository GitHub pull
+            request. <code>process.run</code> takes one literal argv vector; it adds no shell,
+            environment, working-directory, stdin, or background authority. The typed file tools,
             <code>process.run</code>, and MCP are advertised only in a trusted workspace. An
             untrusted workspace gets governed <code>bash</code> alone. Provider API calls do not
             route through the warden. The session helpers (<code>plan</code>, <code>skill</code>,
@@ -1588,10 +1388,10 @@
         </div>
       </section>
 
-      <!-- ============ 03 PROPERTIES ============ -->
+      <!-- ============ 02 PROPERTIES ============ -->
       <section class="wrap rule" id="design">
         <div class="head">
-          <p class="eyebrow">03 / Properties</p>
+          <p class="eyebrow">02 / Properties</p>
           <div>
             <h2 class="sec">Properties the design gives you</h2>
             <p class="sub">
@@ -1668,10 +1468,10 @@
         </div>
       </section>
 
-      <!-- ============ 04 AUTONOMY ============ -->
+      <!-- ============ 03 AUTONOMY ============ -->
       <section class="wrap rule" id="autonomy">
         <div class="head">
-          <p class="eyebrow">04 / Autonomy</p>
+          <p class="eyebrow">03 / Autonomy</p>
           <div>
             <h2 class="sec">Autopilot is not YOLO</h2>
             <p class="sub">
@@ -1716,10 +1516,10 @@
         </div>
       </section>
 
-      <!-- ============ 05 EVIDENCE ============ -->
+      <!-- ============ 04 EVIDENCE ============ -->
       <section class="wrap rule" id="evidence">
         <div class="head">
-          <p class="eyebrow">05 / Evidence</p>
+          <p class="eyebrow">04 / Evidence</p>
           <div>
             <h2 class="sec">Check the claims yourself</h2>
             <p class="sub">
@@ -1802,20 +1602,22 @@
               >claim ledger</a
             >
             maps every security claim to its test evidence and states the limits of that evidence.
-            Test and coverage figures were measured on 2026-07-31 at <em>a22b127</em>. The
-            evidence-number ledger holds the exact reporter output. The enforced coverage floor is
-            90 percent per file, and 95 percent for the warden. Running <em>pnpm test</em> locally
-            on a many-core machine can report failures that look like timeouts, because several
-            suites spawn child processes under wall-clock budgets. Re-run a failing file on its own.
-            Trust the CI result on clean runners.
+            The checkpoint-signing key is a local <code>0600</code> file readable by the same OS
+            user; bundle verification therefore is not independent host attestation. Test and
+            coverage figures were measured on 2026-07-31 at <em>a22b127</em>. The evidence-number
+            ledger holds the exact reporter output. The enforced coverage floor is 90 percent per
+            file, and 95 percent for the warden. Running <em>pnpm test</em> locally on a many-core
+            machine can report failures that look like timeouts, because several suites spawn child
+            processes under wall-clock budgets. Re-run a failing file on its own. Trust the CI
+            result on clean runners.
           </p>
         </div>
       </section>
 
-      <!-- ============ 06 LIMITS ============ -->
+      <!-- ============ 05 LIMITS ============ -->
       <section class="wrap rule" id="limits">
         <div class="head">
-          <p class="eyebrow">06 / Limits</p>
+          <p class="eyebrow">05 / Limits</p>
           <div>
             <h2 class="sec">What keel does not claim</h2>
             <p class="sub">
@@ -1918,10 +1720,10 @@
         </ul>
       </section>
 
-      <!-- ============ 07 QUICKSTART ============ -->
+      <!-- ============ 06 QUICKSTART ============ -->
       <section class="wrap rule" id="start">
         <div class="head">
-          <p class="eyebrow">07 / Quickstart</p>
+          <p class="eyebrow">06 / Quickstart</p>
           <div>
             <h2 class="sec">Install and run</h2>
             <p class="sub">
@@ -1981,16 +1783,21 @@ export KEEL_MODEL=&lt;model-id&gt;</pre>
         </div>
       </section>
 
-      <!-- ============ 08 DOCS ============ -->
+      <!-- ============ 07 DOCS ============ -->
       <section class="wrap" id="docs">
         <div class="head">
-          <p class="eyebrow">08 / Documentation</p>
+          <p class="eyebrow">07 / Documentation</p>
           <div>
             <h2 class="sec">Specs, guides, and decisions</h2>
           </div>
         </div>
 
         <nav class="docs" aria-label="Documentation">
+          <a href="https://github.com/keel-harness/keel/blob/main/docs/guide/getting-started.md"
+            ><span class="f">getting-started.md</span
+            ><span class="d">Install keel and take a governed change through a pull request.</span
+            ><span class="x" aria-hidden="true">↗</span></a
+          >
           <a href="https://github.com/keel-harness/keel/blob/main/docs/architecture.md"
             ><span class="f">architecture.md</span
             ><span class="d">The one-page tour of the kernel and warden split.</span
@@ -2006,27 +1813,6 @@ export KEEL_MODEL=&lt;model-id&gt;</pre>
             ><span class="d">Every claim, its test evidence, and its limits.</span
             ><span class="x" aria-hidden="true">↗</span></a
           >
-          <a href="https://github.com/keel-harness/keel/blob/main/MASTER_SPEC.md"
-            ><span class="f">MASTER_SPEC.md</span
-            ><span class="d">The full governing spec. It is the source of truth.</span
-            ><span class="x" aria-hidden="true">↗</span></a
-          >
-          <a href="https://github.com/keel-harness/keel/blob/main/docs/adr/README.md"
-            ><span class="f">ADR index</span
-            ><span class="d">Every significant design decision, with its reasoning.</span
-            ><span class="x" aria-hidden="true">↗</span></a
-          >
-          <a
-            href="https://github.com/keel-harness/keel/blob/main/docs/adr/0086-warden-owned-egress-address-guard.md"
-            ><span class="f">ADR-0086</span
-            ><span class="d">The connect-time egress guard, its enforcement point, and limits.</span
-            ><span class="x" aria-hidden="true">↗</span></a
-          >
-          <a href="https://github.com/keel-harness/keel/blob/main/docs/guide/getting-started.md"
-            ><span class="f">getting-started.md</span
-            ><span class="d">Authenticate, launch a session, and learn the commands.</span
-            ><span class="x" aria-hidden="true">↗</span></a
-          >
           <a href="https://github.com/keel-harness/keel/blob/main/docs/guide/policy-guide.md"
             ><span class="f">policy-guide.md</span
             ><span class="d">Modes, live approvals, and grant scopes.</span
@@ -2037,34 +1823,14 @@ export KEEL_MODEL=&lt;model-id&gt;</pre>
             ><span class="d">Audit logs, evidence bundles, and past sessions.</span
             ><span class="x" aria-hidden="true">↗</span></a
           >
-          <a href="https://github.com/keel-harness/keel/blob/main/docs/guide/untrusted-repos.md"
-            ><span class="f">untrusted-repos.md</span
-            ><span class="d">How keel behaves in a repository you do not trust.</span
+          <a href="https://github.com/keel-harness/keel/blob/main/docs/status.md"
+            ><span class="f">status.md</span
+            ><span class="d">What is true today, what is limited, and what is not claimed.</span
             ><span class="x" aria-hidden="true">↗</span></a
           >
-          <a href="https://github.com/keel-harness/keel/blob/main/docs/benchmarks.md"
-            ><span class="f">benchmarks.md</span
-            ><span class="d">TerminalBench numbers, with the full caveats.</span
-            ><span class="x" aria-hidden="true">↗</span></a
-          >
-          <a href="https://github.com/keel-harness/keel/blob/main/docs/guide/reviewing-keel.md"
-            ><span class="f">reviewing-keel.md</span
-            ><span class="d">How to review this project, and what to look at first.</span
-            ><span class="x" aria-hidden="true">↗</span></a
-          >
-          <a href="https://github.com/keel-harness/keel/blob/main/SECURITY.md"
-            ><span class="f">SECURITY.md</span
-            ><span class="d">How to report a vulnerability privately.</span
-            ><span class="x" aria-hidden="true">↗</span></a
-          >
-          <a href="https://github.com/keel-harness/keel/blob/main/CONTRIBUTING.md"
-            ><span class="f">CONTRIBUTING.md</span
-            ><span class="d">Ground rules and how to build on keel.</span
-            ><span class="x" aria-hidden="true">↗</span></a
-          >
-          <a href="https://github.com/keel-harness/keel/blob/main/AGENTS.md"
-            ><span class="f">AGENTS.md</span
-            ><span class="d">The engineering charter every change is held to.</span
+          <a href="https://github.com/keel-harness/keel/blob/main/docs/README.md"
+            ><span class="f">all documentation</span
+            ><span class="d">The complete index for users, reviewers, and contributors.</span
             ><span class="x" aria-hidden="true">↗</span></a
           >
         </nav>

@@ -275,7 +275,7 @@ describe("public docs claim consistency", () => {
     expect(status).toMatch(/OS-keychain.*hardware-backed.*not implemented/is);
 
     expect(landingPage).toMatch(/governed tool surface.*v1 kernel.*OS user.*not\s+compromised/is);
-    expect(landingPage).toMatch(/checkpoint-signing key.*0600.*same OS user/is);
+    expect(landingPage).toMatch(/checkpoint-signing key.*0600.*same\s+OS\s+user/is);
     expect(readme).toMatch(/!\[[^\]]*real keel[^\]]*\]\(site\/demo\.gif\)/i);
     expect(readme.indexOf("(site/demo.gif)")).toBeLessThan(readme.indexOf("## Evidence"));
     expect(demoGif.subarray(0, 6).toString("ascii")).toMatch(/^GIF8[79]a$/u);
@@ -287,10 +287,16 @@ describe("public docs claim consistency", () => {
     }
     expect(gifFrameCount).toBeGreaterThan(1);
     expect(demoGif.length).toBeLessThan(250 * 1024);
-    expect(demoCast).toContain("tool.deny");
+    expect(demoCast).toContain("coding agent for governed work");
+    expect(demoCast).toContain("Type what you want changed.");
     expect(demoCast).toContain("POL-001");
-    expect(demoCast).toContain("cat ~/.ssh/id_rsa");
-    expect(demoRunner).toContain("--replay");
+    expect(demoCast).toContain("~/.ssh/id_rsa");
+    expect(demoCast).toContain("Outcome: needs attention");
+    expect(demoRunner).toContain("createReplayModelPort");
+    expect(demoRunner).toContain('buildUI("ink"');
+    expect(demoRunner).toContain("runKeelCommand(undefined");
+    expect(demoRunner).not.toContain('"run",\n    "-p"');
+    expect(demoRunner).toContain('record.payload?.args?.command === "cat ~/.ssh/id_rsa"');
     expect(demoRunner).toContain('record.eventType === "tool.deny"');
     // The README links this script as "run it locally", so it must survive a stock macOS TMPDIR.
     // `requireOwnerOnlyHome` rejects a KEEL_HOME whose realpath differs from its literal path, and
@@ -474,7 +480,21 @@ describe("public docs claim consistency", () => {
     const status = readRepoFile("docs/status.md");
     expect(status).toMatch(/literal argv vector/i);
     expect(status).toMatch(/no shell interpolation/i);
-    expect(status).toMatch(/live-model efficacy remains `NOT_RUN`/i);
+    expect(status).toMatch(/bounded live Anthropic run exercised.*process\.run/is);
+    expect(status).toMatch(/model-selection efficacy remains `NOT_RUN`/i);
+  });
+
+  it("keeps one self-contained newcomer guide instead of multiplying onboarding documents", () => {
+    const guide = readRepoFile("docs/guide/getting-started.md");
+
+    expect(guide).toMatch(/npm i -g keel-harness/i);
+    expect(guide).toMatch(/keel doctor/i);
+    expect(guide).toMatch(/keel auth set anthropic/i);
+    expect(guide).toMatch(/edit.*verify.*commit/is);
+    expect(guide).toMatch(/`git\.push`.*`github\.pr\.create`/is);
+    expect(guide).toMatch(/separate.*approval/is);
+    expect(guide).toMatch(/gh auth login --git-protocol https/is);
+    expect(guide).toMatch(/one-shot.*live review.*interactive/is);
   });
 
   it("keeps tracked documentation portable and free of private local attachment roots", () => {
@@ -834,6 +854,28 @@ describe("landing page claim consistency (site/index.html)", () => {
       expect(text, `${PAGE} dropped a required limitation: ${limit}`).toMatch(limit);
     }
   });
+
+  it.runIf(pageAvailable)(
+    "names the current governed publication tools without widening scope",
+    () => {
+      const text = pageText();
+      expect(text).toMatch(/git\.push/i);
+      expect(text).toMatch(/github\.pr\.create/i);
+      expect(text).not.toMatch(/interactive console tools/i);
+    },
+  );
+
+  it.runIf(pageAvailable)(
+    "keeps compact navigation from forcing narrow pages wider than the viewport",
+    () => {
+      const html = page();
+      expect(html).toMatch(/class="[^"]*mobile-optional[^"]*"/i);
+      expect(html).toMatch(
+        /@media \(max-width: 640px\)[\s\S]*?\.top nav \.mobile-optional\s*\{\s*display:\s*none/iu,
+      );
+      expect(html).toMatch(/\.top nav\s*\{[\s\S]*?min-width:\s*0/iu);
+    },
+  );
 
   it.runIf(pageAvailable)("links only to documentation that exists in the repository", () => {
     // A 404 from the launch page is the cheapest possible credibility loss.
