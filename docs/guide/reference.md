@@ -84,8 +84,11 @@ auto-merge, labels, assignees, reviewers and reviews, comments, releases, deploy
 mutation, combined approvals, and automatic retry are not supported. A `failed` result is definitive;
 an `indeterminate` result requires audit and GitHub inspection before a deliberate fresh request.
 
-Raw `process.run git push` remains terminal. The published `keel-harness@0.1.1` carrier predates
-both `git.push` and `github.pr.create`; published-carrier proof remains a separate release gate.
+Raw `process.run git push` remains terminal. The published `keel-harness@0.1.2` carrier includes both
+bounded `git.push` and `github.pr.create` paths. It predates current source's actionable expected
+credential-readiness recovery and same-repository `maintainerCanModify: false` normalization; on
+`0.1.2`, an internal or indeterminate provider result requires audit/GitHub inspection and no
+automatic retry.
 
 **One-shot review behavior.** Existing scoped authority, including an exact session or Plan grant or
 an eligible Autopilot rule, gets the first chance to resolve a review. If it is still pending,

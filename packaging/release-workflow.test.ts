@@ -15,6 +15,9 @@ const releaseAdr = readFileSync(
 const releaseNotes = readFileSync(join(process.cwd(), "docs", "releases", "v0.1.2.md"), "utf8");
 const readme = readFileSync(join(process.cwd(), "README.md"), "utf8");
 const masterSpec = readFileSync(join(process.cwd(), "MASTER_SPEC.md"), "utf8");
+const status = readFileSync(join(process.cwd(), "docs", "status.md"), "utf8");
+const reference = readFileSync(join(process.cwd(), "docs", "guide", "reference.md"), "utf8");
+const roadmap = readFileSync(join(process.cwd(), "docs", "roadmap.md"), "utf8");
 const claimLedger = readFileSync(join(process.cwd(), "docs", "quality", "claim-ledger.md"), "utf8");
 const bugReportTemplate = readFileSync(
   join(process.cwd(), ".github", "ISSUE_TEMPLATE", "bug_report.yml"),
@@ -44,7 +47,7 @@ function workflowStep(job: string, name: string): string {
 }
 
 describe("public npm release workflow authority", () => {
-  it("targets 0.1.2 coherently while preserving the published 0.1.1 history", () => {
+  it("records the published 0.1.2 carrier while preserving the 0.1.1 history", () => {
     expect(workflow).toContain('KEEL_VERSION: "0.1.2"');
     expect(workflow).toContain("--notes-file docs/releases/v0.1.2.md");
     expect(releaseRunbook).toContain("protected `v0.1.2` tag");
@@ -52,17 +55,19 @@ describe("public npm release workflow authority", () => {
     expect(releaseAdr).toContain("`keel-harness@0.1.2`");
     expect(releaseAdr).toContain("`0.1.0` was staged but never approved");
     expect(releaseNotes).toContain("# keel v0.1.2");
-    expect(releaseNotes).toContain("It is not public until");
-    expect(releaseNotes).toContain("separate 2FA approval");
+    expect(releaseNotes).toContain("published on npm and GitHub on 2026-08-13");
+    expect(releaseNotes).toContain("separate maintainer 2FA approval");
     expect(releaseNotes).toContain("P1-007");
     expect(installedCarrierSmoke.match(/keel 0\.1\.2/gu)).toHaveLength(2);
     expect(installedCarrierSmoke).toContain('chmod 700 "$KEEL_HOME"');
     expect(bugReportTemplate).toContain("placeholder: keel 0.1.2");
     expect(questionTemplate).toContain("placeholder: keel 0.1.2");
-    // Public truth remains pinned to the currently published bytes until the new stage is approved.
-    expect(readme).toContain("`keel-harness@0.1.1`");
-    expect(masterSpec).toContain("`keel-harness@0.1.1` was published 2026-08-03");
-    expect(claimLedger).toContain("**Packaging — `keel-harness@0.1.1` npm release carrier");
+    expect(readme).toContain("`keel-harness@0.1.2` is published on npm");
+    expect(status).toContain("`keel-harness@0.1.2` is published on npm and tagged `latest`");
+    expect(reference).toContain("The published `keel-harness@0.1.2` carrier includes both");
+    expect(roadmap).toContain("Published in `keel-harness@0.1.2`");
+    expect(masterSpec).toContain("`keel-harness@0.1.2` was published 2026-08-13");
+    expect(claimLedger).toContain("**Packaging — `keel-harness@0.1.2` npm release carrier");
   });
 
   it("is exact-tag, public-repository, public-main, and protected-environment bound", () => {
