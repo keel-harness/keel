@@ -334,6 +334,52 @@ describe("WardenExecutor", () => {
     expect(toolControlFailureCode(result)).toBeUndefined();
   });
 
+  it("renders bounded credential-helper recovery for a pre-network github.pr.create failure", async () => {
+    const executor = new WardenExecutor({
+      client: clientReturning({
+        verdict: "deny",
+        result: {
+          kind: "github_pr_create_result",
+          status: "failed",
+          failureKind: "credential-unavailable",
+          repository: "keel-harness/keel",
+          head: "feature/x",
+          base: "main",
+          commit: "0123456789abcdef0123456789abcdef01234567",
+          number: null,
+          url: null,
+          automaticRetry: false,
+          actionMayHaveExecuted: false,
+        },
+        auditSeq: 9,
+      }),
+      sessionId: SESSION_ID,
+    });
+
+    const result = await executor.execute(
+      call("github.pr.create", {
+        remote: "origin",
+        repository: "keel-harness/keel",
+        head: "feature/x",
+        expectedHead: "0123456789abcdef0123456789abcdef01234567",
+        base: "main",
+        title: "Title",
+        body: "Body",
+        draft: false,
+        maintainerCanModify: true,
+      }),
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.output).toContain("credential resolution was unavailable before network access");
+    expect(result.output).toContain(
+      "gh auth login --git-protocol https && gh auth setup-git && keel doctor",
+    );
+    expect(result.output).toContain('"failureKind":"credential-unavailable"');
+    expect(result.output).toContain('"actionMayHaveExecuted":false');
+    expect(toolPresentationOutcome(result)).toBe("failed");
+  });
+
   it.each([
     ["failed", false, "failed", "no automatic retry was attempted"],
     ["indeterminate", true, "partial", "could not confirm whether the pull request was created"],

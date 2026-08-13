@@ -22,11 +22,12 @@ import {
   type SideEffectT,
 } from "@keel/shared";
 import type { AuditAppendInput } from "./audit/writer.js";
-import type {
-  GitCredentialBearerAuthorization,
-  GitCredentialBroker,
-  GitCredentialBrokerIdentity,
-  GitCredentialContext,
+import {
+  GitCredentialBrokerError,
+  type GitCredentialBearerAuthorization,
+  type GitCredentialBroker,
+  type GitCredentialBrokerIdentity,
+  type GitCredentialContext,
 } from "./git-credential-broker.js";
 import {
   GITHUB_PR_CREATE_CAPABILITY_V1,
@@ -976,7 +977,41 @@ async function requestReview(
     throw new Error("github.pr.create enforcing transport boundary is unavailable");
   }
   const request = parseGithubPrCreateRequest(params.toolCall.args);
-  const facts = await inspectFacts(context, request);
+  let facts: GithubPrCreateFacts;
+  try {
+    facts = await inspectFacts(context, request);
+  } catch (error) {
+    if (!(error instanceof GitCredentialBrokerError)) throw error;
+    // Broker errors can retain raw helper/config diagnostics. Publish only validated request facts.
+    const result: JsonObjectT = {
+      kind: "github_pr_create_result",
+      status: "failed",
+      repository: request.repository,
+      head: request.head,
+      base: request.base,
+      commit: request.expectedHead,
+      number: null,
+      url: null,
+      automaticRetry: false,
+      actionMayHaveExecuted: false,
+      failureKind: "credential-unavailable",
+    };
+    const apiPullsUrl = `${apiAuthority(context.state.config).origin}/repos/${request.repository}/pulls`;
+    const auditSeq = context.appendAudit({
+      eventType: "tool.deny",
+      sessionId: params.sessionId,
+      payload: {
+        toolName: GITHUB_PR_CREATE_TOOL_NAME,
+        args: params.toolCall.args,
+        reason: "credential helper authority is unavailable before review",
+        code: "CREDENTIAL_UNAVAILABLE",
+        result,
+        actionMayHaveExecuted: false,
+      },
+      sideEffect: githubPrCreateSideEffect(apiPullsUrl),
+    });
+    return { verdict: "deny", result, auditSeq };
+  }
   const sideEffect = githubPrCreateSideEffect(facts.apiPullsUrl);
   const authority = await context.resolveBindingAuthority({
     executeParams: params,
