@@ -1310,6 +1310,15 @@ function matchingPullRequest(
     typeof number === "number"
       ? `https://github.com/${request.repository}/pull/${String(number)}`
       : "";
+  const observedMaintainerCanModify = value["maintainer_can_modify"];
+  const maintainerPostureMatches =
+    observedMaintainerCanModify === request.maintainerCanModify ||
+    // GitHub renders this fork-only permission false for same-repository PRs.
+    // The exact head/base repository checks below keep this normalization local
+    // to V1's already-enforced same-repository authority.
+    (request.maintainerCanModify && observedMaintainerCanModify === false) ||
+    (allowProviderUnknownMaintainer &&
+      (observedMaintainerCanModify === null || observedMaintainerCanModify === undefined));
   if (
     !Number.isSafeInteger(number) ||
     (number as number) < 1 ||
@@ -1319,11 +1328,7 @@ function matchingPullRequest(
     value["title"] !== request.title ||
     (value["body"] ?? "") !== request.body ||
     value["draft"] !== request.draft ||
-    (value["maintainer_can_modify"] !== request.maintainerCanModify &&
-      !(
-        allowProviderUnknownMaintainer &&
-        (value["maintainer_can_modify"] === null || value["maintainer_can_modify"] === undefined)
-      )) ||
+    !maintainerPostureMatches ||
     head["ref"] !== request.head ||
     head["sha"] !== request.expectedHead ||
     base["ref"] !== request.base ||

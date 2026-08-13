@@ -193,7 +193,8 @@ function prBody(head: string): Record<string, unknown> {
     title: "Ship the contained PR path",
     body: "Exact real-SRT acceptance.",
     draft: false,
-    maintainer_can_modify: true,
+    // GitHub normalizes this fork-only field to false for same-repository PRs.
+    maintainer_can_modify: false,
     head: { ref: "feature/pr", sha: head, repo: { full_name: repository } },
     base: { ref: "main", repo: { full_name: repository } },
   };

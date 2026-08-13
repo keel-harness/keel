@@ -525,6 +525,33 @@ describe("ADR-0091 governed github.pr.create authority", () => {
     expect(JSON.stringify(h.audits)).not.toContain(h.token);
   });
 
+  it("confirms GitHub's false maintainer field for an exact same-repository PR", async () => {
+    const h = harness();
+    const providerBody = { ...prBody(h.source.head), maintainer_can_modify: false };
+    h.queue.push(
+      { status: 200, body: refBody("refs/heads/feature/pr", h.source.head) },
+      { status: 200, body: refBody("refs/heads/main", "b".repeat(40)) },
+      { status: 200, body: [] },
+      { status: 201, body: providerBody },
+      { status: 200, body: [providerBody] },
+      { status: 200, body: providerBody },
+    );
+
+    await expect(approveOnce(h)).resolves.toMatchObject({
+      verdict: "allow",
+      result: {
+        status: "created",
+        number: 42,
+        url: "https://github.com/keel-harness/keel/pull/42",
+        actionMayHaveExecuted: true,
+      },
+    });
+    expect(h.queue).toHaveLength(0);
+    expect(
+      h.executions.filter((entry) => entry.invocation.argv?.includes("POST") === true),
+    ).toHaveLength(1);
+  });
+
   it("confirms a provider-null list candidate only through its exact PR detail resource", async () => {
     const h = harness();
     const detail = { ...prBody(h.source.head), maintainer_can_modify: false };
@@ -675,6 +702,10 @@ describe("ADR-0091 governed github.pr.create authority", () => {
       (head) => ({ status: 200, body: { ...prBody(head), draft: true } }),
       (head) => ({
         status: 200,
+        body: { ...prBody(head), draft: true, maintainer_can_modify: false },
+      }),
+      (head) => ({
+        status: 200,
         body: { ...prBody(head), head: { ...(prBody(head)["head"] as object), ref: "other" } },
       }),
       (head) => ({
@@ -688,6 +719,7 @@ describe("ADR-0091 governed github.pr.create authority", () => {
         status: 200,
         body: {
           ...prBody(head),
+          maintainer_can_modify: false,
           head: { ...(prBody(head)["head"] as object), repo: { full_name: "attacker/repo" } },
         },
       }),

@@ -684,6 +684,12 @@ PR creation gets a separate exact-once review, durable intent, no automatic retr
 result check that the returned PR belongs to the exact repository/head/base and reports the expected
 head OID. A response-loss ambiguity is reconciled only through a bounded exact read; otherwise it is
 indeterminate because the endpoint triggers notifications and duplicate creation is consequential.
+For the V1 same-repository-only shape, GitHub may render the fork-only
+`maintainer_can_modify` response field as `false` after an approved request sent `true`. Keel accepts
+only that provider normalization after the response independently proves both head and base belong
+to the approved repository; it still requires exact state, title, body, draft flag, head/base refs,
+head OID, PR number, and canonical URL. A requested `false` is never promoted from an observed
+`true`, and fork/cross-repository heads remain unsupported.
 
 No merge, auto-merge, review, label, issue mutation, release, deployment, or default-branch update is
 authorized. GitHub Enterprise, GitLab, Bitbucket, Gitea, and other forges require later provider ports
