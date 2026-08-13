@@ -54,6 +54,7 @@ not source needed for Keel's reviewed adapter path:
 - `patches/flush-tls-loopback-response.patch`
 - `patches/runtime-aware-http-proxy-close.patch`
 - `patches/per-launch-srt-authority.patch`
+- `patches/retry-released-endpoint-lease-locks.patch`
 - `test/sandbox/linux-proxy-readiness.test.ts`
 - `test/sandbox/destination-dial.test.ts`
 - `test/sandbox/destination-guard-proxy.test.ts`
@@ -255,6 +256,23 @@ not source needed for Keel's reviewed adapter path:
   proves positive approved egress through a profile that denies the complete authority root.
 - Upstreamable status: Keel-specific lifecycle extension over the pinned permissive upstream. Recorded
   2026-08-11; not yet submitted upstream.
+
+### Retry endpoint lease mutations after a released lock
+
+- Patch: `patches/retry-released-endpoint-lease-locks.patch`
+- Applied files: `src/sandbox/endpoint-lease-registry.ts` and
+  `test/sandbox/endpoint-lease-registry-aba.test.ts`.
+- Composition: incremental after the per-launch SRT authority patch. This records the accepted #218
+  postimages that were initially merged without refreshing the vendor-integrity pins.
+- Reason: a registry object released its exclusive lock after one mutation, then reused the released
+  lock object and rejected a later valid operation instead of reacquiring the lock.
+- Security impact: the registry now treats a released lock as absent and reacquires exclusive authority
+  before a later mutation. Compare-and-swap, generation ownership, permanent endpoint retirement, and
+  fail-closed behavior are unchanged.
+- Evidence: the ABA regression covers multiple operations through one registry instance and the vendor
+  verifier pins both exact accepted postimages.
+- Upstreamable status: part of Keel's per-launch authority extension. Recorded 2026-08-12; not yet
+  submitted upstream.
 
 ## License And Notice
 
