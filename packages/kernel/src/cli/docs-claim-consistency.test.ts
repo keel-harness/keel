@@ -294,7 +294,10 @@ describe("public docs claim consistency", () => {
     expect(demoCast).toContain("Outcome: needs attention");
     expect(demoRunner).toContain("createReplayModelPort");
     expect(demoRunner).toContain('buildUI("ink"');
-    expect(demoRunner).toContain("runKeelCommand(undefined");
+    expect(demoRunner).toContain('buildUI("headless"');
+    expect(demoRunner).toContain("runKeelCommand(prompt");
+    expect(demoRunner).toContain('"node_modules/.bin/tsx"');
+    expect(demoRunner).toContain("spawnSync");
     expect(demoRunner).not.toContain('"run",\n    "-p"');
     expect(demoRunner).toContain('record.payload?.args?.command === "cat ~/.ssh/id_rsa"');
     expect(demoRunner).toContain('record.eventType === "tool.deny"');
