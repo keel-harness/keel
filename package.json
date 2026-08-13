@@ -1,6 +1,6 @@
 {
   "name": "keel",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": true,
   "description": "A local-first, governed agent harness: high autonomy inside structurally-enforced boundaries (Autopilot, not YOLO).",
   "license": "Apache-2.0",

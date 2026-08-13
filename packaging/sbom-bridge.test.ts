@@ -10,21 +10,21 @@ const native = {
     {
       id: "root-id",
       name: "keel-harness",
-      version: "0.1.1",
+      version: "0.1.2",
       type: "npm",
       foundBy: "javascript-lock-cataloger",
       locations: [{ path: "/package-lock.json", accessPath: "/package-lock.json" }],
       licenses: [{ value: "Apache-2.0", spdxExpression: "Apache-2.0", type: "declared" }],
       language: "javascript",
       cpes: [],
-      purl: "pkg:npm/keel-harness@0.1.1",
+      purl: "pkg:npm/keel-harness@0.1.2",
       metadataType: "javascript-npm-package-lock-entry",
       metadata: {},
     },
   ],
   artifactRelationships: [],
   files: [],
-  source: { id: "source", name: "keel-harness", version: "0.1.1", type: "directory" },
+  source: { id: "source", name: "keel-harness", version: "0.1.2", type: "directory" },
   descriptor: { name: "syft", version: "1.49.0" },
   schema: { version: "16.1.10", url: "https://example.invalid/schema.json" },
 };
@@ -51,7 +51,7 @@ describe("Syft bundled-component bridge", () => {
     expect(merged.artifacts.map(({ name, version }) => `${name}@${version}`)).toEqual([
       "@anthropic-ai/sandbox-runtime@0.0.59",
       "ink@7.0.5",
-      "keel-harness@0.1.1",
+      "keel-harness@0.1.2",
     ]);
     for (const name of ["@anthropic-ai/sandbox-runtime", "ink"]) {
       const component = merged.artifacts.find((artifact) => artifact.name === name)!;
@@ -101,7 +101,7 @@ describe("Syft bundled-component bridge", () => {
 
   it("normalizes both standards documents to the exact source, time, and tarball digest", () => {
     const identity = {
-      version: "0.1.1",
+      version: "0.1.2",
       sourceCommit: "1".repeat(40),
       sourceDateEpoch: 1_775_000_000,
       tarballSha256: "a".repeat(64),
@@ -111,17 +111,17 @@ describe("Syft bundled-component bridge", () => {
         name: ".",
         documentNamespace: "https://anchore.invalid/random",
         creationInfo: { created: "now" },
-        packages: [{ name: "keel-harness", versionInfo: "0.1.1" }],
+        packages: [{ name: "keel-harness", versionInfo: "0.1.2" }],
       },
       identity,
     );
     expect(spdx).toMatchObject({
-      name: "keel-harness-0.1.1",
+      name: "keel-harness-0.1.2",
       documentNamespace: `https://github.com/keel-harness/keel/sbom/${identity.sourceCommit}/${identity.tarballSha256}/spdx`,
       packages: [
         {
           name: "keel-harness",
-          versionInfo: "0.1.1",
+          versionInfo: "0.1.2",
           checksums: [{ algorithm: "SHA256", checksumValue: identity.tarballSha256 }],
         },
       ],
@@ -132,7 +132,7 @@ describe("Syft bundled-component bridge", () => {
       {
         serialNumber: "urn:uuid:random",
         metadata: { timestamp: "now", component: { name: "." } },
-        components: [{ name: "keel-harness", version: "0.1.1" }],
+        components: [{ name: "keel-harness", version: "0.1.2" }],
       },
       identity,
     );
@@ -143,8 +143,8 @@ describe("Syft bundled-component bridge", () => {
         component: {
           type: "application",
           name: "keel-harness",
-          version: "0.1.1",
-          purl: "pkg:npm/keel-harness@0.1.1",
+          version: "0.1.2",
+          purl: "pkg:npm/keel-harness@0.1.2",
           hashes: [{ alg: "SHA-256", content: identity.tarballSha256 }],
         },
       },

@@ -10,7 +10,7 @@ describe("release artifact closure", () => {
     const result = parseNpmPackOutput(
       JSON.stringify([
         {
-          filename: "keel-harness-0.1.1.tgz",
+          filename: "keel-harness-0.1.2.tgz",
           files: [
             { path: "package.json" },
             { path: "README.md" },
@@ -24,19 +24,19 @@ describe("release artifact closure", () => {
           ],
         },
       ]),
-      "0.1.1",
+      "0.1.2",
     );
-    expect(result.filename).toBe("keel-harness-0.1.1.tgz");
-    expect(() => parseNpmPackOutput("[]", "0.1.1")).toThrow("exactly one npm pack result");
+    expect(result.filename).toBe("keel-harness-0.1.2.tgz");
+    expect(() => parseNpmPackOutput("[]", "0.1.2")).toThrow("exactly one npm pack result");
     expect(() =>
       parseNpmPackOutput(
         JSON.stringify([
           {
-            filename: "keel-harness-0.1.1.tgz",
+            filename: "keel-harness-0.1.2.tgz",
             files: [{ path: "src/private.ts" }],
           },
         ]),
-        "0.1.1",
+        "0.1.2",
       ),
     ).toThrow("unexpected tarball member");
   });
@@ -45,7 +45,7 @@ describe("release artifact closure", () => {
     expect(
       shrinkwrapPackageIdentities({
         packages: {
-          "": { name: "keel-harness", version: "0.1.1" },
+          "": { name: "keel-harness", version: "0.1.2" },
           "node_modules/zod": { version: "3.25.76" },
           "node_modules/@scope/pkg": { version: "1.2.3" },
           "node_modules/dev-only": { version: "9.9.9", dev: true },
@@ -53,14 +53,14 @@ describe("release artifact closure", () => {
       }),
     ).toEqual([
       { name: "@scope/pkg", version: "1.2.3" },
-      { name: "keel-harness", version: "0.1.1" },
+      { name: "keel-harness", version: "0.1.2" },
       { name: "zod", version: "3.25.76" },
     ]);
   });
 
   it("requires every external and bundled package plus the tarball digest in both standards", () => {
     const expected = [
-      { name: "keel-harness", version: "0.1.1" },
+      { name: "keel-harness", version: "0.1.2" },
       { name: "zod", version: "3.25.76" },
       { name: "ink", version: "7.0.5" },
     ];
@@ -78,7 +78,7 @@ describe("release artifact closure", () => {
       metadata: {
         component: {
           name: "keel-harness",
-          version: "0.1.1",
+          version: "0.1.2",
           hashes: [{ alg: "SHA-256", content: digest }],
         },
       },

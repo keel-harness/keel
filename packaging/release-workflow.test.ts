@@ -12,10 +12,18 @@ const releaseAdr = readFileSync(
   join(process.cwd(), "docs", "adr", "0085-public-npm-release-authority-and-artifact-flow.md"),
   "utf8",
 );
-const releaseNotes = readFileSync(join(process.cwd(), "docs", "releases", "v0.1.1.md"), "utf8");
+const releaseNotes = readFileSync(join(process.cwd(), "docs", "releases", "v0.1.2.md"), "utf8");
 const readme = readFileSync(join(process.cwd(), "README.md"), "utf8");
 const masterSpec = readFileSync(join(process.cwd(), "MASTER_SPEC.md"), "utf8");
 const claimLedger = readFileSync(join(process.cwd(), "docs", "quality", "claim-ledger.md"), "utf8");
+const bugReportTemplate = readFileSync(
+  join(process.cwd(), ".github", "ISSUE_TEMPLATE", "bug_report.yml"),
+  "utf8",
+);
+const questionTemplate = readFileSync(
+  join(process.cwd(), ".github", "ISSUE_TEMPLATE", "question.yml"),
+  "utf8",
+);
 
 function workflowJob(name: string): string {
   const marker = `  ${name}:\n`;
@@ -36,20 +44,22 @@ function workflowStep(job: string, name: string): string {
 }
 
 describe("public npm release workflow authority", () => {
-  it("targets 0.1.1 coherently while preserving the unapproved 0.1.0 history", () => {
-    expect(workflow).toContain('KEEL_VERSION: "0.1.1"');
-    expect(workflow).toContain("--notes-file docs/releases/v0.1.1.md");
-    expect(releaseRunbook).toContain("protected `v0.1.1` tag");
-    expect(releaseAdr).toContain("`keel-harness@0.1.1`");
+  it("targets 0.1.2 coherently while preserving the published 0.1.1 history", () => {
+    expect(workflow).toContain('KEEL_VERSION: "0.1.2"');
+    expect(workflow).toContain("--notes-file docs/releases/v0.1.2.md");
+    expect(releaseRunbook).toContain("protected `v0.1.2` tag");
+    expect(releaseAdr).toContain("current release target is");
+    expect(releaseAdr).toContain("`keel-harness@0.1.2`");
     expect(releaseAdr).toContain("`0.1.0` was staged but never approved");
-    expect(releaseNotes).toContain("# keel v0.1.1");
-    // Published 2026-08-03 after byte inspection and 2FA approval. The note previously said the
-    // carrier was "not published until separate 2FA approval"; that approval happened, so the
-    // pre-publication wording became false and the note now records the publication instead.
-    expect(releaseNotes).toContain("published on 2026-08-03");
-    expect(releaseNotes).toContain("2FA approval");
-    expect(installedCarrierSmoke.match(/keel 0\.1\.1/gu)).toHaveLength(2);
+    expect(releaseNotes).toContain("# keel v0.1.2");
+    expect(releaseNotes).toContain("It is not public until");
+    expect(releaseNotes).toContain("separate 2FA approval");
+    expect(releaseNotes).toContain("P1-007");
+    expect(installedCarrierSmoke.match(/keel 0\.1\.2/gu)).toHaveLength(2);
     expect(installedCarrierSmoke).toContain('chmod 700 "$KEEL_HOME"');
+    expect(bugReportTemplate).toContain("placeholder: keel 0.1.2");
+    expect(questionTemplate).toContain("placeholder: keel 0.1.2");
+    // Public truth remains pinned to the currently published bytes until the new stage is approved.
     expect(readme).toContain("`keel-harness@0.1.1`");
     expect(masterSpec).toContain("`keel-harness@0.1.1` was published 2026-08-03");
     expect(claimLedger).toContain("**Packaging — `keel-harness@0.1.1` npm release carrier");

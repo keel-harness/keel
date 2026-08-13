@@ -4,8 +4,8 @@
 
 **Date:** 2026-07-30
 
-**Amended:** 2026-08-02 for the owner-selected `0.1.1` release target. The authority model is
-unchanged.
+**Amended:** 2026-08-02 for the owner-selected `0.1.1` release target and 2026-08-12 for the
+`0.1.2` successor. The authority model is unchanged.
 
 **Amends:** ADR-0040's deferred npm-publication decision. The standalone-binary licensing hold is
 unchanged.
@@ -15,8 +15,8 @@ and the curated one-commit public repository.
 
 ## Context
 
-Keel has a mechanically proven npm carrier, but the registry currently contains only the
-`keel-harness@0.0.1` name-reservation placeholder. The real package must bind one public source
+At the original decision point Keel had a mechanically proven npm carrier, but the registry contained
+only the `keel-harness@0.0.1` name-reservation placeholder. Every real package must bind one public source
 commit to one inspected tarball, complete license and SBOM evidence, npm provenance, and a human
 approval. Publishing from any repository other than the public source would prevent npm's automatic
 public-repository provenance and would bind the package to the wrong source repository.
@@ -36,24 +36,24 @@ The carrier mixes two dependency shapes:
 An npm lockfile or ordinary filesystem scanner sees the first shape but cannot infer the second from
 minified/bundled JavaScript. An SBOM that silently omitted those bundled components would be false.
 
-`0.1.0` was staged but never approved or made public. The owner selected `0.1.1` for the current
-release after Epic 3.22. On 2026-08-02 the owner opened npm's authenticated account-level **Staged
-Packages** view; it reported that no package versions were waiting for review, while the public
-registry still exposed only `0.0.1`. No `0.1.0` stage remained available to approve or reject. This
-records the observable final state without claiming whether npm expired or otherwise removed the
-stage. The `0.1.0` draft release and protected tag remain non-publication historical evidence until
-a separately authorized disposition.
+`0.1.0` was staged but never approved or made public. The owner selected `0.1.1` after Epic 3.22; it
+was published on 2026-08-03 after exact-byte inspection and separate human 2FA approval. Before that
+release, the owner's authenticated npm Staged Packages view reported no versions waiting for review,
+so no `0.1.0` stage remained available to approve or reject. This records the observable final state
+without guessing whether npm expired or otherwise removed the stage. The `0.1.0` draft release and
+protected tag remain non-publication historical evidence until a separately authorized disposition.
 
 ## Decision
 
 ### 1. Publish only from the curated public repository
 
-The first intended public carrier is `keel-harness@0.1.1`. It may be staged only from the public
+The first public carrier was `keel-harness@0.1.1`; the current release target is
+`keel-harness@0.1.2`. It may be staged only from the public
 `keel-harness/keel` repository after a fresh one-commit public seed has passed the extracted-tree
 gates and public-main CI is green. A separate development workspace may implement and test the
 release mechanism, but it is not a publication authority.
 
-The release ref is a protected annotated `v0.1.1` tag whose peeled commit is the exact green public
+The release ref is a protected annotated `v0.1.2` tag whose peeled commit is the exact green public
 `main` commit. The runtime constant, source-workspace manifest versions, generated carrier version,
 tag, tarball filename, and candidate metadata must all agree. An existing live registry version, a
 lightweight tag, a dirty source tree, a non-main tag commit, or any mismatch fails before artifact
@@ -164,11 +164,11 @@ staging a package, or changing npm/GitHub settings. Those operations remain sepa
   inventory; Syft owns SPDX/CycloneDX serialization.
 - Standalone Bun binaries remain non-release-eligible under ADR-0040. This ADR does not sign,
   publish, or imply license completeness for them.
-- P1-007 remains a named failed strict RSS gate. The owner accepted it as a residual risk for the
-  `0.1.0` pre-alpha candidate on 2026-07-30 and separately for the `0.1.1` pre-alpha candidate on
-  2026-08-02. Each acceptance is version-scoped and does not transfer to another release. Release
-  issue #49 records the current decision; the gate and threshold remain unchanged, and the release
-  carries no packaged-performance claim.
+- P1-007 remains a named failed strict RSS gate unless a fresh version-specific run passes it. The
+  owner accepted it as a residual risk for the `0.1.0` pre-alpha candidate on 2026-07-30 and
+  separately for the `0.1.1` pre-alpha carrier on 2026-08-02. Neither acceptance transfers to
+  `0.1.2`; release issue #219 must record a fresh pass or explicit `0.1.2` decision. The gate and
+  threshold remain unchanged, and no release carries a packaged-performance claim without proof.
 
 ## Rejected alternatives
 
