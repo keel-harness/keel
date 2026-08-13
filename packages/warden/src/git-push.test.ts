@@ -253,7 +253,10 @@ const brokerIdentity: GitCredentialBrokerIdentity = {
   helperCount: 1,
 };
 
-function brokerState(nowMs: () => number, broker: GitCredentialBroker): GitPushRuntimeState {
+function brokerState(
+  nowMs: () => number,
+  broker: GitCredentialBroker,
+): GitPushRuntimeState & { readonly config: GitPushWalkingSkeletonConfig } {
   return createGitPushRuntimeState({
     advertiseTestCapability: true,
     fixture: {
@@ -1357,6 +1360,76 @@ describe("ADR-0091 git.push Warden walking skeleton", () => {
     expect(serialized).not.toContain(canarySecret);
     expect(JSON.stringify(h.audits)).not.toContain(canaryUser);
     expect(JSON.stringify(h.audits)).not.toContain(canarySecret);
+  });
+
+  it("returns an audited credential-unavailable result when helper inspection fails before review", async () => {
+    const brokerCanary = "raw-pre-review-helper-output-DO-NOT-RETAIN";
+    const inspect = vi
+      .fn<GitCredentialBroker["inspect"]>()
+      .mockRejectedValue(new GitCredentialBrokerError(brokerCanary));
+    const resolveCredential = vi.fn<GitCredentialBroker["resolve"]>();
+    const broker: GitCredentialBroker = {
+      sourceClass: "operator Git credential helper (system/global config)",
+      inspect,
+      resolve: resolveCredential,
+    };
+    const state = brokerState(() => 1_000, broker);
+    const h = harness({ state });
+    const authority = createGitPushWalkingSkeletonAuthority(state.config);
+    const auditDir = tempDir("keel-git-push-pre-review-credential-audit-");
+    const auditPath = join(auditDir, "audit.jsonl");
+    const auditWriter = AuditChainWriter.open({
+      path: auditPath,
+      principal,
+      now: () => "2026-08-13T05:30:00.000Z",
+    });
+
+    try {
+      const response = await handleRpcLine(
+        rpcFrame("request", "warden.execute", executeArgs(h.workspace.head)),
+        {
+          workspaceTrusted: true,
+          workspaceRoot: h.workspace.path,
+          sandbox: h.context.sandbox,
+          auditWriter,
+          auditDir,
+          gitPushAuthority: authority,
+          gitPushAddressGuardRevision: "test-address-guard-v1",
+        },
+      );
+
+      expect(response).toMatchObject({
+        result: {
+          verdict: "deny",
+          result: {
+            kind: "git_push_result",
+            status: "failed",
+            repository: canonicalUrl,
+            branch: "feature/unit",
+            destinationRef: "refs/heads/feature/unit",
+            commit: h.workspace.head,
+            observedRef: null,
+            failureKind: "credential-unavailable",
+            automaticRetry: false,
+            actionMayHaveExecuted: false,
+          },
+        },
+      });
+      expect(response).not.toHaveProperty("error");
+      expect(authority.pendingReviewCount()).toBe(0);
+      expect(inspect).toHaveBeenCalledTimes(1);
+      expect(resolveCredential).not.toHaveBeenCalled();
+      expect(externalNetworkExecutions(h)).toEqual([]);
+
+      auditWriter.close();
+      const durableAudit = readFileSync(auditPath, "utf8");
+      expect(durableAudit).toContain('"failureKind":"credential-unavailable"');
+      expect(durableAudit).toContain('"actionMayHaveExecuted":false');
+      expect(JSON.stringify(response)).not.toContain(brokerCanary);
+      expect(durableAudit).not.toContain(brokerCanary);
+    } finally {
+      auditWriter.close();
+    }
   });
 
   it("classifies credential lookup failure without retaining broker output or launching network", async () => {

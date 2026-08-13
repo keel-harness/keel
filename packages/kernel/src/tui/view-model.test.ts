@@ -279,6 +279,68 @@ describe("view-model reducer", () => {
     }
   });
 
+  it("keeps credential-unavailable github.pr.create recovery actionable live and after resume", () => {
+    const oid = "0123456789abcdef0123456789abcdef01234567";
+    const result = {
+      kind: "github_pr_create_result",
+      status: "failed",
+      failureKind: "credential-unavailable",
+      repository: "keel-harness/keel",
+      head: "feature/publish",
+      base: "main",
+      commit: oid,
+      number: null,
+      url: null,
+      automaticRetry: false,
+      actionMayHaveExecuted: false,
+    };
+    const output =
+      "github.pr.create credential resolution was unavailable before network access; no automatic retry was attempted; run: gh auth login --git-protocol https && gh auth setup-git && keel doctor\n\n" +
+      JSON.stringify(result);
+    const call = {
+      id: "pr-credential",
+      name: "github.pr.create",
+      args: {
+        remote: "origin",
+        repository: "keel-harness/keel",
+        head: "feature/publish",
+        expectedHead: oid,
+        base: "main",
+        title: "Title",
+        body: "Body",
+        draft: false,
+        maintainerCanModify: true,
+      },
+    };
+    let live = initialView(seed);
+    live = reduce(live, { type: "tool-call", ...call });
+    live = reduce(
+      live,
+      markToolPresentationOutcome(
+        { type: "tool-result", id: call.id, ok: false, output },
+        "failed",
+      ),
+    );
+    const resumed = initialView(
+      [
+        { role: "assistant", content: "", toolCalls: [call] },
+        { role: "tool", content: output, toolCallId: call.id, name: call.name },
+      ],
+      {},
+      { failedToolMessageIndexes: new Set([1]) },
+    );
+
+    for (const candidate of [live, resumed]) {
+      expect(candidate.items.at(-1)).toMatchObject({
+        kind: "tool",
+        name: "github.pr.create",
+        status: "error",
+        summary:
+          "credential unavailable · run gh auth login --git-protocol https && gh auth setup-git && keel doctor",
+      });
+    }
+  });
+
   it("does not promote an incomplete git.push lookalike to resumed indeterminate truth", () => {
     const content = JSON.stringify({
       kind: "git_push_result",

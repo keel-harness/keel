@@ -14,7 +14,11 @@ import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { supportedGitPushVersion, WARDEN_METHODS } from "@keel/shared";
 import { AuditChainWriter } from "./audit/writer.js";
-import type { GitCredentialBroker, GitCredentialBrokerIdentity } from "./git-credential-broker.js";
+import {
+  GitCredentialBrokerError,
+  type GitCredentialBroker,
+  type GitCredentialBrokerIdentity,
+} from "./git-credential-broker.js";
 import type {
   GithubPrCreateAuthorityContext,
   GithubPrCreateBindingAuthority,
@@ -411,6 +415,50 @@ describe("ADR-0091 governed github.pr.create authority", () => {
     ).toBe(true);
     expect(h.broker.resolveBearer).not.toHaveBeenCalled();
     expect(JSON.stringify(h.audits)).not.toContain(h.token);
+  });
+
+  it("returns an audited credential-unavailable result when helper inspection fails before review", async () => {
+    const brokerCanary = "raw-pr-helper-output-DO-NOT-RETAIN";
+    const h = harness();
+    h.broker.inspect.mockRejectedValueOnce(new GitCredentialBrokerError(brokerCanary));
+
+    const outcome = await h.authority.request(h.context, request(h.source.head));
+
+    expect(outcome).toMatchObject({
+      verdict: "deny",
+      result: {
+        kind: "github_pr_create_result",
+        status: "failed",
+        repository,
+        head: "feature/pr",
+        base: "main",
+        commit: h.source.head,
+        number: null,
+        url: null,
+        failureKind: "credential-unavailable",
+        automaticRetry: false,
+        actionMayHaveExecuted: false,
+      },
+    });
+    expect(h.authority.pendingReviewCount()).toBe(0);
+    expect(h.broker.inspect).toHaveBeenCalledTimes(1);
+    expect(h.broker.resolveBearer).not.toHaveBeenCalled();
+    expect(
+      h.executions.filter((entry) => (entry.profile.network?.allowedDomains?.length ?? 0) > 0),
+    ).toEqual([]);
+    expect(JSON.stringify(outcome)).not.toContain(brokerCanary);
+    expect(JSON.stringify(h.audits)).not.toContain(brokerCanary);
+    expect(h.audits).toHaveLength(1);
+    expect(h.audits[0]).toMatchObject({
+      eventType: "tool.deny",
+      payload: {
+        code: "CREDENTIAL_UNAVAILABLE",
+        result: {
+          failureKind: "credential-unavailable",
+          actionMayHaveExecuted: false,
+        },
+      },
+    });
   });
 
   it("creates one PR after approval and verifies the exact resulting object", async () => {

@@ -59,9 +59,10 @@ authority and use an endpointless network-denied OS profile. Force, deletion, ta
 redirects, project helpers, reusable grants, and automatic retry are unavailable. Raw
 `process.run git push` remains terminal. Indeterminate attempts require a restart followed by
 independent remote-ref and audit inspection before a deliberate fresh request.
-Doctor validates eligible helper authority without resolving a credential. An approved attempt can
-therefore still fail before network when no exact path-scoped credential is available; that bounded
-failure remains `actionMayHaveExecuted: false` and points to
+Doctor validates eligible helper authority without resolving a credential. Either publication tool
+can therefore still fail before review or after approval, but before network, when the helper or an
+exact path-scoped credential is unavailable; that bounded failure remains
+`actionMayHaveExecuted: false` and points to
 `gh auth login --git-protocol https && gh auth setup-git && keel doctor` without exposing helper output.
 
 `github.pr.create` is a distinct authority, not a continuation of push approval. It binds the

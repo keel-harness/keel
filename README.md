@@ -121,8 +121,8 @@ once-only human approval; push approval never authorizes PR creation.
 The Warden resolves an operator system/global Git credential helper without exposing its value,
 records intent before either mutation, and independently verifies the resulting ref or pull request.
 `keel doctor` checks only that the helper command has eligible system/global authority; it does not
-look up or promise a path-scoped credential before approval. If an approved GitHub push reports
-`credential-unavailable`, run
+look up or promise a path-scoped credential. If either publication tool reports
+`credential-unavailable` before review or after approval, run
 `gh auth login --git-protocol https && gh auth setup-git && keel doctor`, then submit a fresh request.
 Force, deletion, tags, default-branch push, SSH, redirects, project credential helpers, reusable
 grants, cross-repository PRs, arbitrary forge APIs, merge/auto-merge, labels, reviews, releases,

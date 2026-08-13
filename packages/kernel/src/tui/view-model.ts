@@ -1544,6 +1544,7 @@ interface GithubPrCreateResultProjection {
   readonly commit: string;
   readonly number: number | null;
   readonly actionMayHaveExecuted: boolean;
+  readonly failureKind?: "credential-unavailable";
 }
 
 const GITHUB_PR_REPOSITORY =
@@ -1600,6 +1601,7 @@ function parseGithubPrCreateResultProjection(
   const number = parsed["number"];
   const url = parsed["url"];
   const actionMayHaveExecuted = parsed["actionMayHaveExecuted"];
+  const failureKind = parsed["failureKind"];
   if (
     (status !== "created" &&
       status !== "already-exists" &&
@@ -1612,7 +1614,8 @@ function parseGithubPrCreateResultProjection(
     typeof commit !== "string" ||
     !GITHUB_PR_FULL_OID.test(commit) ||
     parsed["automaticRetry"] !== false ||
-    typeof actionMayHaveExecuted !== "boolean"
+    typeof actionMayHaveExecuted !== "boolean" ||
+    (failureKind !== undefined && failureKind !== "credential-unavailable")
   ) {
     return undefined;
   }
@@ -1625,7 +1628,8 @@ function parseGithubPrCreateResultProjection(
     (status === "created" && actionMayHaveExecuted !== true) ||
     (status === "already-exists" && actionMayHaveExecuted !== false) ||
     (status === "failed" && actionMayHaveExecuted !== false) ||
-    (status === "indeterminate" && actionMayHaveExecuted !== true)
+    (status === "indeterminate" && actionMayHaveExecuted !== true) ||
+    (failureKind === "credential-unavailable" && status !== "failed")
   ) {
     return undefined;
   }
@@ -1637,10 +1641,14 @@ function parseGithubPrCreateResultProjection(
     commit,
     number: confirmed ? (number as number) : null,
     actionMayHaveExecuted,
+    ...(failureKind === "credential-unavailable" ? { failureKind } : {}),
   };
 }
 
 function githubPrCreateResultSummary(result: GithubPrCreateResultProjection): string {
+  if (result.failureKind === "credential-unavailable") {
+    return "credential unavailable · run gh auth login --git-protocol https && gh auth setup-git && keel doctor";
+  }
   const label =
     result.status === "created"
       ? `created PR #${String(result.number)}`

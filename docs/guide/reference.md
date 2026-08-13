@@ -48,8 +48,8 @@ lossless human approval for that occurrence once. It can create or ordinarily fa
 non-default feature ref. Force, deletion, tags, default branch writes, SSH, redirects, project
 credential helpers, reusable grants, and automatic retry are not supported. `keel doctor` reports
 these non-secret prerequisites; an eligible helper command is not proof that a path-scoped
-credential exists, and doctor never resolves or prints one. If an approved GitHub push returns
-`credential-unavailable`, run
+credential exists, and doctor never resolves or prints one. If either publication tool returns
+`credential-unavailable` before review or after approval, run
 `gh auth login --git-protocol https && gh auth setup-git && keel doctor`, then submit a fresh request.
 Retired network-bearing proxy endpoints are permanently excluded, so exhausting the finite endpoint
 space withholds both publication tools and fails closed. Compact registry V2 makes the 25,536-port

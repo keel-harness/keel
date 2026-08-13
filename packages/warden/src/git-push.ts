@@ -173,6 +173,20 @@ interface GitPushFacts {
   readonly credentialBrokerIdentity?: GitCredentialBrokerIdentity;
 }
 
+interface GitPushCredentialUnavailableFacts {
+  readonly repository: string;
+  readonly branch: string;
+  readonly destinationRef: string;
+  readonly commit: string;
+}
+
+class GitPushCredentialUnavailableError extends Error {
+  constructor(readonly facts: GitPushCredentialUnavailableFacts) {
+    super("git.push credential helper authority is unavailable before review");
+    this.name = "GitPushCredentialUnavailableError";
+  }
+}
+
 export interface PendingGitPushReview extends GitPushPendingReview {
   readonly kind: "git-push";
   readonly reviewId: string;
@@ -909,7 +923,20 @@ async function inspectGitPushFacts(
     path: repositoryPath,
   };
   const credentialBroker = credentialBrokerForConfig(state.config);
-  const credentialBrokerIdentity = await credentialBroker?.inspect(credentialContext);
+  let credentialBrokerIdentity: GitCredentialBrokerIdentity | undefined;
+  try {
+    credentialBrokerIdentity = await credentialBroker?.inspect(credentialContext);
+  } catch (error) {
+    if (!(error instanceof GitCredentialBrokerError)) throw error;
+    // The broker error can retain raw helper/config diagnostics. Replace it at this Warden-owned
+    // boundary with only the already-validated public request facts; never attach it as a cause.
+    throw new GitPushCredentialUnavailableError({
+      repository: canonicalUrl,
+      branch: request.branch,
+      destinationRef,
+      commit: request.expectedHead,
+    });
+  }
   return {
     workspaceRoot,
     workspaceIdentity: exactFileIdentity(workspaceRoot),
@@ -1172,7 +1199,39 @@ export async function requestGitPushReview(
     );
   }
   const request = parseRequest(executeParams.toolCall.args);
-  const facts = await inspectGitPushFacts(context, context.workspaceRoot, request);
+  let facts: GitPushFacts;
+  try {
+    facts = await inspectGitPushFacts(context, context.workspaceRoot, request);
+  } catch (error) {
+    if (!(error instanceof GitPushCredentialUnavailableError)) throw error;
+    const result: JsonObjectT = {
+      kind: "git_push_result",
+      status: "failed",
+      repository: error.facts.repository,
+      branch: error.facts.branch,
+      destinationRef: error.facts.destinationRef,
+      commit: error.facts.commit,
+      observedRef: null,
+      transport: "srt:vendored verified HTTPS with address guard",
+      automaticRetry: false,
+      actionMayHaveExecuted: false,
+      failureKind: "credential-unavailable",
+    };
+    const auditSeq = context.appendAudit({
+      eventType: "tool.deny",
+      sessionId: executeParams.sessionId,
+      payload: {
+        toolName: GIT_PUSH_TOOL_NAME,
+        args: executeParams.toolCall.args,
+        reason: "credential helper authority is unavailable before review",
+        code: "CREDENTIAL_UNAVAILABLE",
+        result,
+        actionMayHaveExecuted: false,
+      },
+      sideEffect: gitPushSideEffect(error.facts.repository),
+    });
+    return { verdict: "deny", result, auditSeq };
+  }
   const sideEffect = gitPushSideEffect(facts);
   const bindingAuthority = await context.resolveBindingAuthority({
     executeParams,
