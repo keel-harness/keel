@@ -310,6 +310,192 @@ describe("resume.rebuild (text-only ledger → messages)", () => {
     ]);
   });
 
+  it("rehydrates successful controller loop verification without changing provider messages", () => {
+    const e = env();
+    const ts = "2026-08-13T03:54:27.000Z";
+    const store = SessionStore.create({ cwd: "/w" }, e);
+    store.append({ type: "user", v: 1, ts, content: "create and verify the fixture" });
+    store.append({ type: "assistant", v: 1, ts, content: "fixture ready" });
+    store.append({
+      type: "run_status",
+      v: 1,
+      ts,
+      reason: "model-stop",
+      usage: { inputTokens: 10, outputTokens: 2 },
+    });
+    store.append({
+      type: "tool_result",
+      v: 1,
+      ts,
+      toolCallId: "loop_release_exit_1",
+      name: "bash",
+      output: JSON.stringify({ exitCode: 0, signal: null, stdout: "", stderr: "" }),
+    });
+    store.append({
+      type: "loop_iteration",
+      v: 1,
+      ts,
+      loopId: "loop_release",
+      iteration: 1,
+      status: "exit-check-passed",
+      evidenceRefs: ["tool_result:loop_release_exit_1"],
+    });
+    store.append({
+      type: "loop_stopped",
+      v: 1,
+      ts,
+      loopId: "loop_release",
+      reason: "succeeded",
+      iterations: 1,
+      evidenceRefs: ["tool_result:loop_release_exit_1"],
+    });
+    store.close();
+
+    const resumed = rebuild(readSession(store.id, e));
+
+    expect(resumed.messages).toEqual([
+      { role: "user", content: "create and verify the fixture" },
+      { role: "assistant", content: "fixture ready" },
+    ]);
+    expect(resumed.latestLoopVerification).toEqual({
+      evidenceRef: "tool_result:loop_release_exit_1",
+    });
+  });
+
+  it.each([
+    {
+      label: "failed controller result",
+      resultIsError: true,
+      stop: "succeeded" as const,
+      toolCallId: "loop_release_exit_1",
+    },
+    {
+      label: "contradictory stop",
+      resultIsError: false,
+      stop: "error" as const,
+      toolCallId: "loop_release_exit_1",
+    },
+    {
+      label: "mismatched controller identity",
+      resultIsError: false,
+      stop: "succeeded" as const,
+      toolCallId: "loop_other_exit_1",
+    },
+  ])(
+    "does not promote $label to resumed verification truth",
+    ({ resultIsError, stop, toolCallId }) => {
+      const e = env();
+      const ts = "2026-08-13T03:54:27.000Z";
+      const store = SessionStore.create({ cwd: "/w" }, e);
+      store.append({ type: "user", v: 1, ts, content: "verify" });
+      store.append({ type: "assistant", v: 1, ts, content: "done" });
+      store.append({
+        type: "tool_result",
+        v: 1,
+        ts,
+        toolCallId,
+        name: "bash",
+        output: resultIsError ? "blocked before execution" : "passed",
+        ...(resultIsError ? { isError: true } : {}),
+      });
+      store.append({
+        type: "loop_iteration",
+        v: 1,
+        ts,
+        loopId: "loop_release",
+        iteration: 1,
+        status: "exit-check-passed",
+        evidenceRefs: [`tool_result:${toolCallId}`],
+      });
+      store.append({
+        type: "loop_stopped",
+        v: 1,
+        ts,
+        loopId: "loop_release",
+        reason: stop,
+        iterations: 1,
+        evidenceRefs: [`tool_result:${toolCallId}`],
+      });
+      store.close();
+
+      expect(rebuild(readSession(store.id, e)).latestLoopVerification).toBeUndefined();
+    },
+  );
+
+  it("uses the final passed evidence when a successful loop needed multiple iterations", () => {
+    const e = env();
+    const ts = "2026-08-13T03:54:27.000Z";
+    const store = SessionStore.create({ cwd: "/w" }, e);
+    store.append({
+      type: "tool_result",
+      v: 1,
+      ts,
+      toolCallId: "loop_release_exit_2",
+      name: "bash",
+      output: "passed",
+    });
+    store.append({
+      type: "loop_iteration",
+      v: 1,
+      ts,
+      loopId: "loop_release",
+      iteration: 2,
+      status: "exit-check-passed",
+      evidenceRefs: ["tool_result:loop_release_exit_2"],
+    });
+    store.append({
+      type: "loop_stopped",
+      v: 1,
+      ts,
+      loopId: "loop_release",
+      reason: "succeeded",
+      iterations: 2,
+      evidenceRefs: ["tool_result:loop_release_exit_1", "tool_result:loop_release_exit_2"],
+    });
+    store.close();
+
+    expect(rebuild(readSession(store.id, e)).latestLoopVerification).toEqual({
+      evidenceRef: "tool_result:loop_release_exit_2",
+    });
+  });
+
+  it("does not credit an earlier successful loop check to a later human turn", () => {
+    const e = env();
+    const ts = "2026-08-13T03:54:27.000Z";
+    const store = SessionStore.create({ cwd: "/w" }, e);
+    store.append({
+      type: "tool_result",
+      v: 1,
+      ts,
+      toolCallId: "loop_release_exit_1",
+      name: "bash",
+      output: "passed",
+    });
+    store.append({
+      type: "loop_iteration",
+      v: 1,
+      ts,
+      loopId: "loop_release",
+      iteration: 1,
+      status: "exit-check-passed",
+      evidenceRefs: ["tool_result:loop_release_exit_1"],
+    });
+    store.append({
+      type: "loop_stopped",
+      v: 1,
+      ts,
+      loopId: "loop_release",
+      reason: "succeeded",
+      iterations: 1,
+      evidenceRefs: ["tool_result:loop_release_exit_1"],
+    });
+    store.append({ type: "user", v: 1, ts, content: "unrelated follow-up" });
+    store.append({ type: "assistant", v: 1, ts, content: "unrelated answer" });
+    store.close();
+
+    expect(rebuild(readSession(store.id, e)).latestLoopVerification).toBeUndefined();
+  });
+
   it("skips warden auto-resolution receipt events — metadata, never model-visible context", () => {
     const e = env();
     const ts = "2026-07-07T08:00:00.000Z";

@@ -48,6 +48,12 @@ export interface ResumeState {
   readonly finalAnswerSettlements: ReadonlyMap<string, FinalAnswerSettlementT>;
   /** Settlements with a durable attempt/prompt but no matching terminal settlement record. */
   readonly interruptedFinalAnswerSettlementIds: ReadonlySet<string>;
+  /** Latest completed run's controller-owned bounded-loop verification. This is derived only from a
+   * successful orphan controller tool result, its exact passed marker, and the matching successful
+   * loop stop. It is presentation-only and is never added to provider history. */
+  readonly latestLoopVerification?: {
+    readonly evidenceRef: string;
+  };
   readonly pendingSteering: readonly SteeringEventT[];
   readonly finished: boolean;
   readonly lastStop?: StopReasonT;
@@ -128,6 +134,17 @@ export function rebuild(file: SessionFile): ResumeState {
   const steeringById = new Map<string, SteeringEventT>();
   const steeringMessagesByIndex = new Map<number, Set<string>>();
   const failedLoopIterationById = new Map<string, number>();
+  let unmatchedControllerToolResult:
+    | { readonly evidenceRef: string; readonly name: string; readonly failed: boolean }
+    | undefined;
+  let pendingLoopVerification:
+    | {
+        readonly loopId: string;
+        readonly iteration: number;
+        readonly evidenceRef: string;
+      }
+    | undefined;
+  let latestLoopVerification: ResumeState["latestLoopVerification"];
   let expectedLegacyLoopController: string | undefined;
   let lastStop: StopReasonT | undefined;
   let lastStopCode: string | undefined;
@@ -165,6 +182,11 @@ export function rebuild(file: SessionFile): ResumeState {
   for (const ev of file.events) {
     switch (ev.type) {
       case "user":
+        // A new human/controller turn owns its own completion card. Never credit an older loop check
+        // to later work, even when the text is a structured steering or rewrite prompt.
+        latestLoopVerification = undefined;
+        pendingLoopVerification = undefined;
+        unmatchedControllerToolResult = undefined;
         expectedLegacyLoopController = undefined;
         closeInterruptedFinalAnswerRewrite();
         closeOpen();
@@ -193,6 +215,8 @@ export function rebuild(file: SessionFile): ResumeState {
         }
         break;
       case "assistant":
+        unmatchedControllerToolResult = undefined;
+        pendingLoopVerification = undefined;
         expectedLegacyLoopController = undefined;
         if (
           ev.finalAnswer?.kind !== "attempt" ||
@@ -227,7 +251,18 @@ export function rebuild(file: SessionFile): ResumeState {
         // occurrence-ordered so historical duplicate ids remain replayable.
         {
           const matching = open.findIndex((c) => c.id === ev.toolCallId);
-          if (matching < 0) break;
+          if (matching < 0) {
+            // Bounded-loop exit checks are controller-owned and deliberately have no provider-visible
+            // assistant tool call. Retain only the immediately referencable identity/outcome; never
+            // add the result bytes to provider messages or presentation.
+            unmatchedControllerToolResult = {
+              evidenceRef: `tool_result:${ev.toolCallId}`,
+              name: ev.name,
+              failed: ev.isError === true,
+            };
+            break;
+          }
+          unmatchedControllerToolResult = undefined;
           const matched = open[matching]!;
           const messageIndex = messages.length;
           messages.push({
@@ -244,6 +279,8 @@ export function rebuild(file: SessionFile): ResumeState {
         }
         break;
       case "system":
+        unmatchedControllerToolResult = undefined;
+        pendingLoopVerification = undefined;
         closeInterruptedFinalAnswerRewrite();
         closeOpen();
         // Sessions written before Epic 3.15 recorded this exact controller continuation as a tail
@@ -258,6 +295,12 @@ export function rebuild(file: SessionFile): ResumeState {
         messages.push({ role: "system", content: ev.content });
         break;
       case "run_status":
+        // The pass marker and successful stop follow the model turn's run_status. Clearing here means
+        // any later terminal run supersedes an older completed-loop presentation unless fresh
+        // controller evidence follows it.
+        latestLoopVerification = undefined;
+        pendingLoopVerification = undefined;
+        unmatchedControllerToolResult = undefined;
         expectedLegacyLoopController = undefined;
         lastStop = ev.reason;
         lastStopCode = ev.code;
@@ -270,6 +313,23 @@ export function rebuild(file: SessionFile): ResumeState {
         awaitingHumanPrompt = true;
         break;
       case "loop_iteration":
+        if (ev.status === "exit-check-passed") {
+          const evidenceRef = ev.evidenceRefs.length === 1 ? ev.evidenceRefs[0] : undefined;
+          pendingLoopVerification =
+            evidenceRef !== undefined &&
+            evidenceRef === `tool_result:${ev.loopId}_exit_${String(ev.iteration)}` &&
+            unmatchedControllerToolResult?.evidenceRef === evidenceRef &&
+            unmatchedControllerToolResult.name === "bash" &&
+            !unmatchedControllerToolResult.failed
+              ? { loopId: ev.loopId, iteration: ev.iteration, evidenceRef }
+              : undefined;
+          unmatchedControllerToolResult = undefined;
+          failedLoopIterationById.delete(ev.loopId);
+          break;
+        }
+        unmatchedControllerToolResult = undefined;
+        pendingLoopVerification = undefined;
+        if (ev.status === "running") latestLoopVerification = undefined;
         if (ev.status === "exit-check-failed") {
           failedLoopIterationById.set(ev.loopId, ev.iteration);
           break;
@@ -291,6 +351,15 @@ export function rebuild(file: SessionFile): ResumeState {
         failedLoopIterationById.delete(ev.loopId);
         break;
       case "loop_stopped": {
+        latestLoopVerification =
+          ev.reason === "succeeded" &&
+          pendingLoopVerification?.loopId === ev.loopId &&
+          pendingLoopVerification.iteration === ev.iterations &&
+          ev.evidenceRefs.at(-1) === pendingLoopVerification.evidenceRef
+            ? { evidenceRef: pendingLoopVerification.evidenceRef }
+            : undefined;
+        pendingLoopVerification = undefined;
+        unmatchedControllerToolResult = undefined;
         failedLoopIterationById.delete(ev.loopId);
         expectedLegacyLoopController = undefined;
         const loopStop = stopReasonForLoopStopped(ev.reason);
@@ -310,6 +379,9 @@ export function rebuild(file: SessionFile): ResumeState {
         break;
       }
       case "goal_failed":
+        latestLoopVerification = undefined;
+        pendingLoopVerification = undefined;
+        unmatchedControllerToolResult = undefined;
         lastGoalFailure = ev.reason;
         lastStop = ev.reason === "aborted" || ev.reason === "error" ? ev.reason : undefined;
         lastStopCode = undefined;
@@ -354,6 +426,7 @@ export function rebuild(file: SessionFile): ResumeState {
     finalAnswerOccurrences,
     finalAnswerSettlements,
     interruptedFinalAnswerSettlementIds,
+    ...(latestLoopVerification !== undefined ? { latestLoopVerification } : {}),
     pendingSteering,
     finished:
       lastGoalFailure === undefined &&

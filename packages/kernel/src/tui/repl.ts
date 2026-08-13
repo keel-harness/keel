@@ -139,6 +139,8 @@ export interface RunReplOpts extends Omit<RunSessionOpts, "seed" | "recordSeed" 
   readonly resumedInterruptedFinalAnswerSettlementIds?: NonNullable<
     RunSessionOpts["seedPresentation"]
   >["interruptedFinalAnswerSettlementIds"];
+  /** Controller-owned successful loop verification derived from the durable resume fold. */
+  readonly resumedLoopVerification?: ResumeState["latestLoopVerification"];
   /** Durable controller stop truth paired with `resumed`. Presentation-only; model prose and tool
    * result text cannot set it. */
   readonly resumedLastStop?: StopReasonT;
@@ -293,6 +295,7 @@ export async function runRepl(opts: RunReplOpts): Promise<RunOutcome> {
     resumedFinalAnswerOccurrences,
     resumedFinalAnswerSettlements,
     resumedInterruptedFinalAnswerSettlementIds,
+    resumedLoopVerification,
     resumedLastStop,
     resumedLastStopCode,
     resumedLastStopMessage,
@@ -344,7 +347,18 @@ export async function runRepl(opts: RunReplOpts): Promise<RunOutcome> {
             ...(resumedLastStopMessage !== undefined ? { message: resumedLastStopMessage } : {}),
           })
         : resumedBase;
-    const completionSummary = buildTurnSummary(withCompletionTruth);
+    const rawCompletionSummary = buildTurnSummary(withCompletionTruth);
+    const completionSummary =
+      rawCompletionSummary === undefined || resumedLoopVerification === undefined
+        ? rawCompletionSummary
+        : {
+            ...rawCompletionSummary,
+            checked: [...rawCompletionSummary.checked, "bounded loop exit check (controller)"],
+            receipt: [
+              ...(rawCompletionSummary.receipt ?? []),
+              `loop succeeded · evidence ${oneLineText(resumedLoopVerification.evidenceRef)}`,
+            ],
+          };
     const base =
       completionSummary === undefined
         ? withCompletionTruth

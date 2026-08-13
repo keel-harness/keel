@@ -3175,6 +3175,66 @@ describe("runKeelCommand resume (Epic 1.23 slice 2 — --continue / --resume con
     await run;
   });
 
+  it("threads durable successful loop verification into the product resume view", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "keel-resume-loop-verification-"));
+    const e: NodeJS.ProcessEnv = { KEEL_HOME: cwd };
+    const store = SessionStore.create({ cwd }, e);
+    const ts = "2026-08-13T03:54:27.000Z";
+    store.append({ type: "user", v: 1, ts, content: "create and verify the fixture" });
+    store.append({ type: "assistant", v: 1, ts, content: "fixture ready" });
+    store.append({
+      type: "run_status",
+      v: 1,
+      ts,
+      reason: "model-stop",
+      usage: { inputTokens: 10, outputTokens: 2 },
+    });
+    store.append({
+      type: "tool_result",
+      v: 1,
+      ts,
+      toolCallId: "loop_release_exit_1",
+      name: "bash",
+      output: JSON.stringify({ exitCode: 0, signal: null, stdout: "", stderr: "" }),
+    });
+    store.append({
+      type: "loop_iteration",
+      v: 1,
+      ts,
+      loopId: "loop_release",
+      iteration: 1,
+      status: "exit-check-passed",
+      evidenceRefs: ["tool_result:loop_release_exit_1"],
+    });
+    store.append({
+      type: "loop_stopped",
+      v: 1,
+      ts,
+      loopId: "loop_release",
+      reason: "succeeded",
+      iterations: 1,
+      evidenceRefs: ["tool_result:loop_release_exit_1"],
+    });
+    store.close();
+
+    const ui = new TestUI();
+    const run = runKeelCommand(undefined, {
+      model: new ScriptedModel({ turns: [] }),
+      ui,
+      cwd,
+      env: e,
+      resume: { kind: "id", id: store.id },
+    });
+    await ui.awaitRender((view) => view.awaitingInput === true && asstSaid(view, "fixture ready"));
+    const frame = renderFrame(ui.latest!, false);
+    ui.queue.close();
+    await run;
+
+    expect(frame).toContain("bounded loop exit check (controller)");
+    expect(frame).toContain("loop succeeded · evidence tool_result:loop_release_exit_1");
+    expect(frame).not.toContain("verification not run");
+  });
+
   it("threads durable attention-coded completion truth into the product resume view", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "keel-resume-completion-truth-"));
     const e: NodeJS.ProcessEnv = { KEEL_HOME: cwd };

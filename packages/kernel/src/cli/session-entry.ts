@@ -35,7 +35,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { verifyEvidenceBundle } from "../audit/verify-bundle.js";
 import { SessionStore, readSession } from "../session/store.js";
-import { applyPendingSteeringOnResume, rebuild } from "../session/resume.js";
+import { applyPendingSteeringOnResume, rebuild, type ResumeState } from "../session/resume.js";
 import { listSessions } from "../session/list.js";
 import { keelHome, sessionPath } from "../session/paths.js";
 import { workspaceKey } from "../session/workspace-key.js";
@@ -1152,6 +1152,8 @@ export interface KeelSessionOpts {
   readonly resumedInterruptedFinalAnswerSettlementIds?: NonNullable<
     RunSessionOpts["seedPresentation"]
   >["interruptedFinalAnswerSettlementIds"];
+  /** Durable controller-owned successful loop verification for resumed presentation only. */
+  readonly resumedLoopVerification?: ResumeState["latestLoopVerification"];
   /** Durable controller outcome paired with resumed history. Presentation-only; never added to
    * provider context or the session schema. */
   readonly resumedLastStop?: StopReasonT;
@@ -1267,6 +1269,9 @@ export async function runKeelSession(opts: KeelSessionOpts): Promise<RunOutcome>
           resumedInterruptedFinalAnswerSettlementIds:
             opts.resumedInterruptedFinalAnswerSettlementIds,
         }
+      : {}),
+    ...(opts.resumedLoopVerification !== undefined
+      ? { resumedLoopVerification: opts.resumedLoopVerification }
       : {}),
     ...(opts.resumedLastStop !== undefined ? { resumedLastStop: opts.resumedLastStop } : {}),
     ...(opts.resumedLastStopCode !== undefined
@@ -1733,6 +1738,9 @@ export async function runKeelCommand(
               resumedFinalAnswerSettlements: resumeState.finalAnswerSettlements,
               resumedInterruptedFinalAnswerSettlementIds:
                 resumeState.interruptedFinalAnswerSettlementIds,
+              ...(resumeState.latestLoopVerification !== undefined
+                ? { resumedLoopVerification: resumeState.latestLoopVerification }
+                : {}),
               ...(resumeState.lastStop !== undefined
                 ? { resumedLastStop: resumeState.lastStop }
                 : {}),
