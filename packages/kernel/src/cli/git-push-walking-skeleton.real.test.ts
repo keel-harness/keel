@@ -7,7 +7,7 @@
  */
 import { spawn, spawnSync } from "node:child_process";
 import { Buffer } from "node:buffer";
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { createServer as createHttpsServer } from "node:https";
 import { createSecureContext } from "node:tls";
 import type { IncomingMessage, ServerResponse } from "node:http";
@@ -120,6 +120,14 @@ interface GitRequestObservation {
   readonly host?: string;
   readonly method?: string;
   readonly url?: string;
+  response?: GitResponseObservation;
+}
+
+interface GitResponseObservation {
+  readonly status: number;
+  readonly bodyBytes: number;
+  readonly bodySha256: string;
+  readonly oidCandidates: readonly string[];
 }
 
 interface SmartGitFixture {
@@ -166,6 +174,30 @@ function observedCredential(fixture: SmartGitFixture): ObservedCredential {
   const credential = parseBasicAuthorization(fixture.acceptedAuthorization());
   if (credential === undefined) throw new Error("fixture observed no valid Basic credential");
   return credential;
+}
+
+function credentialFreeRequestDiagnostics(
+  requests: readonly GitRequestObservation[],
+): readonly object[] {
+  return requests.map((request) => ({
+    method: request.method ?? null,
+    url: request.url ?? null,
+    response: request.response ?? null,
+  }));
+}
+
+function verificationRequestsAfterPush(
+  requests: readonly GitRequestObservation[],
+): readonly GitRequestObservation[] {
+  let pushIndex = -1;
+  for (const [index, request] of requests.entries()) {
+    if (request.method === "POST" && request.url?.endsWith("/git-receive-pack") === true) {
+      pushIndex = index;
+    }
+  }
+  return requests
+    .slice(pushIndex + 1)
+    .filter((request) => request.url?.includes("git-upload-pack") === true);
 }
 
 function expectCredentialAbsent(value: string, credential: ObservedCredential): void {
@@ -287,7 +319,7 @@ async function serveGitRequest(
   response: ServerResponse,
   projectRoot: string,
   remoteUser: string,
-): Promise<void> {
+): Promise<GitResponseObservation> {
   const rawUrl = request.url ?? "/";
   const parsed = new URL(rawUrl, "https://localhost");
   const child = spawn("git", ["http-backend"], {
@@ -333,6 +365,19 @@ async function serveGitRequest(
   }
   response.statusCode = responseStatus;
   response.end(cgi.body);
+  const bodyText = cgi.body.toString("latin1");
+  return {
+    status: responseStatus,
+    bodyBytes: cgi.body.length,
+    bodySha256: createHash("sha256").update(cgi.body).digest("hex"),
+    oidCandidates: [
+      ...new Set(
+        [...bodyText.matchAll(/([0-9a-f]{64}|[0-9a-f]{40}) (?:HEAD|refs\/[!-~]+)/gu)].map(
+          (match) => match[1]!,
+        ),
+      ),
+    ].slice(0, 64),
+  };
 }
 
 async function startSmartGitFixture(): Promise<SmartGitFixture> {
@@ -381,21 +426,29 @@ async function startSmartGitFixture(): Promise<SmartGitFixture> {
       },
     },
     (request, response) => {
-      requests.push({
+      const observation: GitRequestObservation = {
         ...(request.headers.authorization === undefined
           ? {}
           : { authorization: request.headers.authorization }),
         ...(request.headers.host === undefined ? {} : { host: request.headers.host }),
         ...(request.method === undefined ? {} : { method: request.method }),
         ...(request.url === undefined ? {} : { url: request.url }),
-      });
+      };
+      requests.push(observation);
       const credential = parseBasicAuthorization(request.headers.authorization);
       if (
         credential === undefined ||
         (acceptedAuthorization !== undefined && credential.authorization !== acceptedAuthorization)
       ) {
+        const body = Buffer.from("authentication required");
+        observation.response = {
+          status: 401,
+          bodyBytes: body.length,
+          bodySha256: createHash("sha256").update(body).digest("hex"),
+          oidCandidates: [],
+        };
         response.writeHead(401, { "www-authenticate": 'Basic realm="keel-git-fixture"' });
-        response.end("authentication required");
+        response.end(body);
         return;
       }
       acceptedAuthorization ??= credential.authorization;
@@ -404,7 +457,12 @@ async function startSmartGitFixture(): Promise<SmartGitFixture> {
       activePause?.entered();
       void (async () => {
         await activePause?.wait;
-        await serveGitRequest(request, response, projectRoot, credential.username);
+        observation.response = await serveGitRequest(
+          request,
+          response,
+          projectRoot,
+          credential.username,
+        );
       })().catch((error: unknown) => {
         response.statusCode = 500;
         response.end(error instanceof Error ? error.message : String(error));
@@ -1159,6 +1217,15 @@ suite("ADR-0091 git.push walking skeleton (real sandbox)", () => {
         remoteHead,
       );
       expect(unrelatedRemoteRefs(fixture.remoteGitDir, destinationRef)).toBe(unrelatedRefsBefore);
+      const verificationRequests = verificationRequestsAfterPush(fixture.requests);
+      expect(
+        verificationRequests.some(
+          (request) => request.response?.oidCandidates.includes(remoteHead) === true,
+        ),
+        `the final Git backend did not advertise the competing ref: ${JSON.stringify(
+          credentialFreeRequestDiagnostics(fixture.requests),
+        )}`,
+      ).toBe(true);
       const sessionId = listSessions(env)[0]!.id;
       const session = readSession(sessionId, env);
       const result = session.events.find(
