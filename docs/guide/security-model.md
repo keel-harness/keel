@@ -82,7 +82,7 @@ keel audit verify <bundle>
 ```
 
 The security-suite count was measured on 2026-08-13 at commit
-[`3f16f53`](https://github.com/keel-harness/keel/commit/3f16f5382bffbb14a0a9a0c403fa79f2de37ff7f);
+[`ec2840a`](https://github.com/keel-harness/keel/commit/ec2840a8d08618ea289f4fc682c20259ba5bd987);
 the command and exact reporter detail are recorded in the
 [evidence-number ledger](../quality/evidence-numbers.json).
 

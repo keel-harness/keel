@@ -84,7 +84,7 @@ sandbox backends; see the [security model](docs/guide/security-model.md) and
 [ADR-0086](docs/adr/0086-warden-owned-egress-address-guard.md).
 
 Test and coverage figures were measured on 2026-08-13 at commit
-[`3f16f53`](https://github.com/keel-harness/keel/commit/3f16f5382bffbb14a0a9a0c403fa79f2de37ff7f).
+[`ec2840a`](https://github.com/keel-harness/keel/commit/ec2840a8d08618ea289f4fc682c20259ba5bd987).
 Exact values, fractions, commands, and the staleness window live in the
 [evidence-number ledger](docs/quality/evidence-numbers.json).
 

@@ -3,7 +3,7 @@
   "stalenessWindowDays": 30,
   "measuredAt": {
     "date": "2026-08-13",
-    "commit": "3f16f5382bffbb14a0a9a0c403fa79f2de37ff7f"
+    "commit": "ec2840a8d08618ea289f4fc682c20259ba5bd987"
   },
   "evidence": {
     "testsPassed": {
