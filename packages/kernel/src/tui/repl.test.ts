@@ -2420,6 +2420,33 @@ describe("runRepl — resume seeding (Epic 1.23 slice 2)", () => {
     store.close();
   });
 
+  it("rehydrates durable successful loop verification without the false not-run fallback", async () => {
+    const e = env();
+    const store = SessionStore.create({ cwd: "/w" }, e);
+    const ui = new ReplUI();
+    const done = runRepl({
+      model: new ScriptedModel({ turns: [{ text: "unreached" }] }),
+      executor: { execute: () => Promise.resolve({ ok: true, output: "unused" }) },
+      ui,
+      store,
+      env: e,
+      resumed: [
+        { role: "user", content: "create and verify the fixture" },
+        { role: "assistant", content: "fixture ready" },
+      ],
+      resumedLoopVerification: { evidenceRef: "tool_result:loop_release_exit_1" },
+    });
+
+    const frame = renderFrame(ui.latest!, false);
+    ui.endInput();
+    await done;
+    store.close();
+
+    expect(frame).toContain("bounded loop exit check (controller)");
+    expect(frame).toContain("loop succeeded · evidence tool_result:loop_release_exit_1");
+    expect(frame).not.toContain("verification not run");
+  });
+
   it("rehydrates controller-owned completion truth for a resumed hostile synthesis", async () => {
     const e = env();
     const store = SessionStore.create({ cwd: "/w" }, e);
