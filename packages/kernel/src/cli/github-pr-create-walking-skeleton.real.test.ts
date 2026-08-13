@@ -221,7 +221,8 @@ function prBody(head: string): Record<string, unknown> {
     title: "Ship product path",
     body: "Exact body\n\n- verified",
     draft: false,
-    maintainer_can_modify: true,
+    // GitHub normalizes this fork-only field to false for same-repository PRs.
+    maintainer_can_modify: false,
     head: { ref: "feature/pr-product", sha: head, repo: { full_name: repository } },
     base: { ref: "main", repo: { full_name: repository } },
   };

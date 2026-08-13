@@ -76,7 +76,10 @@ The PR authority is GitHub.com-only and same-repository-only. It revalidates the
 the canonical remote, the remote head OID, and the base before sending at most one GitHub REST create
 request through `srt:vendored`; it then verifies the exact resulting PR. An exact existing PR is
 returned without another mutation. The PR gets a complete once-only approval separate from the push
-approval. GitHub Enterprise, forks/cross-repository heads, `gh`, generic forge APIs, merge and
+approval. GitHub treats `maintainerCanModify` as a fork permission and may report `false` for an
+exact same-repository PR even when `true` was requested; Keel accepts only that provider
+normalization after every consequential repository/head/base/OID/content/draft/URL field verifies.
+GitHub Enterprise, forks/cross-repository heads, `gh`, generic forge APIs, merge and
 auto-merge, labels, assignees, reviewers and reviews, comments, releases, deployments, branch
 mutation, combined approvals, and automatic retry are not supported. A `failed` result is definitive;
 an `indeterminate` result requires audit and GitHub inspection before a deliberate fresh request.
