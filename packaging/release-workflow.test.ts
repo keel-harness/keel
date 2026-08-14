@@ -140,6 +140,9 @@ describe("public npm release workflow authority", () => {
     expect(workflow.match(/bun packaging\/build\.ts npx/gu)).toHaveLength(1);
     expect(workflow).toContain("pack-release-candidate");
     expect(workflow).toContain("actions/attest@");
+    expect(
+      workflow.match(/actions\/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d # v4\.2\.1, MIT/gu),
+    ).toHaveLength(3);
     expect(workflow).toContain("gh release create --draft");
     expect(workflow).toContain("npm stage publish");
     expect(workflow.indexOf("pack-release-candidate")).toBeLessThan(

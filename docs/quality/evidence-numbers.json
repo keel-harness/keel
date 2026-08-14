@@ -2,12 +2,12 @@
   "schemaVersion": 1,
   "stalenessWindowDays": 30,
   "measuredAt": {
-    "date": "2026-08-13",
-    "commit": "ec2840a8d08618ea289f4fc682c20259ba5bd987"
+    "date": "2026-08-14",
+    "commit": "b6d9434fd4961bc4ba87d23396edf0f581b0841c"
   },
   "evidence": {
     "testsPassed": {
-      "value": 7527,
+      "value": 7528,
       "command": "pnpm test",
       "detail": "400 test files passed; 37 tests and 8 files skipped"
     },
@@ -29,7 +29,7 @@
     "branchCoveragePercent": {
       "value": 93.58,
       "command": "pnpm test:cov",
-      "detail": "27543 of 29430 branches"
+      "detail": "27538 of 29425 branches"
     },
     "perFileCoverageFloorPercent": {
       "value": 90,

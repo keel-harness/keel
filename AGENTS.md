@@ -8,13 +8,8 @@ anything.
 
 ## North star
 
-keel aims to become the default harness for governed agents: secure enough for the NSA,
-polished enough for Netflix, engineered to a Google + Anduril bar, and forkable for a
-decade.
-
-In ten years, keel should be to governed agent harnesses what Linux is to operating
-systems: a durable, local-first, modular foundation that strangers can inspect, trust,
-fork, and evolve.
+keel aims to be a durable, local-first, inspectable foundation for governed agents —
+something a stranger can audit, trust, fork, and evolve a decade from now.
 
 Every change must move keel toward all four properties:
 
@@ -212,13 +207,17 @@ Security claims require executable evidence. Coverage is a floor, not proof of s
 - Do not assert determinism without deterministic tests.
 - Do not assert compatibility without compatibility tests.
 
-Coverage gates are enforced by CI/spec and must not be lowered without approval.
-Current expectations include:
+Coverage gates are enforced by CI/spec and must not be lowered without approval. The
+executable gate in `vitest.config.ts` currently requires every included production source
+file to reach at least 90% lines, functions, branches, and statements. Warden files have a
+stricter 95% floor for lines, functions, and statements; branches remain at 90%. New
+packages are included by default.
 
-- `warden` ≥95% statements / ≥90% branches;
-- `kernel` ≥85%;
-- `memory` ≥90%;
-- new packages coverage-gated by default.
+`packages/memory/src/**` is a Phase-3 placeholder and is explicitly excluded rather than
+presented as a live gate. Remove that exclusion when production memory code lands. Thin CLI
+wrappers, test-support modules, and Ink render components have documented exclusions and
+separate smoke, snapshot, or end-to-end coverage. The lower package minima retained in
+`MASTER_SPEC.md` §6.1 are specification floors, not a description of the stricter live gate.
 
 ## Research and dependency rule
 
