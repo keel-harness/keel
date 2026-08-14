@@ -33,6 +33,7 @@ describe("coverage configuration honesty", () => {
 
   it("describes the live Warden coverage gate instead of a future activation", () => {
     const config = readRepoFile("vitest.config.ts");
+    const charter = readRepoFile("AGENTS.md");
     const excludeBlock = config.match(/exclude:\s*\[(?<body>[\s\S]*?)\n\s*\],/u)?.groups?.["body"];
 
     expect(config).toContain(
@@ -43,6 +44,11 @@ describe("coverage configuration honesty", () => {
     expect(excludeBlock).not.toContain('"packages/warden/src/**"');
     expect(config).not.toMatch(/activate it .* removing warden from\s+`exclude`/iu);
     expect(config).toMatch(/warden.*live.*coverage gate/iu);
+    expect(charter).toMatch(/included production source.*file.*90%/isu);
+    expect(charter).toMatch(/warden.*95%.*lines.*functions.*statements.*branches.*90%/isu);
+    expect(charter).toMatch(/packages\/memory\/src\/\*\*.*placeholder.*excluded/isu);
+    expect(charter).not.toMatch(/`kernel`\s*≥85%/u);
+    expect(charter).not.toMatch(/`memory`\s*≥90%/u);
   });
 
   it("does not label unconfigured dedicated CI placeholders as landed phase gates", () => {

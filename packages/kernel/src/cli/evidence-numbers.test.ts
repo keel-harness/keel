@@ -99,13 +99,13 @@ describe("public evidence-number ledger", () => {
       `| Security suite | ${formatted(evidence.securityTestsPassed.value)} adversarial / denied-path tests passed | \`${evidence.securityTestsPassed.command}\` |`,
     );
     expect(numericTokens(metricRows)).toEqual([
+      formatted(evidence.securityTestsPassed.value),
       formatted(evidence.testsPassed.value),
       formatted(evidence.testsSkipped.value),
       formatted(evidence.statementCoveragePercent.value),
       formatted(evidence.branchCoveragePercent.value),
       formatted(evidence.perFileCoverageFloorPercent.value),
       formatted(evidence.wardenCoverageFloorPercent.value),
-      formatted(evidence.securityTestsPassed.value),
     ]);
   });
 
@@ -129,11 +129,11 @@ describe("public evidence-number ledger", () => {
     const landingTable = landingHtml.match(/<table>(?<body>[\s\S]*?)<\/table>/u)?.groups?.["body"];
     expect(landingTable, "landing-page evidence table not found").toBeDefined();
     expect(numericTokens(landingTable ?? "")).toEqual([
+      formatted(source.evidence.securityTestsPassed.value),
       formatted(source.evidence.testsPassed.value),
       formatted(source.evidence.testsSkipped.value),
       formatted(source.evidence.statementCoveragePercent.value),
       formatted(source.evidence.branchCoveragePercent.value),
-      formatted(source.evidence.securityTestsPassed.value),
     ]);
 
     for (const text of [readRepoFile("README.md"), securityGuide, landingPage]) {

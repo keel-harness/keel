@@ -258,9 +258,18 @@ describe("public docs claim consistency", () => {
     expect(readme).toMatch(/pre-alpha and publicly available/i);
     expect(readme).toMatch(/trusted typed\s+file tools/i);
     expect(readme).toMatch(/`read`.*`search`.*`write`.*`edit`/is);
+    expect(readme).toMatch(/`lifecycle\.run`/u);
     expect(readme).toMatch(/not a stable or public-alpha release/i);
     expect(readme).toMatch(/governed tool surface.*v1 kernel.*OS user.*not\s+compromised/is);
     expect(readme).toMatch(/\[docs\/status\.md\]\(docs\/status\.md\)/);
+    expect(readme).toMatch(/AI-assisted personal learning project.*reference/is);
+    expect(readme).toMatch(/not a feature-complete replacement.*general-purpose.*coding agents/is);
+    expect(readme).toMatch(/trust before parse/is);
+    expect(readme).toMatch(/intent before effect/is);
+    expect(readme).toMatch(/separate Warden process.*in-process permission check/is);
+    expect(readme).toMatch(/does not defend against.*compromised kernel.*same-user malware/is);
+    expect(readme).toMatch(/public Git history.*import snapshot.*development rationale/is);
+    expect(readme).toMatch(/unrelated to other software.*named Keel/is);
 
     // docs/status.md owns the itemized limits.
     expect(status).toMatch(/public pre-alpha carrier/i);
@@ -276,6 +285,9 @@ describe("public docs claim consistency", () => {
 
     expect(landingPage).toMatch(/governed tool surface.*v1 kernel.*OS user.*not\s+compromised/is);
     expect(landingPage).toMatch(/checkpoint-signing key.*0600.*same\s+OS\s+user/is);
+    expect(landingPage).toMatch(/AI-assisted personal learning project.*reference/is);
+    expect(landingPage).toMatch(/separate warden process.*in-process permission check/is);
+    expect(landingPage).toMatch(/does not defend against.*compromised kernel.*same-user malware/is);
     expect(readme).toMatch(/!\[[^\]]*real keel[^\]]*\]\(site\/demo\.gif\)/i);
     expect(readme.indexOf("(site/demo.gif)")).toBeLessThan(readme.indexOf("## Evidence"));
     expect(demoGif.subarray(0, 6).toString("ascii")).toMatch(/^GIF8[79]a$/u);

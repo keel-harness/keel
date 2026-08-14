@@ -19,12 +19,39 @@ adversarially steered.
 _The production TUI and real kernel → warden → policy → audit path. A deterministic offline replay
 supplies only the model turns—no provider key or network; [run it locally](docs/demo/run-deny-audit-demo.mjs)._
 
+## What the boundary changes
+
+A separate Warden process is not just an in-process permission check moved behind a prompt. In the
+published product, the kernel cannot execute a governed action itself or fall back locally when the
+Warden fails. The Warden independently owns policy evaluation, sandbox launch, and authoritative
+audit writes. This boundary constrains the model's governed tool surface; it does not defend against
+a compromised kernel, same-user malware, or an already-compromised OS account.
+
+- **Trust before parse.** Keel reads no project files—not even `AGENTS.md`—until the user trusts the
+  workspace.
+- **The model requests; it never approves itself.** It cannot raise its autonomy mode, rewrite the
+  hash-pinned policy, grant itself egress, or turn a denial into approval.
+- **Intent before effect.** The Warden durably records intent before a side-effecting action begins;
+  if that write fails, execution does not start.
+- **Real containment gates.** Required Seatbelt and bubblewrap probes fail when the backend is
+  unavailable instead of passing by skipping.
+- **Connect-time egress checks.** On the governed SRT TCP path, the Warden resolves, classifies, and
+  pins the destination immediately before connecting.
+- **Current governed surface.** `bash`, trusted direct-argv `process.run`, the typed
+  `read`/`search`/`write`/`edit` tools, trusted `lifecycle.run`, and reviewed local-stdio MCP all
+  route through the Warden; the publication tools below are narrower still.
+- **Typed publication authority.** `git.push` binds one approved repository, feature branch, and
+  exact commit. `github.pr.create` is a distinct capability with a separate once-only approval.
+- **Autopilot is not YOLO.** It can remove prompts only inside boundaries the Warden still enforces.
+
 Keel vendors Anthropic's [`@anthropic-ai/sandbox-runtime`](NOTICE) v0.0.59 under Apache-2.0 to
 orchestrate Seatbelt and bubblewrap. Keel adds the out-of-process Warden, policy mediation,
 tamper-evident audit path, and connect-time address guard described in
 [ADR-0005](docs/adr/0005-vendoring-sandbox-runtime.md).
 
 ## Quickstart
+
+Apache-2.0 · Node 20+ · macOS or Linux (WSL2 on Windows) · no telemetry.
 
 ```bash
 npm i -g keel-harness        # or run any command below as: npx keel-harness <command>
@@ -52,15 +79,13 @@ New here: [getting started](docs/guide/getting-started.md) · [what keel is](doc
 · [the honest security model](docs/guide/security-model.md) ·
 [status and limitations](docs/status.md).
 
-> **DISCLAIMER:** This note is the only thing in this repo that was not written by or with AI -
-> while keel aspires to be one of the most secure agent harnesses available, it should not be
-> used for mission or business critical applications until/unless vetted rigorously by the OSS
-> community. My goals in building keel were to 1) learn more about harness engineering, and 2)
-> attempt to address a gap I saw in the harness market vis a vis native runtime security that
-> cannot be circumvented by an LLM. As such, this harness is also likely not for users who
-> prefer to run agents fully on 'auto' mode - while we do have an Autopilot mode that reduces
-> agent / human interrupts, this harness aims to solve a different problem and is much more
-> human-in-the-loop centric by design.
+> **PRE-ALPHA / AI-ASSISTED:** Keel is a solo-maintained AI-assisted personal learning project and
+> executable security reference, not a feature-complete replacement for mature general-purpose
+> coding agents. The maintainer defined the architecture, threat model, contracts, and evidence
+> gates; AI assisted extensively with implementation, tests, review, and documentation. Structural
+> enforcement is limited to the governed tool surface under the documented trust assumptions. Keel
+> has not been independently audited, still has bugs, and should not be used for production,
+> mission-critical, business-critical, or sensitive work.
 
 ## Evidence
 
@@ -68,12 +93,12 @@ Where the claims stand, and how to verify them yourself:
 
 | What | Where it stands | Reproduce |
 | --- | --- | --- |
-| Tests | 7,527 automated tests passed; 37 skipped | `pnpm test` |
-| Coverage | 97.79% statements / 93.58% branches, enforced gate (per-file ≥90%; warden ≥95% lines/functions/statements) | `pnpm test:cov` |
-| Security suite | 1,123 adversarial / denied-path tests passed | `pnpm test:security` |
-| Real OS sandbox | Seatbelt (macOS) + bubblewrap (Linux) denial probes run in CI | `pnpm test:sandbox:real` |
+| Real OS sandbox | Seatbelt (macOS) + bubblewrap (Linux) denial probes gate CI; an unavailable backend fails instead of skipping | `pnpm test:sandbox:real` |
 | Connect-time egress guard | The vendored SRT TCP backend resolves, checks, and pins every destination before a new connection | `pnpm test:egress-product` |
 | Audit integrity | tamper-evident hash chain + Ed25519 checkpoints (local `0600` key, readable by the same OS user) + offline evidence-bundle verifier | `keel audit verify <bundle>` |
+| Security suite | 1,123 adversarial / denied-path tests passed | `pnpm test:security` |
+| Tests | 7,528 automated tests passed; 37 skipped | `pnpm test` |
+| Coverage | 97.79% statements / 93.58% branches, enforced gate (per-file ≥90%; warden ≥95% lines/functions/statements) | `pnpm test:cov` |
 | Capability benchmarks | TerminalBench numbers with full caveats: single-trial, subset, sandbox-off | [docs/benchmarks.md](docs/benchmarks.md) |
 
 **Connect-time egress guard.** A hostname grant is not enough to open a socket. On the vendored SRT
@@ -83,8 +108,13 @@ vetted set to the final dial. This scope does not include provider API calls, UD
 sandbox backends; see the [security model](docs/guide/security-model.md) and
 [ADR-0086](docs/adr/0086-warden-owned-egress-address-guard.md).
 
-Test and coverage figures were measured on 2026-08-13 at commit
-[`ec2840a`](https://github.com/keel-harness/keel/commit/ec2840a8d08618ea289f4fc682c20259ba5bd987).
+The published TerminalBench comparison is a single trial over a 59-task subset with governance and
+the OS sandbox disabled to isolate harness quality. It is not a security result or evidence that
+enforcement has zero capability cost. Keel has not completed a comparable end-to-end measurement of
+per-action Warden overhead, so it makes no general latency claim.
+
+Test and coverage figures were measured on 2026-08-14 at commit
+[`b6d9434`](https://github.com/keel-harness/keel/commit/b6d9434fd4961bc4ba87d23396edf0f581b0841c).
 Exact values, fractions, commands, and the staleness window live in the
 [evidence-number ledger](docs/quality/evidence-numbers.json).
 
@@ -97,14 +127,20 @@ but this is **not a stable or public-alpha release**.
 Keel is currently solo-maintained and has not received an independent security audit. Treat its
 tests, claim ledger, and reproducible evidence as material for review, not as a substitute for one.
 
+The public Git history begins with an import snapshot from 2026-07-30; earlier development rationale
+is preserved in the ADR and dated design/research archives. Subsequent public work retains ordinary
+commit and pull-request history. This project uses the `keel-harness` package, organization, and
+domain names and is unrelated to other software named Keel.
+
 Governed mode covers `bash`, capability-negotiated trusted direct-argv `process.run`, the trusted typed
-file tools (`read`, `search`, `write`, `edit`), and reviewed, pinned local-stdio MCP calls through the
-spawned Warden. `process.run` accepts one literal argv vector for a direct executable; it does not add
-shell composition, environment, cwd, stdin, or background authority. The MCP proof is deliberately
-narrow: remote, localhost, and unreviewed MCP transports, general plugin/registry APIs, reusable
-grants, and MCP resources, prompts, sampling, and elicitation are not claimed. Session-helper/internal
-surfaces such as `plan`, `skill`, and `retrieve`, provider API calls, and future tools are likewise
-not counted as governed product execution proof.
+file tools (`read`, `search`, `write`, `edit`), trusted `lifecycle.run` validation actions lowered to
+governed bash, and reviewed, pinned local-stdio MCP calls through the spawned Warden. `process.run`
+accepts one literal argv vector for a direct executable; it does not add shell composition,
+environment, cwd, stdin, or background authority. The MCP proof is deliberately narrow: remote,
+localhost, and unreviewed MCP transports, general plugin/registry APIs, reusable grants, and MCP
+resources, prompts, sampling, and elicitation are not claimed. Session-helper/internal surfaces such
+as `plan`, `skill`, and `retrieve`, provider API calls, and future tools are likewise not counted as
+governed product execution proof.
 
 The published `keel-harness@0.1.2` carrier includes two bounded publication paths for trusted interactive macOS/Linux
 sessions. With Git 2.x (2.39 or newer), typed `git.push` can create or fast-forward one non-default

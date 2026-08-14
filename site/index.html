@@ -1268,7 +1268,11 @@
             <p class="sub">
               Enforcement is structural, not behavioral. It does not depend on trusting how the
               model behaves. The kernel holds the model context. The kernel has no way to run a
-              governed action on its own.
+              governed action on its own. A separate Warden process therefore differs from an
+              in-process permission check: it independently owns policy evaluation, sandbox launch,
+              and authoritative audit writes. This boundary constrains the model's governed tool
+              surface; it does not defend against a compromised kernel, same-user malware, or an
+              already-compromised OS account.
             </p>
           </div>
         </div>
@@ -1543,21 +1547,6 @@
             </thead>
             <tbody>
               <tr>
-                <td>Tests</td>
-                <td>7,527 automated tests passed; 37 skipped</td>
-                <td><span class="run">pnpm test</span></td>
-              </tr>
-              <tr>
-                <td>Coverage</td>
-                <td>97.79% statements, 93.58% branches, with an enforced per-file gate</td>
-                <td><span class="run">pnpm test:cov</span></td>
-              </tr>
-              <tr>
-                <td>Security suite</td>
-                <td>1,123 adversarial and denied-path tests passed</td>
-                <td><span class="run">pnpm test:security</span></td>
-              </tr>
-              <tr>
                 <td>Real OS sandbox</td>
                 <td>
                   bubblewrap denial probes gate every code PR. Seatbelt probes run on push to main.
@@ -1577,6 +1566,21 @@
                 <td>Audit integrity</td>
                 <td>Hash chain plus an offline evidence-bundle verifier</td>
                 <td><span class="run">pnpm keel audit verify &lt;bundle&gt;</span></td>
+              </tr>
+              <tr>
+                <td>Security suite</td>
+                <td>1,123 adversarial and denied-path tests passed</td>
+                <td><span class="run">pnpm test:security</span></td>
+              </tr>
+              <tr>
+                <td>Tests</td>
+                <td>7,528 automated tests passed; 37 skipped</td>
+                <td><span class="run">pnpm test</span></td>
+              </tr>
+              <tr>
+                <td>Coverage</td>
+                <td>97.79% statements, 93.58% branches, with an enforced per-file gate</td>
+                <td><span class="run">pnpm test:cov</span></td>
               </tr>
               <tr>
                 <td>Capability benchmarks</td>
@@ -1604,12 +1608,15 @@
             maps every security claim to its test evidence and states the limits of that evidence.
             The checkpoint-signing key is a local <code>0600</code> file readable by the same OS
             user; bundle verification therefore is not independent host attestation. Test and
-            coverage figures were measured on 2026-08-13 at <em>ec2840a</em>. The evidence-number
+            coverage figures were measured on 2026-08-14 at <em>b6d9434</em>. The evidence-number
             ledger holds the exact reporter output. The enforced coverage floor is 90 percent per
-            file, and 95 percent for the warden. Running <em>pnpm test</em> locally on a many-core
-            machine can report failures that look like timeouts, because several suites spawn child
-            processes under wall-clock budgets. Re-run a failing file on its own. Trust the CI
-            result on clean runners.
+            file, and 95 percent for the warden. The published TerminalBench comparison is a
+            single-trial 59-task subset run with governance and the OS sandbox disabled; it is not a
+            security result. Comparable end-to-end per-action Warden overhead has not been measured,
+            so keel makes no general latency claim. Running <em>pnpm test</em> locally on a
+            many-core machine can report failures that look like timeouts, because several suites
+            spawn child processes under wall-clock budgets. Re-run a failing file on its own. Trust
+            the CI result on clean runners.
           </p>
         </div>
       </section>
@@ -1627,6 +1634,14 @@
         </div>
 
         <ul class="limits" role="list">
+          <li>
+            <span class="t"
+              ><strong>Not a production or feature-complete general-purpose agent.</strong> Keel is
+              a solo-maintained AI-assisted personal learning project and executable security
+              reference. It has not received an independent security audit, still has bugs, and
+              should not be used for production, business-critical, or sensitive work.</span
+            >
+          </li>
           <li>
             <span class="t"
               ><strong>Not injection immunity.</strong> The model can still be fooled. The warden
@@ -1728,7 +1743,8 @@
             <h2 class="sec">Install and run</h2>
             <p class="sub">
               You need Node 20 or later and ripgrep. <code>keel doctor</code> checks your machine
-              and prints one fix per problem. keel is pre-alpha — read the limits above first.
+              and prints one fix per problem. Keel is Apache-2.0, runs on macOS and Linux (or WSL2),
+              and has no telemetry. It is pre-alpha — read the limits above first.
             </p>
           </div>
         </div>
@@ -1858,10 +1874,10 @@ export KEEL_MODEL=&lt;model-id&gt;</pre>
               </svg>
             </p>
             <p>
-              keel is an agent harness with runtime security enforcement. It is pre-alpha and it is
-              not vetted. Do not use it for mission-critical or business-critical work until the
-              open-source community reviews it closely. keel is a human-in-the-loop tool by design.
-              If you want an agent that runs fully unattended, keel solves a different problem.
+              keel is a solo-maintained, AI-assisted executable reference for structurally governed
+              agent tools. It is pre-alpha, unaudited, and expected to have bugs. Do not use it for
+              production, mission-critical, business-critical, or sensitive work. The
+              <code>keel-harness</code> project is unrelated to other software named Keel.
             </p>
           </div>
           <nav class="flinks" aria-label="Footer">

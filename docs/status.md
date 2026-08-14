@@ -3,6 +3,16 @@
 keel is **pre-alpha**. This page states what keel enforces today, what is published, and what
 is not claimed. It is the long form of the status summary in the [`README.md`](../README.md).
 
+Keel is a solo-maintained, AI-assisted personal learning project and executable security reference,
+not a feature-complete replacement for mature general-purpose coding agents. It has not received an
+independent security audit, still has bugs, and should not be used for production, business-critical,
+or sensitive work.
+
+The public Git history begins with an import snapshot from 2026-07-30; earlier development rationale
+is preserved in the ADR and dated design/research archives. Subsequent public work retains ordinary
+commit and pull-request history. The package, organization, and domain use `keel-harness`; this
+project is unrelated to other software named Keel.
+
 The [claim ledger](quality/claim-ledger.md) maps each individual claim to the test that proves
 it. Where this page and the ledger disagree, the ledger wins.
 
@@ -124,6 +134,7 @@ tools; only the bounded `github.pr.create` GitHub REST path above is included.
 - the durable "memory-first" plane — `packages/memory` is a placeholder, a Phase-3 roadmap goal;
 - public compliance and full resource containment;
 - a macOS audit-latency pass;
+- a comparable end-to-end per-action Warden-overhead measurement across supported operating systems;
 - a comparable live TB-2/TB-2.1 benchmark.
 
 ## Audit and signing limits

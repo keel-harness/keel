@@ -81,8 +81,8 @@ keel audit export <id>    # then verify the bundle offline:
 keel audit verify <bundle>
 ```
 
-The security-suite count was measured on 2026-08-13 at commit
-[`ec2840a`](https://github.com/keel-harness/keel/commit/ec2840a8d08618ea289f4fc682c20259ba5bd987);
+The security-suite count was measured on 2026-08-14 at commit
+[`b6d9434`](https://github.com/keel-harness/keel/commit/b6d9434fd4961bc4ba87d23396edf0f581b0841c);
 the command and exact reporter detail are recorded in the
 [evidence-number ledger](../quality/evidence-numbers.json).
 
