@@ -529,7 +529,11 @@ describe("public docs claim consistency", () => {
 
     expect(guide).toMatch(/npm i -g keel-harness/i);
     expect(guide).toMatch(/keel doctor/i);
-    expect(guide).toMatch(/keel auth set anthropic/i);
+    expect(guide).toMatch(/keel auth set <provider>/i);
+    expect(guide).not.toMatch(/keel auth set anthropic/i);
+    expect(guide).toMatch(/## 4\. Run one bounded first task/i);
+    expect(guide).toMatch(/Do not commit or publish anything/i);
+    expect(guide).toMatch(/\/diff.*\/reviews.*\/policies/is);
     expect(guide).toMatch(/edit.*verify.*commit/is);
     expect(guide).toMatch(/`git\.push`.*`github\.pr\.create`/is);
     expect(guide).toMatch(/separate.*approval/is);
