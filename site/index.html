@@ -1762,10 +1762,14 @@ npm i -g keel-harness
 <span class="c"># 2 · check your machine: node, ripgrep, OS sandbox</span>
 keel doctor
 
-<span class="c"># 3 · add a provider key (stored 0600, never echoed)</span>
-keel auth set anthropic
+<span class="c"># 3 · choose a provider and add its key (stored 0600, never echoed)</span>
+keel auth set &lt;provider&gt;
 
-<span class="c"># 4 · start a session</span>
+<span class="c"># 4 · select its provider and model explicitly</span>
+export KEEL_PROVIDER=&lt;provider&gt;
+export KEEL_MODEL=&lt;model-id&gt;
+
+<span class="c"># 5 · start a session</span>
 keel
 
 <span class="c"># …or run one task and exit</span>
@@ -1773,21 +1777,27 @@ keel run -p <span class="s">"fix the failing test in src/foo.ts"</span></pre>
           </div>
 
           <div class="npm">
-            <p class="ch">choose a provider</p>
+            <p class="ch">bring your provider</p>
             <div class="body">
               <pre>
-<span class="c"># anthropic is the default</span>
-keel auth set anthropic
-
-<span class="c"># or: openai · google · openai-compatible</span>
-keel auth set openai
-export KEEL_PROVIDER=openai
+<span class="c"># replace both placeholders with supported IDs</span>
+keel auth set &lt;provider&gt;
+export KEEL_PROVIDER=&lt;provider&gt;
 export KEEL_MODEL=&lt;model-id&gt;</pre>
+              <p class="why">
+                <strong>Provider choice is explicit.</strong> Keel supports multiple provider
+                adapters, including OpenAI-compatible endpoints. The
+                <a
+                  href="https://github.com/keel-harness/keel/blob/main/docs/guide/getting-started.md"
+                  >getting-started guide</a
+                >
+                lists the supported IDs and provider-specific requirements.
+              </p>
               <p class="why">
                 <strong>Keys stay local.</strong> <code>keel auth set</code> prompts without echo
                 and writes to a <code>0600</code> file under your keel home. A key in the
-                environment is used as a fallback. <code>KEEL_MODEL</code> is required for every
-                provider except anthropic, which has a pinned default.
+                environment is used as a fallback. The detailed reference records the documented
+                runtime fallback when provider and model are omitted.
               </p>
               <p class="why">
                 <strong>From source instead.</strong>

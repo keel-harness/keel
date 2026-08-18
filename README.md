@@ -56,9 +56,17 @@ Apache-2.0 · Node 20+ · macOS or Linux (WSL2 on Windows) · no telemetry.
 ```bash
 npm i -g keel-harness        # or run any command below as: npx keel-harness <command>
 keel doctor                  # environment preflight
-keel auth set anthropic      # paste your API key (stored 0600, never echoed)
+keel auth set <provider>     # choose a provider and securely store its key
+export KEEL_PROVIDER=<provider>
+export KEEL_MODEL=<model-id>
 keel                         # start an interactive session
 ```
+
+The angle-bracketed names are placeholders. Choose a supported provider and model from the
+[getting-started guide](docs/guide/getting-started.md). Keel supports multiple provider adapters,
+including OpenAI-compatible endpoints; setting both values explicitly makes the launch choice clear
+and reproducible. The detailed [reference](docs/guide/reference.md) records every supported value,
+provider-specific requirement, and the documented fallback when these variables are omitted.
 
 The global or `npx` install above is the product path. A source checkout is for contributing and
 development:
