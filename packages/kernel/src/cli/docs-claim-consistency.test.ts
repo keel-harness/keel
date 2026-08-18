@@ -450,6 +450,14 @@ describe("public docs claim consistency", () => {
   it("gives the published carrier a real install path on the README and the landing page", () => {
     const readme = readRepoFile("README.md");
     const landingPage = readRepoFile("site/index.html");
+    const readmeQuickstart = readme.slice(
+      readme.indexOf("## Quickstart"),
+      readme.indexOf("## Evidence"),
+    );
+    const landingQuickstart = landingPage.slice(
+      landingPage.indexOf("<!-- ============ 06 QUICKSTART ============ -->"),
+      landingPage.indexOf("<!-- ============ 07 DOCS ============ -->"),
+    );
 
     // The install line must name the PACKAGE and reach the `keel` command. Both surfaces carry it,
     // because a visitor who lands on either one should not have to hunt for how to run it.
@@ -462,6 +470,23 @@ describe("public docs claim consistency", () => {
       );
       expect(text, `${name} lost the npx alternative`).toMatch(/npx keel-harness/i);
       expect(text, `${name} lost the provider key setup step`).toMatch(/keel auth set/i);
+    }
+
+    // The front-door path asks the operator to choose explicitly instead of visually endorsing one
+    // commercial provider. Detailed configuration/reference surfaces still disclose the actual
+    // runtime fallback; this guard is about neutral onboarding, not hiding behavior.
+    for (const [name, text] of [
+      ["README.md quickstart", readmeQuickstart],
+      ["site/index.html quickstart", landingQuickstart],
+    ] as const) {
+      expect(text, `${name} hard-codes a provider in the onboarding command`).not.toMatch(
+        /keel auth set\s+(?:anthropic|openai|google|openai-compatible)\b/i,
+      );
+      expect(text, `${name} lost the provider placeholder`).toMatch(
+        /keel auth set\s+(?:<|&lt;)provider(?:>|&gt;)/i,
+      );
+      expect(text, `${name} does not select the provider explicitly`).toMatch(/KEEL_PROVIDER/i);
+      expect(text, `${name} does not select the model explicitly`).toMatch(/KEEL_MODEL/i);
     }
   });
 
