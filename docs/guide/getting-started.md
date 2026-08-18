@@ -22,14 +22,20 @@ keel talks to a model provider with a key you supply. Store it once in keel's `0
 file:
 
 ```sh
-keel auth set anthropic      # prompts for the key, no echo
-keel auth list               # show which providers have a key
-keel auth remove anthropic   # delete a stored key
+keel auth set <provider>      # choose a provider; prompts for the key, no echo
+keel auth list                # show which providers have a key
+keel auth remove <provider>   # delete that provider's stored key
+export KEEL_PROVIDER=<provider>
+export KEEL_MODEL=<model-id>
 ```
 
-Four providers are supported: `anthropic` (the default), `openai`, `google`, and
-`openai-compatible`. Select one with `KEEL_PROVIDER`. Every provider except `anthropic` also needs
-a model id in `KEEL_MODEL`. If nothing is stored, keel falls back to a key in the environment
+The angle-bracketed names are placeholders; replace them with your provider and model IDs. Four
+providers are supported: `anthropic`, `openai`, `google`, and `openai-compatible`. The compatible
+adapter also needs `KEEL_BASE_URL`; the [reference](reference.md#model-and-provider) records the
+complete requirements.
+
+If `KEEL_PROVIDER` is omitted, the documented fallback is `anthropic`; every other provider requires
+an explicit model id in `KEEL_MODEL`. If nothing is stored, keel falls back to a key in the environment
 (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, or `GOOGLE_GENERATIVE_AI_API_KEY`).
 
 keel reads credentials when the process starts. Replacing a key does not reload a running session.
@@ -57,7 +63,27 @@ For one direct executable invocation, especially a build, test, lint, typecheck,
 Shell-looking arguments stay data. Deliberate pipelines, redirection, expansion, or persistent shell
 state remain `bash` work; `process.run` does not make the invoked program inherently safe.
 
-## 4. Take a change through a pull request
+## 4. Run one bounded first task
+
+Start with a narrow request that exercises the ordinary read, edit, and verification loop without
+publishing anything:
+
+```text
+Inspect this project and fix <specific issue>. Make the smallest justified change,
+run the narrowest relevant checks, and show me the diff. Do not commit or publish anything.
+```
+
+You can ask in ordinary language; you do not need to select tools yourself. Before any project
+context is read, keel asks for workspace trust. After trust, the model can request typed file tools
+and governed execution, while the warden independently applies policy, audit, and sandbox controls.
+A consequential boundary crossing may pause with the exact request for you to approve or deny.
+Nothing in the prompt grants that authority.
+
+After the turn, use `/diff` to inspect the change, `/reviews` to see what the warden reviewed, and
+`/policies` to revisit the active protections. Only move on to commit or publication when the local
+result and its checks are clear.
+
+## 5. Take a change through a pull request
 
 The everyday workflow is **edit → verify → commit → publish**. Ask naturally; keel chooses governed
 tools and shows consequential decisions in the TUI:
@@ -87,7 +113,7 @@ remote and the audit record first, repair credentials if needed, then make a del
 request. A one-shot `keel run -p` cannot settle a live review; use interactive `keel` when an action
 may need approval. The [reference](reference.md) gives the complete boundary.
 
-## 5. Autonomy at a glance
+## 6. Autonomy at a glance
 
 keel runs in a **policy posture** that the warden evaluates. It is not a model setting. Higher
 autonomy means fewer prompts inside enforced boundaries. It never means weaker enforcement.
@@ -112,7 +138,7 @@ There is **no YOLO or "enforcement-off" mode**. It is deliberately not wired. Fo
 mode labels, live approvals, and grant scopes — read the
 [policy and approval guide](policy-guide.md).
 
-## 6. Inside the session: slash commands
+## 7. Inside the session: slash commands
 
 Type `/` at the prompt to open the command palette. The everyday commands:
 
@@ -136,7 +162,7 @@ When the warden waits on a decision, respond in place with `/approve`, `/deny`, 
 one-key forms are `a`, `d`, and `?`. To steer mid-run, use `/now`, `/before-next-edit`, or
 `/stop-after-current`.
 
-## 7. Keyboard essentials
+## 8. Keyboard essentials
 
 | Key | Action |
 | --- | --- |
