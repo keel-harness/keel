@@ -30,7 +30,7 @@
     "@vscode/ripgrep": "1.18.0",
     "ai": "6.0.197",
     "ink": "7.0.5",
-    "react": "19.2.7",
+    "react": "19.2.8",
     "typescript": "5.9.3",
     "yaml": "1.10.3",
     "zod": "3.25.76"
@@ -38,9 +38,9 @@
   "devDependencies": {
     "@keel/eval": "workspace:*",
     "@keel/simulator": "workspace:*",
-    "@types/react": "19.2.16",
+    "@types/react": "19.2.18",
     "ink-testing-library": "4.0.0",
-    "string-width": "8.2.1"
+    "string-width": "8.2.2"
   },
   "optionalDependencies": {
     "@vscode/ripgrep-darwin-arm64": "1.18.0",
