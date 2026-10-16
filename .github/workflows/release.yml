@@ -129,7 +129,7 @@ jobs:
       - name: Smoke exact carrier on Node 24
         run: packaging/smoke-release-carrier.sh "$PWD/build/release/keel-harness-${KEEL_VERSION}.tgz"
       - name: Upload immutable release candidate
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1, MIT
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.1, MIT
         with:
           name: keel-harness-${{ env.KEEL_VERSION }}-${{ github.sha }}
           path: |
@@ -155,7 +155,7 @@ jobs:
       artifact-metadata: write
     steps:
       - name: Download immutable release candidate
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1, MIT
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.1, MIT
         with:
           name: keel-harness-${{ env.KEEL_VERSION }}-${{ github.sha }}
           path: build/release
@@ -163,16 +163,16 @@ jobs:
         working-directory: build/release
         run: sha256sum --check --strict SHA256SUMS
       - name: Attest exact carrier provenance
-        uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d # v4.2.1, MIT
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.1, MIT
         with:
           subject-path: build/release/keel-harness-${{ env.KEEL_VERSION }}.tgz
       - name: Attest SPDX SBOM for exact carrier
-        uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d # v4.2.1, MIT
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.1, MIT
         with:
           subject-path: build/release/keel-harness-${{ env.KEEL_VERSION }}.tgz
           sbom-path: build/release/keel-harness-${{ env.KEEL_VERSION }}.spdx.json
       - name: Attest CycloneDX SBOM for exact carrier
-        uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d # v4.2.1, MIT
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.1, MIT
         with:
           subject-path: build/release/keel-harness-${{ env.KEEL_VERSION }}.tgz
           sbom-path: build/release/keel-harness-${{ env.KEEL_VERSION }}.cdx.json
@@ -189,7 +189,7 @@ jobs:
         with:
           fetch-depth: 0
       - name: Download attested release candidate
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1, MIT
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.1, MIT
         with:
           name: keel-harness-${{ env.KEEL_VERSION }}-${{ github.sha }}
           path: build/release
@@ -225,7 +225,7 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
       - name: Download reviewed release candidate
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1, MIT
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.1, MIT
         with:
           name: keel-harness-${{ env.KEEL_VERSION }}-${{ github.sha }}
           path: build/release
