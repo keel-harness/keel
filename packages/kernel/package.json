@@ -33,7 +33,7 @@
     "react": "19.2.7",
     "typescript": "5.9.3",
     "yaml": "1.10.3",
-    "zod": "3.25.76"
+    "zod": "4.6.6"
   },
   "devDependencies": {
     "@keel/eval": "workspace:*",
